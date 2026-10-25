@@ -1,0 +1,155 @@
+name: tor VPS staged release
+on:
+  workflow_dispatch:
+    inputs:
+      install:
+        description: "Activate candidate after staging smoke (requires prepared systemd and nginx)"
+        type: boolean
+        required: false
+        default: false
+  workflow_run:
+    workflows: ["Rust S0 browser preview"]
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: tor-vps-staging-single-flight
+  cancel-in-progress: false
+jobs:
+  stage:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      || (github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          vars.TOR_AUTO_DEPLOY == 'true')
+    environment: tor-staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      AUTO_INSTALL: ${{ github.event_name == 'workflow_run' || inputs.install }}
+      TOR_DEPLOY_HOST: ${{ vars.TOR_DEPLOY_HOST }}
+      TOR_DEPLOY_USER: ${{ vars.TOR_DEPLOY_USER }}
+      TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+      TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Validate target, refuse stale main SHA
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -n "$TOR_DEPLOY_HOST" && -n "$TOR_DEPLOY_USER" && -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          [[ "$TOR_DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$TOR_DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$TOR_DEPLOY_USER" != "root" ]]
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          persist-credentials: false
+      - name: Verify current main is the selected release
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$TARGET_SHA"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify full S0 candidate
+        run: |
+          python3 tools/check_feature_layout.py
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build release on runner, never on 1-vCPU VPS
+        run: |
+          cargo build --release -p tor-web
+          sha256sum target/release/tor-web > "$RUNNER_TEMP/tor-web.sha256"
+      - name: Set up verified SSH identity
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
+          printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
+          chmod 600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
+          ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
+      - name: Transfer and smoke-test isolated release
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          ssh "${opts[@]}" "$destination" "test -d /opt/tor/releases && test -w /opt/tor/releases"
+          ssh "${opts[@]}" "$destination" "mkdir -p /opt/tor/releases/$TARGET_SHA"
+          scp -p "${opts[@]}" target/release/tor-web "$destination:/opt/tor/releases/$TARGET_SHA/tor-web"
+          local_sha="$(sha256sum target/release/tor-web | awk '{print $1}')"
+          remote_sha="$(ssh "${opts[@]}" "$destination" "sha256sum /opt/tor/releases/$TARGET_SHA/tor-web | awk '{print \$1}'")"
+          test "$local_sha" = "$remote_sha"
+          ssh "${opts[@]}" "$destination" 'bash -s' -- "$TARGET_SHA" <<'REMOTE'
+          set -euo pipefail
+          release_sha="$1"
+          candidate="/opt/tor/releases/$release_sha/tor-web"
+          test -x "$candidate"
+          if ss -H -lnt '( sport = :3099 )' | grep -q .; then
+            echo "Candidate port 3099 already in use" >&2
+            exit 1
+          fi
+          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 "$candidate" > "/opt/tor/releases/$release_sha/candidate.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 25); do
+            kill -0 "$pid"
+            if curl -fsS http://127.0.0.1:3099/readyz > /dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          curl -fsS http://127.0.0.1:3099/catalog > /dev/null
+          payload="$(curl -fsS http://127.0.0.1:3099/api/v1/books)"
+          [[ "$payload" == *"Первое знакомство"* ]]
+          [[ "$payload" != *"Закрытый черновик"* ]]
+          echo "Candidate tested on loopback without changing active site"
+          REMOTE
+      - name: Activate verified release only when explicitly permitted
+        if: env.AUTO_INSTALL == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          ssh "${opts[@]}" "$destination" 'bash -s' -- "$TARGET_SHA" <<'REMOTE'
+          set -euo pipefail
+          release_sha="$1"
+          previous="$(readlink /opt/tor/current || true)"
+          test -x "/opt/tor/releases/$release_sha/tor-web"
+          ln -s "/opt/tor/releases/$release_sha" "/opt/tor/.candidate-$release_sha"
+          mv -Tf "/opt/tor/.candidate-$release_sha" /opt/tor/current
+          success=0
+          if sudo -n /usr/bin/systemctl restart tor-web.service; then
+            for i in $(seq 1 20); do
+              if curl -fsS http://127.0.0.1:3000/readyz >/dev/null; then success=1; break; fi
+              sleep 1
+            done
+          fi
+          if test "$success" -ne 1; then
+            if test -n "$previous"; then
+              ln -s "$previous" "/opt/tor/.rollback-$release_sha"
+              mv -Tf "/opt/tor/.rollback-$release_sha" /opt/tor/current
+              sudo -n /usr/bin/systemctl restart tor-web.service || true
+            else
+              sudo -n /usr/bin/systemctl stop tor-web.service || true
+              rm -f /opt/tor/current
+            fi
+            echo "Release activation failed; restored previous binary target if present" >&2
+            exit 1
+          fi
+          echo "Active tor commit: $release_sha"
+          REMOTE
+      - name: Upload release trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-release-${{ env.TARGET_SHA }}
+          path: ${{ runner.temp }}/tor-web.sha256
+          if-no-files-found: warn
+          retention-days: 14
