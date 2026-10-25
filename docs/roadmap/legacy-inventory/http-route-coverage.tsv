@@ -1,0 +1,571 @@
+# NEwBOO source_sha=17125ef758a791e9630505c14d24f7fe65aed228; source is static decorator+mount model, not runtime import proof
+# path_mentioned is lexical presence only, not functional parity; semantic_review requires confirmation
+mount_state	lane	plan_hint	method	path	legacy_source	line	endpoint	mount_evidence	comparison
+conditional	C	C-02/C-06	POST	/api/v1/ads/reader-boost/purchase	backend/app/advertising/api/v1/reader_boost.py	25	purchase_reader_boost	main:advertising_router nested	semantic_review
+conditional	I	ADM-01/I-13	GET	/api/v1/debug/function-call-probes	backend/app/api/v1/debug.py	92	api_function_call_probes	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	GET	/api/v1/debug/integrity	backend/app/api/v1/debug.py	31	api_check_integrity	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	GET	/api/v1/debug/metrics	backend/app/api/v1/debug.py	89	api_debug_metrics	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	GET	/api/v1/debug/recovery/jobs	backend/app/api/v1/debug.py	77	api_list_recovery_jobs	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	GET	/api/v1/debug/recovery/jobs/{job_id}	backend/app/api/v1/debug.py	81	api_get_recovery_job	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	GET	/api/v1/debug/recovery/scan	backend/app/api/v1/debug.py	36	api_recovery_scan	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	POST	/api/v1/debug/function-call-probes/reset	backend/app/api/v1/debug.py	101	api_reset_function_call_probes	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	POST	/api/v1/debug/recovery/jobs	backend/app/api/v1/debug.py	65	api_create_recovery_job	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	POST	/api/v1/debug/recovery/jobs/{job_id}/step	backend/app/api/v1/debug.py	85	api_run_recovery_job_step	main:debug_router	semantic_review
+conditional	I	ADM-01/I-13	POST	/api/v1/debug/recovery/run	backend/app/api/v1/debug.py	45	api_recovery_run	main:debug_router	semantic_review
+frozen	-	F021/S024	GET	/admin/book-crawler	backend/app/web/routes/admin_book_crawler.py	54	admin_book_crawler_page	F021/S024 frozen	frozen
+frozen	-	F021/S024	GET	/admin/book-crawler/control	backend/app/web/routes/admin_book_crawler_control.py	163	admin_book_crawler_control_page	F021/S024 frozen	frozen
+frozen	-	F021/S024	GET	/admin/book-crawler/control.json	backend/app/web/routes/admin_book_crawler_control.py	179	admin_book_crawler_control_json	F021/S024 frozen	frozen
+frozen	-	F021/S024	POST	/admin/book-crawler/control/action	backend/app/web/routes/admin_book_crawler_control.py	183	admin_book_crawler_control_action	F021/S024 frozen	frozen
+frozen	-	F021/S024	POST	/admin/book-crawler/control/runtime-smoke	backend/app/web/routes/admin_book_crawler_control.py	260	admin_book_crawler_runtime_smoke_start	F021/S024 frozen	frozen
+frozen	-	F021/S024	POST	/admin/book-crawler/control/runtime-smoke/retry	backend/app/web/routes/admin_book_crawler_control.py	314	admin_book_crawler_runtime_smoke_retry	F021/S024 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-marketplace/creators/{creator_user_id}/subscription	backend/app/api/v1/scene_marketplace.py	807	api_unfollow_scene_marketplace_creator	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-marketplace/me/collections/{collection_id}	backend/app/api/v1/scene_marketplace.py	476	api_delete_scene_marketplace_collection	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-marketplace/me/collections/{collection_id}/items/{preset_id}	backend/app/api/v1/scene_marketplace.py	516	api_remove_scene_marketplace_collection_item	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-marketplace/me/favorites/{preset_id}	backend/app/api/v1/scene_marketplace.py	378	api_remove_scene_marketplace_favorite	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-marketplace/{preset_id}/comments/{comment_id}	backend/app/api/v1/scene_marketplace.py	706	api_delete_scene_marketplace_comment	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-marketplace/{preset_id}/reviews/me	backend/app/api/v1/scene_marketplace.py	587	api_delete_scene_preset_review	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	DELETE	/api/v1/scene-presets/{preset_id}	backend/app/api/v1/scene_presets.py	366	api_delete_scene_preset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/creators/{creator_user_id}	backend/app/api/v1/scene_marketplace.py	725	api_get_scene_marketplace_creator	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/creators/{creator_user_id}/subscription	backend/app/api/v1/scene_marketplace.py	766	api_get_scene_marketplace_creator_subscription	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/me/collections	backend/app/api/v1/scene_marketplace.py	426	api_list_scene_marketplace_collections	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/me/collections/{collection_id}	backend/app/api/v1/scene_marketplace.py	443	api_get_scene_marketplace_collection	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/me/favorites	backend/app/api/v1/scene_marketplace.py	394	api_list_scene_marketplace_favorites	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/me/purchases	backend/app/api/v1/scene_marketplace.py	281	api_list_my_scene_preset_purchases	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/me/refunds	backend/app/api/v1/scene_marketplace.py	334	api_list_my_scene_preset_refunds	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}	backend/app/api/v1/scene_marketplace.py	145	api_get_scene_marketplace_item	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/comments	backend/app/api/v1/scene_marketplace.py	666	api_list_scene_marketplace_comments	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/derivations/children	backend/app/api/v1/scene_marketplace.py	647	api_list_scene_preset_derivation_children	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/derivations/parents	backend/app/api/v1/scene_marketplace.py	628	api_list_scene_preset_derivation_parents	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/offers	backend/app/api/v1/scene_marketplace.py	201	api_list_scene_preset_offers	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/rating	backend/app/api/v1/scene_marketplace.py	552	api_get_scene_preset_rating	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/reviews	backend/app/api/v1/scene_marketplace.py	533	api_list_scene_preset_reviews	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace/{preset_id}/versions	backend/app/api/v1/scene_marketplace.py	160	api_list_scene_marketplace_versions	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-marketplace<dynamic>	backend/app/api/v1/scene_marketplace.py	101	api_list_scene_marketplace	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-presets/mine	backend/app/api/v1/scene_presets.py	106	api_list_my_scene_presets	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-presets/moderation/queue	backend/app/api/v1/scene_presets.py	120	api_scene_preset_moderation_queue	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-presets/{preset_id}	backend/app/api/v1/scene_presets.py	251	api_get_scene_preset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-presets/{preset_id}/moderation/history	backend/app/api/v1/scene_presets.py	133	api_scene_preset_moderation_history	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/api/v1/scene-presets/{preset_id}/versions/{version_id}/preview	backend/app/api/v1/scene_presets.py	49	api_scene_preset_preview	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/bundles	backend/app/api/v1/scene_marketplace_commerce.py	136	catalog	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/bundles/{bundle_id}/{version_id}	backend/app/api/v1/scene_marketplace_commerce.py	150	detail	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/bundles/{bundle_id}/{version_id}/quote	backend/app/api/v1/scene_marketplace_commerce.py	186	quote	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/cases/{case_id}	backend/app/api/v1/scene_marketplace_lifecycle.py	241	get_case	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/cases/{case_id}/events	backend/app/api/v1/scene_marketplace_lifecycle.py	257	list_events	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/chapter-scene-assets/files/{storage_key:path}	backend/app/web/routes/chapter_scene_assets.py	100	get_chapter_scene_asset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/chapter-scene-timelines/files/{storage_key:path}	backend/app/web/routes/chapter_scene_timelines.py	56	get_chapter_scene_timeline	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/creator	backend/app/api/v1/scene_marketplace_analytics_slice.py	238	creator_dashboard	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/integrity	backend/app/api/v1/scene_marketplace_operations.py	61	get_scene_marketplace_integrity	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/me/purchases	backend/app/api/v1/scene_marketplace_commerce.py	231	purchases	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/me/refunds	backend/app/api/v1/scene_marketplace_commerce.py	517	refunds	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/operations	backend/app/api/v1/scene_marketplace_operations.py	44	get_scene_marketplace_operations	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/rankings	backend/app/api/v1/scene_marketplace_analytics_slice.py	225	rankings	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/recommendations	backend/app/api/v1/scene_marketplace_discovery.py	225	recommendations	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	/similar/{preset_id}	backend/app/api/v1/scene_marketplace_discovery.py	194	similar	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	<dynamic>	backend/app/web/routes/scene_marketplace_analytics_dashboard.py	15	dashboard	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	GET	<dynamic>	backend/app/web/routes/scene_marketplace_operations.py	23	scene_marketplace_operations_page	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	PATCH	/api/v1/scene-marketplace/me/collections/{collection_id}	backend/app/api/v1/scene_marketplace.py	458	api_update_scene_marketplace_collection	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/accounts/{account_id}/suspension	backend/app/api/v1/scene_marketplace_lifecycle.py	218	account_suspension	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/admin/aggregate-day	backend/app/api/v1/scene_marketplace_analytics_slice.py	271	aggregate_day	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/admin/materialize-ranking	backend/app/api/v1/scene_marketplace_analytics_slice.py	256	materialize_ranking	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/me/collections	backend/app/api/v1/scene_marketplace.py	409	api_create_scene_marketplace_collection	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/me/collections/{collection_id}/items	backend/app/api/v1/scene_marketplace.py	491	api_add_scene_marketplace_collection_item	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/me/purchases/{purchase_id}/refund	backend/app/api/v1/scene_marketplace.py	309	api_refund_scene_preset_purchase	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/{child_preset_id}/derivations	backend/app/api/v1/scene_marketplace.py	604	api_create_scene_preset_derivation	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/{preset_id}/comments	backend/app/api/v1/scene_marketplace.py	685	api_create_scene_marketplace_comment	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/{preset_id}/offers	backend/app/api/v1/scene_marketplace.py	177	api_create_scene_preset_offer	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/{preset_id}/offers/{offer_id}/activate	backend/app/api/v1/scene_marketplace.py	220	api_activate_scene_preset_offer	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/{preset_id}/offers/{offer_id}/deactivate	backend/app/api/v1/scene_marketplace.py	237	api_deactivate_scene_preset_offer	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-marketplace/{preset_id}/purchase	backend/app/api/v1/scene_marketplace.py	254	api_purchase_scene_preset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets/{preset_id}/duplicate	backend/app/api/v1/scene_presets.py	347	api_duplicate_scene_preset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets/{preset_id}/install	backend/app/api/v1/scene_presets.py	325	api_install_scene_preset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets/{preset_id}/moderation/decision	backend/app/api/v1/scene_presets.py	228	api_decide_scene_preset_moderation	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets/{preset_id}/moderation/start	backend/app/api/v1/scene_presets.py	149	api_start_scene_preset_moderation	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets/{preset_id}/versions	backend/app/api/v1/scene_presets.py	267	api_create_scene_preset_version	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets/{preset_id}/versions/{version_id}/submit	backend/app/api/v1/scene_presets.py	301	api_submit_scene_preset_version	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/api/v1/scene-presets<dynamic>	backend/app/api/v1/scene_presets.py	81	api_create_scene_preset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/assets/{asset_id}/quarantine	backend/app/api/v1/scene_marketplace_lifecycle.py	197	asset_quarantine	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/bundles/{bundle_id}/purchase	backend/app/api/v1/scene_marketplace_commerce.py	204	purchase	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/chapter-scene-assets/upload	backend/app/web/routes/chapter_scene_assets.py	47	upload_chapter_scene_asset	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/chapter-scene-timelines/compile	backend/app/web/routes/chapter_scene_timelines.py	21	compile_chapter_scene_timeline	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/events	backend/app/api/v1/scene_marketplace_analytics_slice.py	179	record_client_event	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/me/bundles	backend/app/api/v1/scene_marketplace_commerce.py	247	create_bundle	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/me/bundles/{bundle_id}/versions	backend/app/api/v1/scene_marketplace_commerce.py	267	create_version	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/me/bundles/{bundle_id}/versions/{version_id}/delist	backend/app/api/v1/scene_marketplace_commerce.py	334	delist	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/me/bundles/{bundle_id}/versions/{version_id}/items	backend/app/api/v1/scene_marketplace_commerce.py	289	add_item	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/me/bundles/{bundle_id}/versions/{version_id}/publish	backend/app/api/v1/scene_marketplace_commerce.py	313	publish	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/me/purchases/{purchase_id}/refund	backend/app/api/v1/scene_marketplace_commerce.py	492	refund	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/presets/{preset_id}/archive	backend/app/api/v1/scene_marketplace_lifecycle.py	131	archive	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/presets/{preset_id}/legal-takedown	backend/app/api/v1/scene_marketplace_lifecycle.py	174	legal_takedown	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/presets/{preset_id}/suspend	backend/app/api/v1/scene_marketplace_lifecycle.py	152	suspend	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/promotions	backend/app/api/v1/scene_marketplace_commerce.py	363	create_promotion	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/promotions/{promotion_id}/status	backend/app/api/v1/scene_marketplace_commerce.py	383	set_promotion_status	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	POST	/{target_type}/{target_id}/{target_version_id}/promotion-quote	backend/app/api/v1/scene_marketplace_commerce.py	416	promotion_quote	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	PUT	/api/v1/scene-marketplace/creators/{creator_user_id}/subscription	backend/app/api/v1/scene_marketplace.py	783	api_follow_scene_marketplace_creator	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	PUT	/api/v1/scene-marketplace/me/favorites/{preset_id}	backend/app/api/v1/scene_marketplace.py	362	api_add_scene_marketplace_favorite	F040-F042 frozen	frozen
+frozen	-	F040/F041/F042	PUT	/api/v1/scene-marketplace/{preset_id}/reviews/me	backend/app/api/v1/scene_marketplace.py	567	api_put_scene_preset_review	F040-F042 frozen	frozen
+mounted	-	F021/S024	GET	/api/v1/admin/book-imports/crawl	backend/app/api/v1/book_imports.py	152	api_list_book_crawl_imports	main:book_imports_router	semantic_review
+mounted	-	F021/S024	GET	/api/v1/admin/book-imports/crawl/snapshot	backend/app/api/v1/book_imports.py	185	api_get_book_crawl_import_snapshot	main:book_imports_router	semantic_review
+mounted	-	F021/S024	GET	/api/v1/admin/book-imports/crawl/summary	backend/app/api/v1/book_imports.py	170	api_get_book_crawl_import_summary	main:book_imports_router	semantic_review
+mounted	-	F021/S024	GET	/api/v1/admin/book-imports/crawl/{crawler_job_id}	backend/app/api/v1/book_imports.py	206	api_get_book_crawl_import_status	main:book_imports_router	semantic_review
+mounted	-	F021/S024	POST	/api/v1/admin/book-imports/crawl	backend/app/api/v1/book_imports.py	54	api_start_book_crawl_import	main:book_imports_router	semantic_review
+mounted	-	F021/S024	POST	/api/v1/admin/book-imports/crawl/batch	backend/app/api/v1/book_imports.py	96	api_start_book_crawl_import_batch	main:book_imports_router	semantic_review
+mounted	-	F021/S024	POST	/api/v1/admin/book-imports/crawl/catalog/boovell/sqlite	backend/app/api/v1/book_imports.py	129	api_read_boovell_sqlite_catalog	main:book_imports_router	semantic_review
+mounted	-	F021/S024	POST	/api/v1/admin/book-imports/crawl/{crawler_job_id}/cancel	backend/app/api/v1/book_imports.py	226	api_cancel_book_crawl_import	main:book_imports_router	semantic_review
+mounted	-	F021/S024	POST	/api/v1/admin/book-imports/crawl/{crawler_job_id}/retry	backend/app/api/v1/book_imports.py	246	api_retry_book_crawl_import	main:book_imports_router	semantic_review
+mounted	A	A-02/A-09	DELETE	/users/{target_user_id}/subscribe	backend/app/web/routes/users.py	311	unsubscribe_user	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	GET	/__bp_honeypot/{trap_name:path}	backend/app/web/routes/honeypot.py	12	honeypot_trap	main:web_honeypot_router	semantic_review
+mounted	A	A-02/A-09	GET	/admin/security	backend/app/web/routes/admin_security.py	22	admin_security_page	facade:admin	semantic_review
+mounted	A	A-02/A-09	GET	/api/v1/auth/me	backend/app/api/v1/auth.py	836	api_me	main:auth_router	semantic_review
+mounted	A	A-02/A-09	GET	/auth/yandex/callback	backend/app/web/routes/auth.py	798	yandex_callback_page	main:web_auth_router	semantic_review
+mounted	A	A-02/A-09	GET	/auth/yandex/login	backend/app/web/routes/auth.py	733	yandex_login_page	main:web_auth_router	semantic_review
+mounted	A	A-02/A-09	GET	/auth/yandex/step-up	backend/app/web/routes/auth.py	762	yandex_step_up_page	main:web_auth_router	semantic_review
+mounted	A	A-02/A-09	GET	/login	backend/app/web/routes/auth.py	396	login_page	main:web_auth_router	path_mentioned
+mounted	A	A-02/A-09	GET	/me/settings	backend/app/web/routes/account_settings.py	162	account_settings_page	main:web_account_settings_router	semantic_review
+mounted	A	A-02/A-09	GET	/profiles	backend/app/web/routes/users.py	210	public_profiles_page	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	GET	/register	backend/app/web/routes/auth.py	715	register_page	main:web_auth_router	path_mentioned
+mounted	A	A-02/A-09	GET	/teams/{team_ref}	backend/app/web/routes/users.py	245	public_team_page	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	GET	/users	backend/app/web/routes/users.py	175	public_users_page	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	GET	/users/{display_name}	backend/app/web/routes/users.py	425	public_user_profile_page	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	PATCH	/api/v1/auth/me/adult-access	backend/app/api/v1/auth.py	841	api_update_adult_access	main:auth_router	semantic_review
+mounted	A	A-02/A-09	POST	/admin/security/ip-ban	backend/app/web/routes/admin_security.py	50	admin_security_ip_ban_submit	facade:admin	semantic_review
+mounted	A	A-02/A-09	POST	/admin/security/ip-unban	backend/app/web/routes/admin_security.py	76	admin_security_ip_unban_submit	facade:admin	semantic_review
+mounted	A	A-02/A-09	POST	/api/v1/auth/login	backend/app/api/v1/auth.py	469	api_login	main:auth_router	semantic_review
+mounted	A	A-02/A-09	POST	/api/v1/auth/logout	backend/app/api/v1/auth.py	813	api_logout	main:auth_router	semantic_review
+mounted	A	A-02/A-09	POST	/api/v1/auth/register	backend/app/api/v1/auth.py	398	api_register	main:auth_router	semantic_review
+mounted	A	A-02/A-09	POST	/api/v1/auth/step-up/password	backend/app/api/v1/auth.py	777	api_create_password_step_up	main:auth_router	semantic_review
+mounted	A	A-02/A-09	POST	/api/v1/auth/token	backend/app/api/v1/auth.py	626	api_login_token	main:auth_router	semantic_review
+mounted	A	A-02/A-09	POST	/login	backend/app/web/routes/auth.py	414	login_submit	main:web_auth_router	path_mentioned
+mounted	A	A-02/A-09	POST	/logout	backend/app/web/routes/auth.py	1041	logout_submit	main:web_auth_router	path_mentioned
+mounted	A	A-02/A-09	POST	/me/settings/adult	backend/app/web/routes/account_settings.py	169	account_settings_adult_submit	main:web_account_settings_router	semantic_review
+mounted	A	A-02/A-09	POST	/me/settings/mention-handle	backend/app/web/routes/account_settings.py	221	account_settings_mention_handle_submit	main:web_account_settings_router	semantic_review
+mounted	A	A-02/A-09	POST	/me/settings/notification-delivery	backend/app/web/routes/account_settings.py	195	account_settings_notification_delivery_submit	main:web_account_settings_router	semantic_review
+mounted	A	A-02/A-09	POST	/me/settings/password	backend/app/web/routes/account_settings.py	247	account_settings_password_submit	main:web_account_settings_router	semantic_review
+mounted	A	A-02/A-09	POST	/register	backend/app/web/routes/auth.py	906	register_submit	main:web_auth_router	path_mentioned
+mounted	A	A-02/A-09	POST	/users/{target_user_id}/block	backend/app/web/routes/users.py	371	block_user_submit	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	POST	/users/{target_user_id}/friend	backend/app/web/routes/users.py	343	request_friend_user	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	POST	/users/{target_user_id}/subscribe	backend/app/web/routes/users.py	278	subscribe_user	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	POST	/users/{target_user_id}/unfriend	backend/app/web/routes/users.py	397	remove_friend_user	main:web_users_router	semantic_review
+mounted	A	A-02/A-09	POST	/users/{target_user_id}/unsubscribe	backend/app/web/routes/users.py	333	unsubscribe_user_form	main:web_users_router	semantic_review
+mounted	B	B-02/B-06/B-08	DELETE	/api/v1/teams/{team_id}/books/{book_id}	backend/app/api/v1/teams.py	212	api_remove_team_book	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	DELETE	/api/v1/teams/{team_id}/members/{user_id}	backend/app/api/v1/teams.py	159	api_remove_member	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/admin/teams/	backend/app/api/v1/admin_teams.py	39	api_list_teams	main:admin_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/admin/teams/by-book/{book_id}	backend/app/api/v1/admin_teams.py	46	api_get_team_for_book	main:admin_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/admin/teams/{team_id}	backend/app/api/v1/admin_teams.py	28	api_get_team_dashboard	main:admin_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/	backend/app/api/v1/books.py	60	api_list_books	main:books_router	path_mentioned
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/by-slug/{slug}	backend/app/api/v1/books.py	279	api_get_book_by_slug	main:books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/my	backend/app/api/v1/books.py	40	api_my_books	main:books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/participating	backend/app/api/v1/books.py	50	api_participating_books	main:books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}	backend/app/api/v1/books.py	122	api_get_book	main:books_router	path_mentioned
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/chapters/stats	backend/app/api/v1/book_stats.py	183	api_get_book_chapters_stats	main:book_stats_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/chapters/{chapter_id}/stats/daily	backend/app/api/v1/book_stats.py	222	api_get_chapter_stats_daily	main:book_stats_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/delayed-publication	backend/app/api/v1/book_delayed_publication.py	42	api_get_book_delayed_publication	main:book_delayed_publication_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/members/	backend/app/api/v1/book_members.py	36	api_list_book_members	main:book_members_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/members/revenue-shares	backend/app/api/v1/book_members.py	70	api_get_book_revenue_shares	main:book_members_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/stats	backend/app/api/v1/book_stats.py	146	api_get_book_stats	main:book_stats_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/stats/daily	backend/app/api/v1/book_stats.py	198	api_get_book_stats_daily	main:book_stats_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/stats/dashboard	backend/app/api/v1/book_stats.py	158	api_get_book_stats_dashboard	main:book_stats_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/books/{book_id}/team-cross-promo	backend/app/api/v1/books.py	90	api_get_team_cross_promo	main:books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/chapters/{chapter_id}/versions/	backend/app/api/v1/chapter_versions.py	16	api_list_chapter_versions	main:chapter_versions_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/level-invitations/my	backend/app/books/api/user_level_invitations.py	53	api_my_invites	main:level_invites_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/teams/by-slug/{slug}	backend/app/api/v1/teams.py	88	api_get_team_by_slug	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/teams/{team_id}	backend/app/api/v1/teams.py	82	api_get_team	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/teams/{team_id}/analytics	backend/app/api/v1/teams.py	282	api_get_team_promo_analytics	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/teams/{team_id}/books	backend/app/api/v1/teams.py	178	api_list_team_books	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/api/v1/teams/{team_id}/members	backend/app/api/v1/teams.py	94	api_list_team_members	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/create	backend/app/web/routes/create_book.py	138	create_book_page	main:web_create_book_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/recommendations/click	backend/app/web/routes/books_recommendations.py	949	recommendation_click_redirect	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}	backend/app/web/routes/books_detail.py	705	book_detail	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/chapters/create	backend/app/web/routes/books_chapters.py	611	create_chapter_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/chapters/import	backend/app/web/routes/books_chapter_import.py	605	import_chapters_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/chapters/import/jobs/{job_id}	backend/app/web/routes/books_chapter_import.py	907	import_chapters_job_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/chapters/import/jobs/{job_id}/status	backend/app/web/routes/books_chapter_import.py	941	import_chapters_job_status	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/chapters/{chapter_id}/edit	backend/app/web/routes/books_chapters.py	778	edit_chapter_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/fragments/chapter-stats	backend/app/web/routes/books_fragments.py	1182	book_chapter_stats_fragment	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/fragments/comments	backend/app/web/routes/books_fragments.py	803	book_comments_fragment	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/fragments/related	backend/app/web/routes/books_fragments.py	922	book_related_fragment	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/fragments/share-friends	backend/app/web/routes/books_fragments.py	1139	book_share_friends_fragment	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/fragments/sidebar-collections	backend/app/web/routes/books_fragments.py	689	book_sidebar_collections_fragment	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/fragments/user-activity	backend/app/web/routes/books_fragments.py	1092	book_user_activity_fragment	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/issues	backend/app/web/routes/books_issues.py	173	book_text_issues_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/settings	backend/app/web/routes/books_settings.py	805	book_settings_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/settings/related	backend/app/web/routes/books_settings.py	815	book_related_settings_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/stats	backend/app/web/routes/books_stats.py	381	book_stats_page	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/books/{book_ref}/stats/export.csv	backend/app/web/routes/books_stats.py	434	book_stats_export_csv	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/chapter-images/files/{storage_key:path}	backend/app/web/routes/chapter_images.py	72	get_chapter_image_file	main:web_chapter_images_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/books	backend/app/web/routes/my_books.py	19	my_books_page	main:web_my_books_router	path_mentioned
+mounted	B	B-02/B-06/B-08	GET	/me/books/project-manager	backend/app/web/routes/my_books.py	43	project_manager_page	main:web_my_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/invitations	backend/app/web/routes/invitations.py	35	invitations_page	main:web_invitations_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/teams	backend/app/web/routes/dashboard_teams.py	116	teams_index_page	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/teams/{team_id}	backend/app/web/routes/dashboard_teams.py	203	team_detail_page	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/teams/{team_id}/analytics	backend/app/web/routes/dashboard_teams.py	229	team_analytics_fragment	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/teams/{team_id}/analytics.csv	backend/app/web/routes/dashboard_teams.py	311	team_analytics_csv_export	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/me/teams/{team_id}/book-picker	backend/app/web/routes/dashboard_teams.py	413	team_book_picker_fragment	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/personal-books/new	backend/app/web/routes/private_books.py	91	private_book_create_page	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/personal-books/{book_id}	backend/app/web/routes/private_books.py	142	private_book_detail_page	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/personal-books/{book_id}/chapters/new	backend/app/web/routes/private_books.py	228	private_chapter_create_page	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/personal-books/{book_id}/chapters/{chapter_id}	backend/app/web/routes/private_books.py	297	private_chapter_read_page	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/personal-books/{book_id}/chapters/{chapter_id}/edit	backend/app/web/routes/private_books.py	331	private_chapter_edit_page	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/personal-books/{book_id}/edit	backend/app/web/routes/private_books.py	168	private_book_edit_page	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	GET	/r/{code}	backend/app/web/routes/books_sharing.py	465	referral_link_redirect	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	PATCH	/api/v1/books/{book_id}	backend/app/api/v1/books.py	219	api_update_book	main:books_router	path_mentioned
+mounted	B	B-02/B-06/B-08	PATCH	/api/v1/books/{book_id}/members/{user_id}/role	backend/app/api/v1/book_members.py	117	api_update_book_member_role	main:book_members_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/books/	backend/app/api/v1/books.py	180	api_create_book	main:books_router	path_mentioned
+mounted	B	B-02/B-06/B-08	POST	/api/v1/books/{book_id}/members/	backend/app/api/v1/book_members.py	51	api_add_book_member	main:book_members_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/books/{book_id}/members/transfer-owner	backend/app/api/v1/book_members.py	136	api_transfer_book_owner	main:book_members_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/chapters/{chapter_id}/versions/	backend/app/api/v1/chapter_versions.py	33	api_create_chapter_version	main:chapter_versions_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/level-invitations/pro-adult/{invitee_user_id}	backend/app/books/api/user_level_invitations.py	17	api_create_invite	main:level_invites_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/level-invitations/{invitation_id}/accept	backend/app/books/api/user_level_invitations.py	29	api_accept	main:level_invites_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/level-invitations/{invitation_id}/revoke	backend/app/books/api/user_level_invitations.py	41	api_revoke	main:level_invites_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/	backend/app/api/v1/teams.py	66	api_create_team	main:teams_router	path_mentioned
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/analytics/team-promo/click	backend/app/api/v1/teams.py	257	api_track_team_promo_click	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/analytics/team-promo/impression	backend/app/api/v1/teams.py	232	api_track_team_promo_impression	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/invites/{invite_id}/accept	backend/app/api/v1/teams.py	129	api_accept_invite	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/invites/{invite_id}/decline	backend/app/api/v1/teams.py	144	api_decline_invite	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/{team_id}/books	backend/app/api/v1/teams.py	194	api_add_team_book	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/api/v1/teams/{team_id}/invites	backend/app/api/v1/teams.py	110	api_invite_member	main:teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/create	backend/app/web/routes/create_book.py	147	create_book_submit	main:web_create_book_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/recommendations/action	backend/app/web/routes/books_recommendations.py	563	recommendation_action	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/recommendations/click	backend/app/web/routes/books_recommendations.py	525	recommendation_click	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/recommendations/impression	backend/app/web/routes/books_recommendations.py	485	recommendation_impression	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/chapters/bulk-delete	backend/app/web/routes/books_chapters.py	1141	bulk_delete_chapters_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/chapters/create	backend/app/web/routes/books_chapters.py	668	create_chapter_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/chapters/import	backend/app/web/routes/books_chapter_import.py	634	import_chapters_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/chapters/purchase	backend/app/web/routes/books_interactions.py	439	purchase_selected_chapters_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/chapters/{chapter_id}/delete	backend/app/web/routes/books_chapters.py	1201	delete_chapter_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/chapters/{chapter_id}/edit	backend/app/web/routes/books_chapters.py	866	edit_chapter_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/comments	backend/app/web/routes/books_interactions.py	287	book_comment_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/comments/{comment_id}/delete	backend/app/web/routes/books_interactions.py	364	book_comment_delete_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/issues/{issue_id}/status	backend/app/web/routes/books_issues.py	217	book_text_issue_status_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/library	backend/app/web/routes/books_interactions.py	169	add_book_to_library_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/like	backend/app/web/routes/books_interactions.py	215	book_like_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/rating	backend/app/web/routes/books_interactions.py	248	book_rating_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/referral-share-link	backend/app/web/routes/books_sharing.py	412	book_referral_share_link	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/ads	backend/app/web/routes/books_settings.py	1193	book_settings_chapter_ads_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/covers	backend/app/web/routes/books_settings.py	1061	book_settings_covers_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/members	backend/app/web/routes/books_settings.py	1226	book_settings_member_add_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/members/{member_user_id}	backend/app/web/routes/books_settings.py	1249	book_settings_member_update_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/members/{member_user_id}/remove	backend/app/web/routes/books_settings.py	1356	book_settings_member_remove_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/properties	backend/app/web/routes/books_settings.py	901	book_settings_properties_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/related/add	backend/app/web/routes/books_settings.py	853	book_related_settings_add	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/related/search	backend/app/web/routes/books_settings.py	826	book_related_settings_search	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/related/{related_book_id}/remove	backend/app/web/routes/books_settings.py	878	book_related_settings_remove	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/status	backend/app/web/routes/books_settings.py	1131	book_settings_status_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/team	backend/app/web/routes/books_settings.py	1420	book_settings_team_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/transfer	backend/app/web/routes/books_settings.py	1373	book_settings_transfer_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/books/{book_ref}/share	backend/app/web/routes/books_sharing.py	316	book_share_submit	facade:books	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/chapter-images/upload	backend/app/web/routes/chapter_images.py	29	upload_chapter_image_web	main:web_chapter_images_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/books/project-manager	backend/app/web/routes/my_books.py	67	project_manager_save	main:web_my_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/invitations	backend/app/web/routes/invitations.py	59	invitation_create_submit	main:web_invitations_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/invitations/{invitation_id}/accept	backend/app/web/routes/invitations.py	81	invitation_accept_submit	main:web_invitations_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/invitations/{invitation_id}/revoke	backend/app/web/routes/invitations.py	100	invitation_revoke_submit	main:web_invitations_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams	backend/app/web/routes/dashboard_teams.py	144	teams_create_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/invites/{invite_id}/accept	backend/app/web/routes/dashboard_teams.py	163	teams_accept_invite_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/invites/{invite_id}/decline	backend/app/web/routes/dashboard_teams.py	181	teams_decline_invite_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/books	backend/app/web/routes/dashboard_teams.py	433	team_add_book_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/books/{book_id}/remove	backend/app/web/routes/dashboard_teams.py	455	team_remove_book_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/delete	backend/app/web/routes/dashboard_teams.py	474	team_delete_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/invites	backend/app/web/routes/dashboard_teams.py	531	team_invite_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/leave	backend/app/web/routes/dashboard_teams.py	493	team_leave_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/members/{user_id}/remove	backend/app/web/routes/dashboard_teams.py	511	team_member_remove_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/me/teams/{team_id}/update	backend/app/web/routes/dashboard_teams.py	388	team_update_submit	main:web_dashboard_teams_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/personal-books/new	backend/app/web/routes/private_books.py	109	private_book_create_submit	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/personal-books/{book_id}/chapters/new	backend/app/web/routes/private_books.py	254	private_chapter_create_submit	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/personal-books/{book_id}/chapters/{chapter_id}/edit	backend/app/web/routes/private_books.py	355	private_chapter_edit_submit	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	POST	/personal-books/{book_id}/edit	backend/app/web/routes/private_books.py	193	private_book_edit_submit	main:web_private_books_router	semantic_review
+mounted	B	B-02/B-06/B-08	PUT	/api/v1/books/{book_id}/delayed-publication	backend/app/api/v1/book_delayed_publication.py	61	api_update_book_delayed_publication	main:book_delayed_publication_router	semantic_review
+mounted	B	B-02/B-06/B-08	PUT	/api/v1/books/{book_id}/members/revenue-shares	backend/app/api/v1/book_members.py	87	api_replace_book_revenue_shares	main:book_members_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/books/{book_id}/reading-universe	backend/app/api/v1/reading_universe.py	108	api_reading_universe_book_feed	main:reading_universe_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/library/	backend/app/api/v1/library.py	35	api_get_library	main:library_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/library/continue-reading	backend/app/api/v1/library.py	47	api_get_continue_reading	main:library_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/library/grouped	backend/app/api/v1/library.py	41	api_get_library_grouped	main:library_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader-progress/	backend/app/api/v1/reader_progress.py	88	api_get_recent_reader_progress	main:reader_progress_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader-progress/book/{book_id}	backend/app/api/v1/reader_progress.py	98	api_get_reader_progress_for_book	main:reader_progress_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader-progress/{chapter_id}	backend/app/api/v1/reader_progress.py	71	api_get_reader_progress_for_chapter	main:reader_progress_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader/{chapter_id:int}	backend/app/api/v1/reader.py	1302	api_read_chapter	main:reader_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader/{chapter_id:int}/blocks/{block_id}	backend/app/api/v1/reader.py	1393	api_get_reader_block_content	main:reader_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader/{chapter_id:int}/protected	backend/app/api/v1/reader.py	904	api_read_protected_chapter	main:reader_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader/{chapter_id:int}/protected/access	backend/app/api/v1/reader.py	1027	api_check_protected_reader_access	main:reader_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader/{chapter_id:int}/protected/font/{profile_id}	backend/app/api/v1/reader.py	1141	api_read_protected_font	main:reader_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reader/{chapter_id:int}/protected/preflight	backend/app/api/v1/reader.py	1066	api_check_protected_reader_preflight	main:reader_router	semantic_review
+mounted	C	C-02/C-06	GET	/api/v1/reading-universe	backend/app/api/v1/reading_universe.py	67	api_reading_universe_global_feed	main:reading_universe_router	path_mentioned
+mounted	C	C-02/C-06	GET	/api/v1/users/{user_id}/reading-universe	backend/app/api/v1/reading_universe.py	151	api_reading_universe_user_feed	main:reading_universe_router	semantic_review
+mounted	C	C-02/C-06	GET	/books/{book_id}/reading-universe	backend/app/web/routes/reading_universe.py	69	book_reading_universe_page	main:web_reading_universe_router	semantic_review
+mounted	C	C-02/C-06	GET	/library	backend/app/web/routes/library.py	255	library_page	main:web_library_router	semantic_review
+mounted	C	C-02/C-06	GET	/library/books/{book_ref}	backend/app/web/routes/library.py	422	library_book_page	main:web_library_router	semantic_review
+mounted	C	C-02/C-06	GET	/library/shared	backend/app/web/routes/library.py	299	shared_library_page	main:web_library_router	semantic_review
+mounted	C	C-02/C-06	GET	/me/reading	backend/app/web/routes/reading.py	14	continue_reading_page	main:web_reading_router	semantic_review
+mounted	C	C-02/C-06	GET	/reader-service-worker.js	backend/app/web/routes/reader_static.py	9	reader_service_worker	facade:reader	semantic_review
+mounted	C	C-02/C-06	GET	/reader/{chapter_id}	backend/app/web/routes/reader_page.py	416	reader_page	facade:reader	path_mentioned
+mounted	C	C-02/C-06	GET	/reader/{chapter_id}/comments-fragment	backend/app/web/routes/reader_comments.py	462	reader_comments_fragment	facade:reader	semantic_review
+mounted	C	C-02/C-06	GET	/reader/{chapter_id}/toc-fragment	backend/app/web/routes/reader_navigation.py	25	reader_toc_fragment	facade:reader	semantic_review
+mounted	C	C-02/C-06	GET	/reading-universe	backend/app/web/routes/reading_universe.py	35	reading_universe_page	main:web_reading_universe_router	semantic_review
+mounted	C	C-02/C-06	POST	/api/v1/library/ranking/answer	backend/app/api/v1/library.py	89	api_submit_library_ranking_answer	main:library_router	semantic_review
+mounted	C	C-02/C-06	POST	/api/v1/library/{chapter_id}/upgrade	backend/app/api/v1/library.py	57	api_upgrade_chapter	main:library_router	semantic_review
+mounted	C	C-02/C-06	POST	/api/v1/reader/behavior	backend/app/api/v1/reader.py	1262	api_record_reader_behavior	main:reader_router	semantic_review
+mounted	C	C-02/C-06	POST	/api/v1/reader/{chapter_id:int}/progress	backend/app/api/v1/reader.py	1543	api_save_reader_progress	main:reader_router	semantic_review
+mounted	C	C-02/C-06	POST	/api/v1/reader/{chapter_id:int}/protected/watermark/layout	backend/app/api/v1/reader.py	1093	api_report_protected_watermark_layout	main:reader_router	semantic_review
+mounted	C	C-02/C-06	POST	/library/shared/{share_id}/hide	backend/app/web/routes/library.py	327	shared_book_share_hide_submit	main:web_library_router	semantic_review
+mounted	C	C-02/C-06	POST	/library/shared/{share_id}/mute	backend/app/web/routes/library.py	392	shared_book_share_mute_submit	main:web_library_router	semantic_review
+mounted	C	C-02/C-06	POST	/library/shared/{share_id}/report	backend/app/web/routes/library.py	357	shared_book_share_report_submit	main:web_library_router	semantic_review
+mounted	C	C-02/C-06	POST	/reader/chapter-ads/impression	backend/app/web/routes/reader_ads.py	26	reader_chapter_ad_impression	facade:reader	semantic_review
+mounted	C	C-02/C-06	POST	/reader/{chapter_id}/comments	backend/app/web/routes/reader_comments.py	592	reader_comment_submit	facade:reader	semantic_review
+mounted	C	C-02/C-06	POST	/reader/{chapter_id}/comments/{comment_id}/delete	backend/app/web/routes/reader_comments.py	656	reader_comment_delete_submit	facade:reader	semantic_review
+mounted	C	C-02/C-06	POST	/reader/{chapter_id}/comments/{comment_id}/thanks	backend/app/web/routes/reader_comments.py	542	reader_comment_thanks_submit	facade:reader	semantic_review
+mounted	C	C-02/C-06	POST	/reader/{chapter_id}/purchase	backend/app/web/routes/reader_purchase.py	65	reader_purchase_chapter	facade:reader	semantic_review
+mounted	C	C-02/C-06	POST	/reader/{chapter_id}/text-issues	backend/app/web/routes/reader_text_issues.py	185	reader_text_issue_submit	facade:reader	semantic_review
+mounted	C	C-02/C-06	POST	/reader/{chapter_id}/thanks	backend/app/web/routes/reader_activity.py	185	reader_thanks_submit	facade:reader	semantic_review
+mounted	C	C-02/C-06	PUT	/api/v1/reader-progress/{chapter_id}	backend/app/api/v1/reader_progress.py	29	api_save_reader_progress	main:reader_progress_router	semantic_review
+mounted	D	D-02/D-09	GET	/admin/finance	backend/app/web/routes/admin_finance.py	64	admin_finance_page	facade:admin	semantic_review
+mounted	D	D-02/D-09	GET	/admin/finance/integrity	backend/app/web/routes/admin_finance.py	173	admin_financial_integrity_page	facade:admin	semantic_review
+mounted	D	D-02/D-09	GET	/admin/finance/integrity.json	backend/app/web/routes/admin_finance.py	152	admin_financial_integrity_json	facade:admin	semantic_review
+mounted	D	D-02/D-09	GET	/api/v1/billing/payouts	backend/app/api/v1/billing.py	56	api_list_payouts	main:billing_router	semantic_review
+mounted	D	D-02/D-09	GET	/api/v1/billing/wallet	backend/app/api/v1/billing.py	30	api_get_wallet	main:billing_router	semantic_review
+mounted	D	D-02/D-09	GET	/api/v1/purchases/	backend/app/api/v1/purchases.py	13	api_list_purchases	main:purchases_router	semantic_review
+mounted	D	D-02/D-09	GET	/api/v1/refunds/	backend/app/api/v1/refunds.py	43	api_list_refunds	main:refunds_router	semantic_review
+mounted	D	D-02/D-09	GET	/me/purchases	backend/app/web/routes/purchases.py	11	my_purchases_page	main:web_purchases_router	path_mentioned
+mounted	D	D-02/D-09	GET	/me/refunds	backend/app/web/routes/refunds.py	24	my_refunds_page	main:web_refunds_router	semantic_review
+mounted	D	D-02/D-09	POST	/admin/finance/credit	backend/app/web/routes/admin_finance.py	86	admin_finance_credit_submit	facade:admin	semantic_review
+mounted	D	D-02/D-09	POST	/admin/finance/payouts/{payout_id}/approve	backend/app/web/routes/admin_finance.py	114	admin_finance_payout_approve_submit	facade:admin	semantic_review
+mounted	D	D-02/D-09	POST	/admin/finance/payouts/{payout_id}/reject	backend/app/web/routes/admin_finance.py	134	admin_finance_payout_reject_submit	facade:admin	semantic_review
+mounted	D	D-02/D-09	POST	/api/v1/billing/payout	backend/app/api/v1/billing.py	41	api_create_payout	main:billing_router	semantic_review
+mounted	D	D-02/D-09	POST	/api/v1/purchases/	backend/app/api/v1/purchases.py	29	api_create_purchase	main:purchases_router	path_mentioned
+mounted	D	D-02/D-09	POST	/api/v1/refunds/	backend/app/api/v1/refunds.py	50	api_create_refund	main:refunds_router	semantic_review
+mounted	D	D-02/D-09	POST	/api/v1/refunds/swap/apply	backend/app/api/v1/refunds.py	75	swap_apply	main:refunds_router	semantic_review
+mounted	D	D-02/D-09	POST	/api/v1/refunds/swap/preview	backend/app/api/v1/refunds.py	32	swap_preview	main:refunds_router	semantic_review
+mounted	D	D-02/D-09	POST	/api/v1/refunds/{refund_id}/decision	backend/app/api/v1/refunds.py	62	api_decide_refund	main:refunds_router	semantic_review
+mounted	D	D-02/D-09	POST	/me/refunds	backend/app/web/routes/refunds.py	50	create_refund_page	main:web_refunds_router	semantic_review
+mounted	D	D-02/D-09	POST	/me/refunds/swap	backend/app/web/routes/refunds.py	97	create_swap_page	main:web_refunds_router	semantic_review
+mounted	D	D-05	GET	/admin/layers	backend/app/web/routes/admin_layers.py	91	admin_layers_page	main:web_admin_layers_router	semantic_review
+mounted	D	D-05	GET	/admin/layers/{layer_id}	backend/app/web/routes/admin_layers.py	106	admin_layer_detail_page	main:web_admin_layers_router	semantic_review
+mounted	D	D-05	GET	/api/v1/layers/my	backend/app/books/api/layers.py	45	api_my_layers	main:layers_router	semantic_review
+mounted	D	D-05	GET	/layers/{layer_id}	backend/app/web/routes/layers.py	85	public_layer_page	main:web_layers_router	semantic_review
+mounted	D	D-05	GET	/me/layers	backend/app/web/routes/layers.py	256	my_layers_page	main:web_layers_router	semantic_review
+mounted	D	D-05	GET	/me/layers/create	backend/app/web/routes/layers.py	282	layer_create_page	main:web_layers_router	semantic_review
+mounted	D	D-05	GET	/me/layers/{layer_id}	backend/app/web/routes/layers.py	349	layer_manage_page	main:web_layers_router	semantic_review
+mounted	D	D-05	GET	/me/layers/{layer_id}/book-picker	backend/app/web/routes/layers.py	379	layer_book_picker_fragment	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/admin/layers/{layer_id}/accesses/{layer_access_id}/revoke	backend/app/web/routes/admin_layers.py	161	admin_layer_revoke_submit	main:web_admin_layers_router	semantic_review
+mounted	D	D-05	POST	/admin/layers/{layer_id}/grant	backend/app/web/routes/admin_layers.py	141	admin_layer_grant_submit	main:web_admin_layers_router	semantic_review
+mounted	D	D-05	POST	/api/v1/layers/	backend/app/books/api/layers.py	26	api_create_layer	main:layers_router	path_mentioned
+mounted	D	D-05	POST	/api/v1/layers/{layer_id}/books/{book_id}	backend/app/books/api/layers.py	50	api_add_book_to_layer	main:layers_router	semantic_review
+mounted	D	D-05	POST	/api/v1/layers/{layer_id}/purchase	backend/app/books/api/layers.py	69	api_purchase_layer	main:layers_router	semantic_review
+mounted	D	D-05	POST	/layers/{layer_id}/comments	backend/app/web/routes/layers.py	126	public_layer_comment_submit	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/layers/{layer_id}/comments/{comment_id}/delete	backend/app/web/routes/layers.py	149	public_layer_comment_delete_submit	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/layers/{layer_id}/purchase	backend/app/web/routes/layers.py	173	public_layer_purchase_submit	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/me/layers/create	backend/app/web/routes/layers.py	305	layer_create_submit	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/me/layers/{layer_id}/books	backend/app/web/routes/layers.py	402	layer_add_book_submit	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/me/layers/{layer_id}/books/{book_id}/remove	backend/app/web/routes/layers.py	489	layer_remove_book_submit	main:web_layers_router	semantic_review
+mounted	D	D-05	POST	/me/layers/{layer_id}/edit	backend/app/web/routes/layers.py	444	layer_edit_submit	main:web_layers_router	semantic_review
+mounted	E	E-02/E-09	DELETE	/api/v1/clubs/{club_id:uuid}/books/{book_id}	backend/app/api/v1/clubs.py	678	api_remove_book_from_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/admin/support	backend/app/web/routes/admin_support.py	86	admin_support_page	main:web_admin_support_router	semantic_review
+mounted	E	E-02/E-09	GET	/admin/support/{conversation_id}	backend/app/web/routes/admin_support.py	108	admin_support_chat_page	main:web_admin_support_router	semantic_review
+mounted	E	E-02/E-09	GET	/admin/support/{conversation_id}/messages	backend/app/web/routes/admin_support.py	145	admin_support_messages	main:web_admin_support_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/ads/reports/campaign/{campaign_id}	backend/app/advertising/api/v1/reports.py	25	get_campaign_report	main:advertising_router nested	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/ads/reports/owner	backend/app/advertising/api/v1/reports.py	45	get_owner_reports	main:advertising_router nested	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/	backend/app/api/v1/clubs.py	164	api_list_clubs	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/by-slug/{slug}	backend/app/api/v1/clubs.py	248	api_get_club_by_slug	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/candidates	backend/app/api/v1/clubs.py	168	api_list_club_candidates	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/candidates/{candidate_id}	backend/app/api/v1/clubs.py	209	api_get_club_candidate	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}	backend/app/api/v1/clubs.py	268	api_get_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/books	backend/app/api/v1/clubs.py	641	api_list_books_for_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/comments	backend/app/api/v1/clubs.py	766	api_list_club_comments	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/draft-context	backend/app/api/v1/clubs.py	224	api_get_club_draft_context	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/engagement/d7	backend/app/api/v1/clubs.py	400	api_get_club_d7_interaction	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/engagement/d7/metrics	backend/app/api/v1/clubs.py	436	api_get_club_d7_metrics	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/host-queue	backend/app/api/v1/clubs.py	467	api_get_club_host_queue	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/clubs/{club_id:uuid}/members	backend/app/api/v1/clubs.py	620	api_list_club_members	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/social/book-shares/inbox	backend/app/api/v1/social.py	179	api_book_share_inbox	main:social_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/social/book-shares/inbox/grouped	backend/app/api/v1/social.py	195	api_book_share_grouped_inbox	main:social_router	semantic_review
+mounted	E	E-02/E-09	GET	/api/v1/social/mentions/discover	backend/app/api/v1/social.py	46	api_discover_mention_candidates	main:social_router	semantic_review
+mounted	E	E-02/E-09	GET	/books/{book_ref}/collect-options	backend/app/web/routes/collections.py	377	book_collect_options	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	GET	/collections	backend/app/web/routes/collections.py	128	collections_index_page	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	GET	/collections/{collection_id}	backend/app/web/routes/collections.py	197	collection_detail_page	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	GET	/mail	backend/app/web/routes/mail.py	172	mailbox_page	main:web_mail_router	semantic_review
+mounted	E	E-02/E-09	GET	/mail/{conversation_id}	backend/app/web/routes/mail.py	209	mail_conversation_page	main:web_mail_router	semantic_review
+mounted	E	E-02/E-09	GET	/mail/{conversation_id}/messages	backend/app/web/routes/mail.py	277	mail_messages_poll	main:web_mail_router	semantic_review
+mounted	E	E-02/E-09	GET	/me/digests/{digest_date}	backend/app/web/routes/notifications.py	454	me_daily_digest_page	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	GET	/me/updates	backend/app/web/routes/notifications.py	408	me_updates_page	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	GET	/moderation	backend/app/web/routes/moderation.py	100	moderation_index_page	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	GET	/moderation/books	backend/app/web/routes/moderation.py	196	moderation_books_page	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	GET	/moderation/chapters	backend/app/web/routes/moderation.py	116	moderation_chapters_page	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	GET	/moderation/reports	backend/app/web/routes/moderation.py	235	moderation_reports_page	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	GET	/notifications	backend/app/web/routes/notifications.py	139	notifications_page	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	GET	/support/messages	backend/app/web/routes/support.py	102	support_messages	main:web_support_router	semantic_review
+mounted	E	E-02/E-09	GET	/support/widget	backend/app/web/routes/support.py	58	support_widget	main:web_support_router	semantic_review
+mounted	E	E-02/E-09	PATCH	/api/v1/clubs/{club_id:uuid}/lifecycle	backend/app/api/v1/clubs.py	569	api_transition_club_lifecycle	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/admin/support/{conversation_id}/messages	backend/app/web/routes/admin_support.py	161	admin_support_message_submit	main:web_admin_support_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/books/{book_id}/share	backend/app/api/v1/social.py	128	api_share_book	main:social_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/books/{book_id}/share-bulk	backend/app/api/v1/social.py	153	api_share_book_bulk	main:social_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/	backend/app/api/v1/clubs.py	146	api_create_club	main:clubs_router	path_mentioned
+mounted	E	E-02/E-09	POST	/api/v1/clubs/candidates/{candidate_id}/accept	backend/app/api/v1/clubs.py	185	api_accept_club_candidate	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/invites/{invite_id}/accept	backend/app/api/v1/clubs.py	715	api_accept_club_invite	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/invites/{invite_id}/decline	backend/app/api/v1/clubs.py	732	api_decline_club_invite	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/invites/{invite_id}/revoke	backend/app/api/v1/clubs.py	749	api_revoke_club_invite	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/activation	backend/app/api/v1/clubs.py	366	api_activate_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/activation/evaluate	backend/app/api/v1/clubs.py	333	api_evaluate_club_activation	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/books	backend/app/api/v1/clubs.py	658	api_add_book_to_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/comments	backend/app/api/v1/clubs.py	783	api_create_club_comment	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/comments/{comment_id}/reactions	backend/app/api/v1/clubs.py	805	api_set_club_comment_reaction	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/discussions	backend/app/api/v1/clubs.py	308	api_schedule_club_discussion	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/gathering	backend/app/api/v1/clubs.py	289	api_start_club_gathering	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/host-queue/actions	backend/app/api/v1/clubs.py	506	api_apply_club_host_queue_action	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/invites	backend/app/api/v1/clubs.py	696	api_invite_user_to_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/join	backend/app/api/v1/clubs.py	592	api_join_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/leave	backend/app/api/v1/clubs.py	606	api_leave_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/clubs/{club_id:uuid}/revive	backend/app/api/v1/clubs.py	383	api_revive_club	main:clubs_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/social/book-shares/{share_id}/hide	backend/app/api/v1/social.py	231	api_hide_book_share	main:social_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/social/book-shares/{share_id}/mute-sender	backend/app/api/v1/social.py	268	api_mute_book_share_sender	main:social_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/social/book-shares/{share_id}/open	backend/app/api/v1/social.py	214	api_open_book_share	main:social_router	semantic_review
+mounted	E	E-02/E-09	POST	/api/v1/social/book-shares/{share_id}/report	backend/app/api/v1/social.py	248	api_report_book_share	main:social_router	semantic_review
+mounted	E	E-02/E-09	POST	/books/{book_ref}/collect	backend/app/web/routes/collections.py	388	book_collect_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/collections	backend/app/web/routes/collections.py	179	collection_create_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/collections/{collection_id}/books	backend/app/web/routes/collections.py	351	collection_add_book_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/collections/{collection_id}/comments	backend/app/web/routes/collections.py	276	collection_comment_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/collections/{collection_id}/comments/{comment_id}/delete	backend/app/web/routes/collections.py	312	collection_comment_delete_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/collections/{collection_id}/delete	backend/app/web/routes/collections.py	257	collection_delete_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/collections/{collection_id}/rate	backend/app/web/routes/collections.py	334	collection_rate_submit	main:web_collections_router	semantic_review
+mounted	E	E-02/E-09	POST	/mail/start/{recipient_user_id}	backend/app/web/routes/mail.py	191	mail_start_submit	main:web_mail_router	semantic_review
+mounted	E	E-02/E-09	POST	/mail/{conversation_id}/messages	backend/app/web/routes/mail.py	324	mail_message_submit	main:web_mail_router	semantic_review
+mounted	E	E-02/E-09	POST	/moderation/books/{book_id}/visibility	backend/app/web/routes/moderation.py	213	moderation_book_visibility_submit	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	POST	/moderation/chapters/{chapter_id}/{action}	backend/app/web/routes/moderation.py	143	moderation_chapter_action_submit	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	POST	/moderation/reports/{report_id}/{action}	backend/app/web/routes/moderation.py	267	moderation_report_action_submit	main:web_moderation_router	semantic_review
+mounted	E	E-02/E-09	POST	/notifications/discussions/{thread_id}/reply	backend/app/web/routes/notifications.py	260	discussion_reply_submit	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	POST	/notifications/discussions/{thread_id}/seen	backend/app/web/routes/notifications.py	235	discussion_seen_submit	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	POST	/notifications/discussions/{thread_id}/text-issue	backend/app/web/routes/notifications.py	375	discussion_text_issue_submit	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	POST	/notifications/preferences	backend/app/web/routes/notifications.py	529	notifications_preferences_submit	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	POST	/notifications/read-all	backend/app/web/routes/notifications.py	519	notifications_read_all_submit	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	POST	/notifications/{notification_id}/read	backend/app/web/routes/notifications.py	501	notification_read_submit	main:web_notifications_router	semantic_review
+mounted	E	E-02/E-09	POST	/report/{target_type}/{target_id}	backend/app/web/routes/reports.py	41	create_report_submit	main:web_reports_router	semantic_review
+mounted	E	E-02/E-09	POST	/support/messages	backend/app/web/routes/support.py	131	support_message_submit	main:web_support_router	semantic_review
+mounted	E,H	E-08/H-12	GET	/admin/mail	backend/app/web/routes/mail_admin_routes.py	add_api_route	admin_mail_page	mail.register_mail_admin_routes	semantic_review
+mounted	E,H	E-08/H-12	GET	/admin/mail/users/{user_id}	backend/app/web/routes/mail_admin_routes.py	add_api_route	admin_mail_user_page	mail.register_mail_admin_routes	semantic_review
+mounted	E,H	E-08/H-12	GET	/admin/mail/{conversation_id}	backend/app/web/routes/mail_admin_routes.py	add_api_route	admin_mail_detail_page	mail.register_mail_admin_routes	semantic_review
+mounted	F	F-02/F-07	GET	/	backend/app/web/routes/home.py	436	home	main:web_home_router	path_mentioned
+mounted	F	F-02/F-07	GET	/admin/news	backend/app/web/routes/admin_news.py	43	admin_news_page	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/news/create	backend/app/web/routes/admin_news.py	60	admin_news_create_page	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/news/{news_id}/edit	backend/app/web/routes/admin_news.py	117	admin_news_edit_page	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/recommendations	backend/app/web/routes/admin_recommendations.py	53	admin_recommendations_page	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/recommendations/behavior-paths/diagnostics.json	backend/app/web/routes/admin_recommendations.py	201	admin_recommendations_behavior_paths_diagnostics_json	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/referrals	backend/app/web/routes/admin_referrals.py	208	admin_referrals_json	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/seo	backend/app/web/routes/admin_seo.py	34	admin_seo_page	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/admin/seo.json	backend/app/web/routes/admin_seo.py	19	admin_seo_json	facade:admin	semantic_review
+mounted	F	F-02/F-07	GET	/catalog	backend/app/web/routes/catalog.py	20	catalog_page	main:web_catalog_router	semantic_review
+mounted	F	F-02/F-07	GET	/genres	backend/app/web/routes/genres.py	44	genres_index_page	main:web_genres_router	semantic_review
+mounted	F	F-02/F-07	GET	/genres/{slug}	backend/app/web/routes/genres.py	86	genre_hub_page	main:web_genres_router	semantic_review
+mounted	F	F-02/F-07	GET	/go/{alias}	backend/app/web/routes/referrals.py	27	referral_go_alias_redirect	main:web_referrals_router	semantic_review
+mounted	F	F-02/F-07	GET	/me	backend/app/web/routes/dashboard.py	27	dashboard_page	main:web_dashboard_router	path_mentioned
+mounted	F	F-02/F-07	GET	/me/referrals	backend/app/web/routes/referrals.py	33	referrals_page	main:web_referrals_router	semantic_review
+mounted	F	F-02/F-07	GET	/news	backend/app/web/routes/project_news.py	30	project_news_index_page	main:web_project_news_router	semantic_review
+mounted	F	F-02/F-07	GET	/news/{news_id}	backend/app/web/routes/project_news.py	69	project_news_detail_page	main:web_project_news_router	semantic_review
+mounted	F	F-02/F-07	GET	/promo/{alias}	backend/app/web/routes/referrals.py	30	referral_promo_alias_redirect	main:web_referrals_router	semantic_review
+mounted	F	F-02/F-07	GET	/robots.txt	backend/app/web/routes/seo.py	356	robots_txt	main:web_seo_router	path_mentioned
+mounted	F	F-02/F-07	GET	/sitemap-books.xml	backend/app/web/routes/seo.py	479	sitemap_books_xml	main:web_seo_router	semantic_review
+mounted	F	F-02/F-07	GET	/sitemap-news.xml	backend/app/web/routes/seo.py	447	sitemap_news_xml	main:web_seo_router	semantic_review
+mounted	F	F-02/F-07	GET	/sitemap-pages.xml	backend/app/web/routes/seo.py	420	sitemap_pages_xml	main:web_seo_router	semantic_review
+mounted	F	F-02/F-07	GET	/sitemap.xml	backend/app/web/routes/seo.py	386	sitemap_xml	main:web_seo_router	path_mentioned
+mounted	F	F-02/F-07	POST	/admin/news/create	backend/app/web/routes/admin_news.py	78	admin_news_create_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/news/{news_id}/edit	backend/app/web/routes/admin_news.py	138	admin_news_edit_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/news/{news_id}/publish	backend/app/web/routes/admin_news.py	178	admin_news_publish_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/recommendations/activate	backend/app/web/routes/admin_recommendations.py	232	admin_recommendations_activate_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/recommendations/behavior-paths/enqueue	backend/app/web/routes/admin_recommendations.py	154	admin_recommendations_behavior_paths_enqueue_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/recommendations/materialization/enqueue	backend/app/web/routes/admin_recommendations.py	114	admin_recommendations_materialization_enqueue_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/recommendations/rollback	backend/app/web/routes/admin_recommendations.py	261	admin_recommendations_rollback_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/attributions/{attribution_id}/block	backend/app/web/routes/admin_referrals.py	290	admin_referral_attribution_block_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/attributions/{attribution_id}/unblock	backend/app/web/routes/admin_referrals.py	313	admin_referral_attribution_unblock_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/attributions/{attribution_id}/under-review	backend/app/web/routes/admin_referrals.py	336	admin_referral_attribution_under_review_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/clawbacks/{clawback_id}/platform-loss	backend/app/web/routes/admin_referrals.py	378	admin_referral_clawback_platform_loss_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/codes/{code}/disable	backend/app/web/routes/admin_referrals.py	256	admin_referral_code_disable_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/codes/{code}/enable	backend/app/web/routes/admin_referrals.py	273	admin_referral_code_enable_submit	facade:admin	semantic_review
+mounted	F	F-02/F-07	POST	/admin/referrals/reconciliation/enqueue	backend/app/web/routes/admin_referrals.py	359	admin_referral_reconciliation_enqueue_submit	facade:admin	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/api/v1/ads/chapter-ads/account<dynamic>	backend/app/advertising/chapter_ads/api/v1/account.py	34	get_chapter_ad_account	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/api/v1/ads/chapter-ads/packages<dynamic>	backend/app/advertising/chapter_ads/api/v1/packages.py	16	list_chapter_ad_packages	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/api/v1/ads/feed/main	backend/app/advertising/api/v1/feed.py	200	get_main_feed	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/api/v1/ads/ping	backend/app/advertising/api/v1/__init__.py	19	ads_ping	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/api/v1/ads/trending<dynamic>	backend/app/advertising/api/v1/trending.py	33	get_trending	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/dashboard/advertising	backend/app/web/routes/dashboard_advertising.py	159	advertising_dashboard_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/dashboard/advertising/chapter	backend/app/web/routes/dashboard_advertising.py	290	chapter_ads_dashboard_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/dashboard/advertising/chapter/publisher	backend/app/web/routes/dashboard_advertising.py	365	chapter_ads_publisher_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/dashboard/advertising/chapter/{campaign_id}	backend/app/web/routes/dashboard_advertising.py	482	chapter_ad_campaign_detail_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/dashboard/advertising/create	backend/app/web/routes/dashboard_advertising.py	188	advertising_create_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/dashboard/advertising/{campaign_id}	backend/app/web/routes/dashboard_advertising.py	530	advertising_campaign_detail_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/me/ads	backend/app/web/routes/dashboard_advertising.py	158	advertising_dashboard_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/me/ads/chapter	backend/app/web/routes/dashboard_advertising.py	289	chapter_ads_dashboard_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/me/ads/chapter/publisher	backend/app/web/routes/dashboard_advertising.py	364	chapter_ads_publisher_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/me/ads/chapter/{campaign_id}	backend/app/web/routes/dashboard_advertising.py	481	chapter_ad_campaign_detail_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/me/ads/create	backend/app/web/routes/dashboard_advertising.py	187	advertising_create_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	GET	/me/ads/{campaign_id}	backend/app/web/routes/dashboard_advertising.py	529	advertising_campaign_detail_page	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/analytics/click	backend/app/advertising/api/v1/analytics.py	63	track_click	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/analytics/impressions/batch	backend/app/advertising/api/v1/analytics.py	36	track_impressions_batch	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/campaigns/calculate	backend/app/advertising/api/v1/campaigns.py	43	calculate_campaign	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/campaigns/purchase	backend/app/advertising/api/v1/campaigns.py	76	purchase_campaign	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/chapter-ads/account/disable	backend/app/advertising/chapter_ads/api/v1/account.py	64	disable_chapter_ad_account	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/chapter-ads/account/enable	backend/app/advertising/chapter_ads/api/v1/account.py	44	enable_chapter_ad_account	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/api/v1/ads/chapter-ads/campaigns/purchase	backend/app/advertising/chapter_ads/api/v1/campaigns.py	21	purchase_chapter_ad_campaign	main:advertising_router nested	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/dashboard/advertising/chapter/market-overview/refresh	backend/app/web/routes/dashboard_advertising.py	463	chapter_ads_market_overview_refresh_submit	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/dashboard/advertising/chapter/purchase	backend/app/web/routes/dashboard_advertising.py	412	chapter_ad_campaign_purchase_submit	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/dashboard/advertising/create	backend/app/web/routes/dashboard_advertising.py	222	advertising_create_submit	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/me/ads/chapter/market-overview/refresh	backend/app/web/routes/dashboard_advertising.py	462	chapter_ads_market_overview_refresh_submit	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/me/ads/chapter/purchase	backend/app/web/routes/dashboard_advertising.py	411	chapter_ad_campaign_purchase_submit	main:web_dashboard_advertising_router	semantic_review
+mounted	F,D	F-10/F-11/D-11	POST	/me/ads/create	backend/app/web/routes/dashboard_advertising.py	221	advertising_create_submit	main:web_dashboard_advertising_router	semantic_review
+mounted	G	G-02/G-05	GET	/i/{token}.{extension}	backend/app/web/routes/internal_images.py	24	public_book_cover_alias	main:web_internal_images_router	semantic_review
+mounted	G	G-02/G-05	POST	/internal/covers/callback	backend/app/web/routes/internal_images.py	52	image_worker_cover_callback	main:web_internal_images_router	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin	backend/app/web/routes/admin_content.py	102	admin_index_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/behavior-deltas	backend/app/web/routes/admin_observability.py	479	admin_behavior_deltas_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/behavior-sketches.json	backend/app/web/routes/admin_observability.py	224	admin_behavior_sketches_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/books	backend/app/web/routes/admin_content.py	155	admin_books_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/daily-reader-digest.json	backend/app/web/routes/admin_analytics.py	75	admin_daily_reader_digest_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/data-quality	backend/app/web/routes/admin_health.py	227	admin_data_quality_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/data-quality.json	backend/app/web/routes/admin_health.py	201	admin_data_quality_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/function-probes	backend/app/web/routes/admin_observability.py	131	admin_function_probes_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/function-probes.json	backend/app/web/routes/admin_observability.py	344	admin_function_probes_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/function-probes/{trace_ref}.json	backend/app/web/routes/admin_observability.py	435	admin_function_probe_trace_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/health	backend/app/web/routes/admin_health.py	164	admin_platform_health_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/health.json	backend/app/web/routes/admin_health.py	135	admin_platform_health_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/jobs	backend/app/web/routes/admin_health.py	302	admin_deferred_jobs_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/jobs.json	backend/app/web/routes/admin_health.py	280	admin_deferred_jobs_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/reader-analytics	backend/app/web/routes/admin_analytics.py	193	admin_reader_analytics_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/reading-time	backend/app/web/routes/admin_analytics.py	164	admin_reading_time_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/reading-universe	backend/app/web/routes/admin_analytics.py	146	admin_reading_universe_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/route-governance	backend/app/web/routes/admin_route_governance.py	120	admin_route_governance_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/route-governance.json	backend/app/web/routes/admin_route_governance.py	63	admin_route_governance_json	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/storage/diagnostics	backend/app/web/routes/admin_observability.py	161	admin_storage_diagnostics_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/taxonomies	backend/app/web/routes/admin_content.py	200	admin_taxonomies_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/admin/users	backend/app/web/routes/admin_content.py	118	admin_users_page	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	GET	/api/v1/admin/books/engagement-integrity	backend/app/api/v1/admin_books.py	193	api_get_book_engagement_integrity	main:admin_books_router	semantic_review
+mounted	I	ADM-01/I-13	GET	/api/v1/admin/books/recommendations/health	backend/app/api/v1/admin_books.py	122	api_get_recommendation_health	main:admin_books_router	semantic_review
+mounted	I	ADM-01/I-13	GET	/api/v1/admin/books/{book_id}	backend/app/api/v1/admin_books.py	204	api_get_book_moderation	main:admin_books_router	semantic_review
+mounted	I	ADM-01/I-13	GET	/api/v1/admin/taxonomies<dynamic>	backend/app/api/v1/admin_taxonomies.py	38	list_taxonomies_api	main:admin_taxonomies_router	semantic_review
+mounted	I	ADM-01/I-13	POST	/admin/books/{book_id}/shadow-availability	backend/app/web/routes/admin_content.py	362	admin_book_shadow_availability_submit	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	POST	/admin/books/{book_id}/visibility	backend/app/web/routes/admin_content.py	314	admin_book_visibility_submit	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	POST	/admin/function-probes/reset	backend/app/web/routes/admin_observability.py	215	admin_function_probes_reset_submit	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	POST	/admin/reader-analytics/refresh	backend/app/web/routes/admin_analytics.py	235	admin_reader_analytics_refresh_submit	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	POST	/admin/taxonomies/merge	backend/app/web/routes/admin_content.py	263	admin_taxonomies_merge_submit	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	POST	/admin/users/{user_id}/role	backend/app/web/routes/admin_content.py	140	admin_user_role_submit	facade:admin	semantic_review
+mounted	I	ADM-01/I-13	POST	/api/v1/admin/books/recommendations/activate	backend/app/api/v1/admin_books.py	146	api_activate_recommendation_generation	main:admin_books_router	semantic_review
+mounted	I	ADM-01/I-13	POST	/api/v1/admin/books/{book_id}/visibility	backend/app/api/v1/admin_books.py	216	api_update_book_visibility	main:admin_books_router	semantic_review
+mounted	I	ADM-01/I-13	POST	/api/v1/admin/taxonomies/merge	backend/app/api/v1/admin_taxonomies.py	76	merge_taxonomies_api	main:admin_taxonomies_router	semantic_review
+mounted	I	I-10/I-13	GET	/health	backend/app/main.py	2978	healthcheck	main:app.decorator	path_mentioned
+mounted	I	I-10/I-13	GET	/health/live	backend/app/main.py	2984	liveness	main:app.decorator	semantic_review
+mounted	I	I-10/I-13	GET	/health/ready	backend/app/main.py	2990	readiness	main:app.decorator	semantic_review
+mounted	I	I-10/I-13	GET	/metrics	backend/app/main.py	3149	metrics	main:app.decorator	path_mentioned
+mounted	I	I-10/I-13	GET	/service-info	backend/app/main.py	2972	service_info	main:app.decorator	semantic_review
+mounted	I,H	requires-owner-review	DELETE	/api/v1/books/{book_id}/chapters/{chapter_id}	backend/app/api/v1/chapters.py	146	api_delete_chapter	main:chapters_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/books/{book_id}/chapters/	backend/app/api/v1/chapters.py	44	api_list_chapters	main:chapters_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/books/{book_id}/chapters/{chapter_id}/preview	backend/app/api/v1/chapters.py	200	api_get_public_chapter_preview	main:chapters_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/books/{book_id}/chapters/{chapter_id}/public	backend/app/api/v1/chapters.py	167	api_get_public_chapter	main:chapters_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/books/{book_id}/transfers/	backend/app/api/v1/transfers.py	42	api_get_transfer_history	main:transfers_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/me/dashboard	backend/app/api/v1/me.py	49	api_user_dashboard	main:me_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/me/notification-delivery	backend/app/api/v1/me.py	92	api_get_notification_delivery_settings	main:me_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/api/v1/me/updates	backend/app/api/v1/me.py	58	api_user_updates	main:me_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/internal/behavior-deltas/diagnostics/summary	backend/app/api/internal/behavior_deltas.py	280	get_behavior_delta_diagnostics_summary	main:internal_behavior_deltas_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/me/access	backend/app/web/routes/access.py	36	my_access_page	main:web_access_router	semantic_review
+mounted	I,H	requires-owner-review	GET	/me/finance	backend/app/web/routes/finance.py	20	finance_page	main:web_finance_router	semantic_review
+mounted	I,H	requires-owner-review	PATCH	/api/v1/books/{book_id}/chapters/{chapter_id}	backend/app/api/v1/chapters.py	90	api_update_chapter	main:chapters_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/api/v1/books/{book_id}/chapters/	backend/app/api/v1/chapters.py	66	api_create_chapter	main:chapters_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/api/v1/books/{book_id}/transfers/	backend/app/api/v1/transfers.py	68	api_transfer_book	main:transfers_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/internal/analytics/events	backend/app/api/internal/analytics_events.py	21	ingest_analytics_events	main:internal_analytics_events_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/internal/behavior-deltas/flush-once	backend/app/api/internal/behavior_deltas.py	218	flush_behavior_deltas_once	main:internal_behavior_deltas_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/internal/behavior-deltas/retention/cleanup	backend/app/api/internal/behavior_deltas.py	266	cleanup_behavior_delta_retention	main:internal_behavior_deltas_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/internal/behavior-deltas/rollup/daily	backend/app/api/internal/behavior_deltas.py	238	rollup_behavior_deltas_daily	main:internal_behavior_deltas_router	semantic_review
+mounted	I,H	requires-owner-review	POST	/me/finance/payouts/request	backend/app/web/routes/finance.py	48	finance_payout_request_submit	main:web_finance_router	semantic_review
+mounted	I,H	requires-owner-review	PUT	/api/v1/me/notification-delivery	backend/app/api/v1/me.py	99	api_update_notification_delivery_settings	main:me_router	semantic_review
+unconfirmed_mount	B	B-02/B-06/B-08	POST	/books/{book_ref}/settings/revenue-shares	backend/app/web/routes/books_settings.py	1271	book_settings_revenue_shares_submit		mount_review
