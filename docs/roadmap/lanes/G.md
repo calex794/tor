@@ -2,6 +2,8 @@
 
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7732/g-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
+**Уточнение аудита 26.10:** обновление рекомендательных generations и ad serving требует durable jobs и bounded delivery ([REC](../recommendations-execution-contract.md), [ADS](../ads-execution-contract.md)); G не выдаёт права, не списывает деньги, не меняет authoritative book content. Парсеры проверяются по реальному allowlist и сохранённым HTML fixtures.
+
 **Решения уже приняты:** [архитектура](../decisions-v1.md), [API](../api-v1.md), [схема PG, события и лимиты](../data-and-events.md), [режим тестов/фикстуры](../tests-and-handoffs.md). Фраза «сверить» в старой карточке означает **доказать соответствие выбранному контракту**, а не придумать новую архитектуру.
 
 **Смежные линии:** I outbox contract, B authoritative book commands, D purchase events, E subscriptions, F projections; G не пишет чужие таблицы.

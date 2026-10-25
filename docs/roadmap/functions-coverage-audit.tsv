@@ -1,0 +1,63 @@
+# F001-F061 functional audit 2026-10-26. planned is NOT implemented; insufficient means parent-task present but no execution-ready detailed contract.
+code	function	lane	scenarios	tor_tasks	roadmap_depth	specific_remaining_item	notion_source	neboo_state
+F001	Регистрация, вход по паролю и выход	A	S002	A-02,A-03	planned		https://app.notion.com/p/40432a84beec8165b204ef24085608d9	Код в main
+F002	Вход через Яндекс и подтверждение чувствительных действий	A	S003	A-08	external_gate	OAuth/подтверждение чувствительных действий: реальные credentials, state/nonce, step-up и recovery	https://app.notion.com/p/40432a84beec812e8497ccd35aae86c7	Код в main
+F003	Настройки аккаунта: пароль, 18+, delivery и handle	A	S004	A-06,A-07	planned		https://app.notion.com/p/40432a84beec81a7922cfaa513cefb18	Код в main
+F004	Каталог, поиск и фильтры обнаружения книг	F	S001	F-02,F-03	planned		https://app.notion.com/p/40432a84beec8148879be80f6fd57535	Код в main
+F005	Главная страница и её кэшируемые витрины	F	S001	F-04	insufficient	Кэш витрин: invalidation, stale budget, visibility и метрики попаданий	https://app.notion.com/p/40432a84beec81b095d8cb7d24de5f4b	Код в main
+F006	Карточка книги, оглавление и связанные сведения	B	S001,S020,S065	B-12,C-03	planned		https://app.notion.com/p/40432a84beec8127afbcc6a57c5e1ba5	Код в main
+F007	Открытие главы в читалке	C	S005,S065	C-02,C-07,C-11	planned		https://app.notion.com/p/40432a84beec816191b7f422ffa6019b	Код в main
+F008	Сохранение прогресса и «Продолжить чтение»	C	S006	C-04,C-06,C-09	planned		https://app.notion.com/p/40432a84beec814995c3c75b94b7965c	Код в main
+F009	Библиотека и добавление книги в неё	C	S007	C-08	planned		https://app.notion.com/p/40432a84beec81f69d6de473f8b34745	Код в main
+F010	Попарный личный рейтинг и явные предпочтения	F	S008	F-05	insufficient	Pairwise алгоритм: eligibility/exhausted/defer/resume и детерминизм результатов	https://app.notion.com/p/40432a84beec812bb350c7ebe079638a	Код в main
+F011	Коллекции книг: создание, состав, оценки и комментарии	E	S009,S010	E-07	insufficient	Коллекция: отдельные оценки/комментарии, видимость и право редактирования	https://app.notion.com/p/40432a84beec81dc9a5fd993ad740cec	Код в main
+F012	Комментарии к главе, привязки к тексту и благодарности	E	S011,S013	E-02,E-04	planned		https://app.notion.com/p/40432a84beec81c89877ca8df4b98ab4	Код в main
+F013	Единый Inbox обсуждений, упоминания и спойлеры	E	S012,S013	E-03,E-04	planned		https://app.notion.com/p/40432a84beec814da202de57002ec078	Код в main
+F014	Клубы и превращение обсуждений в Club Factory	E	S063,S064	E-09	insufficient	Club Factory candidate→activation→membership/host queue и пользовательская поверхность	https://app.notion.com/p/40432a84beec8179be2bfe57c0c062b7	Код в main
+F015	Профили, подписка на автора, дружба и блокировка	E	S014,S015	E-05,E-06	planned		https://app.notion.com/p/40432a84beec81dfba76dc7e6a1354c1	Код в main
+F016	Поделиться книгой и управлять полученными рекомендациями друзей	E	S016,S017	E-06,E-07	planned		https://app.notion.com/p/40432a84beec8185b466f3ea5208a3fb	Код в main
+F017	Уведомления, обновления, дайджесты и предпочтения доставки	E	S018	E-05,G-08	insufficient	Inbox/digest: правила агрегации, realtime и внешняя доставка после restart	https://app.notion.com/p/40432a84beec8153b8b6d4f3776c3b9e	Код в main
+F018	Создание и настройки публичной книги	B	S019,S020	B-02	planned		https://app.notion.com/p/40432a84beec81428e75dd088f31154f	Код в main
+F019	Главы, версии и редактор контента	B	S021,S022	B-03,B-04	planned		https://app.notion.com/p/40432a84beec81ecad5bd3be9c053929	Код в main
+F020	Импорт файла с главами и статус фоновой задачи	G	S023	G-02,G-04	planned		https://app.notion.com/p/40432a84beec81ff977ff8c4ddcb4a97	Код в main
+F021	Импорт книги по URL, краулер и управление заданиями	G	S024	G-03,G-04	insufficient	Конкретный allowlist сайтов, fixture каждого парсера, robots/ошибки/повтор	https://app.notion.com/p/40432a84beec81959f52df54923ff337	Код в main
+F022	Обложки и обработка изображений Rust worker	G	S025	G-05,G-09	insufficient	Физическое хранилище, права доступа к объектам, garbage collection и восстановление	https://app.notion.com/p/40432a84beec8186bd08d8e7461124c8	Код в main
+F023	Команды, приглашения, книги команды и аналитика	B	S026,S027,S028,S029	B-08,B-09,B-14	planned		https://app.notion.com/p/40432a84beec81499be7d5be57bacce3	Код в main
+F024	Участники книги, передача владельца и доли доходов	B,D	S030	B-09,B-10,D-08	insufficient	Разграничить смену долей и immutable snapshot по уже оплаченным покупкам	https://app.notion.com/p/40432a84beec814cbe94c7b778a984a9	Код в main
+F025	Слои книг, управление составом и покупка доступа	D	S031,S032	D-05	insufficient	Не описан living-layer: latest pointer, новые книги, 30d/lifetime, refund term и admin revoke	https://app.notion.com/p/40432a84beec8193a0a6f581b4cfedd8	Код в main
+F026	Личные книги и приватные главы	B	S033	B-11	planned		https://app.notion.com/p/40432a84beec8169bd21eb4ce69445e9	Код в main
+F027	Кошелёк, покупка главы и пакетная покупка выбранных глав	D	S034,S035	D-02,D-04	insufficient	Комиссии/пакетные покупки, retry after commit и единицы оплаты должны иметь DDL/тесты	https://app.notion.com/p/40432a84beec8187b74be7dd63bcb8d5	Код в main
+F028	Заявка на возврат и обмен покупки	D	S036,S037	D-06,D-07	insufficient	Политика возврата/обмена и отделение system disposition от buyer refund	https://app.notion.com/p/40432a84beec81838188eacf363be8a7	Код в main
+F029	Финансовый кабинет и заявка на выплату	D	S038	D-08,D-09	insufficient	Удержания, доступный доход, период созревания и финансовый реестр выплат	https://app.notion.com/p/40432a84beec81379a54c799e8e199e8	Код в main
+F030	Boosty: диагностическое наблюдение платежей	-	S040	-	excluded	Исторический read-only probe, не подменять рабочим Boosty шлюзом	https://app.notion.com/p/40432a84beec812b962be16a2d20342d	Код в main
+F031	Рекламные кампании и кабинет рекламодателя	F,D	S042	F-10,F-11,D-11	insufficient	Отдельная реклама по дням: fully-prepaid, цена, кампания, слот, обслуживание, отчёт, возврат	https://app.notion.com/p/40432a84beec81a4a9b3d5c6b879aa45	Код в main
+F032	Реклама в главах и кабинет издателя	F,D	S043	F-10,F-11,D-11	insufficient	Chapter Ads: escrow, лимит показов/бюджета, алгоритм мест, реальные показы, settlement, publisher	https://app.notion.com/p/40432a84beec8187a51acc38353d7d09	Код в main
+F033	Рекомендательный движок и runtime diagnostics	F	S044	F-07	insufficient	Candidate sources, scoring/normalization, privacy/eligibility, cold start, generations, rollout	https://app.notion.com/p/40432a84beec81e28614f34d52c86775	Код в main
+F034	«Вселенная чтения»: общая, книжная и пользовательская ленты	F	S045	F-06,G-10	insufficient	Материализация книжной/пользовательской/глобальной ленты, cleanup и freshness	https://app.notion.com/p/40432a84beec8111aebadf1280e211f3	Код в main
+F035	Достижения и обработка событий читательского прогресса	F	S046	F-12	insufficient	Reducer achievements и критерии meaningful-read vs page view / антифрод	https://app.notion.com/p/40432a84beec81899e2bc23a88c26f05	Код в main
+F036	Сообщение об ошибке текста и авторский inbox задач	E,B	S047,S048	E-12,B-13	planned		https://app.notion.com/p/40432a84beec8133b656fca1154229e6	Код в main
+F037	Жалобы, модерация книги и главы	E	S049	E-10	planned		https://app.notion.com/p/40432a84beec815caa74f6e83f787915	Код в main
+F038	Чат поддержки и административная переписка	E	S050,S051	E-11	planned		https://app.notion.com/p/40432a84beec81b2876fd64ec957f806	Код в main
+F039	Реферальные ссылки и кабинет	F,D	S052	F-09,D-11	insufficient	Attribution антифрод, окно конверсии, reward only via D ledger	https://app.notion.com/p/40432a84beec811bbe0ddea6f114c7bc	Код в main
+F040	Интерактивные сцены: assets, timeline и reader rendering	-	S053	-	frozen	Сценовый reader/editor заморожен	https://app.notion.com/p/40432a84beec8155860de30a60e9a89b	Код в main
+F041	Библиотека пресетов сцен: версии, preview, установка, модерация	-	S054	-	frozen	Сценовые presets заморожены	https://app.notion.com/p/40432a84beec81ec8618f9ed6220551e	Код в main
+F042	Маркетплейс сцен: предложения, покупки, возвраты, отзывы	-	S055,S056	-	frozen	Маркетплейс сцен заморожен	https://app.notion.com/p/40432a84beec81aea196f2880926a41b	Код в main
+F043	Антибот, rate limiting и защита reader payload	A,C	S065	A-09,C-10,C-11	insufficient	Антибот и кэш платного reader, отзываемые контексты, лимиты на все поверхности	https://app.notion.com/p/40432a84beec8119aea6f99a5b1ae6cf	Код в main
+F044	YDB persistence, native async и миграции схемы	I	S061	I-03,I-05	replaced	YDB не переносить; заменить Rust+PostgreSQL, миграции/new schema	https://app.notion.com/p/40432a84beec8145a4d4d921de905aa3	Код в main
+F045	S3-объекты, регистрация и жизненный цикл медиа/текста	G	S025	G-09	insufficient	S3 object/key lifecycle, cleanup после неудачных транзакций, pin версий	https://app.notion.com/p/40432a84beec81f4b9c3faab1a82da5d	Код в main
+F046	Durable jobs, outbox и фоновые workers	G	S066	G-06,G-07	planned		https://app.notion.com/p/40432a84beec8179ac48ef561a00c3e4	Код в main
+F047	Serving projections и фоновая материализация	G,F	S066	G-10,F-13	insufficient	Версионирование проекций, инвалидация/активация, bounded backfill/rollback	https://app.notion.com/p/40432a84beec8154988af837cc098ab0	Код в main
+F048	Request tracing, метрики и диагностика маршрутов	I	S059	I-09,I-13	planned		https://app.notion.com/p/40432a84beec81479732c4b03e9779a5	Код в main
+F049	SEO: robots/sitemap, staged rollout и rollback	F	S060	F-08	planned		https://app.notion.com/p/40432a84beec813eb63cdb2ba284f2cc	Код в main
+F050	Blue/green развёртывание backend и readiness	I	S061	I-10,I-11	replaced	Перенести свойства blue/green/rollback, не Python backend	https://app.notion.com/p/40432a84beec81e5b392f05fc5bd40ba	Код в main
+F051	Выбор затронутых тестов, доменные gates и mutation protocol	I	S062	I-07,I-09	planned		https://app.notion.com/p/40432a84beec81e89a7bf1ca8b00e900	Код в main
+F052	Финансовая админка: зачисление и решение по выплатам	D	S039	D-09,D-13	insufficient	Права финансового админа, гонки approval, ledger/audit/внешний settlement	https://app.notion.com/p/40432a84beec81a6a27eca4ff0d4a214	Код в main
+F053	Личная почта: диалоги и polling новых сообщений	E	S057	E-08	planned		https://app.notion.com/p/40432a84beec811aade3fa4341f3ecf0	Код в main
+F054	Отложенная публикация книги/глав	B,G	S058	B-07,G-07	planned		https://app.notion.com/p/40432a84beec81d8be83f8207461a13e	Код в main
+F055	Проверка права открыть главу и начать покупку	A,C,D	S005,S065	C-01,C-07,D-03	insufficient	Нет единой матрицы decision precedence для layer grant, paid pin, hold, withdraw, owner	https://app.notion.com/p/40432a84beec8121a5fdda656a4f1c9d	Код в main
+F056	Читательская и поведенческая аналитика	F,I	S046,S059	F-12,I-09	insufficient	События meaningful read, funnel, дедупликация и privacy/retention метрик	https://app.notion.com/p/40432a84beec81ae8cb2c96aeef648d0	Код в main
+F057	Факты книги → контролируемая матрица видеокреативов	F	S068	F-14	research_only	PR-only матрица видеокреативов, не running feature NEwBOO	https://app.notion.com/p/40432a84beec81c4a8d2ef4067aa9ccc	PR / не объединено
+F058	Архитектурная карта и roadmap в корневом README	-	S069	-	excluded	Draft PR docs, техническое описательное приложение	https://app.notion.com/p/40432a84beec81b081e9fc60c070a538	PR / не объединено
+F059	Отдельный Shadow backend: каталог, reader и chat routes	-	S067	-	excluded	Separate Shadow Python backend не нужен	https://app.notion.com/p/40432a84beec819098dac9d286542aca	Код в main
+F060	Редактор персонажей интерактивной сцены	-	S053	-	frozen	Студия персонажей сцен заморожена	https://app.notion.com/p/40432a84beec8161b78acefa5681d642	Код в main
+F061	Автоматическое пополнение кошелька через Boosty	D	S041	D-10	external_gate	Нет подтверждённого Boosty callback/verified payment; не открывать wallet topup	https://app.notion.com/p/40432a84beec81328d0fd3745227adb9	Не подтверждено

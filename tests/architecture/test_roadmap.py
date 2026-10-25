@@ -15,7 +15,7 @@ class RoadmapTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = pathlib.Path(self.temp.name)
         (self.root / "docs" / "roadmap").mkdir(parents=True)
-        for name in ("scenarios.tsv", "tasks.tsv", "sources.lock.toml", "api-v1.md"):
+        for name in ("scenarios.tsv", "tasks.tsv", "sources.lock.toml", "api-v1.md", "functions-coverage-audit.tsv"):
             shutil.copyfile(ROOT / "docs" / "roadmap" / name, self.root / "docs" / "roadmap" / name)
 
     def mutate(self, name, old, new):
@@ -38,6 +38,20 @@ class RoadmapTests(unittest.TestCase):
     def test_missing_contract_detected(self):
         self.mutate("scenarios.tsv", "POST /register; POST /login; POST /logout", "")
         self.assertTrue(any("missing chosen TOR entrypoint" in e for e in check(self.root)))
+
+    def test_missing_function_detected(self):
+        self.mutate("functions-coverage-audit.tsv", "F031\t", "F131\t")
+        self.assertTrue(any("F001..F061" in e for e in check(self.root)))
+
+    def test_insufficient_function_must_have_gap(self):
+        p = self.root / "docs" / "roadmap" / "functions-coverage-audit.tsv"
+        text = p.read_text(encoding="utf-8").splitlines(keepends=True)
+        head = next(i for i, row in enumerate(text) if row.startswith("F031\t"))
+        vals = text[head].rstrip("\n").split("\t")
+        vals[6] = ""
+        text[head] = "\t".join(vals) + "\n"
+        p.write_text("".join(text), encoding="utf-8")
+        self.assertTrue(any("missing concrete implementation/prelaunch gap" in e for e in check(self.root)))
 
     def test_missing_task_detected(self):
         p = self.root / "docs" / "roadmap" / "tasks.tsv"

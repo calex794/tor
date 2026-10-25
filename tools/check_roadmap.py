@@ -145,6 +145,36 @@ def check(root: Path = ROOT) -> list[str]:
             errors.append("JSON idempotency/header contract missing")
     else:
         errors.append("missing docs/roadmap/api-v1.md")
+    # Function-level completeness is separate from the 69 user-scenario audit.
+    # An assigned feature may still lack a policy/algorithm despite having a scenario.
+    function_file = base / "functions-coverage-audit.tsv"
+    if function_file.is_file():
+        functions = load(function_file)
+        function_codes = [row.get("code", "") for row in functions]
+        if function_codes != [f"F{n:03d}" for n in range(1, 62)]:
+            errors.append("function coverage must contain F001..F061 exactly once")
+        allowed_depths = {
+            "planned", "insufficient", "excluded", "frozen",
+            "replaced", "external_gate", "research_only"
+        }
+        for feature in functions:
+            feature_code = feature.get("code", "")
+            depth = feature.get("roadmap_depth", "")
+            if depth not in allowed_depths:
+                errors.append(f"{feature_code}: invalid function coverage classification")
+            if not feature.get("function") or not feature.get("notion_source", "").startswith("https://app.notion.com/"):
+                errors.append(f"{feature_code}: missing source feature/Notion link")
+            if depth in {"insufficient", "external_gate"} and not feature.get("specific_remaining_item"):
+                errors.append(f"{feature_code}: missing concrete implementation/prelaunch gap")
+            if depth in {"planned", "insufficient", "external_gate", "replaced", "research_only"}:
+                for task_id in feature.get("tor_tasks", "").split(","):
+                    if task_id and task_id != "-" and task_id not in keys:
+                        errors.append(f"{feature_code}: nonexistent TOR task {task_id}")
+                for scenario_id in feature.get("scenarios", "").split(","):
+                    if scenario_id not in codes:
+                        errors.append(f"{feature_code}: unknown scenario {scenario_id}")
+    else:
+        errors.append("missing docs/roadmap/functions-coverage-audit.tsv")
     if owners.get("S032") != "D" or "D-05" not in task_refs.get("S032", []):
         errors.append("S032 book layer ownership must be commerce D/D-05")
     return errors
@@ -156,4 +186,4 @@ if __name__ == "__main__":
         print("FAIL:", issue, file=sys.stderr)
     if issues:
         sys.exit(1)
-    print("TOR roadmap coverage: 69/69 classified, 62 owned, 7 excluded, 117 tasks, 9 lanes: PASS")
+    print("TOR roadmap coverage: 69 S, 61 F classified, 117 tasks, 9 lanes: PASS")
