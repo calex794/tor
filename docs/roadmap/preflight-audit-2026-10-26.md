@@ -66,3 +66,10 @@
 ## Решение 26.10.2026 — F021/S024 исключены из TOR
 
 [Notion S024](https://app.notion.com/p/40432a84beec8137a481c358f31df050) и [Notion F021](https://app.notion.com/p/40432a84beec81959f52df54923ff337) зафиксировали запрет URL crawler и сканирования внешних сайтов **без срока**. [G-03](lanes/G.md) — историческая строка среди 117 (не исполнять). С учётом решения: 61 активный сценарий, 8 исключены/заморожены; F021 classification=frozen. Загрузка файла и private S3 живут отдельно и обязательны.
+
+
+## 5. Подготовительные договоры написаны — 26.10.2026 (это не код)
+
+**FIN-01** [арифметика рекламных копеек](../contracts/finance-ad-exact-v1.md) — cumulative floor B×k/N, immutable offer, balance identities и 8 тестов. **FIN-02** [отмена/возврат/удержание/выплата](../contracts/refunds-payouts-v1.md) — state machine, 12 negative tests, trusted external receipts. **ACL** [S3/покупка/Layer](access-authorization-contract.md), **REC** [алгоритм/JSON golden](../contracts/recommendations-golden-v1.md), **FILE** [S3+file import без crawler](../contracts/import-storage-v1.md), **EVT** [RIL/manifest/meaningful read](../contracts/events-analytics-v1.md), **API** [OpenAPI](../contracts/openapi-v1.json), **REL** [15-day profiles+flags](../contracts/release-profile-v1.md). В TOR main пока не создана предметная реализация; каждое заявление о passed PG/Chromium подтверждать независимо.
+
+**Продуктовые границы сохраняются:** тарифы и доли рекламодателя/автора берутся из опубликованного immutable package snapshot; сроки возврата — из версии политики продажи, не из догадки. Боевое включение денег/рекламы/приватного S3 запрещено до реальных внешних доказательств и PG/Browser тестов. F021/S024 остаются заморожены, G-03 архивен. Документы выбирают технические дефолты, **но не создают** договор с Boosty, банковским провайдером, S3 endpoint или согласие пользователей на обработку данных.
