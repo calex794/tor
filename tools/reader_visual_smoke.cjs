@@ -56,6 +56,16 @@ async function inspect(page, name, where) {
       await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
+      const beforeCookies = await page.context().cookies(base);
+      const beforeCsrf = beforeCookies.find(c => c.name === 'tor-dev-csrf');
+      const beforeToken = await page.locator('input[name="csrf_token"]').inputValue();
+      // Never print CSRF/session values. Metadata is sufficient to debug cookies.
+      const before = {
+        csrfCookie: Boolean(beforeCsrf),
+        hasMatchingToken: beforeCsrf ? beforeCsrf.value === beforeToken : false,
+        tokenLength: beforeToken.length,
+        cookieNames: beforeCookies.map(c => c.name),
+      };
       const submitted = page.waitForResponse(response =>
         response.url().endsWith('/register') && response.request().method() === 'POST'
       );
@@ -63,21 +73,16 @@ async function inspect(page, name, where) {
       const registerResponse = await submitted;
       if (registerResponse.status() !== 303) {
         const headers = await registerResponse.request().allHeaders();
-        const cookies = await page.context().cookies(base);
-        const csrf = cookies.find(c => c.name === 'tor-dev-csrf');
-        const formCsrf = await page.locator('input[name="csrf_token"]').inputValue();
-        // Log only metadata, never the CSRF token, session or user password.
-        const diagnostics = {
-          origin: headers.origin || null,
-          fetchSite: headers['sec-fetch-site'] || null,
-          cookieNames: (headers.cookie || '').split(';').map(c => c.trim().split('=')[0]),
-          storedCookieNames: cookies.map(c => c.name),
-          hasMatchingToken: csrf ? csrf.value === formCsrf : false,
-          formTokenLength: formCsrf.length,
-          csrfCookieHttpOnly: csrf ? csrf.httpOnly : null
-        };
+        const requestCookieNames = (headers.cookie || '').split(';')
+          .map(x => x.trim().split('=')[0]).filter(Boolean);
         throw new Error(name + ': register HTTP ' + registerResponse.status() +
-          ', browser URL ' + page.url() + ', diagnostics ' + JSON.stringify(diagnostics));
+          ', diagnostics ' + JSON.stringify({
+            ...before,
+            origin: headers.origin || null,
+            fetchSite: headers['sec-fetch-site'] || null,
+            cookieNamesInRequest: requestCookieNames,
+            postsCsrf: (registerResponse.request().postData() || '').includes('csrf_token=')
+          }));
       }
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
