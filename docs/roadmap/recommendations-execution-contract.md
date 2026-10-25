@@ -1,4 +1,7 @@
 # TOR — рекомендации, поисковые проекции и «Вселенная чтения»: инструкция
+> **Архитектурная граница:** рекомендации — потребитель независимого RIL, а не владелец или определение его назначения. Базовая [спецификация Route Intelligence / Behavior / Governance](../contracts/ril-platform-v1.md), этот документ описывает только F-потребителя. Нельзя сокращать перенос RIL до recommendation signal hygiene.
+
+
 
 **Связанные функции:** F010, F033, F034, F035, F047, F056; S008, S044, S045, S046, S066. Текущий TOR F-05/F-06/F-07/F-12/F-13 — **только родительские задачи**. Старый [NEwBOO recommendations](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/recommendations) содержит **53 отдельных service-модуля**; простое `sort popularity` не восстанавливает его поведение. Достоверные опоры: [hybrid_scoring_service.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/recommendations/services/hybrid_scoring_service.py), [recommendation_service.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/recommendations/services/recommendation_service.py), [runtime_config.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/recommendations/runtime_config.py), [materialization_orchestrator_service.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/recommendations/services/materialization_orchestrator_service.py).
 
