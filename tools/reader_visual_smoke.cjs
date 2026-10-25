@@ -56,8 +56,16 @@ async function inspect(page, name, where) {
       await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
+      const submitted = page.waitForResponse(response =>
+        response.url().endsWith('/register') && response.request().method() === 'POST'
+      );
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
-      await page.waitForURL('**/me');
+      const registerResponse = await submitted;
+      if (registerResponse.status() !== 303) {
+        throw new Error(name + ': register HTTP ' + registerResponse.status() +
+          ', browser URL ' + page.url() + ', response ' + (await registerResponse.text()).slice(0, 400));
+      }
+      await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
       await inspect(page, name, 'me');
       await page.getByRole('button', { name: 'Выйти' }).click();
