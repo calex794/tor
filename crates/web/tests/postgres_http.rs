@@ -42,7 +42,9 @@ async fn pg_live_http_and_private_books() {
 async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     let catalog = PgCatalog::connect(&url).await.expect("tor_app");
-    let reader = tor_reading::repositories::PgReader::connect(&url).await.expect("tor_app");
+    let reader = tor_reading::repositories::PgReader::connect(&url)
+        .await
+        .expect("tor_app");
     let app = tor_web::router_with_postgres_reading(catalog, reader);
     let (status, book) = get(app.clone(), "/books/1").await;
     assert_eq!(status, StatusCode::OK);
@@ -60,6 +62,9 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     assert!(html.contains("href=\"/reader/108\""));
     assert!(!html.contains("PRIVATE-PAID-MARKER"));
     for denied in [102, 103, 104, 105, 106, 107] {
-        assert_eq!(get(app.clone(), &format!("/reader/{denied}")).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(
+            get(app.clone(), &format!("/reader/{denied}")).await.0,
+            StatusCode::NOT_FOUND
+        );
     }
 }

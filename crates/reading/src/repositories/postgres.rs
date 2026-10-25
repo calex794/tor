@@ -1,8 +1,8 @@
 //! SQL-level public book and chapter visibility; raw versions are never returned by ID.
-use async_trait::async_trait;
 use crate::services::{
     PublicBookPage, PublicChapterLink, PublicChapterPage, PublicReadingRepository, ReadingError,
 };
+use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::time::Duration;
 
@@ -44,8 +44,10 @@ impl PgReader {
              JOIN books b ON b.id = c.book_id \
              WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted \
              AND c.visibility='public' AND c.access_level='free' \
-             AND NOT c.admin_hold AND NOT c.is_deleted LIMIT 0"
-        ).execute(&self.pool).await?;
+             AND NOT c.admin_hold AND NOT c.is_deleted LIMIT 0",
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

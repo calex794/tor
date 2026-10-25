@@ -6,7 +6,6 @@ use axum::{
     routing::get,
     Router,
 };
-use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 use std::sync::Arc;
 use tor_books::{
     repositories::PgCatalog,
@@ -14,6 +13,7 @@ use tor_books::{
         CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE,
     },
 };
+use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 mod pages;
 mod safe_markdown;
 

@@ -135,20 +135,30 @@ fn book_detail_body(book: &PublicBookCard, toc: Option<&str>) -> Html<String> {
          <a class=\"button\" href=\"{action}\" >{label}</a>\
          <span class=\"book-detail__note\">Вход для просмотра каталога не требуется</span>\
          </div></div></div></div></section>{toc}",
-        action = if toc.is_some() { "#chapters" } else { "/catalog" },
-        label = if toc.is_some() { "К оглавлению" } else { "Вернуться к книгам" },
+        action = if toc.is_some() {
+            "#chapters"
+        } else {
+            "/catalog"
+        },
+        label = if toc.is_some() {
+            "К оглавлению"
+        } else {
+            "Вернуться к книгам"
+        },
         toc = toc.unwrap_or("")
     );
     layout(&book.title, "Карточка книги в каталоге Пандаолейт.", &body)
 }
 
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
-    let previous = chapter.previous_chapter_id.map(|id| {
-        format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>")
-    }).unwrap_or_default();
-    let next = chapter.next_chapter_id.map(|id| {
-        format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>")
-    }).unwrap_or_default();
+    let previous = chapter
+        .previous_chapter_id
+        .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
+        .unwrap_or_default();
+    let next = chapter
+        .next_chapter_id
+        .map(|id| format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"))
+        .unwrap_or_default();
     let navigation = if previous.is_empty() && next.is_empty() {
         String::new()
     } else {
@@ -160,8 +170,15 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
-        .replace("<!--CHAPTER_CONTENT-->", &crate::safe_markdown::render(&chapter.body_markdown));
-    layout(&chapter.chapter_title, "Опубликованная бесплатная глава.", &html)
+        .replace(
+            "<!--CHAPTER_CONTENT-->",
+            &crate::safe_markdown::render(&chapter.body_markdown),
+        );
+    layout(
+        &chapter.chapter_title,
+        "Опубликованная бесплатная глава.",
+        &html,
+    )
 }
 
 pub async fn stylesheet() -> impl IntoResponse {
