@@ -1,0 +1,32 @@
+name: Repository rules
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tor-verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce required initial files
+        run: |
+          test -s README.md
+          test -s AGENTS.md
+          test -s docs/development.md
+          test -s docs/contracts/README.md
+          test -s docs/deployment.md
+          test -s .github/PULL_REQUEST_TEMPLATE.md
+      - name: Flag insecure deployment shortcuts
+        run: |
+          if grep -R -n -E 'StrictHostKeyChecking=no|--privileged|0\.0\.0\.0:5432' docs .github AGENTS.md; then
+            echo 'Unsafe deployment shortcut in project rules'
+            exit 1
+          fi
+          echo 'Repository documentation checks passed'
