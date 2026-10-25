@@ -63,7 +63,7 @@ class LegacyCoverageTests(unittest.TestCase):
 
     def test_worker_freeze_cannot_be_lifted(self):
         f = "deferred-jobs.tsv"
-        self.edit(f, "scene_marketplace_notification_event\t", "test_scene_marketplace_notification_event\t")
+        self.edit(f, "scene_marketplace_notification_event\t", "plain_notification_event\t")
         problems, _ = audit(self.root)
         self.assertTrue(any("frozen deferred jobs" in x or "freeze" in x for x in problems))
 
