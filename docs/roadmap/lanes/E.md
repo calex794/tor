@@ -10,7 +10,7 @@
 
 ### E-01 — Д0–Д1
 
-**Сделать:** Сверить модели Comments, DiscussionThread, Inbox, relations, privacy и модерационные роли с current NEwBOO.
+**Сделать:** Реализовать Comment, DiscussionThread, InboxEntry, UserRelation и ModeratorScope как типы E-модулей, с единым CommentId/anchor/visibility и запретом копирования приватной цитаты в Inbox; миграции передать I.
 
 **Главный выходной файл:** `crates/discussions/src/domain/comments.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** contracts I; social/domain, discussion schemas
 
