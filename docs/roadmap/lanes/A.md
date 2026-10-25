@@ -10,7 +10,7 @@
 
 ### A-01 — · Д0–Д1
 
-**Сделать:** Сопоставить auth-путь NEwBOO и bokarust; фиксировать методы, поля, ошибки, auth-границы.
+**Сделать:** Создать в accounts типизированные DTO Register/Login/Session и Actor-проверку по точным полям исходных auth.rs; запрос на общие UserId/Actor передать I для единого contracts-crate, не делать второй auth-стек.
 
 **Главный выходной файл:** `crates/contracts/src/auth.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** crates/accounts/src/domain и schemas; заявка I на UserId/Actor
 
