@@ -5,9 +5,11 @@
 ## Общие договорённости
 
 - Каждый JSON endpoint возвращает `Content-Type: application/json`; ошибки в конверте `{"error":{"code":"...","message":"...","request_id":"..."}}`.
-- Внешний пользователь получает только документированный публичный response DTO, а не SQL row. POST для финансов и публикации требует `Idempotency-Key` (43 символа); тот же ключ/запрос = тот же ответ, иной запрос = 409 `IDEMPOTENCY_CONFLICT`.
+- Внешний пользователь получает только документированный публичный response DTO, а не SQL row. **Единственный ключ повтора JSON API** — заголовок `Idempotency-Key` (строго 43 символа base64url без padding из 32 случайных байтов) у всех отмеченных ниже создающих/изменяющих операций; **в JSON body ключ не дублируется и не принимается** (лишнее поле = 422 `UNKNOWN_FIELD`). Тот же actor+key+canonical payload → исходный ответ и тот же ID; тот же ключ+другой payload → 409 `IDEMPOTENCY_CONFLICT`. Для HTML форм донорский `command_key` остаётся скрытым полем и преобразуется в **тот же use-case**, отдельного HTTP-заголовка от обычной формы не требуют.
 - Поля строк, length, диапазоны проверять **до** бизнес-команды и повторно ограничениями БД. Статусы: 400 malformed JSON/cursor, 401 нет сессии, 403 роль отказана для известного объекта, 404 скрытый/неразрешённый объект, 409 конфликт версии/повтора, 413 слишком большое тело, 422 семантически неверные поля, 429 ограничение частоты, 503 инфраструктурный отказ. Никакая 404-страница/JSON не содержит скрытой цитаты или metadata.
 - HTML и JSON команды разделяют один `service`. У cookie mutating POST/PATCH/DELETE всегда Origin и CSRF. У JSON API не делать обход «поскольку API». `request_id` генерируется на границе `web`, redacted logs.
+
+**Правило валидатора:** для JSON POST/PATCH, помеченного идемпотентным, `Idempotency-Key` отсутствует → 422 `IDEMPOTENCY_KEY_REQUIRED`; неправильная длина/алфавит → 422 `INVALID_IDEMPOTENCY_KEY`; повтор того же actor+key с другим телом → 409. Внутреннее имя `command_key` в PG совместимо с донорскими таблицами и заполняется значением из заголовка, не из JSON тела. Для фонового job применяется тот же ключ в объекте команды. Нельзя возвращать результат по ключу одного Actor другому. JSON не должен незаметно игнорировать неизвестные поля.
 
 ## A — аккаунты (владелец tor-accounts)
 
@@ -27,15 +29,15 @@
 
 | Метод+путь | Request / response | Права/commit | Негативный случай |
 | --- | --- | --- | --- |
-| POST `/api/v1/books` | `{source_identity,target_language,title,visibility:"draft",idempotency_key}` → `{id,revision:1}` | Actor с правом авторства; одна каноническая книга | same identity/language 409; чужой не редактирует |
+| POST `/api/v1/books` | `{source_identity,target_language,title,visibility:"draft"}` → `{id,revision:1}` | Actor с правом авторства; одна каноническая книга | same identity/language 409; чужой не редактирует |
 | PATCH `/api/v1/books/{book_id}` | `{title?,description?,genre_ids?,visibility?,expected_revision}` → `{id,revision}` | Владелец/автор с разрешением | stale rev 409; blocked/draft не раскрывать гостю |
-| POST `/api/v1/books/{book_id}/chapters` | `{chapter_no,title,body_markdown,access_level:"free|paid",price_minor,expected_book_revision,idempotency_key}` → `{chapter_id,version_id,edit_revision}` | Пользователь с правом редактирования, не использовать JSON-суммы в float | body>50000 chars/price mismatch 422; повтор same key даёт тот же ID |
-| PATCH `/api/v1/chapters/{id}` | `{title,body_markdown,expected_revision,idempotency_key}` → `{version_id,edit_revision}` | Запись **новой** immutable версии | 409 concurrent editor; тело V1 никогда не меняется |
-| POST `/api/v1/chapters/{id}/publish` | `{expected_revision,version_id,idempotency_key}` → `{published_version_id,published_at}` | Владелец + атомарный outbox event | 2 одновременных publish ≠ 2 release events |
-| POST `/api/v1/chapters/{id}/schedule` | `{version_id,publish_at_utc,expected_revision,idempotency_key}` → `{schedule_id,status:"scheduled"}` | Владелец, worker через G | отменённое расписание, отозванная роль, просроченный lease — не публиковать |
+| POST `/api/v1/books/{book_id}/chapters` | `{chapter_no,title,body_markdown,access_level:"free|paid",price_minor,expected_book_revision}` → `{chapter_id,version_id,edit_revision}` | Пользователь с правом редактирования, не использовать JSON-суммы в float | body>50000 chars/price mismatch 422; повтор same key даёт тот же ID |
+| PATCH `/api/v1/chapters/{id}` | `{title,body_markdown,expected_revision}` → `{version_id,edit_revision}` | Запись **новой** immutable версии | 409 concurrent editor; тело V1 никогда не меняется |
+| POST `/api/v1/chapters/{id}/publish` | `{expected_revision,version_id}` → `{published_version_id,published_at}` | Владелец + атомарный outbox event | 2 одновременных publish ≠ 2 release events |
+| POST `/api/v1/chapters/{id}/schedule` | `{version_id,publish_at_utc,expected_revision}` → `{schedule_id,status:"scheduled"}` | Владелец, worker через G | отменённое расписание, отозванная роль, просроченный lease — не публиковать |
 | DELETE `/api/v1/chapters/{id}/schedule` | `{expected_revision}` → `204` | Только actor с правом управления | stale scheduler не выпускает |
 | GET/POST `/api/v1/teams`, POST `/api/v1/teams/{id}/invites` | `{name}`, `{invitee_id,role}` → id/статус | TeamOwner, инвайт подтверждает приглашённый | чужой не принимает, двойной invite безопасен |
-| POST `/api/v1/books/{id}/transfer` | `{new_owner_id,expected_revision,idempotency_key}` → новый owner | Транзакция membership+owner | 2 параллельных transfer не дают двойное владение |
+| POST `/api/v1/books/{id}/transfer` | `{new_owner_id,expected_revision}` → новый owner | Транзакция membership+owner | 2 параллельных transfer не дают двойное владение |
 | GET `/api/v1/teams/{id}/analytics.csv` | потоковый CSV | Только разрешённый член команды | чужой 403, большой экспорт bounded |
 
 **Сохраняемые HTML:** `/books/new`, `/me/books`, `/books/{book_id}/chapters` и формы редактирования, существующие в bokarust. Не внедрять JSON-путь как второй автономный writer: и формы, и JSON вызывают одну доменную операцию.
@@ -61,12 +63,12 @@
 | GET `/chapters/{chapter_id}/buy` | HTML с версией и ценой | текущая опубликованная версия/сессия | скрытая/отозванная глава недоступна |
 | POST `/chapters/{chapter_id}/buy` | HTML form: `csrf_token,command_key,expected_version_id,expected_price_minor` | наследуемая атомарная purchase+ledger+entitlement | double submit 1 debit, limit 2048 байт |
 | GET `/api/v1/chapters/{id}/offer` | `{chapter_id,version_id,price_minor,currency:"RUB",can_purchase}` | опубликованная версия, нет paid body | mismatch version/price 409 |
-| POST `/api/v1/purchases` | `{chapter_id,expected_version_id,expected_price_minor,idempotency_key}` → `{purchase_id,version_id,balance_minor}` | **один commit** wallet debit+ledger+fact+pointer/outbox | insufficient funds 409 без побочных записей |
-| POST `/api/v1/purchases/batch` | `{items:[{chapter_id,version_id,price_minor}],idempotency_key}` | все линии одним PG commit, уникальные главы | одна ошибка откатывает всю покупку |
-| POST `/api/v1/purchases/{id}/refund-request` | `{reason,idempotency_key}` → `{request_id,state:"pending"}` | только владелец, не зачисляет сразу | чужой запрос 404, повтор один тикет |
-| POST `/api/v1/admin/refunds/{id}/decide` | `{decision:"approve|reject",expected_revision,idempotency_key}` | только финансовая admin роль, reversal ledger если approved | 2 concurrent admin не возвращают дважды |
+| POST `/api/v1/purchases` | `{chapter_id,expected_version_id,expected_price_minor}` → `{purchase_id,version_id,balance_minor}` | **один commit** wallet debit+ledger+fact+pointer/outbox | insufficient funds 409 без побочных записей |
+| POST `/api/v1/purchases/batch` | `{items:[{chapter_id,version_id,price_minor}]}` | все линии одним PG commit, уникальные главы | одна ошибка откатывает всю покупку |
+| POST `/api/v1/purchases/{id}/refund-request` | `{reason}` → `{request_id,state:"pending"}` | только владелец, не зачисляет сразу | чужой запрос 404, повтор один тикет |
+| POST `/api/v1/admin/refunds/{id}/decide` | `{decision:"approve|reject",expected_revision}` | только финансовая admin роль, reversal ledger если approved | 2 concurrent admin не возвращают дважды |
 | GET `/api/v1/me/wallet` | `{currency:"RUB",balance_minor,recent_entries}` | только владелец, no-store | не отдавать чужие записи |
-| POST `/api/v1/me/payout-requests` | `{amount_minor,expected_revision,idempotency_key}` | verified available earnings, не вывод через неподтверждённого внешнего провайдера | race и duplicate не увеличивают сумму |
+| POST `/api/v1/me/payout-requests` | `{amount_minor,expected_revision}` | verified available earnings, не вывод через неподтверждённого внешнего провайдера | race и duplicate не увеличивают сумму |
 | POST `/api/v1/wallet/topups/boosty` | **disabled**, ошибка `503 PROVIDER_NOT_CONFIGURED` до подписанного callback | никаких `verified_funding` без проверки внешнего подтверждения | неверная подпись/повтор нельзя зачесть |
 
 **Нельзя** создавать topup через скрытый admin-mode под видом настоящей оплаты. На тестовом окружении подготовка баланса — SQL fixture, а не публичный endpoint. Внешние refund/payout требуют реальный договор и могут быть помечены blocked.
@@ -110,7 +112,7 @@
 
 | Метод+путь | Тело/ответ | Важная проверка |
 | --- | --- | --- |
-| POST `/api/v1/import-jobs` | `{book_id?,source_url?,mode:"url|upload",idempotency_key}` → `{job_id,state:"queued"}` | actor permission, safe URL/DNS/redirect; не делать прямую публикацию |
+| POST `/api/v1/import-jobs` | `{book_id?,source_url?,mode:"url|upload"}` → `{job_id,state:"queued"}` | actor permission, safe URL/DNS/redirect; не делать прямую публикацию |
 | POST `/api/v1/import-jobs/{id}/upload` | bounded multipart ≤32 МиБ | archive limits, MIME/magic, streaming, временное хранилище |
 | GET `/api/v1/import-jobs/{id}` | `{job_id,state,completed,total,failures,checkpoint}` | владелец, после рестарта сохраняется статус |
 | POST `/api/v1/import-jobs/{id}/cancel` | `{expected_revision}` | CAS; отменённый worker не продолжает писать |
