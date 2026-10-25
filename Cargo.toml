@@ -1,0 +1,14 @@
+[workspace]
+members = ["crates/books", "crates/web"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+axum = "0.8"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros","rt-multi-thread","net","sync"] }

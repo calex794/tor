@@ -1,0 +1,12 @@
+[package]
+name = "tor-web"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+tor-books = { path = "../books" }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

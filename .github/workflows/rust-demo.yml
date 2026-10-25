@@ -1,0 +1,65 @@
+name: Rust S0 browser preview
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/rust-demo.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/rust-demo.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tor-rust-s0-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  demo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Architecture boundaries
+        run: python3 tools/check_feature_layout.py
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Rust unit and HTTP integration
+        run: cargo test --workspace --all-targets
+      - name: Rust lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build release outside VPS
+        run: cargo build --release -p tor-web
+      - name: Real HTTP smoke (loopback only)
+        run: |
+          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 ./target/release/tor-web > "$RUNNER_TEMP/tor-demo.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3099/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3099/ > "$RUNNER_TEMP/tor-home.html"
+          grep -q 'Пандаолейт' "$RUNNER_TEMP/tor-home.html"
+          curl --fail --silent http://127.0.0.1:3099/api/v1/books > "$RUNNER_TEMP/tor-books.json"
+          grep -q 'Первое знакомство' "$RUNNER_TEMP/tor-books.json"
+          if grep -q 'Закрытый черновик' "$RUNNER_TEMP/tor-books.json"; then exit 1; fi
+          ! curl --fail --silent http://127.0.0.1:3099/books/3
+      - name: Upload server binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-demo-${{ github.sha }}
+          path: target/release/tor-web
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,12 @@
+[package]
+name = "tor-books"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
