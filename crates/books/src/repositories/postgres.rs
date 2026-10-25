@@ -37,6 +37,10 @@ impl PgCatalog {
         catalog.probe().await?;
         Ok(catalog)
     }
+    /// Explicit pool shutdown; used to verify loss-of-readiness behavior.
+    pub async fn close_for_test(&self) {
+        self.pool.close().await;
+    }
     /// Unavailable schema, missing migration, and broken PG return 503 through web.
     pub async fn probe(&self) -> Result<(), sqlx::Error> {
         let applied: Option<i64> = sqlx::query_scalar(

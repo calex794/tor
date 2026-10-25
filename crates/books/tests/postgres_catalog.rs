@@ -29,6 +29,9 @@ async fn pg_visibility_and_readiness() {
         Err(CatalogError::InvalidLimit)
     ));
     pool.close().await;
+    // A cloned PgPool holds the same pool; closing one handle is not enough.
+    // Close the pool owned by the repository via a test-only helper below.
+    catalog.close_for_test().await;
     assert!(catalog.probe().await.is_err());
     assert!(matches!(
         catalog.list_public(20).await,
