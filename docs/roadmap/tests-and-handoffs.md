@@ -36,6 +36,7 @@
 | `crates/discussions/**`, `social/**`, `clubs/**`, `support/**` | только затронутые feature suites | PG auth/comments/inbox + browser of changed surface | ACL C/B, notifications G |
 | `crates/search/**`, `recommendations/**`, `referrals/**` | только затронутые | PG indexes+projection, browser discovery | invalidation B/E/G; D если referral money/ads |
 | `crates/ingest/**`, `imports/**` | оба изменённых | PG jobs/checkpoints, URL+archive fuzz, consumer event | publisher B, F projection, E delivery |
+| `crates/storage/**` | tor-storage crypto/adapter/GC tests | Real private S3, HEAD/GET/PUT, Rust↔WebCrypto golden vectors, orphan cleanup | B immutable/pinned, C delivery grant, H decrypt, I backup |
 | `crates/web/**` или общие templates | tor-web + architecture | chromium routes, HTTP access across affected A–G | если неизвестно — полный browser matrix |
 | `crates/contracts/**`, корневой Cargo, migrations, shared router, CI selector | cargo fmt/check workspace, contracts | ВСЕ зависящие PG/HTTP/browser paths, полный обязательный пакет | **не** сужать выбор по имени файла |
 | документы `docs/roadmap/**`, строки сценариев | roadmap syntax/coverage/architecture lint | Rust build не нужен, если не менялось Rust/SQL/config | изменение принятого API контракта = broad tests перед внедрением |
@@ -116,3 +117,7 @@ READY WHEN: green final SHA exact, PG+browser, integrated in tor/main, matrix up
 **Fan-out с частичным падением:** `required_consumers = [search-index-v1,subscription-inbox-v1]`. Первый consumer успешно создаёт PG read-model и ack в `event_deliveries`, второй падает до ack; событие остаётся `delivered_at IS NULL`. После retry search-index-v1 **не повторяется**, subscription-inbox-v1 создаёт ровно один inbox entry, после ack событие получает `delivered_at`. Проиграть crash до внешнего ack (потребитель обязан выдерживать replay); проверить `lease_epoch`, чтобы старый worker не пометил чужую попытку завершённой. Это тест предметного контура G/I, не unit mock.
 
 **Условие приёмки:** никакой PR, меняющий публикацию/outbox/checkout, не вливать без этих отрицательных PG-тестов и итогового SHA; собственно наличие markdown-договора не заменяет их выполнения.
+
+## Обязательная приёмка прямого paid S3 (внутри существующих задач)
+
+Норматив: [paid-delivery-v1](../contracts/paid-delivery-v1.md). На real PostgreSQL + приватном S3 + Chromium: paid V1 → атомарная покупка U1 → 90s grant → **GET ciphertext из S3 (не через backend)** → WebCrypto → сохранение progress → публикация V2 → доступ U1 всё ещё к V1; U2/guest/refunded denied. Обязательно: приватные изображения, неправильные nonce/AAD/tag, XSS, истёкшая подпись, повторная проверка после обрыва, free→paid cache purge, конкурентная покупка/публикация, PG rollback после PUT, GC без потери V1, ротация KEK и восстановление. Изменение D/C/G/crypto/контрактов/миграций требует связанного B+C+D+G+H+I набора; изменения только шаблонов — H+C+browser. Без реального провайдера S3 интеграционный этап не считается завершённым. Статус доказательства сохранять лишь в существующей Notion-матрице.

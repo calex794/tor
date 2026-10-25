@@ -113,6 +113,10 @@ Worker claim: выбор `WHERE delivered_at IS NULL AND dead_at IS NULL AND nex
 
 **Внешние ключи на чужую таблицу допустимы** — это защита целостности, но не разрешение писать чужие записи. На чтении чужого состояния предпочитать опубликованный typed-port. В критичной транзакции D может читать `chapter_versions`/price через `SELECT ... FOR SHARE`, но любые денежные записи только D и его SQL adapter.
 
+### Обязательная схема объектов S3 для первой версии TOR (проект миграций I)
+
+[Единый норматив `paid-delivery-v1`](../contracts/paid-delivery-v1.md): G владеет таблицей `storage_objects` (UUID PK, unique object_key, private/public bucket, state pending/ready/attached/deleting, encrypted_dek, wrap_nonce, kek_id, nonce, aad, ciphertext_hash, size, lifecycle). B владеет ссылкой `chapter_versions.storage_object_id` и приватными `chapter_version_assets`; D сохраняет существующую атомарную модель `chapter_purchase_facts`/`library_purchased_chapters`/revocations; C — `reader_purchased_positions`. I создаёт миграции в линейном порядке. Ключи DEK в PG только в wrapped-виде, KEK вне репозитория и БД. `pending → private S3 PUT → HEAD/checksum → PG publish+attach+outbox`; невозможность атомарной транзакции PG+S3 закрывается orphan GC с fencing. Публичный Markdown только для опубликованной бесплатной редакции; переход free→paid требует delete public origin + CDN purge, но копии ранее опубликованного текста уже нельзя отозвать. GC не удаляет купленную закреплённую V1 после появления V2. Это **предстоящие изменения схемы**, не утверждение о применённых миграциях.
+
 ## 4. Лимиты, включая ранее неутверждённые
 
 Это **выбранные ограничения новой реализации TOR**, не фактические исторические лимиты NEwBOO:
