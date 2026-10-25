@@ -34,6 +34,8 @@ jobs:
         run: python3 -m unittest discover -s tests/architecture -v
       - name: Check TOR SSH bootstrap shell syntax
         run: bash -n ops/bootstrap-tor-deploy.sh
+      - name: Check TOR rollback verification shell syntax
+        run: bash -n ops/verify-tor-rollback.sh
       - name: Flag insecure deployment shortcuts
         run: |
           matches="$(find .github scripts deploy -type f ! -name 'rules.yml' \( -name '*.sh' -o -name '*.yaml' -o -name '*.yml' \) -print0 2>/dev/null | xargs -0 -r grep -nE 'StrictHostKeyChecking=no|--privileged|0\.0\.0\.0:5432' || true)"
