@@ -19,6 +19,10 @@ impl PgCatalog {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+    /// Share one bounded pool with the reader and accounts; no extra connections.
+    pub fn pool(&self) -> PgPool {
+        self.pool.clone()
+    }
     pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {
         let pool = PgPoolOptions::new()
             .max_connections(3)

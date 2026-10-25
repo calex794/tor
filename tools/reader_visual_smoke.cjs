@@ -47,7 +47,57 @@ async function inspect(page, name, where) {
       }
       await page.close();
     }
-    console.log('TOR PG reader visual PASS: two viewports, four screenshots, ACL and no overflow');
+    // Exercise real PostgreSQL account forms on both target viewport sizes.
+    for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+      const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+      await page.goto(base + '/register');
+      assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
+      await inspect(page, name, 'register');
+      await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
+      await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
+      await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
+      const beforeCookies = await page.context().cookies(base);
+      const beforeCsrf = beforeCookies.find(c => c.name === 'tor-dev-csrf');
+      const beforeToken = await page.locator('input[name="csrf_token"]').inputValue();
+      // Never print CSRF/session values. Metadata is sufficient to debug cookies.
+      const before = {
+        csrfCookie: Boolean(beforeCsrf),
+        hasMatchingToken: beforeCsrf ? beforeCsrf.value === beforeToken : false,
+        tokenLength: beforeToken.length,
+        cookieNames: beforeCookies.map(c => c.name),
+      };
+      const submitted = page.waitForResponse(response =>
+        response.url().endsWith('/register') && response.request().method() === 'POST'
+      );
+      await page.getByRole('button', { name: 'Создать учётную запись' }).click();
+      const registerResponse = await submitted;
+      if (registerResponse.status() !== 303) {
+        const headers = await registerResponse.request().allHeaders();
+        const requestCookieNames = (headers.cookie || '').split(';')
+          .map(x => x.trim().split('=')[0]).filter(Boolean);
+        throw new Error(name + ': register HTTP ' + registerResponse.status() +
+          ', diagnostics ' + JSON.stringify({
+            ...before,
+            origin: headers.origin || null,
+            fetchSite: headers['sec-fetch-site'] || null,
+            cookieNamesInRequest: requestCookieNames,
+            postsCsrf: (registerResponse.request().postData() || '').includes('csrf_token=')
+          }));
+      }
+      await page.waitForURL('**/me', { timeout: 10000 });
+      assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
+      await inspect(page, name, 'me');
+      await page.getByRole('button', { name: 'Выйти' }).click();
+      await page.waitForURL('**/login');
+      await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
+      await page.getByLabel('Пароль').fill('TestPassphrase2026');
+      await inspect(page, name, 'login');
+      await page.getByRole('button', { name: 'Войти', exact: true }).click();
+      await page.waitForURL('**/me');
+      assert(await page.getByText('Читатель ' + name).isVisible(), name + ': login did not restore session');
+      await page.close();
+    }
+    console.log('TOR PG reader+auth browser PASS: 2 viewports, 10 screenshots, no overflow and real DB');
   } finally {
     await browser.close();
   }

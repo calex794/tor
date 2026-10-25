@@ -8,6 +8,8 @@ axum.workspace = true
 tokio.workspace = true
 tor-books = { path = "../books" }
 tor-reading = { path = "../reading" }
+tor-accounts = { path = "../accounts" }
+serde.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

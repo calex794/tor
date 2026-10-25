@@ -1,0 +1,19 @@
+<section class="section auth-section">
+  <div class="container">
+    <div class="auth-card">
+      <p class="eyebrow">Личный кабинет</p>
+      <h1>Регистрация</h1>
+      <form class="auth-form" method="post" action="/register" autocomplete="on">
+        <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <label for="register-name">Отображаемое имя</label>
+        <input id="register-name" name="display_name" type="text" autocomplete="nickname" required maxlength="80">
+        <label for="register-email">Электронная почта</label>
+        <input id="register-email" name="email" type="email" autocomplete="email" required maxlength="254">
+        <label for="register-password">Пароль (12–128 символов)</label>
+        <input id="register-password" name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128">
+        <button class="button" type="submit">Создать учётную запись</button>
+      </form>
+      <p class="auth-card__footer">Уже есть учётная запись? <a href="/login">Войти</a></p>
+    </div>
+  </div>
+</section>

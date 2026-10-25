@@ -181,6 +181,37 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
     )
 }
 
+pub fn registration_form(csrf: &str) -> Html<String> {
+    let content = include_str!("../templates/register_active.html")
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+    layout("Регистрация", "Создать личный кабинет читателя.", &content)
+}
+
+pub fn login_form(csrf: &str) -> Html<String> {
+    let content = include_str!("../templates/login_active.html")
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+    layout("Вход", "Войти в личный кабинет.", &content)
+}
+
+pub fn my_account(name: &str, csrf: &str) -> Html<String> {
+    let content = include_str!("../templates/me.html")
+        .replace("<!--DISPLAY_NAME-->", &escape_html(name))
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+    // Only the authenticated private page changes its navigation.
+    let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
+    Html(
+        html.0
+            .replace(
+                "<a class=\"site-nav__link\" href=\"/login\">Войти</a>",
+                "<a class=\"site-nav__link\" href=\"/me\" aria-current=\"page\">Мой кабинет</a>",
+            )
+            .replace(
+                "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
+                "",
+            ),
+    )
+}
+
 pub async fn stylesheet() -> impl IntoResponse {
     (
         [
