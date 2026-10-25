@@ -1,0 +1,52 @@
+name: TOR PostgreSQL 18 migration contract
+on:
+  pull_request:
+    paths:
+      - 'migrations/**'
+      - 'tests/postgres/**'
+      - 'tools/check_migration_sources.py'
+      - '.github/workflows/postgres-migrations.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'migrations/**'
+      - 'tests/postgres/**'
+      - 'tools/check_migration_sources.py'
+      - '.github/workflows/postgres-migrations.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  migrations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-disposable-ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: tor-disposable-ci-only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Verify nine pinned donor SQL blobs, fresh and upgrade migrations
+        run: bash tests/postgres/verify-migrations.sh
