@@ -91,12 +91,12 @@ PGHOST=127.0.0.1 PGPORT=5432 PGDATABASE=tor PGUSER=tor_app \
  PGPASSWORD="$app_password" psql -X -Atqc \
  "SELECT current_user || ':' || current_database() || ':' ||
     has_schema_privilege(current_user,'public','CREATE')" |
- grep -qx 'tor_app:tor:false'
+ grep -qx 'tor_app:tor:f'
 PGHOST=127.0.0.1 PGPORT=5432 PGDATABASE=tor PGUSER=tor_migrator \
  PGPASSWORD="$migrator_password" psql -X -Atqc \
  "SELECT current_user || ':' || current_database() || ':' ||
     has_schema_privilege(current_user,'public','CREATE')" |
- grep -qx 'tor_migrator:tor:true'
+ grep -qx 'tor_migrator:tor:t'
 
 echo '=== Role permissions (no secrets) ==='
 runuser -u postgres -- psql -X -Atqc \
