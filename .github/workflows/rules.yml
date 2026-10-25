@@ -28,6 +28,8 @@ jobs:
           python-version: "3.12"
       - name: Enforce TOR feature-first boundaries
         run: python3 tools/check_feature_layout.py
+      - name: Enforce executable TOR roadmap coverage
+        run: python3 tools/check_roadmap.py
       - name: Verify architecture guard catches regressions
         run: python3 -m unittest discover -s tests/architecture -v
       - name: Flag insecure deployment shortcuts
