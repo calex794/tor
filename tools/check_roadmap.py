@@ -135,6 +135,16 @@ def check(root: Path = ROOT) -> list[str]:
             errors.append(f"{code}: owning lane {lane} has no executable task")
         elif code != "S068" and not any(t not in SUMMARY_TASKS for t in task_refs[code]):
             errors.append(f"{code}: only summary tasks cover this scenario; add an implementation step")
+    api_path = base / "api-v1.md"
+    if api_path.is_file():
+        api_text = api_path.read_text(encoding="utf-8")
+        for line in api_text.splitlines():
+            if line.lstrip().startswith("|") and "`/api/v1/" in line and "idempotency_key" in line:
+                errors.append("JSON API must use one Idempotency-Key header, not body field")
+        if "Idempotency-Key" not in api_text or "UNKNOWN_FIELD" not in api_text:
+            errors.append("JSON idempotency/header contract missing")
+    else:
+        errors.append("missing docs/roadmap/api-v1.md")
     if owners.get("S032") != "D" or "D-05" not in task_refs.get("S032", []):
         errors.append("S032 book layer ownership must be commerce D/D-05")
     return errors
