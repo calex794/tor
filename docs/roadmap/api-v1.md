@@ -48,11 +48,13 @@
 | --- | --- | --- | --- |
 | GET `/books/{id}`, `/reader/{chapter_id}` | SSR published card и только бесплатная текущая версия | 200 только public; no-store для текста | draft и admin hold 404, в ответе нет markdown |
 | GET `/api/v1/books/{id}/toc?limit=100&after=token` | `{items:[{chapter_id,chapter_no,title,access_level}],next_cursor}` | только разрешённая публичная мета, без body | 501 глава: все доступны постранично, gap/duplicate нет |
-| GET `/api/v1/chapters/{id}/read?purchase_id=...` | `{chapter_id,version_id,body_markdown,access:"free|purchased"}` | бесплатная published ИЛИ D-грант на конкретную V1; если purchase_id, проверить owner+revoked | 403/404 без body, cached forbidden |
+| GET `/api/v1/chapters/{id}/read?purchase_id=...` | `{chapter_id,version_id,access,content_access:{mode:"public_s3|grant_required",url?,grant_endpoint?}}` **без `body_markdown`** | free/published → public S3 URL; purchased/member → только метаданные и grant endpoint после D-проверки exact pinned version | 403/404 без тела, cached forbidden, никакого paid plaintext |
 | PUT `/api/v1/me/progress/free` | `{chapter_id,version_id,block_index,char_offset,expected_revision}` → `{revision,updated_at}` | actor читает разрешённую версию; не rollback newer progress | concurrent stale 409; отсутствие покупки не даёт платный доступ |
 | PUT `/api/v1/me/progress/purchased` | `{purchase_id,chapter_id,version_id,block_index,char_offset,expected_revision}` → `{revision,updated_at}` | FK на `chapter_purchase_facts`, отзыв проверяется каждый раз | куплена V1, опубликована V2, возвращаем место V1/P |
 | GET `/api/v1/me/library` | `{items:[...],next_cursor}` | только свой actor; purchased и bookmarks различать | нельзя увидеть чужую библиотеку |
 | POST/DELETE `/api/v1/me/library/{book_id}` | 204/состояние | только личная закладка, не entitlement | добавление бесплатно не открывает paid |
+
+**P0: прямая выдача платных глав через S3** — [канонический контракт v1](../contracts/paid-delivery-v1.md). `POST /api/v1/reader/chapters/{chapter_id}/delivery-grants` (аутентификация A, Origin/CSRF, D entitlement) → signed private S3 GET на 90 сек + AES-256-GCM scoped DEK, nonce/AAD/gzip; JSON `Cache-Control: private, no-store`, без платного текста и master KEK. `POST /api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants` — тот же контроль для приватных изображений. 401/403/404/409/429/503 без URL/DEK. Бесплатные версии — только опубликованный public S3/CDN. Браузер напрямую скачивает ciphertext S3→WebCrypto, API не проксирует тело главы. Гарантий абсолютного DRM нет: подписанная ссылка переносима до истечения TTL.
 
 Сохраняемые HTML: `/read/{chapter_id}`, `/read/{chapter_id}/place`, `/read/{chapter_id}/place/auto`, `/me/library`, `/me/purchases`. Для 500+ глав устранить source `LIMIT 200` из полного TOC, заменить ограниченным keyset API. Точность `char_offset` — UTF-16 (emoji test).
 
