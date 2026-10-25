@@ -1,5 +1,8 @@
 # G — Импорт и фоновые события: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [FILE-01…18 / real encrypted S3](../contracts/import-storage-v1.md), [S3 delivery](../contracts/paid-delivery-v1.md), [outbox/events](../contracts/events-analytics-v1.md). Сборщик F021/S024 и G-03 **заморожены**; никаких URL parser/API/jobs. Только файл TXT/MD/DOCX/ZIP, обложки, object store/GC и durable pipeline.
+
+
 > **Решение владельца 26.10.2026: F021/S024 заморожены без срока.** Не разрабатывать импорт книг по URL, обход сайтов/каталогов, парсеры, crawl jobs, UI и тесты. G-03 сохраняется только архивным указателем, не считается исполняемой задачей. Остаются S023 загрузка файлов и S025 обложки.
 
 
