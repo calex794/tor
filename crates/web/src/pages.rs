@@ -226,7 +226,11 @@ pub fn my_library(items: &[tor_reading::services::progress::ContinueReading]) ->
     let html = format!(
         "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div></div></section>"
     );
-    layout("Моя библиотека", "Продолжить чтение в личной библиотеке.", &html)
+    layout(
+        "Моя библиотека",
+        "Продолжить чтение в личной библиотеке.",
+        &html,
+    )
 }
 
 pub async fn stylesheet() -> impl IntoResponse {

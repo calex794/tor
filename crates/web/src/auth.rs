@@ -15,7 +15,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
-use tor_reading::repositories::PgReadingProgress;
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{
@@ -23,6 +22,7 @@ use tor_accounts::{
     },
     services::validation as rules,
 };
+use tor_reading::repositories::PgReadingProgress;
 
 #[derive(Clone)]
 struct AuthState {
