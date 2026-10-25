@@ -14,6 +14,14 @@ EXCLUDED = {"S040": "не переносить", "S053": "заморожено",
             "S069": "не переносить"}
 LANE_TASK_COUNTS = {"A": 11, "B": 16, "C": 12, "D": 13, "E": 14,
                     "F": 14, "G": 12, "H": 12, "I": 13}
+LANE_CRATES = {
+    "A": {"tor-accounts"}, "B": {"tor-books", "tor-teams"},
+    "C": {"tor-reading"}, "D": {"tor-commerce"},
+    "E": {"tor-discussions", "tor-social", "tor-clubs", "tor-support"},
+    "F": {"tor-search", "tor-recommendations", "tor-referrals"},
+    "G": {"tor-ingest", "tor-imports"}, "H": {"tor-web"}, "I": {"tor-web"}
+}
+SUMMARY_TASKS = {"A-11", "B-16", "C-12", "D-13", "E-14", "F-14", "G-12", "H-12", "I-13"}
 TASK_RE = re.compile(r"^([A-I])-(\d{2})$")
 S_RE = re.compile(r"^S\d{3}$")
 INVALID = re.compile(r"\b(TODO|TBD|TBC|FIXME)\b|проработать\s+потом|решить\s+позже", re.I)
@@ -83,14 +91,13 @@ def check(root: Path = ROOT) -> list[str]:
                 errors.append(f"{task_id}: {field} missing")
         if INVALID.search(" ".join(t.values())):
             errors.append(f"{task_id}: unresolved TODO / placeholder")
-        if t.get("target_crate") != "tor-" + ("web" if lane in {"H", "I"} else
-               t.get("target_crate", "").removeprefix("tor-")):
-            errors.append(f"{task_id}: bad target crate")
+        if t.get("target_crate") not in LANE_CRATES[lane]:
+            errors.append(f"{task_id}: package is not owned by lane {lane}")
         test = t.get("test_entry", "")
         if lane != "I" and f" {lane.lower()}_{m.group(2)}_" not in test:
             errors.append(f"{task_id}: missing deterministic test selector")
-        if "cargo test" not in test and "GitHub CI" not in test:
-            errors.append(f"{task_id}: no runnable test entry")
+        if not test.startswith(("cargo ", "python3 ", "node --test ", "bash ", "curl ")):
+            errors.append(f"{task_id}: no runnable check command")
         for code in t.get("related_s_ids", "").split(","):
             if not S_RE.fullmatch(code):
                 errors.append(f"{task_id}: invalid S reference {code}")
@@ -106,6 +113,8 @@ def check(root: Path = ROOT) -> list[str]:
     for code, lane in owners.items():
         if not task_refs[code]:
             errors.append(f"{code}: owning lane {lane} has no executable task")
+        elif code != "S068" and not any(t not in SUMMARY_TASKS for t in task_refs[code]):
+            errors.append(f"{code}: only summary tasks cover this scenario; add an implementation step")
     if owners.get("S032") != "D" or "D-05" not in task_refs.get("S032", []):
         errors.append("S032 book layer ownership must be commerce D/D-05")
     return errors
