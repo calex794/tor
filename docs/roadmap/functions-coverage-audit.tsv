@@ -20,7 +20,7 @@ F017	Уведомления, обновления, дайджесты и пре�
 F018	Создание и настройки публичной книги	B	S019,S020	B-02	planned		https://app.notion.com/p/40432a84beec81428e75dd088f31154f	Код в main
 F019	Главы, версии и редактор контента	B	S021,S022	B-03,B-04	planned		https://app.notion.com/p/40432a84beec81ecad5bd3be9c053929	Код в main
 F020	Импорт файла с главами и статус фоновой задачи	G	S023	G-02,G-04	planned		https://app.notion.com/p/40432a84beec81ff977ff8c4ddcb4a97	Код в main
-F021	Импорт книги по URL, краулер и управление заданиями	G	S024	G-03,G-04	insufficient	Конкретный allowlist сайтов, fixture каждого парсера, robots/ошибки/повтор	https://app.notion.com/p/40432a84beec81959f52df54923ff337	Код в main
+F021	Импорт книги по URL, краулер и управление заданиями	-	S024	G-03	frozen	26.10.2026: владелец исключил URL-книги, crawler, обход каталогов, parser/jobs/UI/API/тесты из TOR без срока; файл S023 и обложка S025 остаются	https://app.notion.com/p/40432a84beec81959f52df54923ff337	Код в main
 F022	Обложки и обработка изображений Rust worker	G	S025	G-05,G-09	insufficient	Физическое хранилище, права доступа к объектам, garbage collection и восстановление	https://app.notion.com/p/40432a84beec8186bd08d8e7461124c8	Код в main
 F023	Команды, приглашения, книги команды и аналитика	B	S026,S027,S028,S029	B-08,B-09,B-14	planned		https://app.notion.com/p/40432a84beec81499be7d5be57bacce3	Код в main
 F024	Участники книги, передача владельца и доли доходов	B,D	S030	B-09,B-10,D-08	insufficient	Разграничить смену долей и immutable snapshot по уже оплаченным покупкам	https://app.notion.com/p/40432a84beec814cbe94c7b778a984a9	Код в main
