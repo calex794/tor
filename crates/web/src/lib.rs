@@ -9,7 +9,9 @@ use axum::{
 use std::sync::Arc;
 use tor_books::{
     repositories::PgCatalog,
-    services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE},
+    services::{
+        CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE,
+    },
 };
 mod pages;
 
@@ -102,7 +104,10 @@ fn make_router(repo: Arc<dyn PublicBookRepository>, postgres: Option<PgCatalog>)
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
-        .with_state(AppState { books: repo, postgres })
+        .with_state(AppState {
+            books: repo,
+            postgres,
+        })
         .merge(api)
 }
 

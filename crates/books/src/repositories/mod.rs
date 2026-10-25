@@ -56,7 +56,9 @@ impl PublicBookRepository for InMemoryCatalog {
     }
 
     async fn get_public(&self, id: u64) -> Result<Option<Book>, CatalogError> {
-        Ok(self.books.iter()
+        Ok(self
+            .books
+            .iter()
             .find(|book| book.id() == id && book.visibility() == Visibility::Public)
             .cloned())
     }
