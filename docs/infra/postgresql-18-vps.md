@@ -52,3 +52,21 @@ curl -fsS http://127.0.0.1:3000/readyz
 5. Бекап `pg_dump` на **внешнее** хранилище + проверка восстановления; только потом реальные пользователи, финансы, S3-paid и остальные линии A–H.
 
 Автоматический сбор книг/сканирование URL остаётся замороженным (S024/F021, G-03), не выполнять.
+
+
+## Создание БД `tor` и двух изолированных ролей
+
+**Выполнять только после подтверждения `postgresql@18-main.service` active.** При разрыве SSH проверять состояние до повторного запуска. Инициализатор запускается из root, повторный запуск использует уже сохранённые пароли, не генерирует новые.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calex794/tor/main/ops/init-tor-database.sh \
+  -o /root/tor-db-init.sh
+bash -n /root/tor-db-init.sh && bash /root/tor-db-init.sh
+```
+
+Что делает: проверяет PostgreSQL 18, SCRAM и локальное `listen_addresses`, заводит `tor_migrator` (владелец БД `tor`, право создавать таблицы) и `tor_app` (только SQL DML по разрешённым объектам, без CREATE/superuser). Пароли случайные 32 байта, генерируются **только на VPS**, сохраняются в `/etc/tor/tor-app.env` и `/etc/tor/tor-migrator.env` с правами `root:root 0600` и содержат `DATABASE_URL`. Файлы и значения паролей нельзя отправлять в чат, GitHub, Tela или Notion. Проверяются настоящие TCP/SCRAM логины и отказ `tor_app` в CREATE. `tor-web.service` пока работает в RAM-деморежиме, не читает эти файлы.
+
+**Зафиксировать в отчёте только:** `tor_app|f|f|f|6`, `tor_migrator|f|f|f|3`, состояние PostgreSQL, память и права 600 на два файла. **Секреты не показывать** (не запускать `cat /etc/tor/*.env` и не включать `set -x`).
+
+**Следующее:** перенос девяти SQLx миграций от [bokarust](https://github.com/calex794/bokarust/tree/main/crates/adapters/migrations), единый мигратор с CI PostgreSQL 18, schema-compatibility и bootstrap-backup. Никаких фиктивных pg-связей к демо-HTTP.
+
