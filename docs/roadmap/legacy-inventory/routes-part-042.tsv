@@ -1,0 +1,120 @@
+# repo=HeisLuka/newboo sha=17125ef758a791e9630505c14d24f7fe65aed228 slice=42:57 files=15 errors=0
+path	line	method	path_local	endpoint	prefix	decorator_target
+backend/app/api/v1/refunds.py	32	POST	/swap/preview	swap_preview	/refunds	router
+backend/app/api/v1/refunds.py	43	GET	/	api_list_refunds	/refunds	router
+backend/app/api/v1/refunds.py	50	POST	/	api_create_refund	/refunds	router
+backend/app/api/v1/refunds.py	62	POST	/{refund_id}/decision	api_decide_refund	/refunds	router
+backend/app/api/v1/refunds.py	75	POST	/swap/apply	swap_apply	/refunds	router
+backend/app/api/v1/scene_marketplace.py	101	GET	<dynamic>	api_list_scene_marketplace	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	145	GET	/{preset_id}	api_get_scene_marketplace_item	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	160	GET	/{preset_id}/versions	api_list_scene_marketplace_versions	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	177	POST	/{preset_id}/offers	api_create_scene_preset_offer	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	201	GET	/{preset_id}/offers	api_list_scene_preset_offers	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	220	POST	/{preset_id}/offers/{offer_id}/activate	api_activate_scene_preset_offer	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	237	POST	/{preset_id}/offers/{offer_id}/deactivate	api_deactivate_scene_preset_offer	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	254	POST	/{preset_id}/purchase	api_purchase_scene_preset	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	281	GET	/me/purchases	api_list_my_scene_preset_purchases	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	309	POST	/me/purchases/{purchase_id}/refund	api_refund_scene_preset_purchase	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	334	GET	/me/refunds	api_list_my_scene_preset_refunds	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	362	PUT	/me/favorites/{preset_id}	api_add_scene_marketplace_favorite	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	378	DELETE	/me/favorites/{preset_id}	api_remove_scene_marketplace_favorite	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	394	GET	/me/favorites	api_list_scene_marketplace_favorites	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	409	POST	/me/collections	api_create_scene_marketplace_collection	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	426	GET	/me/collections	api_list_scene_marketplace_collections	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	443	GET	/me/collections/{collection_id}	api_get_scene_marketplace_collection	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	458	PATCH	/me/collections/{collection_id}	api_update_scene_marketplace_collection	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	476	DELETE	/me/collections/{collection_id}	api_delete_scene_marketplace_collection	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	491	POST	/me/collections/{collection_id}/items	api_add_scene_marketplace_collection_item	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	516	DELETE	/me/collections/{collection_id}/items/{preset_id}	api_remove_scene_marketplace_collection_item	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	533	GET	/{preset_id}/reviews	api_list_scene_preset_reviews	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	552	GET	/{preset_id}/rating	api_get_scene_preset_rating	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	567	PUT	/{preset_id}/reviews/me	api_put_scene_preset_review	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	587	DELETE	/{preset_id}/reviews/me	api_delete_scene_preset_review	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	604	POST	/{child_preset_id}/derivations	api_create_scene_preset_derivation	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	628	GET	/{preset_id}/derivations/parents	api_list_scene_preset_derivation_parents	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	647	GET	/{preset_id}/derivations/children	api_list_scene_preset_derivation_children	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	666	GET	/{preset_id}/comments	api_list_scene_marketplace_comments	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	685	POST	/{preset_id}/comments	api_create_scene_marketplace_comment	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	706	DELETE	/{preset_id}/comments/{comment_id}	api_delete_scene_marketplace_comment	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	725	GET	/creators/{creator_user_id}	api_get_scene_marketplace_creator	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	766	GET	/creators/{creator_user_id}/subscription	api_get_scene_marketplace_creator_subscription	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	783	PUT	/creators/{creator_user_id}/subscription	api_follow_scene_marketplace_creator	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace.py	807	DELETE	/creators/{creator_user_id}/subscription	api_unfollow_scene_marketplace_creator	/scene-marketplace	router
+backend/app/api/v1/scene_marketplace_analytics_slice.py	179	POST	/events	record_client_event		router
+backend/app/api/v1/scene_marketplace_analytics_slice.py	225	GET	/rankings	rankings		router
+backend/app/api/v1/scene_marketplace_analytics_slice.py	238	GET	/creator	creator_dashboard		router
+backend/app/api/v1/scene_marketplace_analytics_slice.py	256	POST	/admin/materialize-ranking	materialize_ranking		router
+backend/app/api/v1/scene_marketplace_analytics_slice.py	271	POST	/admin/aggregate-day	aggregate_day		router
+backend/app/api/v1/scene_marketplace_commerce.py	136	GET	/bundles	catalog		router
+backend/app/api/v1/scene_marketplace_commerce.py	150	GET	/bundles/{bundle_id}/{version_id}	detail		router
+backend/app/api/v1/scene_marketplace_commerce.py	186	GET	/bundles/{bundle_id}/{version_id}/quote	quote		router
+backend/app/api/v1/scene_marketplace_commerce.py	204	POST	/bundles/{bundle_id}/purchase	purchase		router
+backend/app/api/v1/scene_marketplace_commerce.py	231	GET	/me/purchases	purchases		router
+backend/app/api/v1/scene_marketplace_commerce.py	247	POST	/me/bundles	create_bundle		router
+backend/app/api/v1/scene_marketplace_commerce.py	267	POST	/me/bundles/{bundle_id}/versions	create_version		router
+backend/app/api/v1/scene_marketplace_commerce.py	289	POST	/me/bundles/{bundle_id}/versions/{version_id}/items	add_item		router
+backend/app/api/v1/scene_marketplace_commerce.py	313	POST	/me/bundles/{bundle_id}/versions/{version_id}/publish	publish		router
+backend/app/api/v1/scene_marketplace_commerce.py	334	POST	/me/bundles/{bundle_id}/versions/{version_id}/delist	delist		router
+backend/app/api/v1/scene_marketplace_commerce.py	363	POST	/promotions	create_promotion		router
+backend/app/api/v1/scene_marketplace_commerce.py	383	POST	/promotions/{promotion_id}/status	set_promotion_status		router
+backend/app/api/v1/scene_marketplace_commerce.py	416	POST	/{target_type}/{target_id}/{target_version_id}/promotion-quote	promotion_quote		router
+backend/app/api/v1/scene_marketplace_commerce.py	492	POST	/me/purchases/{purchase_id}/refund	refund		router
+backend/app/api/v1/scene_marketplace_commerce.py	517	GET	/me/refunds	refunds		router
+backend/app/api/v1/scene_marketplace_discovery.py	194	GET	/similar/{preset_id}	similar		router
+backend/app/api/v1/scene_marketplace_discovery.py	225	GET	/recommendations	recommendations		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	131	POST	/presets/{preset_id}/archive	archive		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	152	POST	/presets/{preset_id}/suspend	suspend		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	174	POST	/presets/{preset_id}/legal-takedown	legal_takedown		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	197	POST	/assets/{asset_id}/quarantine	asset_quarantine		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	218	POST	/accounts/{account_id}/suspension	account_suspension		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	241	GET	/cases/{case_id}	get_case		router
+backend/app/api/v1/scene_marketplace_lifecycle.py	257	GET	/cases/{case_id}/events	list_events		router
+backend/app/api/v1/scene_marketplace_operations.py	44	GET	/operations	get_scene_marketplace_operations		router
+backend/app/api/v1/scene_marketplace_operations.py	61	GET	/integrity	get_scene_marketplace_integrity		router
+backend/app/api/v1/scene_presets.py	49	GET	/{preset_id}/versions/{version_id}/preview	api_scene_preset_preview	/scene-presets	router
+backend/app/api/v1/scene_presets.py	81	POST	<dynamic>	api_create_scene_preset	/scene-presets	router
+backend/app/api/v1/scene_presets.py	106	GET	/mine	api_list_my_scene_presets	/scene-presets	router
+backend/app/api/v1/scene_presets.py	120	GET	/moderation/queue	api_scene_preset_moderation_queue	/scene-presets	router
+backend/app/api/v1/scene_presets.py	133	GET	/{preset_id}/moderation/history	api_scene_preset_moderation_history	/scene-presets	router
+backend/app/api/v1/scene_presets.py	149	POST	/{preset_id}/moderation/start	api_start_scene_preset_moderation	/scene-presets	router
+backend/app/api/v1/scene_presets.py	228	POST	/{preset_id}/moderation/decision	api_decide_scene_preset_moderation	/scene-presets	router
+backend/app/api/v1/scene_presets.py	251	GET	/{preset_id}	api_get_scene_preset	/scene-presets	router
+backend/app/api/v1/scene_presets.py	267	POST	/{preset_id}/versions	api_create_scene_preset_version	/scene-presets	router
+backend/app/api/v1/scene_presets.py	301	POST	/{preset_id}/versions/{version_id}/submit	api_submit_scene_preset_version	/scene-presets	router
+backend/app/api/v1/scene_presets.py	325	POST	/{preset_id}/install	api_install_scene_preset	/scene-presets	router
+backend/app/api/v1/scene_presets.py	347	POST	/{preset_id}/duplicate	api_duplicate_scene_preset	/scene-presets	router
+backend/app/api/v1/scene_presets.py	366	DELETE	/{preset_id}	api_delete_scene_preset	/scene-presets	router
+backend/app/api/v1/social.py	46	GET	/social/mentions/discover	api_discover_mention_candidates		router
+backend/app/api/v1/social.py	128	POST	/books/{book_id}/share	api_share_book		router
+backend/app/api/v1/social.py	153	POST	/books/{book_id}/share-bulk	api_share_book_bulk		router
+backend/app/api/v1/social.py	179	GET	/social/book-shares/inbox	api_book_share_inbox		router
+backend/app/api/v1/social.py	195	GET	/social/book-shares/inbox/grouped	api_book_share_grouped_inbox		router
+backend/app/api/v1/social.py	214	POST	/social/book-shares/{share_id}/open	api_open_book_share		router
+backend/app/api/v1/social.py	231	POST	/social/book-shares/{share_id}/hide	api_hide_book_share		router
+backend/app/api/v1/social.py	248	POST	/social/book-shares/{share_id}/report	api_report_book_share		router
+backend/app/api/v1/social.py	268	POST	/social/book-shares/{share_id}/mute-sender	api_mute_book_share_sender		router
+backend/app/api/v1/teams.py	66	POST	/	api_create_team	/teams	router
+backend/app/api/v1/teams.py	82	GET	/{team_id}	api_get_team	/teams	router
+backend/app/api/v1/teams.py	88	GET	/by-slug/{slug}	api_get_team_by_slug	/teams	router
+backend/app/api/v1/teams.py	94	GET	/{team_id}/members	api_list_team_members	/teams	router
+backend/app/api/v1/teams.py	110	POST	/{team_id}/invites	api_invite_member	/teams	router
+backend/app/api/v1/teams.py	129	POST	/invites/{invite_id}/accept	api_accept_invite	/teams	router
+backend/app/api/v1/teams.py	144	POST	/invites/{invite_id}/decline	api_decline_invite	/teams	router
+backend/app/api/v1/teams.py	159	DELETE	/{team_id}/members/{user_id}	api_remove_member	/teams	router
+backend/app/api/v1/teams.py	178	GET	/{team_id}/books	api_list_team_books	/teams	router
+backend/app/api/v1/teams.py	194	POST	/{team_id}/books	api_add_team_book	/teams	router
+backend/app/api/v1/teams.py	212	DELETE	/{team_id}/books/{book_id}	api_remove_team_book	/teams	router
+backend/app/api/v1/teams.py	232	POST	/analytics/team-promo/impression	api_track_team_promo_impression	/teams	router
+backend/app/api/v1/teams.py	257	POST	/analytics/team-promo/click	api_track_team_promo_click	/teams	router
+backend/app/api/v1/teams.py	282	GET	/{team_id}/analytics	api_get_team_promo_analytics	/teams	router
+backend/app/api/v1/transfers.py	42	GET	/	api_get_transfer_history	/books/{book_id}/transfers	router
+backend/app/api/v1/transfers.py	68	POST	/	api_transfer_book	/books/{book_id}/transfers	router
+backend/app/books/api/layers.py	26	POST	/	api_create_layer	/layers	router
+backend/app/books/api/layers.py	45	GET	/my	api_my_layers	/layers	router
+backend/app/books/api/layers.py	50	POST	/{layer_id}/books/{book_id}	api_add_book_to_layer	/layers	router
+backend/app/books/api/layers.py	69	POST	/{layer_id}/purchase	api_purchase_layer	/layers	router
+backend/app/books/api/user_level_invitations.py	17	POST	/pro-adult/{invitee_user_id}	api_create_invite	/level-invitations	router
+backend/app/books/api/user_level_invitations.py	29	POST	/{invitation_id}/accept	api_accept	/level-invitations	router
+backend/app/books/api/user_level_invitations.py	41	POST	/{invitation_id}/revoke	api_revoke	/level-invitations	router
+backend/app/books/api/user_level_invitations.py	53	GET	/my	api_my_invites	/level-invitations	router
+backend/app/web/routes/access.py	36	GET	/me/access	my_access_page		router
