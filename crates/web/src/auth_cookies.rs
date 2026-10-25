@@ -21,7 +21,7 @@ impl CookiePolicy {
         if self.secure {
             "__Host-tor-session"
         } else {
-            "bkr-dev-session"
+            "tor-dev-session"
         }
     }
 
@@ -29,7 +29,7 @@ impl CookiePolicy {
         if self.secure {
             "__Host-tor-csrf"
         } else {
-            "bkr-dev-csrf"
+            "tor-dev-csrf"
         }
     }
 
