@@ -1,5 +1,8 @@
 # B — Книги, версии, команды: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [private S3/immutable version](../contracts/import-storage-v1.md), [ACL/withdrawal](../access-authorization-contract.md), [RIL manifest/ChapterCompleted](../contracts/events-analytics-v1.md). B готовит ReaderVersionManifest и зашифрованный immutable object, publish только после HEAD/PG transaction, pinned V1 нельзя GC.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7727/b-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Решения уже приняты:** [архитектура](../decisions-v1.md), [API](../api-v1.md), [схема PG, события и лимиты](../data-and-events.md), [режим тестов/фикстуры](../tests-and-handoffs.md). Фраза «сверить» в старой карточке означает **доказать соответствие выбранному контракту**, а не придумать новую архитектуру.
