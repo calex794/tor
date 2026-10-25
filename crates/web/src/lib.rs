@@ -1,0 +1,89 @@
+//! Routing shell only: book business logic remains in tor-books.
+use axum::{extract::{Path, State}, http::StatusCode, response::Html, routing::get, Router};
+use std::sync::Arc;
+use tor_books::{domain::Visibility, services::{CatalogError, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE}};
+mod pages;
+
+#[derive(Clone)]
+struct AppState {
+    books: Arc<dyn PublicBookRepository>,
+}
+
+async fn health() -> &'static str { "ok" }
+
+async fn public_cards(repo: &dyn PublicBookRepository, limit: usize) -> Result<Vec<pages::PublicBookCard>, StatusCode> {
+    let result=ListPublicBooks::new(repo).execute(limit).await.map_err(|error| match error {
+        CatalogError::InvalidLimit => StatusCode::BAD_REQUEST,
+        CatalogError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+    })?;
+    Ok(result.into_iter().map(|book| pages::PublicBookCard {
+        id: book.id(), title: book.title().to_owned(), language: book.key().target_language().to_owned()
+    }).collect())
+}
+
+async fn homepage(State(state):State<AppState>) -> Result<Html<String>,StatusCode> {
+    Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
+}
+async fn catalog(State(state):State<AppState>) -> Result<Html<String>,StatusCode> {
+    Ok(pages::catalog(&public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?))
+}
+async fn book_detail(State(state):State<AppState>,Path(id):Path<u64>) -> Result<Html<String>,StatusCode> {
+    let repo=state.books.as_ref();
+    let result=ListPublicBooks::new(repo).execute(MAX_PAGE_SIZE).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let book=result.into_iter().find(|b| b.id()==id && b.visibility()==Visibility::Public).ok_or(StatusCode::NOT_FOUND)?;
+    Ok(pages::book_detail(&pages::PublicBookCard{id:book.id(),title:book.title().into(),language:book.key().target_language().into()}))
+}
+async fn login() -> impl axum::response::IntoResponse { pages::inactive_account_page("Вход") }
+async fn register() -> impl axum::response::IntoResponse { pages::inactive_account_page("Регистрация") }
+
+pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
+    let api=tor_books::api::router(repo.clone());
+    Router::new()
+        .route("/",get(homepage))
+        .route("/catalog",get(catalog))
+        .route("/books/{id}",get(book_detail))
+        .route("/login",get(login))
+        .route("/register",get(register))
+        .route("/assets/site.css",get(pages::stylesheet))
+        .route("/healthz",get(health))
+        .route("/readyz",get(health))
+        .with_state(AppState{books:repo})
+        .merge(api)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::{to_bytes,Body},http::Request};
+    use tor_books::repositories::InMemoryCatalog;
+    use tower::ServiceExt;
+    async fn get(path:&str)->(StatusCode,String){
+        let app=router(Arc::new(InMemoryCatalog::demo()));
+        let response=app.oneshot(Request::builder().uri(path).body(Body::empty()).unwrap()).await.unwrap();
+        let status=response.status();
+        let body=to_bytes(response.into_body(),1024*1024).await.unwrap();
+        (status,String::from_utf8(body.to_vec()).unwrap())
+    }
+    #[tokio::test]
+    async fn demo_serves_real_html_routes(){
+        for path in ["/","/catalog","/books/1","/login","/register","/healthz","/readyz","/assets/site.css"] {
+            assert_eq!(get(path).await.0,StatusCode::OK,"{path}");
+        }
+    }
+    #[tokio::test]
+    async fn hidden_book_never_reaches_public_pages(){
+        for path in ["/","/catalog","/api/v1/books"] {
+            let (_,body)=get(path).await;
+            assert!(body.contains("Первое знакомство"));
+            assert!(!body.contains("Закрытый черновик"));
+        }
+        assert_eq!(get("/books/3").await.0,StatusCode::NOT_FOUND);
+    }
+    #[tokio::test]
+    async fn no_user_or_finance_write_routes(){
+        assert_eq!(get("/api/v1/books?limit=10000").await.0,StatusCode::BAD_REQUEST);
+        let app=router(Arc::new(InMemoryCatalog::demo()));
+        let response=app.oneshot(Request::builder().method("POST").uri("/register").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(),StatusCode::METHOD_NOT_ALLOWED);
+    }
+}
