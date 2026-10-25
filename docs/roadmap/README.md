@@ -1,4 +1,4 @@
-# TOR — рабочая дорожная карта 15 дней: 117 задач, 69 сценариев
+# TOR — рабочая дорожная карта 15 дней: 117 строк задач, 69 сценариев
 
 **Цель этой папки:** исполнитель получает источник кода, задания, выбранные контракты и приёмочные испытания. **Проверка 26.10 выявила, что 117 заголовочных задач покрывают 69 сценариев по названию, но не полностью специфицируют 61 историческую функцию.** Перед опасными предметными ветками обязательны уточнения из [аудита полноты](preflight-audit-2026-10-26.md); не выдавать документационное покрытие за реализацию. В **main** TOR 25.10.2026 только S0 **in-memory демонстрация**, поэтому все новые HTTP/PG/commerce действия являются **работой**, а не уже запущенным сайтом.
 
@@ -27,7 +27,7 @@ python3 -m unittest discover -s tests/architecture -v
 python3 tools/check_feature_layout.py
 ```
 
-Проверка падает, если потеряны S001–S069, назначен второй владелец, потеряна задача, не указан контракт/исходник/приёмка или нет воспроизводимого теста. **61 сценарий** имеют предметного владельца; **8 исключены или заморожены** по существующему продуктовому решению. **117 задач** имеют целевой день и слой. Дорожная карта — запланированная работа; зелёный roadmap-validator не доказывает наличие работающего сайта.
+Проверка падает, если потеряны S001–S069, назначен второй владелец, потеряна задача, не указан контракт/исходник/приёмка или нет воспроизводимого теста. **61 сценарий** имеют предметного владельца; **8 исключены или заморожены** по существующему продуктовому решению. **117 строк задач** (из них архивная G-03) имеют этап и владельца; **116 исполняемых строк**. Дорожная карта — запланированная работа; зелёный roadmap-validator не доказывает наличие работающего сайта.
 
 ## Матрица ответственности A–I
 
@@ -39,7 +39,7 @@ python3 tools/check_feature_layout.py
 | D (13) | `commerce` → покупки/права/ledger | Один atomic commit, batch/refund и незацепленный Boosty | [D](lanes/D.md) |
 | E (14) | `discussions`, `social`, `clubs`, `support` | Discussion→reply→Inbox, соцсвязи/модерация | [E](lanes/E.md) |
 | F (14) | `search`, `recommendations`, `referrals` | Catalog/SEO/projections/recommendations, выключенная без доказательств реклама | [F](lanes/F.md) |
-| G (12) | `ingest`, `imports` | Файлы/URL→job→B command→outbox→notification/index | [G](lanes/G.md) |
+| G (12) | `ingest`, `imports` | Загруженные файлы→job→B command→outbox→notification/index (URL crawler заморожен) | [G](lanes/G.md) |
 | H (12) | `web` — страницы/assets, **без SQL** | Гость/читатель/автор/админ проходят реальные формы | [H](lanes/H.md) |
 | I (13) | `contracts`, root router/Cargo/migrations/CI/deploy | PG-основа, стабильный контракт, постоянный зелёный main и стенд | [I](lanes/I.md) |
 
@@ -109,3 +109,21 @@ I: contracts + migration release + web composition
 ## Заморозка URL crawler (26.10.2026)
 
 [Notion S024](https://app.notion.com/p/40432a84beec8137a481c358f31df050) / [F021](https://app.notion.com/p/40432a84beec81959f52df54923ff337): автоматический импорт книг по URL и обход каталогов НЕ переносить. G-03 — архивная строка, не подлежит разработке; **117 строк задач, но одна из них архивная**. Только загруженные файлы S023 и обложки S025. Статусы: **61 предметный сценарий, 8 исключений**. Новые внешние парсеры не добавлять без решения владельца.
+
+
+## Закрытие восьми подготовительных блоков — 26.10.2026
+
+Исполнителям **обязательно** использовать договоры, а не придумывать финансовые/системные механизмы:
+
+| Блок | Точный договор |
+| --- | --- |
+| FIN-01 — реклама/мелкие суммы | [формула накопительного расчёта, hard cap, escrow и refund](../contracts/finance-ad-exact-v1.md) |
+| FIN-02 — выплаты, возвраты, обмены | [state machines, holds, origin-aware capacity, system disposition](../contracts/refunds-payouts-v1.md) |
+| ACL — доступы | [матрица и S3-grants](access-authorization-contract.md) |
+| REC — рекомендации | [golden-алгоритм и 12 тестовых блоков](../contracts/recommendations-golden-v1.md) · [JSON oracle](../contracts/rec-golden-v1.json) |
+| FILE — импорт и хранилище | [file formats/limits/private S3/GC/backup](../contracts/import-storage-v1.md) |
+| EVT — доверенные события | [manifest completion, RIL, метрики, privacy/TTL](../contracts/events-analytics-v1.md) |
+| API — машинные контракты | [OpenAPI 3.1: 40 операций](../contracts/openapi-v1.json) · [совместимость/ошибки/CSRF](../contracts/api-evolution-v1.md) |
+| REL — ограниченная/полная бета | [план, 12 флагов, 10 барьеров выпуска](../contracts/release-profile-v1.md) · [JSON flags](../contracts/release-flags-v1.json) |
+
+`python3 tools/check_contracts.py` + негативные тесты в `tests/architecture/test_contracts.py` обязательны в каждом PR. Не объявлять `TODO` выполненным, пока Rust/PG/S3/Chromium не доказаны; реальный S3 provider/KEK и внешний payment provider требуют конфигурации/договоров, **не** существуют от самого markdown.
