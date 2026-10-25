@@ -63,6 +63,7 @@ CREATE TABLE outbox_events (
     aggregate_id BIGINT NOT NULL,
     dedupe_key TEXT NOT NULL UNIQUE,
     payload JSONB NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+    required_consumers TEXT[] NOT NULL CHECK (cardinality(required_consumers) > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -81,12 +82,16 @@ CREATE TABLE event_deliveries (
 );
 ```
 
-**Владение:** I — структура и версия outbox; B/D/E и прочие владельцы вправе добавить событие **в свою бизнес-транзакцию** через согласованный insert по полям выше (явное техническое исключение к «пишем только свои таблицы»); G — claim/retry/последующая доставка, а не право задним числом изменять состояние покупки или главы. `dedupe_key` для первого выпуска главы = `chapter-first:<chapter_id>`; для покупки = `purchase:<purchase_id>`. Любой consumer использует `(consumer,event_id)` для idempotency.
+**Владение:** I — структура и версия outbox; B/D/E и прочие владельцы вправе добавить событие **в свою бизнес-транзакцию** через согласованный insert по полям выше (явное техническое исключение к «пишем только свои таблицы»); G — claim/retry/последующая доставка, а не право задним числом изменять состояние покупки или главы. **Для каждого опубликованного event владельцу обязателен список `required_consumers`, снимок имён обработчиков на момент записи.** Например `ChapterPublished` → `["search-index-v1","subscription-inbox-v1"]`; `PurchaseCommitted` → `["earnings-projection-v1"]`; `ImportCompleted` → `["import-status-v1"]`. Имена/version меняются только согласованной миграцией контракта, не в runtime-памяти случайного процесса.
+
+**Публикации:** `chapter_first_release_events` из миграции 005 — ровно один **исторический бизнес-факт** первого выпуска главы, а **outbox `ChapterPublished`** создаётся для *каждой новой опубликованной редакции* с `dedupe_key="chapter-published:<chapter_id>:<version_id>"`, включая первый выпуск. Повтор команды той же версии не публикует второй event; V1→V2 публикует новый event и обновляет поиск/подписки. Для покупки `dedupe_key="purchase:<purchase_id>"`. Любой consumer использует уникальную пару `(consumer,event_id)` для идемпотентности.
+
+**Fan-out и глобальный `delivered_at`:** G сначала атомарно claims одно event с `lease_epoch`, затем вызывает **каждого** из `required_consumers`, который ещё отсутствует в `event_deliveries`. Успех каждого потребителя записывается отдельной `INSERT ... ON CONFLICT DO NOTHING` в `event_deliveries` (в одной PG-транзакции с его локальным эффектом, когда эффект хранится в той же PG). **`outbox_events.delivered_at` устанавливать только если для всех имён из `required_consumers` имеется row `(consumer,event_id)`.** Если один потребитель упал, доставленные другим не повторять; event остаётся ожидающим. Результат внешней сети без подтверждённого idempotency-key нельзя считать delivered. Сбой между внешним действием и записью delivery может привести к повтору, поэтому downstream обязан дедуплицировать. Для lease окончательная установка delivered_at проверяет `WHERE lease_epoch=?`.
 
 Worker claim: выбор `WHERE delivered_at IS NULL AND dead_at IS NULL AND next_attempt_at<=now() AND (lease_until IS NULL OR lease_until<now()) FOR UPDATE SKIP LOCKED LIMIT N`, затем атомарное увеличение `lease_epoch`, `attempts` и установка `lease_until`. При завершении `UPDATE ... WHERE id=? AND lease_epoch=?`: старый владелец не может удалить запись нового. Повтор после таймаута разрешён; нужно дедуплицировать эффект у consumer. Backoff: минимум 5s, максимум 1h, с jitter; после 12 попыток → `dead_at` + диагностика. Retry запрещён для неидемпотентного внешнего API без ключа.
 
 **Имена payload v1:**
-- `ChapterPublished`: `{chapter_id,book_id,version_id,published_at}`. Событие только после commit; outbox insert внутри commit.
+- `ChapterPublished`: `{chapter_id,book_id,version_id,published_at,first_release}`. Outbox insert **вместе с публикацией до commit**, а обработка только после commit; каждый V1/V2 имеет собственный ключ события, первый выпуск обозначен `first_release=true`.
 - `PurchaseCommitted`: `{purchase_id,actor_id,chapter_id,version_id,amount_minor,currency:"RUB"}`. Не пересылать body главы, пароль или платёжные данные.
 - `SubscriptionChanged`: `{actor_id,target_id,active}`.
 - `ImportCompleted`: `{job_id,book_id,created_chapter_count}`.
