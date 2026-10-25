@@ -74,8 +74,10 @@ pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
-    let body=format!("<section class=\"section\"><div class=\"container\"><p class=\"eyebrow\">Демонстрационная книга · {language}</p><h1>{title}</h1><p>Главы и история чтения появятся после подключения постоянного хранилища.</p><p><a class=\"text-link\" href=\"/catalog\">Вернуться в каталог</a></p></div></section>");
-    layout(&book.title, "Демонстрационная страница книги.", &body)
+    let body = format!(
+        "<section class=\"section book-detail-page\"><div class=\"container\">         <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\">         <a href=\"/\">Главная</a><span aria-hidden=\"true\">/</span>         <a href=\"/catalog\">Каталог</a><span aria-hidden=\"true\">/</span>         <span aria-current=\"page\">{title}</span></nav>         <div class=\"book-detail__layout\">         <div class=\"book-detail__art\" aria-hidden=\"true\"><span>П</span></div>         <div class=\"book-detail__info\">         <p class=\"eyebrow\">Книга · {language}</p><h1>{title}</h1>         <p class=\"book-detail__description\">Карточка опубликованной книги.         Оглавление и чтение глав станут доступны после подключения читалки.</p>         <div class=\"book-detail__actions\">         <a class=\"button\" href=\"/catalog\">Вернуться к книгам</a>         <span class=\"book-detail__note\">Вход для просмотра каталога не требуется</span>         </div></div></div></div></section>"
+    );
+    layout(&book.title, "Карточка книги в каталоге Пандаолейт.", &body)
 }
 
 pub async fn stylesheet() -> impl IntoResponse {
@@ -90,7 +92,7 @@ pub async fn stylesheet() -> impl IntoResponse {
 
 pub fn inactive_account_page(title: &str) -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")],
-     layout(title, "Демо без сбора учётных данных.", "<section class=\"section\"><div class=\"container\"><h1>Демонстрационный режим</h1><p>Вход и регистрация отключены до подключения постоянной базы данных.</p><a class=\"text-link\" href=\"/\">На главную</a></div></section>"))
+     layout(title, "Аккаунты пока недоступны.", "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Профиль читателя</p><h1>Аккаунты пока не открыты</h1><p class=\"page-description\">Вход и регистрация будут доступны после завершения проверки безопасности и подключения постоянной базы данных. Сейчас каталог можно просматривать без аккаунта.</p><a class=\"button\" href=\"/catalog\">Перейти в каталог</a></div></div></section>"))
 }
 
 #[cfg(test)]

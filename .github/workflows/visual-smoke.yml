@@ -1,0 +1,50 @@
+name: TOR visual smoke
+on:
+  pull_request:
+    paths:
+      - 'crates/web/**'
+      - '.github/workflows/visual-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/web/**'
+      - '.github/workflows/visual-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build HTTP server
+        run: cargo build -p tor-web
+      - name: Install headless browser
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser layout checks and screenshots
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-shots"
+          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 ./target/debug/tor-web > "$RUNNER_TEMP/tor.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3099/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/visual-smoke.cjs
+      - name: Upload browser proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-responsive-screenshots
+          path: ${{ runner.temp }}/tor-shots/*.png
+          if-no-files-found: warn
+          retention-days: 10
