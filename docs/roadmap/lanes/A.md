@@ -1,5 +1,8 @@
 # A — Учётные записи и права: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [права и единая матрица](../access-authorization-contract.md), [refund/S3 first exposure](../contracts/refunds-payouts-v1.md) — A выдаёт Actor и role/Origin/CSRF, но не право на кошелёк/reader только по auth; cross-feature PORТ I. Тесты ACL-01 и ACL-S3 обязательны до платной беты.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7726/a-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Уточнение аудита 26.10:** Actor / роли нужны не только для логина, но для единой [матрицы CanDiscover/CanRead/CanPurchase/CanEdit/CanModerate](../access-authorization-contract.md). Модераторский просмотр через отдельный служебный путь не означает публичного права на blocked или purchased главу.

@@ -15,7 +15,7 @@
 | **P0** | **Внешнее пополнение F061**, S041 | D-10 disabled | Нет подтверждённого Boosty provider contract, signature/callback/reconciliation. | Limited beta без real topup; публичная финансовая полнота остаётся BLOCKED |
 | **P1** | **Рекомендации F010/F033/F034/F047**, S008/S044/S045 | F-05/06/07 + G-10 | 4 источника кандидатов, нормализация, adaptive hybrid, cold start, privacy, materialized generations, rollout/rollback, query budgets. | [REC-01…14](recommendations-execution-contract.md), F+G+H+I |
 | **P1** | **События/аналитика F035/F056**, S046 + внутренний funnel | F-12 | Pageview ≠ book_open ≠ meaningful_read ≠ complete; idempotency, право на событие, retention/anti-fraud. | F/G/I единый event catalog и policy |
-| **P1** | **Импорт/медиа F020–F022/F045**, S023–S025 | G-01…09 | Реальный allowlist источников и fixture парсеров; выбор долговечного storage/S3, pin/GC/restart/retry. | G-02/03/05/09, source/asset acceptance corpus |
+| **P1** | **Импорт/медиа F020/F022/F045**, S023/S025 | G-01…09 | URL crawler F021/S024 заморожен; для активного file upload нужны durable private S3, pin/GC/restart/retry и безопасная проверка содержимого. | G-02/03/05/09, source/asset acceptance corpus |
 | **P1** | **Социальная часть F011/F014/F017/F053** | E/G | Комментарии/оценки подборки не равны книге, lifecycle Club Factory, Inbox≠DM≠support, privacy/digest fanout. | E/G/H отдельная social permission+delivery матрица |
 | **P1** | **Рефералы F039**, S052 | F-09+D-11 | Attribution window, trusted conversion, anti-fraud, hold/chargeback. | F/D posting+PG negative tests |
 | **P1** | **Каталог/cache/SEO F004/F005/F049** | F-01–04/08 | L1/L2/SWR invalidation после block/withdraw, no hidden search hints, rollback generation. | F/G staged projections + real query plans |
@@ -33,7 +33,7 @@
 | **PREF-02** | D/I | Фиксированные типы refund eligibility, system disposition, exchange/holds, финансовое созревание/payout; DB schema/контракт и негативная PG-матрица. Запрещён raw revoke paid grant. |
 | **PREF-03** | A/B/C/D/E/I | Typed `CanDiscover/CanPreview/CanRead/CanPurchase/CanEdit/CanRefund`, миграции `is_withdrawn`/`Layer current version`/`term provenance`, единая [матрица](access-authorization-contract.md). |
 | **PREF-04** | F/G/I | Golden dataset NEwBOO для scoring/rollout, PG generations/edges, chosen scenario weights from original code. Не делать новый popularity-only алгоритм. |
-| **PREF-05** | G/I | Перечень фактически поддерживаемых источников URL, fixture каждого парсера, production durable object storage/credentials/backup/restore; интерфейс файлов без прямой отдачи secret/paid asset. |
+| **PREF-05** | G/I | Нет URL crawler (F021/S024 frozen); для файлового импорта точные форматы/parser fixtures, private S3/credentials/backup/restore; интерфейс файлов без прямой отдачи secret/paid asset. |
 | **PREF-06** | F/G/E/I | Раздельные события `page_view/book_open/read_start/meaningful_read/complete/ad_viewable`, trusted source и retention/privacy. Для meaningful_read требуется доказуемое правило, а не любой GET. |
 | **PREF-07** | I/H | Из письменного `api-v1.md` сделать typed contract и contract tests/машинный OpenAPI, одинаковые поля JSON/HTML/PG. Общий ACL/финансы не пропускаются по changed-path. |
 | **PREF-08** | I/владелец продукта | Зафиксировать профиль запуска: **ограниченная бета** с отключённым внешним платежом/billable ads и явно частичными рекомендациями либо **полный функциональный паритет** с обеими рекламами и реальной финансовой инфраструктурой. Без решения «15 дней» ≠ обещание 100%. |
@@ -61,3 +61,15 @@
 - S041 Boosty отсутствует, но публично объявлен работающим пополнением — **BLOCK**.
 
 **Вывод:** список областей в TOR почти полный, **глубина плана была недостаточной** для денег, рекламы, рекомендаций и paid Layers. Новые контракты закрывают крупную часть технической неопределённости. Оставшиеся перечисленные продуктовые решения и фактические CI/PG/browser доказательства нужно считать отдельными допусками, а не поручениями «как-нибудь проработать» при реализации.
+
+
+## Решение 26.10.2026 — F021/S024 исключены из TOR
+
+[Notion S024](https://app.notion.com/p/40432a84beec8137a481c358f31df050) и [Notion F021](https://app.notion.com/p/40432a84beec81959f52df54923ff337) зафиксировали запрет URL crawler и сканирования внешних сайтов **без срока**. [G-03](lanes/G.md) — историческая строка среди 117 (не исполнять). С учётом решения: 61 активный сценарий, 8 исключены/заморожены; F021 classification=frozen. Загрузка файла и private S3 живут отдельно и обязательны.
+
+
+## 5. Подготовительные договоры написаны — 26.10.2026 (это не код)
+
+**FIN-01** [арифметика рекламных копеек](../contracts/finance-ad-exact-v1.md) — cumulative floor B×k/N, immutable offer, balance identities и 8 тестов. **FIN-02** [отмена/возврат/удержание/выплата](../contracts/refunds-payouts-v1.md) — state machine, 12 negative tests, trusted external receipts. **ACL** [S3/покупка/Layer](access-authorization-contract.md), **REC** [алгоритм/JSON golden](../contracts/recommendations-golden-v1.md), **FILE** [S3+file import без crawler](../contracts/import-storage-v1.md), **EVT** [RIL/manifest/meaningful read](../contracts/events-analytics-v1.md), **API** [OpenAPI](../contracts/openapi-v1.json), **REL** [15-day profiles+flags](../contracts/release-profile-v1.md). В TOR main пока не создана предметная реализация; каждое заявление о passed PG/Chromium подтверждать независимо.
+
+**Продуктовые границы сохраняются:** тарифы и доли рекламодателя/автора берутся из опубликованного immutable package snapshot; сроки возврата — из версии политики продажи, не из догадки. Боевое включение денег/рекламы/приватного S3 запрещено до реальных внешних доказательств и PG/Browser тестов. F021/S024 остаются заморожены, G-03 архивен. Документы выбирают технические дефолты, **но не создают** договор с Boosty, банковским провайдером, S3 endpoint или согласие пользователей на обработку данных.

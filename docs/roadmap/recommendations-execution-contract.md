@@ -79,3 +79,24 @@ F владеет проекциями/score; G запускает и повто�
 **Критерий готовности продукта:** R01–R14 на реальной PostgreSQL+browser, active generation действительно возвращает разрешённые книги с объяснением, cold start не пуст без оснований, тесты JS/request/traffic показывают реальную скорость. Без них S044/045 «в плане» не равно рекомендациям NEwBOO.
 
 **Интеграция с рекламой:** публичные candidate IDs/metadata общие, но рекламный reserve/escrow/impression в F-ad/D, а organic scoring в F-recommendations; смешение без явной маркировки/consent нарушает раздельный финансовый и рекомендательный контракт.
+
+
+## 6. RIL и прямое S3-чтение — обязательный источник качества сигналов
+
+**Норматив:** [RIL+reader signals v1](../contracts/ril-reader-signals-v1.md) и [paid S3, Tela](https://telawiki.com/spaces/430/pages/7736/tor-s3). Источник NEwBOO: [RIL classification](https://github.com/HeisLuka/newboo/blob/17125ef/backend/app/services/route_intelligence_service.py), [recommendation hygiene](https://github.com/HeisLuka/newboo/blob/17125ef/backend/app/recommendations/services/signal_hygiene_service.py), [trusted completion](https://github.com/HeisLuka/newboo/blob/17125ef/backend/app/services/reader_progress_service.py). **RIL — не рекомендательный движок, а техконтекст доверия к сигналам; рекомендательная модель потребляет отдельные события чтения/покупок/кликов.**
+
+- При прямом чтении paid ciphertext **S3 → браузер** backend RIL **не видит GET к S3**. При этом он видит GET reader metadata, POST выдачи подписанного доступа и PUT progress. **Grant, S3 GET, cache/prefetch не считаются reader_opened, chapter_finished или meaningful_read**.
+- Ввести на стороне I bounded и versioned RoutePassport: family/surface/area/cost/risk/known/match/decision; известные правила для POST paid-grant и PUT прогресса; политики запрета/сканера отдельно от RIL. Не использовать raw path/ID/signed URL как metrics labels.
+- **Важное изменение для S3:** B при публикации генерирует immutable **структурный ReaderVersionManifest** (logical block IDs, last readable block, hash/schema_version), который C читает из PostgreSQL. При сохранении прогресса C проверяет право на точную pinned версию и достижение последнего блока по manifest, а не скачивает тело платной главы из S3 на каждый heartbeat. По факту первого завершения C атомарно записывает completion+outbox; unique (user_id,book_id,chapter_id) согласно NEwBOO (повтор и V2 не делают второй completion). G доставляет F событие ровно по EventId, F создаёт weighted chapter_finished.
+- F проверяет RIL/behavior-path hygiene до использования recommendation source event; unknown/scanner/degraded не обучают, watch может ослаблять сигнал. Отдельные произошедшие события не заменять HTTP counters; committed purchase подтверждает покупку, но не факт прочтения.
+- **Cold start = 0 пользователей:** не генерировать фальшивую историю, выдавать только разрешённый content/popularity/public metadata fallback, затем строить поколение по реальным событиям. Paid content/hidden metadata не должны утечь из source events и результатов.
+- Новые обязательные отрицательные e2e: legit grant classified as reading, S3 GET не появляется в RIL и не обязан; successful grant без read-progress → **0 completion**; last block → 1 completion+1 rec signal; repeated/retried/second device/second version → не больше одного; refund/wrong version/wrong block/unknown/scanner → 0 positive; G crash after PG commit → eventual one result; no signed URL/DEK/raw ID in RIL labels.
+
+Подшаги этой секции относятся к существующим I-02/I-13, B-04, C-04/C-06/C-09, D-02, F-07/F-12, G-06/G-07, H-05/H-12. **Ни документ, ни зелёный document-CI не подтверждают реализацию**; нужен PostgreSQL + Axum + S3 + браузер на одном SHA.
+
+**Асинхронный нюанс для F/G:** RIL контекст берётся и прикрепляется к typed outbox-событию **при исходном HTTP/PG commit**, с versioned паспортом либо проверенным provenance=server_committed. G-worker через несколько минут уже не видит исходного HTTP request; повторная классификация по маршруту фонового job недопустима. В старом signal_hygiene unknown/missing_context отклоняется, поэтому обязательный негативный тест: отложенное trusted ChapterCompleted проходит в F, а клиентский фальшивый trusted_completion без PG provenance не проходит. Подробнее [RIL договор](../contracts/ril-reader-signals-v1.md).
+
+
+## 7. Нормативный golden-оракул (26.10)
+
+В дополнение к RIL и REC-01…14: [точные расчёты/фикстуры REC-M01…12](../contracts/recommendations-golden-v1.md), [machine JSON](../contracts/rec-golden-v1.json), [фактические события/meaningful read](../contracts/events-analytics-v1.md). Числа 710/620/430/200 рассчитаны вручную по исходному Python алгоритму и **должны быть сверены фактическим прогоном pinned NEwBOO в CI**; документация не утверждает, что старый Python уже запускали на этом corpus.

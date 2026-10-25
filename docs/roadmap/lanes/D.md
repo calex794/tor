@@ -1,5 +1,8 @@
 # D — Коммерция и права покупки: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [FIN-01 формула рекламной копейки, escrow, publisher](../contracts/finance-ad-exact-v1.md), [FIN-02: refunds, payouts, holds](../contracts/refunds-payouts-v1.md), [Layer/Chapter ACL](../access-authorization-contract.md), [release flags](../contracts/release-profile-v1.md). Любой paid/grant/reversal без PG single-commit и доказанной доли остаётся выключенным.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7729/d-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Уточнение аудита 26.10:** paid Layer lifetime/30d, живые новые книги, разделение direct chapter pin и текущей главы Layer, refund отдельных сроков, платный admin revoke и creator withdrawal описаны в [ACL матрице](../access-authorization-contract.md). Доля ad publisher/escrow/budget lock отдельно в [ADS](../ads-execution-contract.md). Никакое D-05/D-11 не принимается без этих отрицательных PG-тестов.

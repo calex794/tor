@@ -30,6 +30,8 @@ jobs:
         run: python3 tools/check_feature_layout.py
       - name: Enforce executable TOR roadmap coverage
         run: python3 tools/check_roadmap.py
+      - name: Enforce prelaunch API finance access S3 recommendations and release contracts
+        run: python3 tools/check_contracts.py
       - name: Verify architecture guard catches regressions
         run: python3 -m unittest discover -s tests/architecture -v
       - name: Check TOR SSH bootstrap shell syntax

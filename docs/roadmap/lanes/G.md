@@ -1,5 +1,11 @@
 # G — Импорт и фоновые события: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [FILE-01…18 / real encrypted S3](../contracts/import-storage-v1.md), [S3 delivery](../contracts/paid-delivery-v1.md), [outbox/events](../contracts/events-analytics-v1.md). Сборщик F021/S024 и G-03 **заморожены**; никаких URL parser/API/jobs. Только файл TXT/MD/DOCX/ZIP, обложки, object store/GC и durable pipeline.
+
+
+> **Решение владельца 26.10.2026: F021/S024 заморожены без срока.** Не разрабатывать импорт книг по URL, обход сайтов/каталогов, парсеры, crawl jobs, UI и тесты. G-03 сохраняется только архивным указателем, не считается исполняемой задачей. Остаются S023 загрузка файлов и S025 обложки.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7732/g-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Уточнение аудита 26.10:** обновление рекомендательных generations и ad serving требует durable jobs и bounded delivery ([REC](../recommendations-execution-contract.md), [ADS](../ads-execution-contract.md)); G не выдаёт права, не списывает деньги, не меняет authoritative book content. Парсеры проверяются по реальному allowlist и сохранённым HTML fixtures.
@@ -38,19 +44,9 @@
 
 **Фильтр собственного теста (создать при реализации):** `cargo test -p tor-imports --test slices_pg g_02_`. По окончании ветки — вся предметная suite на конечном SHA, затем интеграционный браузер/PG с I.
 
-### G-03 — Д2 P1
+### G-03 — ЗАМОРОЖЕНО (решение 26.10.2026)
 
-**Сделать:** Импорт с URL: каталог/страницы, извлечение title/chapter, абсолютная identity, безопасные host allowlists.
-
-**Главный выходной файл:** `crates/imports/src/services/import_url.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** imports/fetch/parse, source_identities
-
-**Сценарий и старый код:** [S024](https://app.notion.com/p/40432a84beec8137a481c358f31df050) ([исходник](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/books_chapter_import.py))
-
-**Принятый API/действие:** POST /api/v1/import-jobs (mode=url)
-
-**Проверка:** SSRF/localhost/file:// и запрещённые сети недоступны; один source не создаёт дубль. Реальная PG обязательна, HTTP и права сравнить с исходником.
-
-**Фильтр собственного теста (создать при реализации):** `cargo test -p tor-imports --test slices_pg g_03_`. По окончании ветки — вся предметная suite на конечном SHA, затем интеграционный браузер/PG с I.
+**Архив:** F021/S024 импорт по URL/краулер. Не исполнять, не писать код, не тратить CI, не добавлять API/UI/тест. История NEwBOO сохранена [в Notion](https://app.notion.com/p/40432a84beec8137a481c358f31df050). Текущая работа G — загруженные пользователем файлы/обложки и durable jobs без crawler.
 
 ### G-04 — Д2 P1
 
@@ -152,7 +148,7 @@
 
 ### G-11 — Д5 P0
 
-**Сделать:** Интеграционный импорт: URL/file → preview → B командой создать → publish → F индекс → E notify.
+**Сделать:** Интеграционный импорт: file → preview → B командой создать → publish → F индекс → E notify.
 
 **Главный выходной файл:** `crates/ingest/src/api/mod.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** I wiring + G tests
 
@@ -166,7 +162,7 @@
 
 ### G-12 — Д5
 
-**Сделать:** Написать интеграционные PG-тесты импорта S023–S025, retry S066 и технической доставки уведомлений E/S018; предъявить каждому положительный/отрицательный исход, сохранённый checkpoint и отсутствие дублей после restart.
+**Сделать:** Написать интеграционные PG-тесты импорта S023/S025, retry S066 и технической доставки уведомлений E/S018; предъявить каждому положительный/отрицательный исход, сохранённый checkpoint и отсутствие дублей после restart.
 
 **Главный выходной файл:** `crates/ingest/tests/slices_pg.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** Notion parity
 

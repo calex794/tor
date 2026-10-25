@@ -1,5 +1,8 @@
 # E — Сообщества и модерация: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [ACL social/moderation deny](../access-authorization-contract.md), [trusted events/privacy](../contracts/events-analytics-v1.md), [system disposition money](../contracts/refunds-payouts-v1.md). Модератор сообщает reason и переводит hard deny; D выполняет отдельно урегулирование денег, E не правит ledger. Нельзя утечь private/paid цитатой из Inbox/соцсигналов.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7730/e-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Решения уже приняты:** [архитектура](../decisions-v1.md), [API](../api-v1.md), [схема PG, события и лимиты](../data-and-events.md), [режим тестов/фикстуры](../tests-and-handoffs.md). Фраза «сверить» в старой карточке означает **доказать соответствие выбранному контракту**, а не придумать новую архитектуру.
