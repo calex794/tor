@@ -66,7 +66,7 @@ F владеет проекциями/score; G запускает и повто�
 | REC-03 | F `services/behavioral_candidates.rs` | bounded top edges, переходы reading/readers-also-read | пустое/битое окно, 50k transitions max, no invalid subject leak |
 | REC-04 | F `services/content_candidates.rs` | similarity tags/genres/author/language из текущего B metadata snapshot | private/draft book never candidate final |
 | REC-05 | F `services/popularity_candidates.rs` | trending/popular/new/fallback с нормализацией для cold start | empty user получает выдачу; 100k books bounded PG |
-| REC-06 | F `services/related_books.rs` | ручные book relations как отдельный dedicated source | related ไม่ дублирует hybrid, source unavailable gracefully |
+| REC-06 | F `services/related_books.rs` | ручные book relations как отдельный dedicated source | related не дублирует hybrid, source unavailable gracefully |
 | REC-07 | F `services/hybrid_scoring.rs` | перенос normalization, scenario weights, dedup, tie, max candidates/boost/caps | Python golden fixtures deterministic; score≤1000 |
 | REC-08 | F `services/preference_ranking.rs` | user pairwise choice+defer/exhausted/resume в отдельном user profile | 2 устройства, stale pair, block/hidden -> not asked |
 | REC-09 | F `services/generations.rs` | PG materialization generation + pointer activate/reject + bounded cursor jobs | crash between build/activate safe, old generation preserved |
