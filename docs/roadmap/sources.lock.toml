@@ -6,11 +6,12 @@ bokarust_repo = "calex794/bokarust"
 bokarust_main_sha = "d11b27b43125b93e59809147e8e687203fa0753b"
 
 [roadmap]
-version = "2026-10-25-v1"
+version = "2026-10-26-v2"
 target_repo = "calex794/tor"
 scenarios_total = 69
-scenarios_assigned = 62
-scenarios_excluded = 7
+scenarios_assigned = 61
+scenarios_excluded = 8
 tasks_total = 117
+archived_task_ids = ["G-03"] # archival reference only; no URL crawler implementation
 lanes = 9
 source_exceptions = ["S068", "S069"] # PR-only sources; never treat as live newboo/main
