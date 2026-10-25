@@ -1,0 +1,90 @@
+name: TOR PostgreSQL runtime
+on:
+  pull_request:
+    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml']
+  push:
+    branches: [main]
+    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Create isolated roles and database
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Format and unit tests
+        run: |
+          python3 tools/check_feature_layout.py
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Apply SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Reject app role as migrator and DDL writer
+        run: |
+          if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
+          if PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c 'CREATE TABLE forbidden (x int)'; then exit 1; fi
+      - name: Seed visible and hidden rows
+        run: |
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO books(id,source_identity,target_language,title,visibility)
+          VALUES (1,'ci:1','ru','TOR CI public','public'),
+                 (2,'ci:2','ru','TOR CI hidden','draft'),
+                 (3,'ci:3','ru','TOR CI held','public');
+          UPDATE books SET admin_hold=true WHERE id=3;
+          SQL
+      - name: Database and HTTP integration
+        run: |
+          cargo test -p tor-books --test postgres_catalog -- --ignored
+          cargo test -p tor-web --test postgres_http -- --ignored

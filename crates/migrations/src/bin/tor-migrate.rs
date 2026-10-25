@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pool = PgPoolOptions::new().max_connections(1)
         .acquire_timeout(Duration::from_secs(5)).connect(&url).await?;
     let role: String = sqlx::query_scalar("SELECT current_user").fetch_one(&pool).await?;
-    let database: String = sqlx::query_scalar("SELECT current_database")
+    let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&pool).await?;
     if role != "tor_migrator" {
         return Err("TOR migrations require the dedicated tor_migrator role".into());
