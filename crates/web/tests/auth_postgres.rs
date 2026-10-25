@@ -50,7 +50,7 @@ fn cookie(reply: &Response, prefix: &str) -> String {
         .find_map(|v| {
             let s = v.to_str().ok()?;
             s.starts_with(prefix)
-                .then(|| s.split(';').next()?.to_owned())
+                .then(|| s.split(';').next().unwrap_or_default().to_owned())
         })
         .expect("Set-Cookie")
 }

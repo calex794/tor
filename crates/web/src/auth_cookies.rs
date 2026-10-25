@@ -160,43 +160,9 @@ pub(crate) fn private_response<T: IntoResponse>(result: T, cookies: &[String]) -
     response
 }
 
-/// Only the authenticated tracked reader may load our local autosave script.
-/// Everywhere else the site's existing no-script policy remains unchanged.
-pub(crate) fn private_reader_response<T: IntoResponse>(page: T, cookies: &[String]) -> Response {
-    let mut response = private_response(page, cookies);
-    if response.status().is_success() {
-        response.headers_mut().insert(
-            "content-security-policy",
-            HeaderValue::from_static(
-                "default-src 'none'; script-src 'self'; connect-src 'self'; \
-                 style-src 'self'; img-src 'self'; form-action 'self'; \
-                 base-uri 'none'; frame-ancestors 'none'",
-            ),
-        );
-    }
-    response
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_reader_can_load_local_script_and_post_progress() {
-        let regular = private_response(StatusCode::OK, &[]);
-        let reader = private_reader_response(StatusCode::OK, &[]);
-        let strict = regular.headers()["content-security-policy"]
-            .to_str()
-            .expect("CSP");
-        let relaxed = reader.headers()["content-security-policy"]
-            .to_str()
-            .expect("CSP");
-        assert!(strict.contains("script-src 'none'"));
-        assert!(relaxed.contains("script-src 'self'"));
-        assert!(relaxed.contains("connect-src 'self'"));
-        assert!(!relaxed.contains("'unsafe-inline'"));
-        assert_eq!(reader.headers()[header::CACHE_CONTROL], "no-store");
-    }
 
     fn policy(secure: bool) -> CookiePolicy {
         CookiePolicy {
