@@ -1,0 +1,11 @@
+[package]
+name = "bokarust-application"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bokarust-domain = { path = "../domain" }
+
+[dev-dependencies]
+tokio.workspace = true
