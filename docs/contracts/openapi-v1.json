@@ -165,6 +165,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -205,7 +216,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/books/{book_id}": {
@@ -289,6 +302,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -319,7 +343,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/books/{book_id}/chapters": {
@@ -408,6 +434,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -462,7 +499,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/chapters/{id}": {
@@ -546,6 +585,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -582,7 +632,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/chapters/{id}/publish": {
@@ -666,6 +718,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -697,7 +760,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/chapters/{id}/withdraw": {
@@ -785,6 +850,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -816,7 +892,9 @@
             }
           }
         },
-        "description": "Creator withdraw: paid direct V1 retained, no new purchases."
+        "description": "Creator withdraw: paid direct V1 retained, no new purchases.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/chapters/{id}/schedule": {
@@ -899,6 +977,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -935,7 +1024,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/books/{id}/toc": {
@@ -1188,6 +1279,17 @@
               "type": "string",
               "pattern": "^[1-9][0-9]*$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -1195,32 +1297,10 @@
             "cookieSession": []
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "csrf_token": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "expected_entitlement_revision": {
-                    "type": "integer",
-                    "minimum": 0
-                  }
-                },
-                "required": [
-                  "csrf_token"
-                ]
-              }
-            }
-          }
-        },
         "x-tor-feature-gate": "paid_delivery_enabled",
-        "description": "Origin + CSRF required even for cookie authenticated API; 90-second signed GET and per-version DEK only."
+        "description": "Origin + CSRF required even for cookie authenticated API; 90-second signed GET and per-version DEK only.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/me/progress/free": {
@@ -1268,7 +1348,19 @@
             "$ref": "#/components/responses/Http503"
           }
         },
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
+          }
+        ],
         "security": [
           {
             "cookieSession": []
@@ -1284,7 +1376,9 @@
             }
           }
         },
-        "description": "Manifest-validated block ID; never grant paid access."
+        "description": "Manifest-validated block ID; never grant paid access.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 2048
       }
     },
     "/api/v1/me/progress/purchased": {
@@ -1332,7 +1426,19 @@
             "$ref": "#/components/responses/Http503"
           }
         },
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
+          }
+        ],
         "security": [
           {
             "cookieSession": []
@@ -1383,7 +1489,9 @@
             }
           }
         },
-        "description": "Manifest exact pinned edition, completion first once."
+        "description": "Manifest exact pinned edition, completion first once.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 2048
       }
     },
     "/api/v1/me/library": {
@@ -1602,6 +1710,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -1619,7 +1738,9 @@
             }
           }
         },
-        "description": "Atomic wallet debit/ledger/entitlement/outbox."
+        "description": "Atomic wallet debit/ledger/entitlement/outbox.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 2048
       }
     },
     "/api/v1/purchases/batch": {
@@ -1698,6 +1819,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -1728,7 +1860,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/purchases/{id}/refund-request": {
@@ -1811,6 +1945,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -1827,7 +1972,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/admin/refunds/{id}/decide": {
@@ -1913,6 +2060,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -1952,7 +2110,9 @@
             }
           }
         },
-        "description": "Trusted financial moderation authority + CAS."
+        "description": "Trusted financial moderation authority + CAS.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/me/wallet": {
@@ -2126,6 +2286,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -2144,7 +2315,9 @@
           }
         },
         "x-tor-feature-gate": "cash_out_enabled",
-        "description": "Cannot create posted directly."
+        "description": "Cannot create posted directly.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/wallet/topups/boosty": {
@@ -2185,7 +2358,19 @@
             "$ref": "#/components/responses/Http503"
           }
         },
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
+          }
+        ],
         "security": [
           {
             "cookieSession": []
@@ -2212,7 +2397,9 @@
           }
         },
         "x-tor-feature-gate": "boosty_funding_enabled",
-        "description": "Always 503 unless verifiable provider signature/receipt and exact wallet posting."
+        "description": "Always 503 unless verifiable provider signature/receipt and exact wallet posting.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/search/books": {
@@ -2514,6 +2701,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -2531,7 +2729,9 @@
             }
           }
         },
-        "x-tor-feature-gate": "legacy_ads_purchase_enabled"
+        "x-tor-feature-gate": "legacy_ads_purchase_enabled",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/me/ads/daily-campaigns": {
@@ -2791,6 +2991,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -2808,7 +3019,9 @@
             }
           }
         },
-        "x-tor-feature-gate": "chapter_ads_purchase_enabled"
+        "x-tor-feature-gate": "chapter_ads_purchase_enabled",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/ads/chapter/campaigns/{id}": {
@@ -2971,10 +3184,17 @@
             "$ref": "#/components/responses/Http503"
           }
         },
-        "parameters": [],
-        "security": [
+        "parameters": [
           {
-            "cookieSession": []
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "requestBody": {
@@ -2988,7 +3208,9 @@
           }
         },
         "x-tor-feature-gate": "chapter_ads_billable_enabled",
-        "description": "Client telemetry untrusted; validate server-side assignment, 60%+1s proof semantics and hard budget cap."
+        "description": "Client telemetry untrusted; validate server-side assignment, 60%+1s proof semantics and hard budget cap. Anonymous reports use signed assignment tokens, not a user session.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/ads/chapter/campaigns/{id}/cancel": {
@@ -3080,6 +3302,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -3107,7 +3340,9 @@
             }
           }
         },
-        "x-tor-feature-gate": "chapter_ads_purchase_enabled"
+        "x-tor-feature-gate": "chapter_ads_purchase_enabled",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/me/chapter-ads/publisher-ledger": {
@@ -3277,6 +3512,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -3294,7 +3540,9 @@
             }
           }
         },
-        "description": "Only mode=upload; F021/S024 URL crawler permanently frozen pending owner decision."
+        "description": "Only mode=upload; F021/S024 URL crawler permanently frozen pending owner decision.",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/import-jobs/{id}": {
@@ -3476,6 +3724,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -3502,7 +3761,9 @@
               }
             }
           }
-        }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/uploads/prepare": {
@@ -3587,6 +3848,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -3604,7 +3876,9 @@
             }
           }
         },
-        "x-tor-feature-gate": "s3_uploads_enabled"
+        "x-tor-feature-gate": "s3_uploads_enabled",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/uploads/finalize": {
@@ -3678,6 +3952,17 @@
               "maxLength": 43,
               "pattern": "^[A-Za-z0-9_-]{43}$"
             }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
           }
         ],
         "security": [
@@ -3695,7 +3980,9 @@
             }
           }
         },
-        "x-tor-feature-gate": "s3_uploads_enabled"
+        "x-tor-feature-gate": "s3_uploads_enabled",
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
       }
     },
     "/api/v1/me/notifications": {
