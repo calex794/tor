@@ -13,12 +13,15 @@ use tor_books::{
         CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE,
     },
 };
+use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 mod pages;
+mod safe_markdown;
 
 #[derive(Clone)]
 struct AppState {
     books: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
+    reader: Option<PgReader>,
 }
 
 async fn health() -> &'static str {
@@ -26,13 +29,17 @@ async fn health() -> &'static str {
 }
 /// Readiness uses the exact PG schema and database permissions, not only the process.
 async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
-    match state.postgres {
-        Some(catalog) => match catalog.probe().await {
-            Ok(()) => (StatusCode::OK, "ok"),
-            Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
-        },
-        None => (StatusCode::OK, "ok"), // explicit in-memory demo
+    if let Some(catalog) = state.postgres {
+        if catalog.probe().await.is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, "unavailable");
+        }
     }
+    if let Some(reader) = state.reader {
+        if reader.probe().await.is_err() {
+            return (StatusCode::SERVICE_UNAVAILABLE, "unavailable");
+        }
+    }
+    (StatusCode::OK, "ok") // demo mode has neither PG adapter
 }
 
 async fn public_cards(
@@ -68,6 +75,14 @@ async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
 ) -> Result<Html<String>, StatusCode> {
+    if let Some(reader) = state.reader {
+        let book = reader
+            .public_book(id)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        return Ok(pages::book_detail_with_chapters(&book));
+    }
     let repo = state.books.as_ref();
     let book = GetPublicBook::new(repo)
         .execute(id)
@@ -80,6 +95,25 @@ async fn book_detail(
         language: book.key().target_language().into(),
     }))
 }
+async fn reader_page(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+) -> Result<impl axum::response::IntoResponse, StatusCode> {
+    let reader = state.reader.ok_or(StatusCode::NOT_FOUND)?;
+    let chapter = reader
+        .public_chapter(id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok((
+        [
+            ("cache-control", "private, no-store"),
+            ("content-security-policy", "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"),
+            ("x-content-type-options", "nosniff"),
+        ],
+        pages::reader(&chapter),
+    ))
+}
 async fn login() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Вход")
 }
@@ -88,17 +122,25 @@ async fn register() -> impl axum::response::IntoResponse {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    make_router(repo, None)
+    make_router(repo, None, None)
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
-    make_router(Arc::new(catalog.clone()), Some(catalog))
+    make_router(Arc::new(catalog.clone()), Some(catalog), None)
 }
-fn make_router(repo: Arc<dyn PublicBookRepository>, postgres: Option<PgCatalog>) -> Router {
+pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
+    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader))
+}
+fn make_router(
+    repo: Arc<dyn PublicBookRepository>,
+    postgres: Option<PgCatalog>,
+    reader: Option<PgReader>,
+) -> Router {
     let api = tor_books::api::router(repo.clone());
     Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog))
         .route("/books/{id}", get(book_detail))
+        .route("/reader/{id}", get(reader_page))
         .route("/login", get(login))
         .route("/register", get(register))
         .route("/assets/site.css", get(pages::stylesheet))
@@ -107,6 +149,7 @@ fn make_router(repo: Arc<dyn PublicBookRepository>, postgres: Option<PgCatalog>)
         .with_state(AppState {
             books: repo,
             postgres,
+            reader,
         })
         .merge(api)
 }
@@ -153,6 +196,10 @@ mod tests {
             assert!(!body.contains("Закрытый черновик"));
         }
         assert_eq!(get("/books/3").await.0, StatusCode::NOT_FOUND);
+    }
+    #[tokio::test]
+    async fn demo_must_not_advertise_unimplemented_reader() {
+        assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
     }
     #[tokio::test]
     async fn no_user_or_finance_write_routes() {
