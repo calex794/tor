@@ -16,14 +16,14 @@ async fn c_04_resume_is_private_monotonic_and_current_version_only() {
     let repo = PgReadingProgress::new(pool.clone());
     let user_one: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash) \
-         VALUES ('progress.one@example.invalid','Reader One','test-hash') RETURNING id",
+         VALUES ('progress.one@example.invalid','Reader One','$argon2id$test-fixture-not-for-login') RETURNING id",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
     let user_two: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash) \
-         VALUES ('progress.two@example.invalid','Reader Two','test-hash') RETURNING id",
+         VALUES ('progress.two@example.invalid','Reader Two','$argon2id$test-fixture-not-for-login') RETURNING id",
     )
     .fetch_one(&pool)
     .await
