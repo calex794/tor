@@ -73,3 +73,25 @@
 **Связанные базовые задачи:** A-04/A-05, B-04/B-05/B-11, C-01/C-07/C-10/C-11, D-02/D-03/D-05/D-06, E-10, G-09, H-05, I-02/I-08.
 
 **Допуск к платной бете:** критические сценарии ACL-01…06 выполнены на **одном SHA** с реальной PostgreSQL, отрицательными запросами и браузером. Никакого «покупка есть, а бесплатный читатель открывает платное» или `paid+revoked без disposition`.
+
+
+## 6. S3-совместимый контракт гранта и хранения — обязательное уточнение 26.10
+
+**Документы:** [paid delivery v1](../contracts/paid-delivery-v1.md), [финансовые статусы/refund](../contracts/refunds-payouts-v1.md), [RIL/progress](../contracts/ril-reader-signals-v1.md). Этот раздел нормативно дополняет таблицу `CanRead`; прежние упоминания HTTP «тело главы» применимы к безопасному показу после WebCrypto в браузере, **не** к выдаче backend plaintext.
+
+**API:** `GET /api/v1/chapters/{id}/read` возвращает только метаданные/`grant_required` для платных глав; `POST /api/v1/reader/chapters/{id}/delivery-grants` требует актуального Actor+Origin+CSRF, выбирает редакцию на сервере, перепроверяет D entitlement + B status в PG и возвращает короткоживущий S3 signed GET **ciphertext** и раскрывает только per-version DEK, никогда KEK. `Cache-Control: private,no-store`, signed URL/DEK не входят в HTML, SQL debug, RIL labels или аналитические payload.
+
+**Семантика ошибок:** anonymous paid → 401 без grant; logged-in user without paid entitlement → 403/paywall без текста; private/held/deleted/unknown → 404, если существование нельзя раскрывать; refund/revoke/expired Layer → 403; stale expected revision/offer при покупке → 409; PG/S3/KEK unavailable → 503 и **никаких** signed URL/key. Из уже выданной ссылки пользователь может скачивать до TTL, максимум 90 sec default; это установленный остаточный риск bearer tokens, не обещание невозможного мгновенного отзыва байтов.
+
+**Решение по cache:** (actor/session, chapter_id, resolved version_id, entitlement_revision, B visibility_revision) влияет на private grant outcome; *не кэшировать* решение после refund/revoke/hold и никогда не переносить result на другого Actor. Общий CDN/SEO разрешён только для публичных бесплатных bytes с немедленным invalidation при смене режима; private S3 ciphertext не публиковать даже при owner preview. Запрет делать прямой `storage_key` пользовательским ID или давать `presign_get` до D/B check.
+
+**Порядок выдачи платного гранта:**
+1. A валидирует Actor+CSRF; C запрашивает D typed `EntitlementDecision`; D проверяет committed purchase/не refunded/Layer term/provenance и выбранную **pinned V1** (direct) либо CURRENT (Layer).
+2. B подтверждает отсутствие hard legal/moderation hold, состояние immutable version, статус архива/withdrawal, версии asset refs; G подтверждает private encrypted object+wrapped DEK, возможность создать signed URL в установленном TTL.
+3. D атомарно/CAS фиксирует `first_paid_exposure_at` только при реально подготовленном выдаваемом grant (не при GET metadata и не при S3 preflight failure). Это барьер обычного возврата; drop HTTP после committed grant возможен и должен быть виден оператору по request_id для ручного рассмотрения, не обходиться скрытым авторефандом.
+4. C возвращает `tor.paid_delivery.v1`; H получает ciphertext напрямую S3, WebCrypto проверяет GCM/tag/AAD, применяет gzip и protected renderer без localStorage/plaintext persistence; RIL классифицирует POST grant и PUT progress, **не** S3 GET.
+5. PUT progress через C/D/B `ReaderVersionManifest` валидирует block_id точной V1/current версии. Только финальный валидированный блок создаёт deduped `ChapterCompleted`; no completed signal из grant.
+
+**Денежные гонки:** при покупке D row-lock chapter offer+version и revenue snapshot до posting; при отзыве D row-lock purchase/entitlement и фиксирует reversal; при creator delete B использует совместимую транзакционную блокировку/сериализацию на той же главе. Нельзя держать transaction lock во время сетевого S3 GET; короткая транзакция на выдачу grant/барьер, HTTPS ответ после commit, известное окно bearer TTL.
+
+**Приёмочные тесты ACL-S3:** U1 купил V1, U2 нет → only U1 получает DEK; U1 V1 остаётся после V2; U1 refunded/Layer expired → новые grants denied; held/blocked deny до grant при paid; direct private asset без подписи 403; bad AES tag/nonce/AAD без plaintext fallback; metadata/SEO/comments/notification не раскрывают paid text; S3 outage даёт 503 без first-exposure barrier; cancel и simultaneous refund/grant дают детерминированный один outcome. Всё на PG + совместимом приватном S3 + Chromium, не только тесты Rust.
