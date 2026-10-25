@@ -49,8 +49,8 @@
 | GET `/books/{id}`, `/reader/{chapter_id}` | SSR published card и только бесплатная текущая версия | 200 только public; no-store для текста | draft и admin hold 404, в ответе нет markdown |
 | GET `/api/v1/books/{id}/toc?limit=100&after=token` | `{items:[{chapter_id,chapter_no,title,access_level}],next_cursor}` | только разрешённая публичная мета, без body | 501 глава: все доступны постранично, gap/duplicate нет |
 | GET `/api/v1/chapters/{id}/read?purchase_id=...` | `{chapter_id,version_id,access,content_access:{mode:"public_s3|grant_required",url?,grant_endpoint?}}` **без `body_markdown`** | free/published → public S3 URL; purchased/member → только метаданные и grant endpoint после D-проверки exact pinned version | 403/404 без тела, cached forbidden, никакого paid plaintext |
-| PUT `/api/v1/me/progress/free` | `{chapter_id,version_id,block_index,char_offset,expected_revision}` → `{revision,updated_at}` | actor читает разрешённую версию; не rollback newer progress | concurrent stale 409; отсутствие покупки не даёт платный доступ |
-| PUT `/api/v1/me/progress/purchased` | `{purchase_id,chapter_id,version_id,block_index,char_offset,expected_revision}` → `{revision,updated_at}` | FK на `chapter_purchase_facts`, отзыв проверяется каждый раз | куплена V1, опубликована V2, возвращаем место V1/P |
+| PUT `/api/v1/me/progress/free` | `{chapter_id,version_id,block_id,char_offset,expected_revision}` → `{revision,updated_at}` | actor читает разрешённую версию; не rollback newer progress | concurrent stale 409; отсутствие покупки не даёт платный доступ |
+| PUT `/api/v1/me/progress/purchased` | `{purchase_id,chapter_id,version_id,block_id,char_offset,expected_revision}` → `{revision,updated_at}` | FK на `chapter_purchase_facts`, отзыв проверяется каждый раз | куплена V1, опубликована V2, возвращаем место V1/P |
 | GET `/api/v1/me/library` | `{items:[...],next_cursor}` | только свой actor; purchased и bookmarks различать | нельзя увидеть чужую библиотеку |
 | POST/DELETE `/api/v1/me/library/{book_id}` | 204/состояние | только личная закладка, не entitlement | добавление бесплатно не открывает paid |
 
@@ -105,19 +105,27 @@
 | POST `/api/v1/me/rankings/choice` | `{left_book_id,right_book_id,winner_id?,defer?}` | defer/resume, повтор не удваивает рейтинг |
 | GET `/sitemap.xml`, `/robots.txt` | canonical URLs | draft/deleted/hold не индексируются, staged generation и rollback |
 | GET/POST `/api/v1/me/referrals` | invitation token, attribution | self-referral запрещён, деньги начисляет D |
-| GET/POST `/api/v1/ads/campaigns` | campaign draft/budget/targeting | write только рекламодателя-владельца; delivery=false без verified provider |
+| POST `/api/v1/ads/daily-campaigns` | `{book_id,placement_type,starts_at,ends_at,total_days,prepaid_days,offer_revision}` | legacy **только fully-prepaid**; frozen rate, real D wallet debit + ledger; idempotent |
+| GET `/api/v1/me/ads/daily-campaigns` | собственные расписания, bounded page | чужому рекламодателю 403 |
+| GET `/api/v1/ads/chapter/packages` | подтверждённые `price_minor,target_impressions,publisher_share_bps` | price micros не дробной копейки; [exact money](../contracts/finance-ad-exact-v1.md) |
+| POST `/api/v1/ads/chapter/campaigns` | `{promoted_book_id,package_id,expected_package_revision}` | D reserve/escrow в одном PG commit, stable Idempotency-Key |
+| POST `/api/v1/ads/chapter/impressions` | `{campaign_id,generation_id,assignment_id,viewability_token,observed_visible_fraction,observed_duration_ms}` | client недостоверен; F проверяет host/promoted права, assignment, 60%/1s, anti-fraud, hard budget/target |
+| POST `/api/v1/ads/chapter/campaigns/{id}/cancel` | `{expected_revision}` | stop new reservations → D confirmed settlement → unused refund один раз |
+| GET `/api/v1/me/chapter-ads/publisher-ledger` | только свои mature/immature ad доходы | D owner payout/hold, нет global scan |
 | GET `/api/v1/me/analytics` | агрегаты | персональные данные и текст главы не логируются |
 
-Рекламные начисления и выплаты — D, а не F. Действующие в NEwBOO `chapter_ads` rollout flags были выключены; не выдавать UI черновой кампании за реальную монетизацию.
+**Два рекламных продукта не объединять**: legacy размещение днями и Chapter Ads за подтверждённые показы. Денежные движения — только D. Тарифы/цель/бюджет фиксировать из immutable offer; [точная арифметика и отказные тесты](../contracts/finance-ad-exact-v1.md). Отсутствие внешней рекламной сети **не** препятствует собственной рекламе; но реальные billable flags выключены до достоверной проверки кошелька. Рекомендации F следуют [REC golden и RIL](../contracts/recommendations-golden-v1.md), личные сырые события не входят в выдачу.
 
 ## G — импорт, изображения, очередь (tor-imports,tor-ingest)
 
 | Метод+путь | Тело/ответ | Важная проверка |
 | --- | --- | --- |
-| POST `/api/v1/import-jobs` | `{book_id?,source_url?,mode:"url|upload"}` → `{job_id,state:"queued"}` | actor permission, safe URL/DNS/redirect; не делать прямую публикацию |
+| POST `/api/v1/import-jobs` | `{book_id,mode:"upload"}` → `{job_id,state:"queued"}` | загрузка **только файла**; F021/S024 crawler и URL-import заморожены, `source_url`/`mode=url` → 422 `URL_IMPORT_FROZEN` |
 | POST `/api/v1/import-jobs/{id}/upload` | bounded multipart ≤32 МиБ | archive limits, MIME/magic, streaming, временное хранилище |
 | GET `/api/v1/import-jobs/{id}` | `{job_id,state,completed,total,failures,checkpoint}` | владелец, после рестарта сохраняется статус |
 | POST `/api/v1/import-jobs/{id}/cancel` | `{expected_revision}` | CAS; отменённый worker не продолжает писать |
+| POST `/api/v1/uploads/prepare` | `{book_id,filename,kind,byte_length,sha256}` → upload_id+signed private S3 PUT | нет signed PUT без Actor, size/type/revision; staging only |
+| POST `/api/v1/uploads/finalize` | `{upload_id,sha256}` → verified immutable object | HEAD/hash/magic/limits; B attach only after PG verify |
 | POST `/api/v1/books/{id}/cover` | image ≤8 МиБ, пиксели ≤24MP | content-type не доверять, object hash, metadata stripping |
 | GET `/api/v1/me/notifications` | bounded inbox | idempotent event delivery, preferences opt-out |
 | GET `/api/v1/admin/jobs` | состояния queued/running/dead | admin-only; не создавать несуществующие в NEwBOO операции retry/cancel без нового контракта |
@@ -130,6 +138,8 @@
 - I добавляет `GET /readyz`: 200 лишь после `SELECT 1` и миграции; `GET /healthz` остаётся `ok` процесса. Внутренний `/metrics` только на закрытом admin/loopback доступе, с redaction.
 - I записывает один автоматизированный контрактный тест для каждого метода/пути: ответ на success, отсутствие права, schema/размер, idempotency где применимо. Исполнитель A–G реализует его в собственном `tests/<slice>_http.rs`, не переносит все в общий God-suite.
 - SSR fallback `/login` и `/register` в S0 demo **не считают работающими**: до подключения PG эти страницы информируют об отключённых формах и не принимают пароль.
+
+**Единый машиночитаемый JSON API:** [OpenAPI 3.1](../contracts/openapi-v1.json) + [правила исполнения/CSRF/cursors](../contracts/api-evolution-v1.md). JSON cookie-mutations требуют `Origin` и `X-CSRF-Token`; HTML формы сохраняют `csrf_token` field. `Idempotency-Key` только header и строго 43 символа; body его не дублирует. Все неизвестные JSON поля → 422. Этот OpenAPI охватывает 40 P0/P1 операций, вспомогательные E-роуты из таблиц ниже должны получать typed schema по мере реализации; документация не объявляет их код готовым.
 
 ## Обязательные контрольные запросы
 
