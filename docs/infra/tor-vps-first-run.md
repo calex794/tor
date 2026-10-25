@@ -44,8 +44,27 @@ install -d -o tor-deploy -g tor-deploy -m 0750 /opt/tor /opt/tor/releases
 install -d -o tor-deploy -g tor-deploy -m 0700 /home/tor-deploy/.ssh
 ```
 
-На **своём компьютере** создать отдельный SSH deploy key с `ssh-keygen -t ed25519 -f ./tor_deploy`. Публичную часть добавить в `/home/tor-deploy/.ssh/authorized_keys` (600, владелец `tor-deploy`); приватную часть сохранить в GitHub Environment `tor-staging` как `TOR_DEPLOY_SSH_KEY`, никому её не присылать. Отдельно сверить настоящий fingerprint SSH сервера по независимому каналу и добавить соответствующую запись `known_hosts` как защищённый секрет `TOR_DEPLOY_KNOWN_HOSTS`. В GitHub Environment Variables определить `TOR_DEPLOY_HOST` (IP/имя), `TOR_DEPLOY_USER=tor-deploy`, `TOR_AUTO_DEPLOY=false`.
+Создаём ключ **не на Windows, а прямо из консоли VPS**. Приватный ключ после создания переносим непосредственно в защищённый GitHub Secret, публичный — в `authorized_keys` пользователя `tor-deploy`. В чат закрытый ключ не отправлять.
 
+После слияния [скрипта подготовки](../../ops/bootstrap-tor-deploy.sh) с `main` выполнить на VPS под `root`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calex794/tor/main/ops/bootstrap-tor-deploy.sh -o /root/tor-bootstrap.sh
+bash -n /root/tor-bootstrap.sh
+bash /root/tor-bootstrap.sh
+```
+
+Скрипт создаёт закрытый ключ в `/root/.config/tor/tor_deploy_ed25519` (права 600), добавляет открытый ключ в `/home/tor-deploy/.ssh/authorized_keys` и формирует `/root/.config/tor/known_hosts` на основе действительного ED25519 host key самого VPS. Не трогает системный Nginx. Публичный IP определяется через `api.ipify.org`; проверить, что это адрес VPS из панели провайдера. Если определение не удалось, запустить с `TOR_DEPLOY_HOST=ПРОВЕРЕННЫЙ_IP bash /root/tor-bootstrap.sh`.
+
+Затем на [GitHub → tor → Settings → Environments](https://github.com/calex794/tor/settings/environments) создать `tor-staging` и внести:
+
+- **Environment Secret `TOR_DEPLOY_SSH_KEY`** — содержимое закрытого файла `/root/.config/tor/tor_deploy_ed25519`, копировать напрямую из защищённой SSH-консоли **только** в GitHub Settings.
+- **Environment Secret `TOR_DEPLOY_KNOWN_HOSTS`** — содержимое `/root/.config/tor/known_hosts`.
+- **Environment Variable `TOR_DEPLOY_HOST`** — проверенный публичный IP/домен из `known_hosts`.
+- **Environment Variable `TOR_DEPLOY_USER`** — `tor-deploy`.
+- **Repository Variable `TOR_AUTO_DEPLOY=false`** — в Settings → Secrets and variables → Actions → Variables (**не** как Environment Variable: условие запуска job проверяется до входа в окружение).
+
+После сохранения секретов и успешного тестового этапа `install=false` удалить **только временный закрытый ключ на VPS**: `rm -f /root/.config/tor/tor_deploy_ed25519`. Открытый ключ в `authorized_keys` не удалять.
 Для проверки first stage достаточно записи в `authorized_keys` и доступа к `/opt/tor/releases`: workflow копирует бинарник и испытывает отдельный loopback-порт **3099**, не меняя текущий сайт.
 
 ## 3. Установить systemd только после успешного stage
