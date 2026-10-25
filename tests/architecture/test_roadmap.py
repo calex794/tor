@@ -15,7 +15,7 @@ class RoadmapTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = pathlib.Path(self.temp.name)
         (self.root / "docs" / "roadmap").mkdir(parents=True)
-        for name in ("scenarios.tsv", "tasks.tsv", "sources.lock.toml"):
+        for name in ("scenarios.tsv", "tasks.tsv", "sources.lock.toml", "api-v1.md"):
             shutil.copyfile(ROOT / "docs" / "roadmap" / name, self.root / "docs" / "roadmap" / name)
 
     def mutate(self, name, old, new):
@@ -57,6 +57,11 @@ class RoadmapTests(unittest.TestCase):
     def test_source_sha_drift_detected(self):
         self.mutate("scenarios.tsv", "17125ef758a791e9630505c14d24f7fe65aed228", "0000000000000000000000000000000000000000")
         self.assertTrue(any("source link is not pinned" in e for e in check(self.root)))
+
+    def test_json_duplicate_idempotency_field_detected(self):
+        self.mutate("api-v1.md", "{chapter_id,expected_version_id,expected_price_minor}",
+                    "{chapter_id,expected_version_id,expected_price_minor,idempotency_key}")
+        self.assertTrue(any("Idempotency-Key header" in e for e in check(self.root)))
 
     def test_placeholder_detected(self):
         self.mutate("tasks.tsv", "Перенести регистрацию:", "TODO Перенести регистрацию:")
