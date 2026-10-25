@@ -1,0 +1,96 @@
+{
+  "schema": "tor.release_flags.v1",
+  "version": "2026-10-26",
+  "release_targets": [
+    "technical_beta_limited",
+    "full_approved_scope"
+  ],
+  "note": "Documentation/proposed startup gates; not evidence of implemented runtime flags. Unknown flags must fail startup.",
+  "flags": {
+    "paid_delivery_enabled": {
+      "default_enabled": false,
+      "gate": "REL-04,REL-05",
+      "requires": [
+        "s3_uploads_enabled"
+      ]
+    },
+    "wallet_purchase_enabled": {
+      "default_enabled": false,
+      "gate": "REL-03,REL-04,REL-05",
+      "requires": [
+        "paid_delivery_enabled"
+      ]
+    },
+    "boosty_funding_enabled": {
+      "default_enabled": false,
+      "gate": "PROVIDER-01 external verified receipt",
+      "requires": []
+    },
+    "cash_out_enabled": {
+      "default_enabled": false,
+      "gate": "FIN-B12 external confirmed payout",
+      "requires": []
+    },
+    "legacy_ads_purchase_enabled": {
+      "default_enabled": false,
+      "gate": "FIN-A04 and legacy ad prepay",
+      "requires": [
+        "wallet_purchase_enabled"
+      ]
+    },
+    "chapter_ads_purchase_enabled": {
+      "default_enabled": false,
+      "gate": "FIN-A03,FIN-A04",
+      "requires": [
+        "wallet_purchase_enabled"
+      ]
+    },
+    "chapter_ads_serving_enabled": {
+      "default_enabled": false,
+      "gate": "ADS-07,REL-05",
+      "requires": []
+    },
+    "chapter_ads_billable_enabled": {
+      "default_enabled": false,
+      "gate": "FIN-A03,FIN-A05,FIN-A08",
+      "requires": [
+        "chapter_ads_purchase_enabled",
+        "chapter_ads_serving_enabled",
+        "chapter_ads_settlement_enabled"
+      ]
+    },
+    "chapter_ads_settlement_enabled": {
+      "default_enabled": false,
+      "gate": "FIN-A05,FIN-A06",
+      "requires": [
+        "chapter_ads_purchase_enabled"
+      ]
+    },
+    "personalized_recommendations_enabled": {
+      "default_enabled": false,
+      "gate": "REC-M01...12,EVT-01...12",
+      "requires": []
+    },
+    "recommendations_public_fallback_enabled": {
+      "default_enabled": true,
+      "gate": "REL-07 public CanDiscover",
+      "requires": []
+    },
+    "s3_uploads_enabled": {
+      "default_enabled": false,
+      "gate": "FILE-11...18,REL-04",
+      "requires": []
+    }
+  },
+  "forbidden_runtime_features": [
+    "url_import",
+    "crawler",
+    "shadow_python_backend",
+    "scene_marketplace"
+  ],
+  "freeze_authority": {
+    "feature": "F021",
+    "scenario": "S024",
+    "source": "https://app.notion.com/p/40432a84beec8137a481c358f31df050"
+  }
+}
