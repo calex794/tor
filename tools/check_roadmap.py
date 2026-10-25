@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED = {"S040": "не переносить", "S053": "заморожено", "S054": "заморожено",
+EXCLUDED = {"S024": "заморожено", "S040": "не переносить", "S053": "заморожено", "S054": "заморожено",
             "S055": "заморожено", "S056": "заморожено", "S067": "не переносить",
             "S069": "не переносить"}
 LANE_TASK_COUNTS = {"A": 11, "B": 16, "C": 12, "D": 13, "E": 14,
@@ -112,8 +112,11 @@ def check(root: Path = ROOT) -> list[str]:
             errors.append(f"{task_id}: vague planning instruction instead of implementation")
         if t.get("target_crate") not in LANE_CRATES[lane]:
             errors.append(f"{task_id}: package is not owned by lane {lane}")
+        is_archived = task_id in set(expected.get("archived_task_ids", []))
+        if is_archived and (t.get("day") != "ЗАМОРОЖЕНО" or t.get("related_s_ids") != "S024" or "не создавать" not in t.get("implementation", "").lower()):
+            errors.append(f"{task_id}: archived task accidentally reactivated")
         test = t.get("test_entry", "")
-        if lane != "I" and f" {lane.lower()}_{m.group(2)}_" not in test:
+        if lane != "I" and not is_archived and f" {lane.lower()}_{m.group(2)}_" not in test:
             errors.append(f"{task_id}: missing deterministic test selector")
         if not test.startswith(("cargo ", "python3 ", "node --test ", "bash ", "curl ")):
             errors.append(f"{task_id}: no runnable check command")
@@ -128,6 +131,8 @@ def check(root: Path = ROOT) -> list[str]:
         if counts[lane] != expected:
             errors.append(f"lane {lane}: expected {expected} tasks, got {counts[lane]}")
     locked_counts = lock.get("roadmap", {})
+    if set(locked_counts.get("archived_task_ids", [])) != {"G-03"}:
+        errors.append("archived task G-03 must remain frozen")
     if len(tasks) != locked_counts.get("tasks_total") or len(LANE_TASK_COUNTS) != locked_counts.get("lanes"):
         errors.append(f"expected {locked_counts.get('tasks_total')} tasks in {locked_counts.get('lanes')} lanes, got {len(tasks)}")
     for code, lane in owners.items():
@@ -186,4 +191,4 @@ if __name__ == "__main__":
         print("FAIL:", issue, file=sys.stderr)
     if issues:
         sys.exit(1)
-    print("TOR roadmap coverage: 69 S, 61 F classified, 117 tasks, 9 lanes: PASS")
+    print("TOR roadmap coverage: 69 S (61 assigned/8 excluded), 61 F, 117 task entries (G-03 archive), 9 lanes: PASS")
