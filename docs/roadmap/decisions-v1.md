@@ -106,3 +106,8 @@ crates/reading/tests/reading_pg.rs     # реальная PostgreSQL
 На каждый пакет задач: **ID задачи + S/F → исходный URL/SHA → ожидаемые точные URL/SQL/contract → файлы по владельцу → тесты успеха/отказа/гонки → PR на обновлённом main → успешный SHA/CI → запись в старую матрицу Notion**. Точка I решает только конфликты инфраструктуры/контрактов и не заменяет предметного владельца.
 
 Порядок проверки и запуска детализирован в [tests-and-handoffs.md](tests-and-handoffs.md); подробная очередь каждой линии — [директория lane runbooks](lanes/). Не откладывать архитектурное проектирование исполнителю. Если внешняя система недоступна, отдавать безопасную отключённую конфигурацию с documented blocker, а не импровизировать API провайдера.
+
+
+## 8. Решения PREP-01…08 на 26.10.2026
+
+Новая единственная точка соглашений: [index](README.md), [FIN-01](../contracts/finance-ad-exact-v1.md), [FIN-02](../contracts/refunds-payouts-v1.md), [ACL](access-authorization-contract.md), [REC golden](../contracts/recommendations-golden-v1.md), [private S3 / file upload](../contracts/import-storage-v1.md), [events/RIL](../contracts/events-analytics-v1.md), [OpenAPI](../contracts/openapi-v1.json), [release flags](../contracts/release-flags-v1.json). Все технические default’ы нормативны для исполнителей, **но это не доказательство реализованной подсистемы**. Исторический F021/S024 crawler заморожен; предметная часть G — файл/обложка/S3/jobs. Бизнес-прайс, доля publisher, refund deadline и cash-out provider не выдумываются: брать immutable конфигурацию предложения либо feature disabled/fail closed.
