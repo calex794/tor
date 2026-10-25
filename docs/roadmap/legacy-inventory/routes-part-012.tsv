@@ -1,0 +1,57 @@
+# repo=HeisLuka/newboo sha=17125ef758a791e9630505c14d24f7fe65aed228 slice=12:27 files=15 errors=0
+path	line	method	path_local	endpoint	prefix	decorator_target
+backend/app/api/internal/analytics_events.py	21	POST	/events	ingest_analytics_events	/internal/analytics	router
+backend/app/api/internal/behavior_deltas.py	218	POST	/internal/behavior-deltas/flush-once	flush_behavior_deltas_once		router
+backend/app/api/internal/behavior_deltas.py	238	POST	/internal/behavior-deltas/rollup/daily	rollup_behavior_deltas_daily		router
+backend/app/api/internal/behavior_deltas.py	266	POST	/internal/behavior-deltas/retention/cleanup	cleanup_behavior_delta_retention		router
+backend/app/api/internal/behavior_deltas.py	280	GET	/internal/behavior-deltas/diagnostics/summary	get_behavior_delta_diagnostics_summary		router
+backend/app/api/v1/admin_books.py	122	GET	/recommendations/health	api_get_recommendation_health	/admin/books	router
+backend/app/api/v1/admin_books.py	146	POST	/recommendations/activate	api_activate_recommendation_generation	/admin/books	router
+backend/app/api/v1/admin_books.py	193	GET	/engagement-integrity	api_get_book_engagement_integrity	/admin/books	router
+backend/app/api/v1/admin_books.py	204	GET	/{book_id}	api_get_book_moderation	/admin/books	router
+backend/app/api/v1/admin_books.py	216	POST	/{book_id}/visibility	api_update_book_visibility	/admin/books	router
+backend/app/api/v1/admin_taxonomies.py	38	GET	<dynamic>	list_taxonomies_api	/admin/taxonomies	router
+backend/app/api/v1/admin_taxonomies.py	76	POST	/merge	merge_taxonomies_api	/admin/taxonomies	router
+backend/app/api/v1/admin_teams.py	28	GET	/{team_id}	api_get_team_dashboard	/admin/teams	router
+backend/app/api/v1/admin_teams.py	39	GET	/	api_list_teams	/admin/teams	router
+backend/app/api/v1/admin_teams.py	46	GET	/by-book/{book_id}	api_get_team_for_book	/admin/teams	router
+backend/app/api/v1/auth.py	398	POST	/register	api_register	/auth	router
+backend/app/api/v1/auth.py	469	POST	/login	api_login	/auth	router
+backend/app/api/v1/auth.py	626	POST	/token	api_login_token	/auth	router
+backend/app/api/v1/auth.py	777	POST	/step-up/password	api_create_password_step_up	/auth	router
+backend/app/api/v1/auth.py	813	POST	/logout	api_logout	/auth	router
+backend/app/api/v1/auth.py	836	GET	/me	api_me	/auth	router
+backend/app/api/v1/auth.py	841	PATCH	/me/adult-access	api_update_adult_access	/auth	router
+backend/app/api/v1/billing.py	30	GET	/wallet	api_get_wallet	/billing	router
+backend/app/api/v1/billing.py	41	POST	/payout	api_create_payout	/billing	router
+backend/app/api/v1/billing.py	56	GET	/payouts	api_list_payouts	/billing	router
+backend/app/api/v1/book_delayed_publication.py	42	GET	/{book_id}/delayed-publication	api_get_book_delayed_publication	/books	router
+backend/app/api/v1/book_delayed_publication.py	61	PUT	/{book_id}/delayed-publication	api_update_book_delayed_publication	/books	router
+backend/app/api/v1/book_imports.py	54	POST	/crawl	api_start_book_crawl_import	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	96	POST	/crawl/batch	api_start_book_crawl_import_batch	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	129	POST	/crawl/catalog/boovell/sqlite	api_read_boovell_sqlite_catalog	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	152	GET	/crawl	api_list_book_crawl_imports	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	170	GET	/crawl/summary	api_get_book_crawl_import_summary	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	185	GET	/crawl/snapshot	api_get_book_crawl_import_snapshot	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	206	GET	/crawl/{crawler_job_id}	api_get_book_crawl_import_status	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	226	POST	/crawl/{crawler_job_id}/cancel	api_cancel_book_crawl_import	/admin/book-imports	router
+backend/app/api/v1/book_imports.py	246	POST	/crawl/{crawler_job_id}/retry	api_retry_book_crawl_import	/admin/book-imports	router
+backend/app/api/v1/book_members.py	36	GET	/	api_list_book_members	/books/{book_id}/members	router
+backend/app/api/v1/book_members.py	51	POST	/	api_add_book_member	/books/{book_id}/members	router
+backend/app/api/v1/book_members.py	70	GET	/revenue-shares	api_get_book_revenue_shares	/books/{book_id}/members	router
+backend/app/api/v1/book_members.py	87	PUT	/revenue-shares	api_replace_book_revenue_shares	/books/{book_id}/members	router
+backend/app/api/v1/book_members.py	117	PATCH	/{user_id}/role	api_update_book_member_role	/books/{book_id}/members	router
+backend/app/api/v1/book_members.py	136	POST	/transfer-owner	api_transfer_book_owner	/books/{book_id}/members	router
+backend/app/api/v1/book_stats.py	146	GET	/{book_id}/stats	api_get_book_stats	/books	router
+backend/app/api/v1/book_stats.py	158	GET	/{book_id}/stats/dashboard	api_get_book_stats_dashboard	/books	router
+backend/app/api/v1/book_stats.py	183	GET	/{book_id}/chapters/stats	api_get_book_chapters_stats	/books	router
+backend/app/api/v1/book_stats.py	198	GET	/{book_id}/stats/daily	api_get_book_stats_daily	/books	router
+backend/app/api/v1/book_stats.py	222	GET	/{book_id}/chapters/{chapter_id}/stats/daily	api_get_chapter_stats_daily	/books	router
+backend/app/api/v1/books.py	40	GET	/my	api_my_books	/books	router
+backend/app/api/v1/books.py	50	GET	/participating	api_participating_books	/books	router
+backend/app/api/v1/books.py	60	GET	/	api_list_books	/books	router
+backend/app/api/v1/books.py	90	GET	/{book_id}/team-cross-promo	api_get_team_cross_promo	/books	router
+backend/app/api/v1/books.py	122	GET	/{book_id}	api_get_book	/books	router
+backend/app/api/v1/books.py	180	POST	/	api_create_book	/books	router
+backend/app/api/v1/books.py	219	PATCH	/{book_id}	api_update_book	/books	router
+backend/app/api/v1/books.py	279	GET	/by-slug/{slug}	api_get_book_by_slug	/books	router

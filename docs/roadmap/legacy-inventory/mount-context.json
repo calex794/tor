@@ -1,0 +1,834 @@
+{
+  "sha": "17125ef758a791e9630505c14d24f7fe65aed228",
+  "files": {
+    "backend/app/main.py": {
+      "chars": 117742,
+      "imports": [
+        [
+          "advertising.api.v1",
+          "advertising_router"
+        ],
+        [
+          "api.v1.admin_books",
+          "admin_books_router"
+        ],
+        [
+          "api.v1.admin_teams",
+          "admin_teams_router"
+        ],
+        [
+          "api.v1.book_imports",
+          "book_imports_router"
+        ],
+        [
+          "api.v1.auth",
+          "auth_router"
+        ],
+        [
+          "api.internal.analytics_events",
+          "internal_analytics_events_router"
+        ],
+        [
+          "api.internal.behavior_deltas",
+          "internal_behavior_deltas_router"
+        ],
+        [
+          "api.v1.billing",
+          "billing_router"
+        ],
+        [
+          "api.v1.book_members",
+          "book_members_router"
+        ],
+        [
+          "api.v1.books",
+          "books_router"
+        ],
+        [
+          "api.v1.book_stats",
+          "book_stats_router"
+        ],
+        [
+          "api.v1.chapter_versions",
+          "chapter_versions_router"
+        ],
+        [
+          "api.v1.chapters",
+          "chapters_router"
+        ],
+        [
+          "api.v1.clubs",
+          "clubs_router"
+        ],
+        [
+          "api.v1.book_delayed_publication",
+          "book_delayed_publication_router"
+        ],
+        [
+          "api.v1.debug",
+          "debug_router"
+        ],
+        [
+          "api.v1.library",
+          "library_router"
+        ],
+        [
+          "api.v1.me",
+          "me_router"
+        ],
+        [
+          "api.v1.purchases",
+          "purchases_router"
+        ],
+        [
+          "api.v1.reader",
+          "reader_router"
+        ],
+        [
+          "api.v1.reader_progress",
+          "reader_progress_router"
+        ],
+        [
+          "api.v1.reading_universe",
+          "reading_universe_router"
+        ],
+        [
+          "api.v1.refunds",
+          "refunds_router"
+        ],
+        [
+          "api.v1.scene_presets",
+          "scene_presets_router"
+        ],
+        [
+          "api.v1.scene_marketplace",
+          "scene_marketplace_router"
+        ],
+        [
+          "api.v1.social",
+          "social_router"
+        ],
+        [
+          "api.v1.teams",
+          "teams_router"
+        ],
+        [
+          "api.v1.transfers",
+          "transfers_router"
+        ],
+        [
+          "api.v1.admin_taxonomies",
+          "admin_taxonomies_router"
+        ],
+        [
+          "books.api.layers",
+          "layers_router"
+        ],
+        [
+          "books.api.user_level_invitations",
+          "level_invites_router"
+        ],
+        [
+          "web.routes.access",
+          "web_access_router"
+        ],
+        [
+          "web.routes.auth",
+          "web_auth_router"
+        ],
+        [
+          "web.routes.account_settings",
+          "web_account_settings_router"
+        ],
+        [
+          "web.routes.books",
+          "web_books_router"
+        ],
+        [
+          "web.routes.catalog",
+          "web_catalog_router"
+        ],
+        [
+          "web.routes.genres",
+          "web_genres_router"
+        ],
+        [
+          "web.routes.chapter_images",
+          "web_chapter_images_router"
+        ],
+        [
+          "web.routes.chapter_scene_assets",
+          "web_chapter_scene_assets_router"
+        ],
+        [
+          "web.routes.chapter_scene_timelines",
+          "web_chapter_scene_timelines_router"
+        ],
+        [
+          "web.routes.create_book",
+          "web_create_book_router"
+        ],
+        [
+          "web.routes.collections",
+          "web_collections_router"
+        ],
+        [
+          "web.routes.dashboard",
+          "web_dashboard_router"
+        ],
+        [
+          "web.routes.dashboard_advertising",
+          "web_dashboard_advertising_router"
+        ],
+        [
+          "web.routes.dashboard_teams",
+          "web_dashboard_teams_router"
+        ],
+        [
+          "web.routes.finance",
+          "web_finance_router"
+        ],
+        [
+          "web.routes.home",
+          "web_home_router"
+        ],
+        [
+          "web.routes.invitations",
+          "web_invitations_router"
+        ],
+        [
+          "web.routes.layers",
+          "web_layers_router"
+        ],
+        [
+          "web.routes.library",
+          "web_library_router"
+        ],
+        [
+          "web.routes.mail",
+          "web_mail_router"
+        ],
+        [
+          "web.routes.support",
+          "web_support_router"
+        ],
+        [
+          "web.routes.my_books",
+          "web_my_books_router"
+        ],
+        [
+          "web.routes.notifications",
+          "web_notifications_router"
+        ],
+        [
+          "web.routes.project_news",
+          "web_project_news_router"
+        ],
+        [
+          "web.routes.private_books",
+          "web_private_books_router"
+        ],
+        [
+          "web.routes.purchases",
+          "web_purchases_router"
+        ],
+        [
+          "web.routes.reader",
+          "web_reader_router"
+        ],
+        [
+          "web.routes.reading",
+          "web_reading_router"
+        ],
+        [
+          "web.routes.reading_universe",
+          "web_reading_universe_router"
+        ],
+        [
+          "web.routes.referrals",
+          "web_referrals_router"
+        ],
+        [
+          "web.routes.refunds",
+          "web_refunds_router"
+        ],
+        [
+          "web.routes.seo",
+          "web_seo_router"
+        ],
+        [
+          "web.routes.users",
+          "web_users_router"
+        ],
+        [
+          "web.routes.admin",
+          "web_admin_router"
+        ],
+        [
+          "web.routes.admin_book_crawler",
+          "web_admin_book_crawler_router"
+        ],
+        [
+          "web.routes.admin_support",
+          "web_admin_support_router"
+        ],
+        [
+          "web.routes.moderation",
+          "web_moderation_router"
+        ],
+        [
+          "web.routes.admin_layers",
+          "web_admin_layers_router"
+        ],
+        [
+          "web.routes.reports",
+          "web_reports_router"
+        ],
+        [
+          "web.routes.internal_images",
+          "web_internal_images_router"
+        ],
+        [
+          "web.routes.honeypot",
+          "web_honeypot_router"
+        ]
+      ],
+      "modules": [],
+      "include_aliases": []
+    },
+    "backend/app/web/routes/admin.py": {
+      "chars": 19525,
+      "imports": [],
+      "modules": [
+        [
+          "admin_compat",
+          "_admin_compat"
+        ],
+        [
+          "admin_health",
+          "_admin_health"
+        ],
+        [
+          "admin_seo",
+          "_admin_seo"
+        ],
+        [
+          "admin_route_governance",
+          "_admin_route_governance"
+        ],
+        [
+          "admin_referrals",
+          "_admin_referrals"
+        ],
+        [
+          "admin_observability",
+          "_admin_observability"
+        ],
+        [
+          "admin_recommendations",
+          "_admin_recommendations"
+        ],
+        [
+          "admin_news",
+          "_admin_news"
+        ],
+        [
+          "admin_analytics",
+          "_admin_analytics"
+        ],
+        [
+          "admin_security",
+          "_admin_security"
+        ],
+        [
+          "admin_finance",
+          "_admin_finance"
+        ],
+        [
+          "admin_content",
+          "_admin_content"
+        ],
+        [
+          "admin_shared",
+          "_admin_shared"
+        ]
+      ],
+      "order": [
+        "admin_platform_health_json",
+        "admin_platform_health_page",
+        "admin_seo_json",
+        "admin_seo_page",
+        "admin_data_quality_json",
+        "admin_data_quality_page",
+        "admin_deferred_jobs_json",
+        "admin_deferred_jobs_page",
+        "admin_index_page",
+        "admin_route_governance_json",
+        "admin_route_governance_page",
+        "admin_referrals_json",
+        "admin_referral_code_disable_submit",
+        "admin_referral_code_enable_submit",
+        "admin_referral_attribution_block_submit",
+        "admin_referral_attribution_unblock_submit",
+        "admin_referral_attribution_under_review_submit",
+        "admin_referral_reconciliation_enqueue_submit",
+        "admin_referral_clawback_platform_loss_submit",
+        "admin_daily_reader_digest_json",
+        "admin_function_probes_page",
+        "admin_storage_diagnostics_page",
+        "admin_function_probes_reset_submit",
+        "admin_behavior_sketches_json",
+        "admin_function_probes_json",
+        "admin_function_probe_trace_json",
+        "admin_behavior_deltas_page",
+        "admin_reading_universe_page",
+        "admin_recommendations_page",
+        "admin_recommendations_materialization_enqueue_submit",
+        "admin_recommendations_behavior_paths_enqueue_submit",
+        "admin_recommendations_behavior_paths_diagnostics_json",
+        "admin_recommendations_activate_submit",
+        "admin_recommendations_rollback_submit",
+        "admin_news_page",
+        "admin_news_create_page",
+        "admin_news_create_submit",
+        "admin_news_edit_page",
+        "admin_news_edit_submit",
+        "admin_news_publish_submit",
+        "admin_reading_time_page",
+        "admin_reader_analytics_page",
+        "admin_reader_analytics_refresh_submit",
+        "admin_security_page",
+        "admin_security_ip_ban_submit",
+        "admin_security_ip_unban_submit",
+        "admin_users_page",
+        "admin_finance_page",
+        "admin_finance_credit_submit",
+        "admin_finance_payout_approve_submit",
+        "admin_finance_payout_reject_submit",
+        "admin_financial_integrity_json",
+        "admin_financial_integrity_page",
+        "admin_user_role_submit",
+        "admin_books_page",
+        "admin_taxonomies_page",
+        "admin_taxonomies_merge_submit",
+        "admin_book_visibility_submit",
+        "admin_book_shadow_availability_submit"
+      ],
+      "include_aliases": []
+    },
+    "backend/app/web/routes/books.py": {
+      "chars": 39391,
+      "imports": [],
+      "modules": [
+        [
+          "books_compat",
+          "_books_compat"
+        ],
+        [
+          "books_recommendations",
+          "_books_recommendations"
+        ],
+        [
+          "books_sharing",
+          "_books_sharing"
+        ],
+        [
+          "books_detail",
+          "_books_detail"
+        ],
+        [
+          "books_fragments",
+          "_books_fragments"
+        ],
+        [
+          "books_stats",
+          "_books_stats"
+        ],
+        [
+          "books_interactions",
+          "_books_interactions"
+        ],
+        [
+          "books_issues",
+          "_books_issues"
+        ],
+        [
+          "books_settings",
+          "_books_settings"
+        ],
+        [
+          "books_chapters",
+          "_books_chapters"
+        ],
+        [
+          "books_chapter_import",
+          "_books_chapter_import"
+        ],
+        [
+          "books_deferred",
+          "_books_deferred"
+        ],
+        [
+          "books_common",
+          "_books_common"
+        ]
+      ],
+      "order": [
+        "recommendation_impression",
+        "recommendation_click",
+        "recommendation_action",
+        "recommendation_click_redirect",
+        "book_share_submit",
+        "book_referral_share_link",
+        "book_detail",
+        "referral_link_redirect",
+        "book_sidebar_collections_fragment",
+        "book_comments_fragment",
+        "book_related_fragment",
+        "book_user_activity_fragment",
+        "book_share_friends_fragment",
+        "book_chapter_stats_fragment",
+        "book_stats_page",
+        "book_stats_export_csv",
+        "add_book_to_library_submit",
+        "book_like_submit",
+        "book_rating_submit",
+        "book_comment_submit",
+        "book_comment_delete_submit",
+        "purchase_selected_chapters_submit",
+        "book_text_issues_page",
+        "book_text_issue_status_submit",
+        "book_settings_page",
+        "book_related_settings_page",
+        "book_related_settings_search",
+        "book_related_settings_add",
+        "book_related_settings_remove",
+        "book_settings_properties_submit",
+        "book_settings_covers_submit",
+        "book_settings_status_submit",
+        "book_settings_chapter_ads_submit",
+        "book_settings_member_add_submit",
+        "book_settings_member_update_submit",
+        "book_settings_member_remove_submit",
+        "book_settings_transfer_submit",
+        "book_settings_team_submit",
+        "create_chapter_page",
+        "create_chapter_submit",
+        "import_chapters_page",
+        "import_chapters_submit",
+        "import_chapters_job_page",
+        "import_chapters_job_status",
+        "edit_chapter_page",
+        "edit_chapter_submit",
+        "bulk_delete_chapters_submit",
+        "delete_chapter_submit"
+      ],
+      "include_aliases": []
+    },
+    "backend/app/web/routes/reader.py": {
+      "chars": 19833,
+      "imports": [],
+      "modules": [
+        [
+          "reader_compat",
+          "_reader_compat"
+        ],
+        [
+          "reader_recommendations",
+          "_reader_recommendations"
+        ],
+        [
+          "reader_secondary",
+          "_reader_secondary"
+        ],
+        [
+          "reader_activity",
+          "_reader_activity"
+        ],
+        [
+          "reader_comments",
+          "_reader_comments"
+        ],
+        [
+          "reader_text_issues",
+          "_reader_text_issues"
+        ],
+        [
+          "reader_page",
+          "_reader_page"
+        ],
+        [
+          "reader_navigation",
+          "_reader_navigation"
+        ],
+        [
+          "reader_purchase",
+          "_reader_purchase"
+        ],
+        [
+          "reader_ads",
+          "_reader_ads"
+        ],
+        [
+          "reader_static",
+          "_reader_static"
+        ]
+      ],
+      "order": [
+        "reader_service_worker",
+        "reader_chapter_ad_impression",
+        "reader_page",
+        "reader_comments_fragment",
+        "reader_comment_thanks_submit",
+        "reader_toc_fragment",
+        "reader_purchase_chapter",
+        "reader_thanks_submit",
+        "reader_text_issue_submit",
+        "reader_comment_submit",
+        "reader_comment_delete_submit"
+      ],
+      "include_aliases": []
+    },
+    "backend/app/web/routes/mail.py": {
+      "chars": 18129,
+      "imports": [],
+      "modules": [
+        [
+          "mail_admin_routes",
+          "_mail_admin_routes"
+        ],
+        [
+          "mail_book_previews",
+          "_mail_book_previews"
+        ],
+        [
+          "mail_web_helpers",
+          "_mail_web_helpers"
+        ]
+      ],
+      "include_aliases": []
+    },
+    "backend/app/advertising/api/v1/__init__.py": {
+      "chars": 1431,
+      "imports": [
+        [
+          "advertising.api.v1.analytics",
+          "analytics_router"
+        ],
+        [
+          "advertising.api.v1.campaigns",
+          "campaigns_router"
+        ],
+        [
+          "advertising.api.v1.feed",
+          "feed_router"
+        ],
+        [
+          "advertising.api.v1.reports",
+          "reports_router"
+        ],
+        [
+          "advertising.api.v1.trending",
+          "trending_router"
+        ],
+        [
+          "advertising.api.v1.reader_boost",
+          "reader_boost_router"
+        ]
+      ],
+      "modules": [],
+      "include_aliases": [
+        "analytics_router",
+        "campaigns_router",
+        "feed_router",
+        "trending_router",
+        "reports_router",
+        "chapter_ads_account_router",
+        "chapter_ads_packages_router",
+        "chapter_ads_campaigns_router",
+        "reader_boost_router"
+      ]
+    },
+    "backend/app/advertising/chapter_ads/api/v1/__init__.py": {
+      "chars": 0,
+      "imports": [],
+      "modules": [],
+      "include_aliases": []
+    },
+    "backend/app/integration/scene_marketplace_routers.py": {
+      "chars": 3731,
+      "imports": [],
+      "modules": [],
+      "include_aliases": []
+    }
+  },
+  "aliases": {
+    "advertising_router": "advertising.api.v1",
+    "admin_books_router": "api.v1.admin_books",
+    "admin_teams_router": "api.v1.admin_teams",
+    "book_imports_router": "api.v1.book_imports",
+    "auth_router": "api.v1.auth",
+    "internal_analytics_events_router": "api.internal.analytics_events",
+    "internal_behavior_deltas_router": "api.internal.behavior_deltas",
+    "billing_router": "api.v1.billing",
+    "book_members_router": "api.v1.book_members",
+    "books_router": "api.v1.books",
+    "book_stats_router": "api.v1.book_stats",
+    "chapter_versions_router": "api.v1.chapter_versions",
+    "chapters_router": "api.v1.chapters",
+    "clubs_router": "api.v1.clubs",
+    "book_delayed_publication_router": "api.v1.book_delayed_publication",
+    "debug_router": "api.v1.debug",
+    "library_router": "api.v1.library",
+    "me_router": "api.v1.me",
+    "purchases_router": "api.v1.purchases",
+    "reader_router": "api.v1.reader",
+    "reader_progress_router": "api.v1.reader_progress",
+    "reading_universe_router": "api.v1.reading_universe",
+    "refunds_router": "api.v1.refunds",
+    "scene_presets_router": "api.v1.scene_presets",
+    "scene_marketplace_router": "api.v1.scene_marketplace",
+    "social_router": "api.v1.social",
+    "teams_router": "api.v1.teams",
+    "transfers_router": "api.v1.transfers",
+    "admin_taxonomies_router": "api.v1.admin_taxonomies",
+    "layers_router": "books.api.layers",
+    "level_invites_router": "books.api.user_level_invitations",
+    "web_access_router": "web.routes.access",
+    "web_auth_router": "web.routes.auth",
+    "web_account_settings_router": "web.routes.account_settings",
+    "web_books_router": "web.routes.books",
+    "web_catalog_router": "web.routes.catalog",
+    "web_genres_router": "web.routes.genres",
+    "web_chapter_images_router": "web.routes.chapter_images",
+    "web_chapter_scene_assets_router": "web.routes.chapter_scene_assets",
+    "web_chapter_scene_timelines_router": "web.routes.chapter_scene_timelines",
+    "web_create_book_router": "web.routes.create_book",
+    "web_collections_router": "web.routes.collections",
+    "web_dashboard_router": "web.routes.dashboard",
+    "web_dashboard_advertising_router": "web.routes.dashboard_advertising",
+    "web_dashboard_teams_router": "web.routes.dashboard_teams",
+    "web_finance_router": "web.routes.finance",
+    "web_home_router": "web.routes.home",
+    "web_invitations_router": "web.routes.invitations",
+    "web_layers_router": "web.routes.layers",
+    "web_library_router": "web.routes.library",
+    "web_mail_router": "web.routes.mail",
+    "web_support_router": "web.routes.support",
+    "web_my_books_router": "web.routes.my_books",
+    "web_notifications_router": "web.routes.notifications",
+    "web_project_news_router": "web.routes.project_news",
+    "web_private_books_router": "web.routes.private_books",
+    "web_purchases_router": "web.routes.purchases",
+    "web_reader_router": "web.routes.reader",
+    "web_reading_router": "web.routes.reading",
+    "web_reading_universe_router": "web.routes.reading_universe",
+    "web_referrals_router": "web.routes.referrals",
+    "web_refunds_router": "web.routes.refunds",
+    "web_seo_router": "web.routes.seo",
+    "web_users_router": "web.routes.users",
+    "web_admin_router": "web.routes.admin",
+    "web_admin_book_crawler_router": "web.routes.admin_book_crawler",
+    "web_admin_support_router": "web.routes.admin_support",
+    "web_moderation_router": "web.routes.moderation",
+    "web_admin_layers_router": "web.routes.admin_layers",
+    "web_reports_router": "web.routes.reports",
+    "web_internal_images_router": "web.routes.internal_images",
+    "web_honeypot_router": "web.routes.honeypot"
+  },
+  "lists": {
+    "API_ROUTERS": [
+      "auth_router",
+      "books_router",
+      "book_imports_router",
+      "social_router",
+      "book_stats_router",
+      "book_members_router",
+      "chapters_router",
+      "book_delayed_publication_router",
+      "chapter_versions_router",
+      "library_router",
+      "purchases_router",
+      "billing_router",
+      "refunds_router",
+      "transfers_router",
+      "reader_router",
+      "reader_progress_router",
+      "reading_universe_router",
+      "scene_presets_router",
+      "scene_marketplace_router",
+      "scene_marketplace_commerce_router",
+      "scene_marketplace_discovery_router",
+      "scene_marketplace_analytics_router",
+      "scene_marketplace_operations_router",
+      "scene_marketplace_lifecycle_router",
+      "level_invites_router",
+      "layers_router",
+      "teams_router",
+      "clubs_router",
+      "admin_teams_router",
+      "admin_books_router",
+      "me_router",
+      "admin_taxonomies_router"
+    ],
+    "WEB_ROUTERS": [
+      "web_seo_router",
+      "web_honeypot_router",
+      "web_reports_router",
+      "web_home_router",
+      "web_catalog_router",
+      "web_genres_router",
+      "web_collections_router",
+      "web_create_book_router",
+      "web_chapter_images_router",
+      "web_chapter_scene_assets_router",
+      "web_chapter_scene_timelines_router",
+      "web_reading_universe_router",
+      "web_books_router",
+      "web_reader_router",
+      "web_auth_router",
+      "web_account_settings_router",
+      "web_library_router",
+      "web_mail_router",
+      "web_support_router",
+      "web_notifications_router",
+      "web_project_news_router",
+      "web_private_books_router",
+      "web_dashboard_router",
+      "web_dashboard_advertising_router",
+      "web_dashboard_teams_router",
+      "web_layers_router",
+      "web_access_router",
+      "web_invitations_router",
+      "web_purchases_router",
+      "web_referrals_router",
+      "web_refunds_router",
+      "web_my_books_router",
+      "web_reading_router",
+      "web_finance_router",
+      "web_users_router",
+      "web_admin_router",
+      "web_admin_book_crawler_router",
+      "web_admin_book_crawler_control_router",
+      "web_admin_support_router",
+      "web_moderation_router",
+      "web_admin_layers_router",
+      "web_internal_images_router",
+      "scene_marketplace_operations_web_router",
+      "scene_marketplace_analytics_dashboard_router"
+    ]
+  },
+  "includes": {
+    "direct": [
+      "router",
+      "internal_analytics_events_router",
+      "internal_behavior_deltas_router",
+      "debug_router",
+      "advertising_router",
+      "router"
+    ],
+    "conditional": [
+      "debug_router"
+    ]
+  }
+}

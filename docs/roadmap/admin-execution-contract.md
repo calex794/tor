@@ -42,6 +42,15 @@
 
 [AE-D01](domains-a-e-parity-2026-10-26.md) выявил реальные [admin_layers.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/admin_layers.py): GET /admin/layers, GET /admin/layers/{id}, POST /admin/layers/{id}/grant, POST /admin/layers/{id}/accesses/{access_id}/revoke. ADM-05 + D-05/D-09 + H-12 обязаны реализовать эти операции через D grants + ACL/FIN-02. Нельзя обойти право купленной V1 админским raw revoke: для оплаченного доступа сначала разрешённая system disposition/финансовое урегулирование. Приёмка: admin vs non-admin, CSRF/Origin, повтор, CAS, самовыдача 403, paid-holder не теряет купленный текст без системного решения; каждое событие имеет audit. Сборщик S024 не возвращать.
 
+### ADM-03/07/11 — маршруты, найденные полной сверкой 26.10.2026
+
+[Машинная инвентаризация](legacy-inventory/README.md) обнаружила дополнительные подключённые действия; их добавлять **внутрь** существующих ADM, а не создавать отдельный проект:
+- **ADM-03:** [admin_teams.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/api/v1/admin_teams.py): GET `/api/v1/admin/teams/`, `/by-book/{book_id}`, `/{team_id}`. B-08/B-14, A guard, H page, bounded PG read; 403 неадмину и контроль приватных книг.
+- **ADM-07:** [admin_books.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/api/v1/admin_books.py): GET `/api/v1/admin/books/engagement-integrity`. Только безопасный read-only bounded отчёт, проверка целостности без скрытых записей или раскрытия reader payload.
+- **ADM-11:** [mail_admin_routes.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/mail_admin_routes.py): динамически включённые GET `/admin/mail`, `/admin/mail/users/{user_id}`, `/admin/mail/{conversation_id}`. E-08/H-12: явно назначенное право оператора, ограничение просмотра переписки, журнал действий и запрет перебора ID. Не считать простой HTML-список безопасным доступом.
+
+Для всех трёх обязательны реальные PG/HTTP/роль/отрицательные тесты, а не статический макет. **Выключенный Reader Boost** (`ENABLE_READER_BOOST=False`) не превращать без решения в третий рекламный продукт. Сборщик S024/F021 не размораживать.
+
 ## 3. Непересекающиеся владельцы данных
 
 | Данные / действие | Единственный владелец | Кто только читает через контракт |

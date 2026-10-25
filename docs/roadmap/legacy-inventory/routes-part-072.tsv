@@ -1,0 +1,11 @@
+# repo=HeisLuka/newboo sha=17125ef758a791e9630505c14d24f7fe65aed228 slice=72:80 files=8 errors=0
+path	line	method	path_local	endpoint	prefix	decorator_target
+backend/app/web/routes/admin_security.py	22	GET	/admin/security	admin_security_page		router
+backend/app/web/routes/admin_security.py	50	POST	/admin/security/ip-ban	admin_security_ip_ban_submit		router
+backend/app/web/routes/admin_security.py	76	POST	/admin/security/ip-unban	admin_security_ip_unban_submit		router
+backend/app/web/routes/admin_seo.py	19	GET	/admin/seo.json	admin_seo_json		router
+backend/app/web/routes/admin_seo.py	34	GET	/admin/seo	admin_seo_page		router
+backend/app/web/routes/admin_support.py	86	GET	/admin/support	admin_support_page		router
+backend/app/web/routes/admin_support.py	108	GET	/admin/support/{conversation_id}	admin_support_chat_page		router
+backend/app/web/routes/admin_support.py	145	GET	/admin/support/{conversation_id}/messages	admin_support_messages		router
+backend/app/web/routes/admin_support.py	161	POST	/admin/support/{conversation_id}/messages	admin_support_message_submit		router

@@ -1,0 +1,14 @@
+# repo=HeisLuka/newboo sha=17125ef758a791e9630505c14d24f7fe65aed228 slice=125:140 files=15 errors=0
+path	line	method	path_local	endpoint	prefix	decorator_target
+backend/app/web/routes/purchases.py	11	GET	/me/purchases	my_purchases_page		router
+backend/app/web/routes/reader_activity.py	185	POST	/reader/{chapter_id}/thanks	reader_thanks_submit		router
+backend/app/web/routes/reader_ads.py	26	POST	/reader/chapter-ads/impression	reader_chapter_ad_impression		router
+backend/app/web/routes/reader_comments.py	462	GET	/reader/{chapter_id}/comments-fragment	reader_comments_fragment		router
+backend/app/web/routes/reader_comments.py	542	POST	/reader/{chapter_id}/comments/{comment_id}/thanks	reader_comment_thanks_submit		router
+backend/app/web/routes/reader_comments.py	592	POST	/reader/{chapter_id}/comments	reader_comment_submit		router
+backend/app/web/routes/reader_comments.py	656	POST	/reader/{chapter_id}/comments/{comment_id}/delete	reader_comment_delete_submit		router
+backend/app/web/routes/reader_navigation.py	25	GET	/reader/{chapter_id}/toc-fragment	reader_toc_fragment		router
+backend/app/web/routes/reader_page.py	416	GET	/reader/{chapter_id}	reader_page		router
+backend/app/web/routes/reader_purchase.py	65	POST	/reader/{chapter_id}/purchase	reader_purchase_chapter		router
+backend/app/web/routes/reader_static.py	9	GET	/reader-service-worker.js	reader_service_worker		router
+backend/app/web/routes/reader_text_issues.py	185	POST	/reader/{chapter_id}/text-issues	reader_text_issue_submit		router
