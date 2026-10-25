@@ -1,0 +1,47 @@
+# Versioned architectural budgets for the new Rust repository.
+# Only exact shared modules (IDs, small value types) may be exempted from fanout.
+shared_modules = []
+
+[limits]
+source_warn = 400
+source_block = 600
+test_warn = 800
+test_block = 1000
+fanout_warn = 8
+fanout_block = 15
+module_fanout_warn = 8
+module_fanout_block = 15
+
+# Classify each newly introduced local Cargo package explicitly.
+# shared: reusable value types; domain: rules; application: use cases;
+# infrastructure: database/storage adapters; edge: web/API/worker entry points.
+[packages]
+bokarust-domain = "domain"
+bokarust-application = "application"
+bokarust-adapters = "infrastructure"
+bokarust-web = "edge"
+
+# Existing editor prototype (PR #1) stays isolated until integration.
+editor-core = "domain"
+editor-web = "edge"
+editor-server = "edge"
+
+[forbidden_external]
+domain = ["axum", "sqlx", "reqwest", "hyper", "tokio-postgres", "diesel", "rusqlite", "aws-sdk-s3", "redis"]
+
+# [[exceptions]]
+# rule = "FILE_SIZE"
+# path = "crates/book-domain/src/lib.rs"
+# reason = "Explain a temporary, narrowly scoped exception."
+# issue = "BKR-123"
+# expires = 2026-11-01
+
+# Optional, longest-prefix file ownership, for modules sharing a Cargo package.
+# Paths are relative to the repository root, without the .rs suffix.
+[module_owners]
+# "crates/site/src/domain/books" = "books"
+# "crates/site/src/domain/payments" = "commerce"
+
+# Allowed cross-domain references, once owners are registered.
+[domain_dependencies]
+# books = ["shared"]

@@ -1,0 +1,23 @@
+# Rust
+/target/
+/dist/
+**/target/
+**/dist/
+*.rs.bk
+
+# Python architecture test cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local data, secrets, and reports
+.env
+.env.*
+!.env.example
+browser-reports/
+.coverage
+*.log
+
+# Generated architecture diagnostics
+.repo-check/

@@ -1,0 +1,22 @@
+# Profile budgets. Runs require cargo-nextest to be installed.
+# Nextest does not execute doctests; run cargo test --doc separately.
+[profile.default]
+retries = 0
+fail-fast = true
+global-timeout = "10m"
+slow-timeout = { period = "10s", terminate-after = 1, grace-period = "2s", on-timeout = "fail" }
+status-level = "slow"
+
+[profile.ci]
+inherits = "default"
+
+# Tests with the integration_ prefix are allowed additional setup time.
+[[profile.ci.overrides]]
+filter = "test(integration_)"
+slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s", on-timeout = "fail" }
+
+[profile.nightly]
+inherits = "default"
+fail-fast = false
+global-timeout = "30m"
+slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s", on-timeout = "fail" }

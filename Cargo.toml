@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/domain",
+    "crates/application",
+    "crates/adapters",
+    "crates/web",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+async-trait = "0.1"
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync"] }
