@@ -22,6 +22,7 @@ EXPECTED_DECLARATIONS = 560
 EXPECTED_EXTRA = 8  # five app decorators + three mail.add_api_route declarations
 EXPECTED_JOBS = 65
 EXPECTED_JOB_FREEZES = 8
+EXPECTED_STARTUP_SCHEDULERS = 8
 
 VALID_MOUNTS = {"mounted", "conditional", "frozen", "unconfirmed_mount"}
 VALID_COMPARISONS = {"path_mentioned", "semantic_review", "frozen", "mount_review"}
@@ -77,6 +78,7 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
             problems.append(f"source decorators {len(source_declarations)}, expected {EXPECTED_DECLARATIONS}")
         covered = read_tsv(base / "http-route-coverage.tsv")
         jobs = read_tsv(base / "deferred-jobs.tsv")
+        schedulers = read_tsv(base / "startup-schedulers.tsv")
         mount = (base / "mount-context.json").read_text(encoding="utf-8")
     except (OSError, UnicodeError, csv.Error) as exc:
         return problems + [f"missing/invalid inventory: {exc}"], stats
@@ -95,6 +97,10 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
         problems.append(f"covered rows {len(covered)}, expected {EXPECTED_DECLARATIONS + EXPECTED_EXTRA}")
     if len(jobs) != EXPECTED_JOBS:
         problems.append(f"registered deferred names {len(jobs)}, expected {EXPECTED_JOBS}")
+    if len(schedulers) != EXPECTED_STARTUP_SCHEDULERS:
+        problems.append(f"startup scheduler and service entries {len(schedulers)}, expected {EXPECTED_STARTUP_SCHEDULERS}")
+    if len({r["name"] for r in schedulers}) != len(schedulers):
+        problems.append("duplicate startup scheduler name")
 
     src_keys = Counter(key(x, source=True) for x in source_declarations)
     target_keys = Counter(key(x, source=False) for x in covered if x["legacy_source"] not in EXTRA_FILES)
@@ -162,6 +168,7 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
     stats.update({f"route_{k}": v for k, v in states.items()})
     stats.update({f"comparison_{k}": v for k, v in comparisons.items()})
     stats["source_declarations"] = len(source_declarations)
+    stats["startup_schedulers"] = len(schedulers)
     stats["job_registered"] = len(jobs) - job_freezes
     stats["job_frozen"] = job_freezes
     stats["review_unresolved_mount"] = len(unresolved)
