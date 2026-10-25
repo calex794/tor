@@ -3,6 +3,7 @@ use tor_books::{
     repositories::{InMemoryCatalog, PgCatalog},
     services::PublicBookRepository,
 };
+use tor_reading::repositories::PgReader;
 
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
@@ -16,8 +17,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
-            println!("TOR PostgreSQL catalog listening at {address}");
-            tor_web::router_with_postgres(catalog)
+            let reader = PgReader::connect(&url).await?;
+            println!("TOR PostgreSQL catalogue and public reading on {address}");
+            tor_web::router_with_postgres_reading(catalog, reader)
         }
         Ok(_) => return Err("Use either DATABASE_URL or TOR_DEMO_MODE=1".into()),
         Err(env::VarError::NotPresent) if demo => {

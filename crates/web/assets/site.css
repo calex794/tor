@@ -280,3 +280,28 @@ button:disabled, input:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* C-02/H: public reading surfaces and affordable server-rendered TOC. */
+.chapter-toc { padding-top: 0; }
+.chapter-toc h2 { margin: 0 0 22px; }
+.chapter-toc__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; max-width: 900px; }
+.chapter-toc__item {
+  padding: 16px 18px; background: var(--surface, #fff); border: 1px solid var(--line, #e1e7df);
+  border-radius: 12px; display: flex; justify-content: space-between; align-items: center;
+  gap: 16px; color: #233229; line-height: 1.5; overflow-wrap: anywhere;
+}
+.chapter-toc__item a { color: #205b39; text-underline-offset: 4px; font-weight: 600; }
+.chapter-toc__item--paid { color: #6e796e; background: #f5f7f3; }
+.chapter-toc__badge { white-space: nowrap; color: #7e6244; font-size: 12px; font-weight: 700; }
+.chapter-toc__badge--free { color: #34734a; }
+.reader-page h1 { margin: 0; line-height: 1.2; letter-spacing: -.04em; }
+.reader-page__subtitle { color: #657167; line-height: 1.7; margin: 18px 0 30px; }
+.reader-page__return { margin-top: 32px; }
+.chapter-content { white-space: normal; }
+.reader-markdown { font-family: Georgia, "Times New Roman", serif; font-size: clamp(17px, 2vw, 20px); }
+.reader-markdown p { line-height: 1.85; }
+@media (max-width: 680px) {
+  .chapter-toc__item { align-items: flex-start; flex-direction: column; gap: 5px; padding: 13px 15px; }
+  .chapter-content { padding: 18px 15px; border-radius: 10px; }
+  .reader-width { width: 100%; }
+}

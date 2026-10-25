@@ -71,13 +71,97 @@ pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     )
 }
 
+/// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
+    book_detail_body(book, None)
+}
+
+/// Public TOC: paid metadata can be listed but paid bodies are never fetched.
+pub fn book_detail_with_chapters(book: &tor_reading::services::PublicBookPage) -> Html<String> {
+    let card = PublicBookCard {
+        id: book.id,
+        title: book.title.clone(),
+        language: book.language.clone(),
+    };
+    let mut items = String::new();
+    if book.chapters.is_empty() {
+        items.push_str("<p class=\"empty-state\">Опубликованных глав пока нет.</p>");
+    } else {
+        items.push_str("<ol class=\"chapter-toc__list\">");
+        for chapter in &book.chapters {
+            let title = escape_html(&chapter.title);
+            if chapter.is_paid {
+                write!(
+                    items,
+                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><span>Глава {}. {title}</span><span class=\"chapter-toc__badge\">Платная · пока недоступна</span></li>",
+                    chapter.number
+                ).expect("writing String");
+            } else {
+                write!(
+                    items,
+                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
+                    chapter.id, chapter.number
+                ).expect("writing String");
+            }
+        }
+        items.push_str("</ol>");
+    }
+    let section = format!(
+        "<section class=\"section chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><div class=\"container\"><p class=\"eyebrow\">Оглавление</p><h2 id=\"toc-title\">Главы книги</h2>{items}</div></section>"
+    );
+    book_detail_body(&card, Some(&section))
+}
+
+fn book_detail_body(book: &PublicBookCard, toc: Option<&str>) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
+    let description = if toc.is_some() {
+        "Откройте оглавление, чтобы читать доступные главы бесплатно. Платные главы не открываются без проверки прав."
+    } else {
+        "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
+    };
     let body = format!(
-        "<section class=\"section book-detail-page\"><div class=\"container\">         <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\">         <a href=\"/\">Главная</a><span aria-hidden=\"true\">/</span>         <a href=\"/catalog\">Каталог</a><span aria-hidden=\"true\">/</span>         <span aria-current=\"page\">{title}</span></nav>         <div class=\"book-detail__layout\">         <div class=\"book-detail__art\" aria-hidden=\"true\"><span>П</span></div>         <div class=\"book-detail__info\">         <p class=\"eyebrow\">Книга · {language}</p><h1>{title}</h1>         <p class=\"book-detail__description\">Карточка опубликованной книги.         Оглавление и чтение глав станут доступны после подключения читалки.</p>         <div class=\"book-detail__actions\">         <a class=\"button\" href=\"/catalog\">Вернуться к книгам</a>         <span class=\"book-detail__note\">Вход для просмотра каталога не требуется</span>         </div></div></div></div></section>"
+        "<section class=\"section book-detail-page\"><div class=\"container\">\
+         <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\">\
+         <a href=\"/\">Главная</a><span aria-hidden=\"true\">/</span>\
+         <a href=\"/catalog\">Каталог</a><span aria-hidden=\"true\">/</span>\
+         <span aria-current=\"page\">{title}</span></nav>\
+         <div class=\"book-detail__layout\">\
+         <div class=\"book-detail__art\" aria-hidden=\"true\"><span>П</span></div>\
+         <div class=\"book-detail__info\">\
+         <p class=\"eyebrow\">Книга · {language}</p><h1>{title}</h1>\
+         <p class=\"book-detail__description\">{description}</p>\
+         <div class=\"book-detail__actions\">\
+         <a class=\"button\" href=\"{action}\" >{label}</a>\
+         <span class=\"book-detail__note\">Вход для просмотра каталога не требуется</span>\
+         </div></div></div></div></section>{toc}",
+        action = if toc.is_some() { "#chapters" } else { "/catalog" },
+        label = if toc.is_some() { "К оглавлению" } else { "Вернуться к книгам" },
+        toc = toc.unwrap_or("")
     );
     layout(&book.title, "Карточка книги в каталоге Пандаолейт.", &body)
+}
+
+pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
+    let previous = chapter.previous_chapter_id.map(|id| {
+        format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>")
+    }).unwrap_or_default();
+    let next = chapter.next_chapter_id.map(|id| {
+        format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>")
+    }).unwrap_or_default();
+    let navigation = if previous.is_empty() && next.is_empty() {
+        String::new()
+    } else {
+        format!("<nav class=\"chapter-navigation\" aria-label=\"Переход между главами\">{previous}{next}</nav>")
+    };
+    let html = include_str!("../templates/reader.html")
+        .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
+        .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
+        .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
+        .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
+        .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
+        .replace("<!--CHAPTER_CONTENT-->", &crate::safe_markdown::render(&chapter.body_markdown));
+    layout(&chapter.chapter_title, "Опубликованная бесплатная глава.", &html)
 }
 
 pub async fn stylesheet() -> impl IntoResponse {
