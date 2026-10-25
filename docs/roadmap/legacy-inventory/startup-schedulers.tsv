@@ -1,0 +1,11 @@
+# source=HeisLuka/newboo@17125ef758a791e9630505c14d24f7fe65aed228
+# entries derived from verified main.py lifespan calls or deferred worker registration; flag-enabled != actual running
+name	mechanism	evidence	module	owner	plan	active_evidence
+behavior_delta_flush	lifespan-start	main.py:939,990	services/behavior_delta_flush_scheduler_service.py	I/F	EVT/RIL	feature-controlled
+behavior_path_offline	lifespan-start	main.py:940,991	services/behavior_path_offline_scheduler_service.py	F/G	REC/EVT	feature-controlled
+recommendation_attribution_daily	lifespan-start	main.py:941-944,992	recommendations/services/attribution_daily_scheduler_service.py	F/G	REC	feature-controlled
+reading_universe_materialization	startup-enqueue	main.py:790-831,993-995	reading_universe/services/universe_materialization_scheduler_service.py	F/G	F-06/G-10	feature-controlled
+discussion_projection_cleanup	startup-enqueue	main.py:832-880,996-998	discussions/services/cleanup_scheduler_service.py	E/G	E-03/G-07	feature-controlled
+seo_dynamic_fallback	lifespan-service	main.py:1122	services/seo_dynamic_fallback_service.py	F/I	F-08/I-13	feature-controlled
+storage_service	lifespan-service	main.py:944	services/storage_service.py	G/I	G-09/I-10	always-start-call
+deferred_job_worker	external-worker-core	services/deferred_job_worker_service.py	services/deferred_job_worker_service.py	G/I	G-06/G-07	separate-execution-unproven
