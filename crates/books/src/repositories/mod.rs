@@ -1,3 +1,6 @@
+pub mod postgres;
+pub use postgres::PgCatalog;
+
 use crate::domain::{Book, Visibility};
 use crate::services::{CatalogError, PublicBookRepository};
 use async_trait::async_trait;
@@ -50,6 +53,12 @@ impl PublicBookRepository for InMemoryCatalog {
             .take(limit)
             .cloned()
             .collect())
+    }
+
+    async fn get_public(&self, id: u64) -> Result<Option<Book>, CatalogError> {
+        Ok(self.books.iter()
+            .find(|book| book.id() == id && book.visibility() == Visibility::Public)
+            .cloned())
     }
 }
 

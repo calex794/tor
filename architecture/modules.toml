@@ -15,3 +15,6 @@ referrals = "F"
 search = "F"
 imports = "G"
 ingest = "G"
+
+# Operator migration runner; owned by integration lane I.
+migrations = "I"

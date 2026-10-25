@@ -8,20 +8,29 @@ use axum::{
 };
 use std::sync::Arc;
 use tor_books::{
-    domain::Visibility,
-    services::{
-        CatalogError, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE,
-    },
+    repositories::PgCatalog,
+    services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE},
 };
 mod pages;
 
 #[derive(Clone)]
 struct AppState {
     books: Arc<dyn PublicBookRepository>,
+    postgres: Option<PgCatalog>,
 }
 
 async fn health() -> &'static str {
     "ok"
+}
+/// Readiness uses the exact PG schema and database permissions, not only the process.
+async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
+    match state.postgres {
+        Some(catalog) => match catalog.probe().await {
+            Ok(()) => (StatusCode::OK, "ok"),
+            Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+        },
+        None => (StatusCode::OK, "ok"), // explicit in-memory demo
+    }
 }
 
 async fn public_cards(
@@ -58,13 +67,10 @@ async fn book_detail(
     Path(id): Path<u64>,
 ) -> Result<Html<String>, StatusCode> {
     let repo = state.books.as_ref();
-    let result = ListPublicBooks::new(repo)
-        .execute(MAX_PAGE_SIZE)
+    let book = GetPublicBook::new(repo)
+        .execute(id)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let book = result
-        .into_iter()
-        .find(|b| b.id() == id && b.visibility() == Visibility::Public)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(pages::book_detail(&pages::PublicBookCard {
         id: book.id(),
@@ -80,6 +86,12 @@ async fn register() -> impl axum::response::IntoResponse {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
+    make_router(repo, None)
+}
+pub fn router_with_postgres(catalog: PgCatalog) -> Router {
+    make_router(Arc::new(catalog.clone()), Some(catalog))
+}
+fn make_router(repo: Arc<dyn PublicBookRepository>, postgres: Option<PgCatalog>) -> Router {
     let api = tor_books::api::router(repo.clone());
     Router::new()
         .route("/", get(homepage))
@@ -89,8 +101,8 @@ pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
         .route("/register", get(register))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
-        .route("/readyz", get(health))
-        .with_state(AppState { books: repo })
+        .route("/readyz", get(ready))
+        .with_state(AppState { books: repo, postgres })
         .merge(api)
 }
 
