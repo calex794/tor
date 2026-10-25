@@ -1,5 +1,8 @@
 # I — Контракты, CI и выпуск: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [OpenAPI 40 core routes](../contracts/openapi-v1.json), [API/CSRF/Idempotency](../contracts/api-evolution-v1.md), [61 F audit](functions-coverage-audit.tsv), [release flags and REL-01…10](../contracts/release-profile-v1.md). Задачи I-02/I-07/I-12 обязаны вести единые Rust typed ports, PG migrations и PG/S3/Chromium выпуск. `python3 tools/check_contracts.py` и архитектурные негативные проверки — mandatory в каждом PR.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7734/i-ci-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Уточнение аудита 26.10:** проверка 69 сценариев не гарантирует полноты 61 функций. Реестр [61 F](../functions-coverage-audit.tsv) и [аудит рисков](../preflight-audit-2026-10-26.md) обязательны для preflight, ADS/REC/ACL — typed контракты и отдельные PG/Chromium допуски. Нельзя подписывать 100% parity при выключенных платных рекламных системах или неподтверждённом внешнем wallet topup.
