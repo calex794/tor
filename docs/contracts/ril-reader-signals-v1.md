@@ -73,3 +73,9 @@ F строит read models Recent/Behavioral/Content/Popularity/Related, дед�
 - В логах/метриках нет paid text, raw DEK/KEK, signed URLs, raw path/PII как labels. На финальном SHA — CI/PG/browser и запись в существующую Notion-матрицу.
 
 **Факт исполнения:** пока документ и план, не реализованный код.
+
+## 8. Важный async-boundary: контекст RIL переживает отложенную доставку
+
+В исходном NEwBOO рекомендационный hygiene отвергает missing_context; поэтому **нельзя** в G-worker пытаться заново классифицировать HTTP-запрос, которого больше нет. C/D/F в момент авторизованной исходной бизнес-транзакции берут bounded RoutePassportV1 из контекста текущего request и записывают его **с версией и provenance** в outbox/event envelope (или ставят контролируемый provenance=trusted_internal для настоящего backend/system event). В PG могут храниться необходимые user/book/version IDs для прав, но **не** raw URL, S3 GET link, DEK, IP/UserAgent в RIL passport и high-cardinality labels.
+
+F при обработке задержанного/повторённого события читает сохранённые passport/provenance, а не вычисляет его по маршруту worker; разрешает server_committed ChapterCompleted только из typed авторитетного outbox и не доверяет строке client-supplied trusted_completion=true. При missing/unknown provenance не превращать событие в normal по умолчанию: fail closed в рекомендациях, но не терять факт прогресса/покупки из PG. При retry сохранять исходный event_id, паспорт/версию taxonomy и исходную временную метку. Тест: G-worker после рестарта/через час принимает сохранённое событие ChapterCompleted один раз; клиентская имитация того же payload не принимается.
