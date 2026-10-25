@@ -62,8 +62,22 @@ async function inspect(page, name, where) {
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
       const registerResponse = await submitted;
       if (registerResponse.status() !== 303) {
+        const headers = await registerResponse.request().allHeaders();
+        const cookies = await page.context().cookies(base);
+        const csrf = cookies.find(c => c.name === 'tor-dev-csrf');
+        const formCsrf = await page.locator('input[name="csrf_token"]').inputValue();
+        // Log only metadata, never the CSRF token, session or user password.
+        const diagnostics = {
+          origin: headers.origin || null,
+          fetchSite: headers['sec-fetch-site'] || null,
+          cookieNames: (headers.cookie || '').split(';').map(c => c.trim().split('=')[0]),
+          storedCookieNames: cookies.map(c => c.name),
+          hasMatchingToken: csrf ? csrf.value === formCsrf : false,
+          formTokenLength: formCsrf.length,
+          csrfCookieHttpOnly: csrf ? csrf.httpOnly : null
+        };
         throw new Error(name + ': register HTTP ' + registerResponse.status() +
-          ', browser URL ' + page.url() + ', response ' + (await registerResponse.text()).slice(0, 400));
+          ', browser URL ' + page.url() + ', diagnostics ' + JSON.stringify(diagnostics));
       }
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
