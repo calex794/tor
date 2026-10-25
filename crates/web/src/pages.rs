@@ -1,5 +1,8 @@
 //! Server-rendered demo pages based on BookaRust source d11b27b43125b93e59809147e8e687203fa0753b.
-use axum::{http::header, response::{Html, IntoResponse}};
+use axum::{
+    http::header,
+    response::{Html, IntoResponse},
+};
 use std::fmt::Write;
 
 #[derive(Clone, Debug)]
@@ -25,10 +28,12 @@ pub fn escape_html(value: &str) -> String {
 }
 
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
-    Html(include_str!("../templates/layout.html")
-        .replace("<!--PAGE_TITLE-->", &escape_html(title))
-        .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
-        .replace("<!--PAGE_CONTENT-->", content))
+    Html(
+        include_str!("../templates/layout.html")
+            .replace("<!--PAGE_TITLE-->", &escape_html(title))
+            .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+            .replace("<!--PAGE_CONTENT-->", content),
+    )
 }
 
 fn book_cards(books: &[PublicBookCard]) -> String {
@@ -47,25 +52,40 @@ fn book_cards(books: &[PublicBookCard]) -> String {
 }
 
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    let content=include_str!("../templates/home.html").replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
-    layout("Главная", "Пандаолейт — демонстрационный каталог без пользовательских данных.", &content)
+    let content =
+        include_str!("../templates/home.html").replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
+    layout(
+        "Главная",
+        "Пандаолейт — демонстрационный каталог без пользовательских данных.",
+        &content,
+    )
 }
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
-    let content=include_str!("../templates/catalog.html").replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
-    layout("Каталог", "Опубликованные книги и переводы на Пандаолейт.", &content)
+    let content = include_str!("../templates/catalog.html")
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
+    layout(
+        "Каталог",
+        "Опубликованные книги и переводы на Пандаолейт.",
+        &content,
+    )
 }
 
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    let title=escape_html(&book.title);
-    let language=escape_html(&book.language);
+    let title = escape_html(&book.title);
+    let language = escape_html(&book.language);
     let body=format!("<section class=\"section\"><div class=\"container\"><p class=\"eyebrow\">Демонстрационная книга · {language}</p><h1>{title}</h1><p>Главы и история чтения появятся после подключения постоянного хранилища.</p><p><a class=\"text-link\" href=\"/catalog\">Вернуться в каталог</a></p></div></section>");
     layout(&book.title, "Демонстрационная страница книги.", &body)
 }
 
 pub async fn stylesheet() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8"), (header::CACHE_CONTROL, "public, max-age=3600")],
-     include_str!("../assets/site.css"))
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/site.css"),
+    )
 }
 
 pub fn inactive_account_page(title: &str) -> impl IntoResponse {
@@ -78,13 +98,19 @@ mod tests {
     use super::*;
     #[test]
     fn escapes_untrusted_book_titles() {
-        let page=home(&[PublicBookCard{id:9,title:"<script>alert('x')</script> &".to_owned(),language:"ru".into()}]);
+        let page = home(&[PublicBookCard {
+            id: 9,
+            title: "<script>alert('x')</script> &".to_owned(),
+            language: "ru".into(),
+        }]);
         assert!(page.0.contains("&lt;script&gt;"));
         assert!(!page.0.contains("<script>"));
         assert!(page.0.contains("href=\"/books/9\""));
     }
     #[test]
     fn empty_catalog_is_explicit() {
-        assert!(catalog(&[]).0.contains("В каталоге пока нет опубликованных книг"));
+        assert!(catalog(&[])
+            .0
+            .contains("В каталоге пока нет опубликованных книг"));
     }
 }

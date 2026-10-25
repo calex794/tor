@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::domain::{Book, Visibility};
+use async_trait::async_trait;
 use std::{error::Error, fmt};
 
 pub const DEFAULT_PAGE_SIZE: usize = 20;

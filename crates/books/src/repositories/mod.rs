@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::services::{CatalogError, PublicBookRepository};
 use crate::domain::{Book, Visibility};
+use crate::services::{CatalogError, PublicBookRepository};
+use async_trait::async_trait;
 use std::sync::Arc;
 
 /// Temporary local adapter: production catalog must use PostgreSQL and real ACLs.
@@ -18,9 +18,18 @@ impl InMemoryCatalog {
             (2, "Книжная полка", Visibility::Public),
             (3, "Закрытый черновик", Visibility::Draft),
         ];
-        let books = rows.into_iter().map(|(id, title, visibility)| {
-            Book::new(id, BookKey::new(format!("demo:{id}"), "ru").expect("demo key"), title, visibility).expect("demo book")
-        }).collect();
+        let books = rows
+            .into_iter()
+            .map(|(id, title, visibility)| {
+                Book::new(
+                    id,
+                    BookKey::new(format!("demo:{id}"), "ru").expect("demo key"),
+                    title,
+                    visibility,
+                )
+                .expect("demo book")
+            })
+            .collect();
         Self::new(books)
     }
 
