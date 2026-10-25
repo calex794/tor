@@ -107,7 +107,7 @@ Worker claim: выбор `WHERE delivered_at IS NULL AND dead_at IS NULL AND nex
 | D `commerce` | wallet accounts/entries, purchase commands/facts/revocations, payouts, refunds, layers/entitlements, settlement snapshots | content body, reader positions |
 | E `discussions`/`social`/`clubs`/`support` | comments/anchors, threads, reactions, subscriptions, relationships, collections, inbox, clubs, moderation, support tickets | purchased rights, authoritative chapter |
 | F `search`/`recommendations`/`referrals` (+ `ads`/`analytics` в реестре I) | public search/read projections, ratings/recommendations, SEO generations, ad campaigns, referral attribution, aggregate metrics | wallet entries, books lifecycle |
-| G `imports`/`ingest` (+ `media`/`jobs` при реальном росте через I) | source URLs, import jobs/checkpoints, file references, delivery attempts/worker leases; очередь обрабатывает общий outbox | books versions, wallet postings |
+| G `imports`/`ingest` (+ `media`/`jobs` при реальном росте через I) | только file uploads, import jobs/checkpoints, file references, delivery attempts/worker leases; очередь обрабатывает общий outbox | books versions, wallet postings |
 | H `web` | только шаблоны, маршрутизация и состояние UI | авторитетные бизнес-таблицы |
 | I `contracts`/`web`+infra | schema migrations, `outbox_events` инфраструктура, CI/smoke/readiness, wiring | бизнес-правила, которые принадлежат A–G |
 
@@ -128,7 +128,7 @@ Worker claim: выбор `WHERE delivered_at IS NULL AND dead_at IS NULL AND nex
 | Position / checkout | ≤2048 байт каждый | CSRF, 413 и owner check |
 | Обложка и другое изображение | **≤8 МиБ = 8 388 608 байт** оригинала, декодированная площадь ≤24 млн пикселей | ограничить до decode, MIME и magic bytes, metadata stripping |
 | Архив импорта | **≤32 МиБ = 33 554 432 байта** сжатого потока, сумма распаковки ≤256 МиБ, ≤5000 файлов, коэффициент разжатия ≤50 | потоковый разбор, лимит памяти не выше 64 МиБ для одной задачи, 413/422 |
-| Внешние URL | `https`, домены из allowlist источников; DNS IP/range проверяется **после** resolve и при каждом redirect | запрет loopback/private/link-local/metadata адресов; max 5 redirect; timeout connect 5s, total 30s |
+| Внешние URL | **НЕ исполнять** — F021/S024 crawler/URL-import заморожен владельцем 26.10.2026 без срока | не писать URL parser, scanner, SSRF tests и crawler API в TOR |
 | JSON обычной команды | ≤64 КиБ, если домен не указал иной явный лимит | возвращать 413, не указывать заголовки content-type «бесконечно» |
 | Каталог | существующий `GET /api/v1/books limit`: 1–100, default 20; новый cursor-путь: limit 1–100, max token 512 байт | keyset, индексы, фильтр видимости до limit |
 | Обработка отправки уведомлений | пачка 100 получателей, cursor до конца без потери 101-го/201-го | тест на 201, повтор фрагмента не создаёт 2 Inbox entries |
@@ -161,3 +161,8 @@ Worker claim: выбор `WHERE delivered_at IS NULL AND dead_at IS NULL AND nex
 - Демо на VPS только RAM не принимает пользовательские записи: `TOR_DEMO_MODE` отделён от полноценной сборки с PG; бета денег/логина проходит только при постоянной базе.
 
 Эти решения позволяют исполнителю работать без вопроса «какой внешний сервис брать?». Внешняя активация отдельно от переноса ядра, а «100% без исключений» пока не утверждено.
+
+
+## 7. Канонические финансовые и файловые расширения — 26.10.2026
+
+[F-Ads exact minor units](../contracts/finance-ad-exact-v1.md) вводит `MoneyMinor` и накопительное `floor(B*k/N)` для каждого подтверждённого impression, чтобы возврат/escrow/издатель/платформа сходились до копейки. [FIN-02](../contracts/refunds-payouts-v1.md) описывает holds, payout origin and first paid grant exposure barrier, Layer terms. [File/S3](../contracts/import-storage-v1.md) обязателен для encrypted paid version, KEK backup и GC pins. [RIL business events](../contracts/events-analytics-v1.md) не приравнивает grant/S3 GET к чтению. Это ожидаемые миграции I/D/G и условие HTTP/PG/S3/Browser тестов, не существующие таблицы в TOR.
