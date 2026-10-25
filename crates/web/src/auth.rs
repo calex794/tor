@@ -15,6 +15,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
+use tor_reading::repositories::PgReadingProgress;
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{
@@ -26,6 +27,7 @@ use tor_accounts::{
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
+    progress: PgReadingProgress,
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
 }
@@ -51,8 +53,10 @@ struct LogoutForm {
 }
 
 pub(crate) fn router(accounts: PgAccounts, secure: bool, origin: String) -> Router {
+    let progress = PgReadingProgress::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
+        progress,
         cookies: CookiePolicy { secure, origin },
         password_jobs: PasswordJobs::new(4),
     };
@@ -60,6 +64,7 @@ pub(crate) fn router(accounts: PgAccounts, secure: bool, origin: String) -> Rout
         .route("/register", get(show_registration).post(register))
         .route("/login", get(show_login).post(login))
         .route("/me", get(me))
+        .route("/me/library", get(my_library))
         .route("/logout", post(logout))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
@@ -258,6 +263,23 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf), &cookies)
+}
+
+async fn my_library(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return private_response(Redirect::to("/login"), &[]);
+    };
+    let digest = session_token_digest(&token);
+    let user_id = match state.accounts.active_session_user(&digest).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let books = match state.progress.continue_reading(user_id).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    private_response(pages::my_library(&books), &[])
 }
 
 async fn logout(

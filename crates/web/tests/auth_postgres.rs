@@ -138,6 +138,17 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
     let new_csrf_cookie = cookie(&private, "tor-dev-csrf=");
     let private_html = body_of(private).await;
+    assert!(private_html.contains("href=\"/me/library\""));
+    let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
+    assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
+    assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");
+    let private_library = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
+    assert_eq!(private_library.status(), StatusCode::OK);
+    assert_eq!(private_library.headers()[header::CACHE_CONTROL], "no-store");
+    let library_html = body_of(private_library).await;
+    assert!(library_html.contains("Вы пока не сохраняли место чтения"));
+    assert!(!library_html.contains("PRIVATE-PAID-MARKER"));
+
     assert!(private_html.contains("CIReader"));
     assert!(!private_html.contains("LongSecurePassword2026"));
     assert!(private_html.contains("href=\"/me\""));

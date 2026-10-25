@@ -212,6 +212,23 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
     )
 }
 
+pub fn my_library(items: &[tor_reading::services::progress::ContinueReading]) -> Html<String> {
+    let mut cards = String::new();
+    if items.is_empty() {
+        cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Сохранение положения в главе появится в следующем обновлении.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
+    } else {
+        for item in items {
+            let book = escape_html(&item.book_title);
+            let chapter = escape_html(&item.chapter_title);
+            write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">Продолжить чтение</p><h2>{book}</h2><p>Глава {}. {chapter}</p></div><a class=\"button\" href=\"/reader/{}\">Читать дальше</a></article>", item.chapter_no, item.chapter_id).expect("write HTML");
+        }
+    }
+    let html = format!(
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div></div></section>"
+    );
+    layout("Моя библиотека", "Продолжить чтение в личной библиотеке.", &html)
+}
+
 pub async fn stylesheet() -> impl IntoResponse {
     (
         [

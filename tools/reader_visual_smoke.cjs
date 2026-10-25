@@ -87,6 +87,11 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
       await inspect(page, name, 'me');
+      await page.getByRole('link', { name: 'Моя библиотека' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
+      await inspect(page, name, 'library');
+      await page.goto(base + '/me');
       await page.getByRole('button', { name: 'Выйти' }).click();
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
