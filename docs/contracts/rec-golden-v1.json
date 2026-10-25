@@ -1,0 +1,234 @@
+{
+  "schema": "tor.rec_golden.v1",
+  "source": {
+    "repo": "HeisLuka/newboo",
+    "revision": "17125ef758a791e9630505c14d24f7fe65aed228",
+    "algorithm": "recommendations_v1",
+    "file": "backend/app/recommendations/services/hybrid_scoring_service.py"
+  },
+  "note": "Hand-calculated deterministic interface oracle. Must be compared with actual pinned Python source in CI; does not assert Python was executed at authoring time.",
+  "test_cases": [
+    {
+      "id": "REC-M01",
+      "weights": {
+        "behavioral": 50,
+        "content": 30,
+        "popularity": 20
+      },
+      "limit": 20,
+      "candidates": [
+        {
+          "book_id": "101",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 800
+        },
+        {
+          "book_id": "101",
+          "source": "content",
+          "reason": "similar_by_content",
+          "normalized_score": 700
+        },
+        {
+          "book_id": "101",
+          "source": "popularity",
+          "reason": "popular",
+          "normalized_score": 500
+        },
+        {
+          "book_id": "102",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 600
+        },
+        {
+          "book_id": "102",
+          "source": "content",
+          "reason": "similar_by_content",
+          "normalized_score": 800
+        },
+        {
+          "book_id": "102",
+          "source": "popularity",
+          "reason": "popular",
+          "normalized_score": 400
+        },
+        {
+          "book_id": "103",
+          "source": "popularity",
+          "reason": "popular",
+          "normalized_score": 1000
+        },
+        {
+          "book_id": "104",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 500
+        },
+        {
+          "book_id": "104",
+          "source": "content",
+          "reason": "similar_by_content",
+          "normalized_score": 600
+        }
+      ],
+      "expected": {
+        "accepted": true,
+        "ordered": [
+          {
+            "book_id": "101",
+            "final_score": 710
+          },
+          {
+            "book_id": "102",
+            "final_score": 620
+          },
+          {
+            "book_id": "104",
+            "final_score": 430
+          },
+          {
+            "book_id": "103",
+            "final_score": 200
+          }
+        ]
+      }
+    },
+    {
+      "id": "REC-M02",
+      "weights": {
+        "behavioral": 100,
+        "content": 0,
+        "popularity": 0
+      },
+      "limit": 20,
+      "candidates": [
+        {
+          "book_id": "101",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 800
+        },
+        {
+          "book_id": "101",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 600
+        }
+      ],
+      "expected": {
+        "accepted": true,
+        "ordered": [
+          {
+            "book_id": "101",
+            "final_score": 800
+          }
+        ]
+      }
+    },
+    {
+      "id": "REC-M03",
+      "weights": {
+        "behavioral": 50,
+        "content": 30,
+        "popularity": 19
+      },
+      "limit": 20,
+      "candidates": [
+        {
+          "book_id": "101",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 800
+        }
+      ],
+      "expected": {
+        "accepted": false,
+        "rejected_reason": "invalid_weights"
+      }
+    },
+    {
+      "id": "REC-M08",
+      "weights": {
+        "behavioral": 50,
+        "content": 30,
+        "popularity": 20
+      },
+      "limit": 20,
+      "candidates": [
+        {
+          "book_id": "101",
+          "source": "behavioral",
+          "reason": "readers_also_read",
+          "normalized_score": 800
+        },
+        {
+          "book_id": "101",
+          "source": "content",
+          "reason": "similar_by_content",
+          "normalized_score": 700
+        },
+        {
+          "book_id": "101",
+          "source": "popularity",
+          "reason": "popular",
+          "normalized_score": 500
+        }
+      ],
+      "quality_score_by_book_id": {
+        "101": 50
+      },
+      "expected": {
+        "accepted": true,
+        "ordered": [
+          {
+            "book_id": "101",
+            "final_score": 760
+          }
+        ]
+      }
+    }
+  ],
+  "system_acceptance_cases": [
+    {
+      "case": "REC-M04",
+      "condition": "input candidates=501 or response_limit=51",
+      "expected": "rejected invalid_limit"
+    },
+    {
+      "case": "REC-M05",
+      "condition": "missing normalized_score",
+      "expected": "rejected missing_normalized_scores"
+    },
+    {
+      "case": "REC-M06",
+      "condition": "same book in related_books and hybrid",
+      "expected": "related counted once outside hybrid"
+    },
+    {
+      "case": "REC-M07",
+      "condition": "15 popularity-only candidates with max_popularity_results=10",
+      "expected": "at most 10 popularity items"
+    },
+    {
+      "case": "REC-M09",
+      "condition": "zero historical users",
+      "expected": "public catalog content fallback; no forged signals"
+    },
+    {
+      "case": "REC-M10",
+      "condition": "visibility changed after materialization",
+      "expected": "hidden excluded from all five surfaces"
+    },
+    {
+      "case": "REC-M11",
+      "condition": "S3 GET and grant followed by valid final block progress",
+      "expected": "only valid final block causes 1 ChapterCompleted"
+    },
+    {
+      "case": "REC-M12",
+      "condition": "outbox retry with source RoutePassport",
+      "expected": "one trusted event; forged ignored"
+    }
+  ]
+}
