@@ -22,6 +22,7 @@ impl Error for CatalogError {}
 #[async_trait]
 pub trait PublicBookRepository: Send + Sync {
     async fn list_public(&self, limit: usize) -> Result<Vec<Book>, CatalogError>;
+    async fn get_public(&self, id: u64) -> Result<Option<Book>, CatalogError>;
 }
 
 pub struct ListPublicBooks<'a> {
@@ -49,6 +50,28 @@ impl<'a> ListPublicBooks<'a> {
     }
 }
 
+pub struct GetPublicBook<'a> {
+    repository: &'a dyn PublicBookRepository,
+}
+impl<'a> GetPublicBook<'a> {
+    pub fn new(repository: &'a dyn PublicBookRepository) -> Self {
+        Self { repository }
+    }
+    pub async fn execute(&self, id: u64) -> Result<Option<Book>, CatalogError> {
+        if id == 0 {
+            return Ok(None);
+        }
+        let book = self.repository.get_public(id).await?;
+        if book
+            .as_ref()
+            .is_some_and(|book| book.visibility() != Visibility::Public)
+        {
+            return Err(CatalogError::Unavailable);
+        }
+        Ok(book)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,6 +87,22 @@ mod tests {
                 Book::new(1, key, "Hidden", Visibility::Draft).expect("book")
             ])
         }
+        async fn get_public(&self, _id: u64) -> Result<Option<Book>, CatalogError> {
+            let key = BookKey::new("source:1", "ru").expect("key");
+            Ok(Some(
+                Book::new(1, key, "Hidden", Visibility::Draft).expect("book"),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_private_by_id_even_for_broken_adapter() {
+        let use_case = GetPublicBook::new(&DefectiveRepository);
+        assert!(matches!(
+            use_case.execute(1).await,
+            Err(CatalogError::Unavailable)
+        ));
+        assert!(matches!(use_case.execute(0).await, Ok(None)));
     }
 
     #[tokio::test]

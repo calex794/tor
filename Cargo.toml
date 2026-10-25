@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/books", "crates/web"]
+members = ["crates/books", "crates/web", "crates/migrations"]
 resolver = "2"
 
 [workspace.package]
@@ -12,3 +12,4 @@ axum = "0.8"
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros","rt-multi-thread","net","sync"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros"] }
