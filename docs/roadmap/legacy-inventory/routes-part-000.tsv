@@ -1,0 +1,17 @@
+# repo=HeisLuka/newboo sha=17125ef758a791e9630505c14d24f7fe65aed228 slice=0:12 files=12 errors=0
+path	line	method	path_local	endpoint	prefix	decorator_target
+backend/app/advertising/api/v1/__init__.py	19	GET	/ping	ads_ping		router
+backend/app/advertising/api/v1/analytics.py	36	POST	/impressions/batch	track_impressions_batch	/analytics	router
+backend/app/advertising/api/v1/analytics.py	63	POST	/click	track_click	/analytics	router
+backend/app/advertising/api/v1/campaigns.py	43	POST	/calculate	calculate_campaign	/campaigns	router
+backend/app/advertising/api/v1/campaigns.py	76	POST	/purchase	purchase_campaign	/campaigns	router
+backend/app/advertising/api/v1/feed.py	200	GET	/main	get_main_feed	/feed	router
+backend/app/advertising/api/v1/reader_boost.py	25	POST	/purchase	purchase_reader_boost	/reader-boost	router
+backend/app/advertising/api/v1/reports.py	25	GET	/campaign/{campaign_id}	get_campaign_report	/reports	router
+backend/app/advertising/api/v1/reports.py	45	GET	/owner	get_owner_reports	/reports	router
+backend/app/advertising/api/v1/trending.py	33	GET	<dynamic>	get_trending	/trending	router
+backend/app/advertising/chapter_ads/api/v1/account.py	34	GET	<dynamic>	get_chapter_ad_account	/chapter-ads/account	router
+backend/app/advertising/chapter_ads/api/v1/account.py	44	POST	/enable	enable_chapter_ad_account	/chapter-ads/account	router
+backend/app/advertising/chapter_ads/api/v1/account.py	64	POST	/disable	disable_chapter_ad_account	/chapter-ads/account	router
+backend/app/advertising/chapter_ads/api/v1/campaigns.py	21	POST	/purchase	purchase_chapter_ad_campaign	/chapter-ads/campaigns	router
+backend/app/advertising/chapter_ads/api/v1/packages.py	16	GET	<dynamic>	list_chapter_ad_packages	/chapter-ads/packages	router
