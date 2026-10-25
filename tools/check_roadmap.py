@@ -127,8 +127,9 @@ def check(root: Path = ROOT) -> list[str]:
     for lane, expected in LANE_TASK_COUNTS.items():
         if counts[lane] != expected:
             errors.append(f"lane {lane}: expected {expected} tasks, got {counts[lane]}")
-    if len(tasks) != expected.get("tasks_total") or len(LANE_TASK_COUNTS) != expected.get("lanes"):
-        errors.append(f"expected {expected.get('tasks_total')} tasks in {expected.get('lanes')} lanes, got {len(tasks)}")
+    locked_counts = lock.get("roadmap", {})
+    if len(tasks) != locked_counts.get("tasks_total") or len(LANE_TASK_COUNTS) != locked_counts.get("lanes"):
+        errors.append(f"expected {locked_counts.get('tasks_total')} tasks in {locked_counts.get('lanes')} lanes, got {len(tasks)}")
     for code, lane in owners.items():
         if not task_refs[code]:
             errors.append(f"{code}: owning lane {lane} has no executable task")
