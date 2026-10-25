@@ -105,3 +105,14 @@ READY WHEN: green final SHA exact, PG+browser, integrated in tor/main, matrix up
 ```
 
 При столкновении двух спецификаций применять: продуктовая конституция/безопасность → текущая одобренная TOR инструкция → историческое поведение старого main → прототип bokarust. Любое отступление оформлять **одним явным diff**, а не 20 вопросов в чате.
+
+
+## 8. Неразрешённые прежде пограничные случаи — теперь фиксированный договор
+
+**Повтор JSON-команды:** request header `Idempotency-Key` содержит base64url-строку длиной ровно 43, поле `idempotency_key` в JSON теле **не допускается**. Test: missing key -> 422, malformed key -> 422, valid same Actor+key+canonical JSON twice -> original receipt/no duplicate ledger, same key+different amount -> 409, чужой Actor с тем же ключом не получает чужой receipt. HTML формы сохраняют `command_key` и трансформируют его в тот же use-case. SQL запись делается внутри бизнес-транзакции.
+
+**Отдельное событие каждой редакции:** author публикует V1 -> `ChapterPublished(chapter,V1,first_release=true)`, повторяет команду V1 -> **0 дополнительных** events, правит и публикует V2 -> `ChapterPublished(chapter,V2,first_release=false)`, outbox имеет 2 строки с разными `dedupe_key`; бизнес-таблица `chapter_first_release_events` содержит одну. Test на настоящей PG с двумя одновременными публикациями и проверкой всего outbox.
+
+**Fan-out с частичным падением:** `required_consumers = [search-index-v1,subscription-inbox-v1]`. Первый consumer успешно создаёт PG read-model и ack в `event_deliveries`, второй падает до ack; событие остаётся `delivered_at IS NULL`. После retry search-index-v1 **не повторяется**, subscription-inbox-v1 создаёт ровно один inbox entry, после ack событие получает `delivered_at`. Проиграть crash до внешнего ack (потребитель обязан выдерживать replay); проверить `lease_epoch`, чтобы старый worker не пометил чужую попытку завершённой. Это тест предметного контура G/I, не unit mock.
+
+**Условие приёмки:** никакой PR, меняющий публикацию/outbox/checkout, не вливать без этих отрицательных PG-тестов и итогового SHA; собственно наличие markdown-договора не заменяет их выполнения.
