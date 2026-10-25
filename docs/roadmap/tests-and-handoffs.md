@@ -121,3 +121,8 @@ READY WHEN: green final SHA exact, PG+browser, integrated in tor/main, matrix up
 ## Обязательная приёмка прямого paid S3 (внутри существующих задач)
 
 Норматив: [paid-delivery-v1](../contracts/paid-delivery-v1.md). На real PostgreSQL + приватном S3 + Chromium: paid V1 → атомарная покупка U1 → 90s grant → **GET ciphertext из S3 (не через backend)** → WebCrypto → сохранение progress → публикация V2 → доступ U1 всё ещё к V1; U2/guest/refunded denied. Обязательно: приватные изображения, неправильные nonce/AAD/tag, XSS, истёкшая подпись, повторная проверка после обрыва, free→paid cache purge, конкурентная покупка/публикация, PG rollback после PUT, GC без потери V1, ротация KEK и восстановление. Изменение D/C/G/crypto/контрактов/миграций требует связанного B+C+D+G+H+I набора; изменения только шаблонов — H+C+browser. Без реального провайдера S3 интеграционный этап не считается завершённым. Статус доказательства сохранять лишь в существующей Notion-матрице.
+
+
+## 9. После полного прохода предметной ветки — обязательные PREP gates
+
+Каждая область A–I делает полный проход своей ветки, затем один предметный PG/HTTP-test pack, исправления, повтор до зелёного **на финальном SHA**; при микрокоммитах только fmt/check и contract. При изменениях money/ACL/encrypted S3/event delivery тесты `FIN-A01…08 + FIN-B01…12 + ACL-S3 + FILE-13…18 + EVT-01…12` обязательно запускать вне зависимости от изменённого пути. Изменения recommendations → `REC-M01…12`. Список проверок и маршрутов: [release profile](../contracts/release-profile-v1.md), [OpenAPI](../contracts/openapi-v1.json), [8 contracts index](README.md). По документам alone не отмечать PG или browser passed.
