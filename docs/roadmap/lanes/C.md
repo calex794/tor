@@ -1,5 +1,8 @@
 # C — Читалка и библиотека: готовая инструкция TOR
 
+**Дополнение 26.10 (PREF):** [16-case ACL и S3-grant](../access-authorization-contract.md), [RIL/progress](../contracts/events-analytics-v1.md), [refund exposure](../contracts/refunds-payouts-v1.md). Реальный paid V1 идёт S3→браузер; C даёт только metadata/grant и проверяет last readable block по PG manifest. Ни `grant`, ни S3 GET не считаются чтением.
+
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7728/c-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Уточнение аудита 26.10:** единый reader gate должен исполнять [матрицу](../access-authorization-contract.md) для free/current, direct paid pinned V1, Layer CURRENT lifetime/30d, withdrawn, blocked/admin hold, refunded и cached direct asset URLs. Наличие `CanRead` одной главы не доказывает отсутствие обходов через preview/progress/TOC/SEO.
