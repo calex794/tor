@@ -14,11 +14,11 @@ use tor_books::{
     },
 };
 use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
-mod pages;
-mod safe_markdown;
 mod auth;
 mod auth_cookies;
+mod pages;
 mod password_jobs;
+mod safe_markdown;
 
 #[derive(Clone)]
 struct AppState {
@@ -131,7 +131,12 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     make_router(Arc::new(catalog.clone()), Some(catalog), None, false)
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
-    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), false)
+    make_router(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        Some(reader),
+        false,
+    )
 }
 
 /// Account forms are gated until their database, CSRF and rate-limit tests pass.
@@ -142,8 +147,11 @@ pub fn router_with_postgres_reading_auth(
     secure: bool,
     public_origin: String,
 ) -> Router {
-    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true)
-        .merge(auth::router(accounts, secure, public_origin))
+    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true).merge(auth::router(
+        accounts,
+        secure,
+        public_origin,
+    ))
 }
 
 fn make_router(
@@ -160,16 +168,18 @@ fn make_router(
         .route("/reader/{id}", get(reader_page))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
-        .route("/readyz", get(ready))
-        ;
+        .route("/readyz", get(ready));
     if !active_auth {
-        app = app.route("/login", get(login)).route("/register", get(register));
+        app = app
+            .route("/login", get(login))
+            .route("/register", get(register));
     }
     app.with_state(AppState {
         books: repo,
         postgres,
         reader,
-    }).merge(api)
+    })
+    .merge(api)
 }
 
 #[cfg(test)]

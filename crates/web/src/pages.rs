@@ -199,9 +199,17 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
-    Html(html.0
-        .replace("<a class=\"site-nav__link\" href=\"/login\">Войти</a>", "<a class=\"site-nav__link\" href=\"/me\" aria-current=\"page\">Мой кабинет</a>")
-        .replace("<a class=\"button button--small\" href=\"/register\">Регистрация</a>", ""))
+    Html(
+        html.0
+            .replace(
+                "<a class=\"site-nav__link\" href=\"/login\">Войти</a>",
+                "<a class=\"site-nav__link\" href=\"/me\" aria-current=\"page\">Мой кабинет</a>",
+            )
+            .replace(
+                "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
+                "",
+            ),
+    )
 }
 
 pub async fn stylesheet() -> impl IntoResponse {

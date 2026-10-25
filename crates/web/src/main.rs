@@ -1,10 +1,10 @@
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
+use tor_accounts::repositories::PgAccounts;
 use tor_books::{
     repositories::{InMemoryCatalog, PgCatalog},
     services::PublicBookRepository,
 };
 use tor_reading::repositories::PgReader;
-use tor_accounts::repositories::PgAccounts;
 
 /// No schema changes happen during HTTP startup.
 #[tokio::main]
@@ -38,11 +38,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     || uri.path_and_query().is_some_and(|p| p.as_str() != "/")
                     || origin.ends_with('/')
                 {
-                    return Err("TOR_PUBLIC_ORIGIN requires an HTTPS origin (HTTP only for localhost)".into());
+                    return Err(
+                        "TOR_PUBLIC_ORIGIN requires an HTTPS origin (HTTP only for localhost)"
+                            .into(),
+                    );
                 }
                 let accounts = PgAccounts::from_pool(pool);
                 accounts.probe().await?;
-                tor_web::router_with_postgres_reading_auth(catalog, reader, accounts, secure, origin)
+                tor_web::router_with_postgres_reading_auth(
+                    catalog, reader, accounts, secure, origin,
+                )
             } else {
                 tor_web::router_with_postgres_reading(catalog, reader)
             }
@@ -59,6 +64,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Err(error) => return Err(error.into()),
     };
     let listener = tokio::net::TcpListener::bind(address).await?;
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

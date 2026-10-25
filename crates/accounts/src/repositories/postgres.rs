@@ -14,7 +14,9 @@ pub enum AccountWriteError {
 impl From<sqlx::Error> for AccountWriteError {
     fn from(err: sqlx::Error) -> Self {
         match err {
-            sqlx::Error::Database(ref db) if db.code().as_deref() == Some("23505") => Self::Duplicate,
+            sqlx::Error::Database(ref db) if db.code().as_deref() == Some("23505") => {
+                Self::Duplicate
+            }
             _ => Self::Unavailable,
         }
     }
@@ -44,15 +46,22 @@ impl PgAccounts {
     /// Called before enabling account forms. Runtime may never connect as migrator.
     pub async fn probe(&self) -> Result<(), sqlx::Error> {
         let role: String = sqlx::query_scalar("SELECT current_user")
-            .fetch_one(&self.pool).await?;
+            .fetch_one(&self.pool)
+            .await?;
         if role != "tor_app" {
             return Err(sqlx::Error::Protocol(
                 "Accounts runtime requires tor_app, not tor_migrator".to_owned(),
             ));
         }
-        sqlx::query("SELECT id FROM users LIMIT 0").execute(&self.pool).await?;
-        sqlx::query("SELECT token_hash FROM sessions LIMIT 0").execute(&self.pool).await?;
-        sqlx::query("SELECT key_hash FROM auth_attempts LIMIT 0").execute(&self.pool).await?;
+        sqlx::query("SELECT id FROM users LIMIT 0")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("SELECT token_hash FROM sessions LIMIT 0")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("SELECT key_hash FROM auth_attempts LIMIT 0")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

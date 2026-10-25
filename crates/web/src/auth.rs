@@ -13,6 +13,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use serde::Deserialize;
+use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{
@@ -20,8 +22,6 @@ use tor_accounts::{
     },
     services::validation as rules,
 };
-use serde::Deserialize;
-use std::{net::SocketAddr, num::NonZeroU32};
 
 #[derive(Clone)]
 struct AuthState {
