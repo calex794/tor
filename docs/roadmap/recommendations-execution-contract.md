@@ -95,3 +95,8 @@ F владеет проекциями/score; G запускает и повто�
 Подшаги этой секции относятся к существующим I-02/I-13, B-04, C-04/C-06/C-09, D-02, F-07/F-12, G-06/G-07, H-05/H-12. **Ни документ, ни зелёный document-CI не подтверждают реализацию**; нужен PostgreSQL + Axum + S3 + браузер на одном SHA.
 
 **Асинхронный нюанс для F/G:** RIL контекст берётся и прикрепляется к typed outbox-событию **при исходном HTTP/PG commit**, с versioned паспортом либо проверенным provenance=server_committed. G-worker через несколько минут уже не видит исходного HTTP request; повторная классификация по маршруту фонового job недопустима. В старом signal_hygiene unknown/missing_context отклоняется, поэтому обязательный негативный тест: отложенное trusted ChapterCompleted проходит в F, а клиентский фальшивый trusted_completion без PG provenance не проходит. Подробнее [RIL договор](../contracts/ril-reader-signals-v1.md).
+
+
+## 7. Нормативный golden-оракул (26.10)
+
+В дополнение к RIL и REC-01…14: [точные расчёты/фикстуры REC-M01…12](../contracts/recommendations-golden-v1.md), [machine JSON](../contracts/rec-golden-v1.json), [фактические события/meaningful read](../contracts/events-analytics-v1.md). Числа 710/620/430/200 рассчитаны вручную по исходному Python алгоритму и **должны быть сверены фактическим прогоном pinned NEwBOO в CI**; документация не утверждает, что старый Python уже запускали на этом corpus.
