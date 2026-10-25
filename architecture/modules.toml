@@ -1,0 +1,17 @@
+# Each new domain package must be registered and have exactly one owning lane.
+# Changes to this map are shared-contract changes approved by lane I.
+[features]
+accounts = "A"
+books = "B"
+teams = "B"
+reading = "C"
+commerce = "D"
+discussions = "E"
+clubs = "E"
+social = "E"
+support = "E"
+recommendations = "F"
+referrals = "F"
+search = "F"
+imports = "G"
+ingest = "G"
