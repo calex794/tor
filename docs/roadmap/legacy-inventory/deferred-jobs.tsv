@@ -1,0 +1,69 @@
+# source=HeisLuka/newboo@17125ef758a791e9630505c14d24f7fe65aed228
+# evidence=backend/app/services/deferred_job_handlers.py:register_default_deferred_job_handlers
+# registered—not evidence scheduled/enabled/executed
+job_name	handler	registration	lane	plan_hint	status
+book_public_cache_invalidation	handle_book_public_cache_invalidation	default	B,C,G	B-06 C-04 G-07	registered
+book_organic_projection_sync	handle_book_organic_projection_sync	default	B,C,G	B-06 C-04 G-07	registered
+book_stats_projection_apply	handle_book_stats_projection_apply	default	B,C,G	B-06 C-04 G-07	registered
+reader_api_activity	handle_reader_api_activity	default	B,C,G	B-06 C-04 G-07	registered
+reader_web_activity	handle_reader_web_activity	default	B,C,G	B-06 C-04 G-07	registered
+reader_library_open	handle_reader_library_open	default	B,C,G	B-06 C-04 G-07	registered
+analytics_events_batch	handle_analytics_events_batch	default	F,G	G-06 G-07	registered
+recommendation_attribution_event	handle_recommendation_attribution_event	default	F,G	REC-01..14 F-07 G-10	registered
+recommendation_activity_signal	handle_recommendation_activity_signal	default	F,G	REC-01..14 F-07 G-10	registered
+recommendation_attribution_daily_aggregation	handle_recommendation_attribution_daily_aggregation	default	F,G	REC-01..14 F-07 G-10	registered
+recommendation_materialization_run	handle_recommendation_materialization_run	default	F,G	REC-01..14 F-07 G-10	registered
+behavior_path_offline_window	handle_behavior_path_offline_window	default	F,G	REC-01..14 F-07 G-10	registered
+notification_user	handle_user_notification	default	E,G	AE-E06 E-05 G-08	registered
+notification_bulk	handle_bulk_user_notifications	default	E,G	AE-E06 E-05 G-08	registered
+scene_marketplace_notification_event	handle_scene_marketplace_notification_event	default	-	F040-F042 frozen	frozen
+community_interaction_record	handle_community_interaction_record	default	E,G	AE-E01/02 E-09 G-07	registered
+club_candidate_detection	handle_club_candidate_detection	default	E,G	AE-E01/02 E-09 G-07	registered
+club_health_scan	handle_club_health_scan	default	E,G	AE-E01/02 E-09 G-07	registered
+club_d7_metrics	handle_club_d7_metrics	default	E,G	AE-E01/02 E-09 G-07	registered
+collection_publication_followers_requested	handle_collection_publication_followers_requested	default	B,C,G	G-06 G-07	registered
+daily_reader_digest_dispatch	handle_daily_reader_digest_dispatch	default	B,C,G	AE-E06 E-05 G-08	registered
+chapter_created_library_notification	handle_chapter_created_library_notification	default	B,C,G	AE-E06 E-05 G-08	registered
+delayed_chapter_reader_release	handle_delayed_chapter_reader_release	default	B,C,G	B-06 C-04 G-07	registered
+delayed_chapter_reader_release_effects	handle_delayed_chapter_reader_release_effects	default	B,C,G	B-06 C-04 G-07	registered
+comment_notification_recipients	handle_comment_notification_recipients	default	E,G	AE-E06 E-05 G-08	registered
+discussion_projection	handle_discussion_projection	default	E,G	E-02 E-03 G-07	registered
+discussion_projection_cleanup	handle_discussion_projection_cleanup	default	E,G	E-02 E-03 G-07	registered
+collection_comment_side_effects_requested	handle_collection_comment_side_effects_requested	default	E,G	E-02 E-03 G-07	registered
+layer_comment_side_effects_requested	handle_layer_comment_side_effects_requested	default	E,G	AE-D02 E-07	registered
+comment_target_count_refresh	handle_comment_target_count_refresh	default	E,G	E-02 E-03 G-07	registered
+comment_reaction_count_refresh	handle_comment_reaction_count_refresh	default	E,G	E-02 E-03 G-07	registered
+book_comment_side_effects_requested	handle_book_comment_side_effects_requested	default	B,C,G	E-02 E-03 G-07	registered
+text_issue_created_notification	handle_text_issue_created_notification	default	E,G	AE-E06 E-05 G-08	registered
+storage_cleanup_expired_objects	handle_storage_cleanup_expired_objects	default	G	G-09 G-07	registered
+storage_orphan_scan	handle_storage_orphan_scan	default	G	G-09 G-07	registered
+storage_object_register_retry	handle_storage_object_register_retry	default	G	G-09 G-07	registered
+chapter_version_storage_finalize	handle_chapter_version_storage_finalize	default	B,C,G	G-09 G-07	registered
+book_cover_process_requested	handle_book_cover_process_requested	default	B,C,G	B-06 C-04 G-07	registered
+book_title_similarity_rebuild	handle_book_title_similarity_rebuild	default	B,C,G	AE-B01 B-02 G-07	registered
+seo_sitemap_rebuild	handle_seo_sitemap_rebuild	default	F,G	F-08 G-07	registered
+book_share_bulk_fanout	handle_book_share_bulk_fanout	default	B,C,G	AE-E04 E-06 G-07	registered
+social_proof_materialization	handle_social_proof_materialization	default	E,F,G	AE-E04 E-06 G-07	registered
+reading_universe_source_refresh	handle_reading_universe_source_refresh	default	G	G-06 G-07	registered
+reading_universe_materialization	handle_reading_universe_materialization	default	G	G-06 G-07	registered
+reading_universe_cleanup	handle_reading_universe_cleanup	default	G	G-06 G-07	registered
+referral_attribution_finalize	handle_referral_attribution_finalize	default	F,D,G	F-09 D-11 G-07	registered
+referral_commission_accrue_reader_spend	handle_referral_commission_accrue_reader_spend	default	F,D,G	F-09 D-11 G-07	registered
+referral_commission_accrue_creator_income	handle_referral_commission_accrue_creator_income	default	F,D,G	F-09 D-11 G-07	registered
+referral_commission_release_due	handle_referral_commission_release_due	default	F,D,G	F-09 D-11 G-07	registered
+referral_commission_reverse	handle_referral_commission_reverse	default	F,D,G	F-09 D-11 G-07	registered
+referral_reconcile_reader_spend_commissions	handle_referral_reconcile_reader_spend_commissions	default	F,D,G	F-09 D-11 G-07	registered
+referral_reconcile_creator_income_commissions	handle_referral_reconcile_creator_income_commissions	default	F,D,G	F-09 D-11 G-07	registered
+referral_reconcile_release_due	handle_referral_reconcile_release_due	default	F,D,G	F-09 D-11 G-07	registered
+chapter_ads_market_overview_refresh	handle_chapter_ads_market_overview_refresh	default	F,D	ADS-01..16	registered
+chapter_ads_impression_record	handle_chapter_ads_impression_record	default	F,D	ADS-01..16	registered
+chapter_ads_delivery_plan	handle_chapter_ads_delivery_plan	default	F,D	ADS-01..16	registered
+chapter_ads_settlement	handle_chapter_ads_settlement	default	F,D	ADS-01..16	registered
+support_guest_claim	handle_support_guest_claim	default	E,G	G-06 G-07	registered
+book_crawler_runtime_smoke	handle_book_crawler_runtime_smoke	default	-	F021/S024 frozen	frozen
+scene_marketplace_analytics_record_event	_lazy_scene_marketplace_job_handler	lazy-scene	-	F040-F042 frozen	frozen
+scene_marketplace_analytics_aggregate_day	_lazy_scene_marketplace_job_handler	lazy-scene	-	F040-F042 frozen	frozen
+scene_marketplace_analytics_materialize_ranking	_lazy_scene_marketplace_job_handler	lazy-scene	-	F040-F042 frozen	frozen
+scene_marketplace_discovery_index_published_preset	_lazy_scene_marketplace_job_handler	lazy-scene	-	F040-F042 frozen	frozen
+scene_marketplace_discovery_materialize_similarity	_lazy_scene_marketplace_job_handler	lazy-scene	-	F040-F042 frozen	frozen
+scene_marketplace_recommendation_materialize_inputs	_lazy_scene_marketplace_job_handler	lazy-scene	-	F040-F042 frozen	frozen
