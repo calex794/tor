@@ -10,7 +10,7 @@
 
 ### D-01 — Д0–Д1
 
-**Сделать:** Зафиксировать Money/WalletId/PurchaseId/EntitlementId, валюту, idempotency и версию цены; границу одной транзакции.
+**Сделать:** Создать строго типизированные MoneyMinor(RUB), WalletId, PurchaseId, EntitlementId, PurchaseCommand с 43-символьным idempotency_key и expected_version/price; определить атомарный repository-port checkout_once с единственным commit.
 
 **Главный выходной файл:** `crates/commerce/src/domain/money.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** contracts I; commerce/domain+schemas; wallet/ledger
 
@@ -178,7 +178,7 @@
 
 ### D-13 — Д5
 
-**Сделать:** Сверить S031,S034–S039,S041 с текущим NEwBOO и оформить открытые внешние блокеры.
+**Сделать:** Добавить commerce regression-suite на S031,S032,S034–S039,S041: реальные balance/ledger/entitlement снимки до/после, запреты, гонки, возвраты и отчёт по внешнему платежу со статусом blocked, если provider не доказан.
 
 **Главный выходной файл:** `crates/commerce/tests/slices_pg.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** commerce/tests; Notion matrix
 
