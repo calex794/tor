@@ -1,0 +1,16 @@
+# Exact source revisions. Updating this file requires a source-compatibility review.
+[reference]
+newboo_repo = "HeisLuka/newboo"
+newboo_main_sha = "17125ef758a791e9630505c14d24f7fe65aed228"
+bokarust_repo = "calex794/bokarust"
+bokarust_main_sha = "d11b27b43125b93e59809147e8e687203fa0753b"
+
+[roadmap]
+version = "2026-10-25-v1"
+target_repo = "calex794/tor"
+scenarios_total = 69
+scenarios_assigned = 62
+scenarios_excluded = 7
+tasks_total = 117
+lanes = 9
+source_exceptions = ["S068", "S069"] # PR-only sources; never treat as live newboo/main

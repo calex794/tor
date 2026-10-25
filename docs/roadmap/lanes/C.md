@@ -10,7 +10,7 @@
 
 ### C-01 — · Д0–Д1
 
-**Сделать:** Зафиксировать один CanRead(viewer,edition) и выход Allowed(version)/Denied, различить 404/403/401.
+**Сделать:** Реализовать typed CanRead(viewer,edition) с Allowed(version) или Denied без тела; на HTTP-границе отобразить 401 для анонима без сессии, 403 для явной роли и 404 для приватного/непубличного контента.
 
 **Главный выходной файл:** `crates/reading/src/services/access.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** contracts через I; reading/services/read_access
 

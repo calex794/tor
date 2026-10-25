@@ -10,7 +10,7 @@
 
 ### I-01 — Д0
 
-**Сделать:** Зафиксировать актуальный TOR SHA, source NEwBOO и bokarust SHA, инвентаризацию 61/69, freeze/exceptions.
+**Сделать:** Добавить source lock с фиксированными NEwBOO 17125ef758 и bokarust d11b27b431, версией TOR контрактов и реестром 69 S/61 F; валидатор должен обнаруживать смену без обновления ссылок.
 
 **Главный выходной файл:** `docs/contracts/README.md` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** docs/contracts/README + матрица ссылок
 
@@ -24,7 +24,7 @@
 
 ### I-02 — Д0
 
-**Сделать:** Согласовать ID/role/Actor, HTTP error/limits, business events, transactions, owner tables.
+**Сделать:** Создать Cargo-пакет tor-contracts с положительными newtypes UserId/BookId/ChapterId/ChapterVersionId/PurchaseId, Actor/Permission, ErrorCode, интерфейсами ChapterRead/Entitlement и envelopes событий v1; добавить unit-тесты сериализации.
 
 **Главный выходной файл:** `crates/contracts/src/lib.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** crates/contracts, docs/contracts; меняет только I
 
@@ -122,7 +122,7 @@
 
 ### I-09 — Д3
 
-**Сделать:** Проверить производительность CI: p50/p95 queue/runtime, число workflow, runner-minutes и исправления.
+**Сделать:** Создать tools/ci_metrics.py: по GitHub Actions run выводить число запущенных jobs, p50/p95 очереди/прогона и суммарные runner-minutes для сравнения пакетной ветки с обычной; отчёт привязать к SHA.
 
 **Главный выходной файл:** `tools/ci_metrics.py` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** run analytics report
 
@@ -178,7 +178,7 @@
 
 ### I-13 — Д5
 
-**Сделать:** Сверить S059/S061/S062 (observability/deploy/test-selection) и техфункции F044–F051.
+**Сделать:** Добавить автоматические выпускные проверки S059 tracing (request_id без PII), S061 версионированного deploy/rollback и S062 affected-test selector; прикрепить реальный CI-run и матрицу результатов к текущим карточкам Notion.
 
 **Главный выходной файл:** `docs/roadmap/scenarios.tsv` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** Notion matrix + CI evidence
 

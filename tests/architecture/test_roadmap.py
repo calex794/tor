@@ -15,7 +15,7 @@ class RoadmapTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = pathlib.Path(self.temp.name)
         (self.root / "docs" / "roadmap").mkdir(parents=True)
-        for name in ("scenarios.tsv", "tasks.tsv"):
+        for name in ("scenarios.tsv", "tasks.tsv", "sources.lock.toml"):
             shutil.copyfile(ROOT / "docs" / "roadmap" / name, self.root / "docs" / "roadmap" / name)
 
     def mutate(self, name, old, new):
@@ -49,6 +49,14 @@ class RoadmapTests(unittest.TestCase):
         self.mutate("tasks.tsv", "cargo test -p tor-accounts --test slices_pg a_03_",
                     "cargo test -p tor-accounts --test slices_pg something_else")
         self.assertTrue(any("deterministic test selector" in e for e in check(self.root)))
+
+    def test_vague_instruction_detected(self):
+        self.mutate("tasks.tsv", "Перенести регистрацию:", "Согласовать регистрацию:")
+        self.assertTrue(any("vague planning instruction" in e for e in check(self.root)))
+
+    def test_source_sha_drift_detected(self):
+        self.mutate("scenarios.tsv", "17125ef758a791e9630505c14d24f7fe65aed228", "0000000000000000000000000000000000000000")
+        self.assertTrue(any("source link is not pinned" in e for e in check(self.root)))
 
     def test_placeholder_detected(self):
         self.mutate("tasks.tsv", "Перенести регистрацию:", "TODO Перенести регистрацию:")

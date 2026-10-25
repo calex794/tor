@@ -10,7 +10,7 @@
 
 ### F-01 — Д0–Д1
 
-**Сделать:** Сверить canonical public projection книги: видимость, запрет черновиков/18+/платного текста и slug.
+**Сделать:** Реализовать PublicBookProjection из опубликованной книги с slug и единым predicate public AND NOT held/deleted; применять фильтр к SQL-каталогу, HTML/JSON, sitemap, suggestion и recommendation cache до пагинации.
 
 **Главный выходной файл:** `crates/search/src/domain/public_projection.rs` (создать либо дополнить, рядом допускаются профильные api/domain/repository модули того же владельца). **Данные/границы:** search/domain + contracts B/I
 
