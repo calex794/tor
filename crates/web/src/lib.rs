@@ -16,6 +16,9 @@ use tor_books::{
 use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 mod pages;
 mod safe_markdown;
+mod auth;
+mod auth_cookies;
+mod password_jobs;
 
 #[derive(Clone)]
 struct AppState {
@@ -122,36 +125,51 @@ async fn register() -> impl axum::response::IntoResponse {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    make_router(repo, None, None)
+    make_router(repo, None, None, false)
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
-    make_router(Arc::new(catalog.clone()), Some(catalog), None)
+    make_router(Arc::new(catalog.clone()), Some(catalog), None, false)
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
-    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader))
+    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), false)
 }
+
+/// Account forms are gated until their database, CSRF and rate-limit tests pass.
+pub fn router_with_postgres_reading_auth(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+) -> Router {
+    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true)
+        .merge(auth::router(accounts, secure, public_origin))
+}
+
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
+    active_auth: bool,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
-    Router::new()
+    let mut app = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog))
         .route("/books/{id}", get(book_detail))
         .route("/reader/{id}", get(reader_page))
-        .route("/login", get(login))
-        .route("/register", get(register))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
-        .with_state(AppState {
-            books: repo,
-            postgres,
-            reader,
-        })
-        .merge(api)
+        ;
+    if !active_auth {
+        app = app.route("/login", get(login)).route("/register", get(register));
+    }
+    app.with_state(AppState {
+        books: repo,
+        postgres,
+        reader,
+    }).merge(api)
 }
 
 #[cfg(test)]

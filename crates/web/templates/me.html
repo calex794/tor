@@ -1,0 +1,16 @@
+<section class="section auth-section">
+  <div class="container">
+    <div class="auth-card">
+      <p class="eyebrow">Личный кабинет</p>
+      <h1>Мой кабинет</h1>
+      <p>Вы вошли как <strong><!--DISPLAY_NAME--></strong>.</p>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <button class="button" type="submit">Выйти</button>
+      </form>
+      <div class="account-profile__state"><span class="account-profile__status" aria-hidden="true"></span> Учётная запись активна</div>
+      <p class="account-profile__hint">Закладки, покупки и управление произведениями подключаются по мере готовности соответствующих разделов.</p>
+      <p><a href="/catalog">Перейти в каталог</a></p>
+    </div>
+  </div>
+</section>

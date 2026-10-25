@@ -305,3 +305,18 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .chapter-content { padding: 18px 15px; border-radius: 10px; }
   .reader-width { width: 100%; }
 }
+
+/* A-02/A-03: usable registration and private account pages. */
+.auth-section { min-height: min(700px, 78vh); }
+.auth-card { margin-inline: auto; }
+.auth-form { display: grid; gap: 10px; }
+.auth-form label { font-size: 14px; font-weight: 700; color: #33473a; }
+.auth-form input { width: 100%; min-height: 46px; padding: 11px 14px; background: #fff; color: #1d3122; border-radius: 9px; border: 1px solid #bdcbbf; margin-bottom: 11px; }
+.auth-form input:focus-visible { outline: 3px solid #44835b; outline-offset: 2px; }
+.auth-form .button { width: 100%; min-height: 48px; justify-content: center; }
+.auth-card__footer { margin-top: 20px; color: #68776b; }
+.auth-card__footer a { color: #27613f; text-underline-offset: 4px; }
+.account-profile__state { display: inline-flex; align-items: center; gap: 9px; padding: 7px 13px; border-radius: 18px; background: #eef5ed; color: #2b6540; font-size: 13px; font-weight: 600; }
+.account-profile__status { background: #4b9f67; width: 7px; height: 7px; border-radius: 50%; }
+.account-profile__hint { color: #68776b; font-size: 14px; line-height: 1.65; }
+@media (max-width: 680px) { .auth-section { min-height: 0; padding-block: 36px; } .auth-card { padding: 25px 20px; } }
