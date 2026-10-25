@@ -81,3 +81,13 @@ Nginx HTTPS → испытательный сайт, видимый владел
 - **Проверка после:** `docker ps -a`, `docker compose ls`, `docker volume ls`, `docker system df`, `free -h`, `df -h /`, `ss -lntp`.
 - **Граница:** Docker-`books-nginx` слушал `127.0.0.1:8000`, Docker image-worker — `127.0.0.1:8080`; отдельный **системный Nginx** слушает 80/443 и должен быть сохранён, пока не выяснена текущая конфигурация. SSH/Ubuntu не трогать. Внешние YDB/S3 очищаются только отдельным аудитом.
 - **Следующий этап:** по фактическому объёму освободившейся памяти — либо Rust RAM-демо, либо постоянное хранилище на отдельной машине. Автодеплой до финального подтверждения очистки и безопасной настройки хоста не включать.
+
+## Verified legacy clean-up 2026-10-25
+
+The owner ran `docker compose -p books_platform down --remove-orphans --volumes --rmi all` on VPS `vm15714674` and supplied a completed command plus verification. `docker ps -a` is empty (0 containers). System nginx still listens on ports 80/443 and SSH on 22. Old Docker-backed ports 127.0.0.1:8000/8080 are no longer listening.
+
+Memory available increased from 143 MiB to **574 MiB** (+431 MiB); swap used fell from about 1.2 GiB to 179 MiB; disk free space rose from 9.7 GB to **13 GB** (+3.3 GB).
+
+Still present: **9 unused images** (4.063 GB accounting size), and `books_platform_static-assets` volume (7.329 MB). Verify images before pruning; no cleanup of those leftovers or directory `/opt/books_platform` is yet confirmed. Preserve system nginx and SSH.
+
+**Revisit database choice:** a small local PostgreSQL and compiled Rust binary might now fit, using constrained connection/pool memory. Verify actual memory/CPU under HTTP + database load before committing to it. Do not build Rust on the 1 vCPU host; build and run extensive tests in GitHub Actions. Deployed tor and its database are not yet present.
