@@ -30,8 +30,13 @@ BEGIN
     INSERT INTO books(source_identity,target_language,title,visibility)
       VALUES ('ci-hidden-book','ru','Hidden Draft','draft');
 
-    IF (SELECT count(*) FROM books WHERE visibility='public') <> 1 THEN
-        RAISE EXCEPTION 'Draft leaked in public book selection';
+    SELECT count(*) INTO actual_count FROM books
+      WHERE source_identity IN ('ci-public-book', 'ci-hidden-book')
+        AND visibility='public';
+    IF actual_count <> 1 OR EXISTS (
+        SELECT 1 FROM books WHERE source_identity='ci-hidden-book' AND visibility='public'
+    ) THEN
+        RAISE EXCEPTION 'Draft selection wrong; public count=%', actual_count;
     END IF;
 
     BEGIN
