@@ -151,3 +151,36 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         }
     }
 }
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL tor_ci and public/hidden/held fixtures"]
+async fn f_03_search_api_is_bounded_and_never_exposes_drafts() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test URL");
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+    let (status, json) = get(app.clone(), "/api/v1/search/books?q=TOR&limit=20").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json.contains("TOR CI public"));
+    assert!(json.contains(r#""id":"1""#));
+    assert!(!json.contains("TOR CI hidden"));
+    assert!(!json.contains("TOR CI held"));
+    let (status, blank_language) = get(app.clone(), "/catalog?q=TOR&language=").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(blank_language.contains("TOR CI public"));
+    let (status, html) = get(app.clone(), "/catalog?q=TOR&language=ru").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"role="search""#));
+    assert!(html.contains(r#"name="language""#));
+    assert!(!html.contains("TOR CI hidden"));
+    for path in [
+        "/api/v1/search/books?q=TOR&limit=101",
+        "/api/v1/search/books?q=TOR&language=bad!lang",
+        "/api/v1/search/books?q=TOR&genre=fantasy",
+        "/api/v1/search/books?q=TOR&after=01",
+        "/api/v1/search/books?language=ru",
+        "/catalog?q=TOR&genre=fantasy",
+        "/catalog?q=TOR&language=ru&after=01",
+    ] {
+        let (status, _) = get(app.clone(), path).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{path}");
+    }
+}

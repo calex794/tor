@@ -81,6 +81,8 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
 #[derive(Default, Deserialize)]
 struct CatalogQuery {
     q: Option<String>,
+    language: Option<String>,
+    genre: Option<String>,
     after: Option<String>,
 }
 async fn catalog(
@@ -88,10 +90,22 @@ async fn catalog(
     Query(query): Query<CatalogQuery>,
 ) -> Result<Html<String>, StatusCode> {
     if let Some(search) = state.search.as_ref() {
+        if query
+            .genre
+            .as_ref()
+            .is_some_and(|genre| !genre.trim().is_empty())
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
         let term = query.q.as_deref().unwrap_or("").trim();
         if !term.is_empty() {
             let page = search
-                .search(term, query.after.as_deref(), DEFAULT_PAGE_SIZE)
+                .search_filtered(
+                    term,
+                    query.language.as_deref(),
+                    query.after.as_deref(),
+                    DEFAULT_PAGE_SIZE,
+                )
                 .await
                 .map_err(|error| match error {
                     tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
@@ -109,19 +123,25 @@ async fn catalog(
             return Ok(pages::catalog_search(
                 &books,
                 term,
+                query.language.as_deref(),
                 page.next_cursor.as_deref(),
             ));
         }
-        if query.after.is_some() {
+        if query.after.is_some() || query.language.is_some() {
             return Err(StatusCode::BAD_REQUEST);
         }
         return Ok(pages::catalog_search(
             &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
             "",
             None,
+            None,
         ));
     }
-    if query.q.is_some() || query.after.is_some() {
+    if query.q.is_some()
+        || query.after.is_some()
+        || query.language.is_some()
+        || query.genre.is_some()
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
     Ok(pages::catalog(
@@ -371,6 +391,10 @@ fn make_router(
     let search = postgres
         .as_ref()
         .map(|catalog| tor_search::PgSearch::new(catalog.pool()));
+    let search_api = search
+        .clone()
+        .map(tor_search::api::router)
+        .unwrap_or_default();
     app.with_state(AppState {
         books: repo,
         postgres,
@@ -378,6 +402,7 @@ fn make_router(
         search,
     })
     .merge(api)
+    .merge(search_api)
 }
 
 #[cfg(test)]
