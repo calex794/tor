@@ -8,7 +8,7 @@ on:
         required: false
         default: false
   workflow_run:
-    workflows: ["Rust S0 browser preview"]
+    workflows: ["TOR PostgreSQL runtime"]
     types: [completed]
 permissions:
   contents: read
@@ -55,12 +55,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Verify full S0 candidate
-        run: |
-          python3 tools/check_feature_layout.py
-          cargo fmt --all -- --check
-          cargo test --workspace --all-targets
-          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Verify architecture before packaging
+        run: python3 tools/check_feature_layout.py
       - name: Build release and embedded SQLx migrator on runner, never on 1-vCPU VPS
         run: |
           cargo build --release -p tor-web
@@ -75,7 +71,7 @@ jobs:
           printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
           chmod 600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
-      - name: Transfer and smoke-test isolated release
+      - name: Transfer verified production binaries (no RAM demo candidate)
         shell: bash
         run: |
           set -euo pipefail
@@ -91,31 +87,8 @@ jobs:
           test "$local_sha" = "$remote_sha"
           ssh "${opts[@]}" "$destination" "cd /opt/tor/releases/$TARGET_SHA && sha256sum -c --status tor-migrate.sha256"
           echo "SQLx migrator delivered and checksum verified, not executed on the VPS"
-          ssh "${opts[@]}" "$destination" 'bash -s' -- "$TARGET_SHA" <<'REMOTE'
-          set -euo pipefail
-          release_sha="$1"
-          candidate="/opt/tor/releases/$release_sha/tor-web"
-          test -x "$candidate"
-          if ss -H -lnt '( sport = :3099 )' | grep -q .; then
-            echo "Candidate port 3099 already in use" >&2
-            exit 1
-          fi
-          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 "$candidate" > "/opt/tor/releases/$release_sha/candidate.log" 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
-          ready=0
-          for i in $(seq 1 25); do
-            kill -0 "$pid"
-            if curl -fsS http://127.0.0.1:3099/readyz > /dev/null; then ready=1; break; fi
-            sleep 1
-          done
-          test "$ready" -eq 1
-          curl -fsS http://127.0.0.1:3099/catalog > /dev/null
-          payload="$(curl -fsS http://127.0.0.1:3099/api/v1/books)"
-          [[ "$payload" == *"Первое знакомство"* ]]
-          [[ "$payload" != *"Закрытый черновик"* ]]
-          echo "Candidate tested on loopback without changing active site"
-          REMOTE
+          ssh "${opts[@]}" "$destination" "test -x /opt/tor/releases/$TARGET_SHA/tor-web && test -x /opt/tor/releases/$TARGET_SHA/tor-migrate"
+          echo "Production release staged; PostgreSQL integration was tested in GitHub Actions"
       - name: Activate verified release only when explicitly permitted
         if: env.AUTO_INSTALL == 'true'
         shell: bash
