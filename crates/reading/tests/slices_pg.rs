@@ -393,3 +393,103 @@ async fn c_10_large_safe_reader_and_protected_versions() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL and disposable tor_ci"]
+async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("PG test database");
+    assert!(url.ends_with("/tor_ci"), "production must never be tested");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO users(id,email_normalized,display_name,password_hash) \
+         OVERRIDING SYSTEM VALUE VALUES \
+         (93701,'c09-version-reader@example.invalid','V1 Reader','$argon2id$fixture')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
+         VALUES (93710,'ci:c09:free-v2','ru','Free version switch','public')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount) \
+         VALUES (93720,93710,1,'Free chapter','public','free',0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown) \
+         VALUES (93731,93720,1,'First\n\nSecond'), \
+                (93732,93720,2,'Rewritten first paragraph')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES (93720,93731)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let sync = PgReadingSync::new(pool.clone());
+    let reading = PgReadingProgress::new(pool.clone());
+    let old = ReadingPlace {
+        block_index: 2,
+        char_offset: 3,
+    };
+    let saved = sync.save_free(93701, 93720, 93731, old, 0).await.unwrap();
+    assert_eq!(saved.revision, 1);
+    let before = reading.continue_reading(93701).await.unwrap();
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].block_index, 2);
+
+    // An author releases V2. V1 is immutable, but its paragraph anchors no
+    // longer identify positions in the current public text.
+    sqlx::query("UPDATE chapter_publications SET version_id=93732 WHERE chapter_id=93720")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let after = reading.continue_reading(93701).await.unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].block_index, 0, "do not invent a V2 anchor from V1");
+    assert_eq!(reading.saved_place(93701, 93720, 93732).await.unwrap(), None);
+    assert_eq!(
+        sync.save_free(93701, 93720, 93731, old, 1).await,
+        Err(SyncError::Conflict),
+        "a delayed V1 device must not write over the new publication"
+    );
+    let fresh = ReadingPlace {
+        block_index: 1,
+        char_offset: 2,
+    };
+    let receipt = sync.save_free(93701, 93720, 93732, fresh, 1).await.unwrap();
+    assert_eq!(receipt.revision, 2);
+    let state = sync.free_state(93701, 93720).await.unwrap().unwrap();
+    assert_eq!(state.version_id, 93732);
+    assert_eq!(state.place, fresh);
+    assert_eq!(reading.continue_reading(93701).await.unwrap()[0].block_index, 1);
+    assert_eq!(
+        sync.save_free(93701, 93720, 93731, old, 2).await,
+        Err(SyncError::Conflict),
+        "old version cannot replace the new saved position"
+    );
+
+    sqlx::query("DELETE FROM users WHERE id=93701")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM books WHERE id=93710")
+        .execute(&pool)
+        .await
+        .unwrap();
+}
