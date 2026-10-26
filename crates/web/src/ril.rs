@@ -2,24 +2,41 @@
 //! No authorization, anti-bot policy, database writes or unbounded metrics here.
 use axum::{
     body::Body,
-    extract::MatchedPath,
+    extract::{MatchedPath, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::Response,
     Router,
 };
+use std::sync::OnceLock;
 use std::time::Instant;
 use tor_route_intelligence::{classify, RouteObservation};
+use tor_traffic_behavior::{BehaviorEvent, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder};
+
+// One bounded worker per process, shared across all router variants and clones.
+// No pseudo-user is derived from an unverified cookie, IP, or query string.
+static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
 
 pub(crate) fn instrument(router: Router) -> Router {
+    let recorder = TRAFFIC
+        .get_or_init(|| TrafficRecorder::start(10_000, 1_024))
+        .clone();
+    instrument_with_recorder(router, recorder)
+}
+
+fn instrument_with_recorder(router: Router, recorder: TrafficRecorder) -> Router {
     // A known route returning 404 remains known; an unregistered URL is unknown.
     // Return the same 404 as Axum's default without echoing the URL.
     router
         .fallback(|| async { StatusCode::NOT_FOUND })
-        .layer(middleware::from_fn(observe))
+        .layer(middleware::from_fn_with_state(recorder, observe))
 }
 
-async fn observe(mut request: Request<Body>, next: Next) -> Response {
+async fn observe(
+    State(recorder): State<TrafficRecorder>,
+    mut request: Request<Body>,
+    next: Next,
+) -> Response {
     // MatchedPath comes from Axum's route registry, NOT URI.path(), query or headers.
     let template = request
         .extensions()
@@ -29,9 +46,19 @@ async fn observe(mut request: Request<Body>, next: Next) -> Response {
     request.extensions_mut().insert(passport);
     let started = Instant::now();
     let mut response = next.run(request).await;
-    let observation =
-        RouteObservation::new(passport, response.status().as_u16(), started.elapsed());
-    // Future bounded metrics can inspect this value. Nothing is logged or persisted.
+    let elapsed = started.elapsed();
+    let status = response.status().as_u16();
+    let observation = RouteObservation::new(passport, status, elapsed);
+    // A bounded, non-blocking technical event. No verified subject identity exists
+    // at this HTTP wrapper, so only anonymous aggregate counters are produced.
+    // This is not evidence of reading a chapter or a billable ad impression.
+    let _accepted = recorder.try_record(BehaviorEvent {
+        route: RouteCode::from_family(passport.route_family),
+        status: StatusGroup::from_status(status),
+        latency: LatencyGroup::from_elapsed(elapsed),
+        subject: None,
+        at_millis: recorder.uptime_millis(),
+    });
     response.extensions_mut().insert(observation);
     response
 }
@@ -45,6 +72,30 @@ mod tests {
 
     async fn family(Extension(passport): Extension<RoutePassport>) -> &'static str {
         passport.route_family
+    }
+
+    #[tokio::test]
+    async fn real_request_feeds_bounded_behavior_worker() {
+        let recorder = TrafficRecorder::start(10, 16);
+        let app = instrument_with_recorder(
+            Router::new().route("/books/{id}", get(family)),
+            recorder.clone(),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/books/102?password=PRIVATE")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let view = recorder.snapshot_for_diagnostics().expect("bounded worker");
+        assert_eq!(view.total, 1);
+        assert_eq!(view.count_route(RouteCode::Books), 1);
+        assert_eq!(view.active_subjects, 0);
+        assert_eq!(view.dropped_events, 0);
     }
 
     #[tokio::test]
