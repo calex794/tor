@@ -174,12 +174,26 @@ mod tests {
                 Request::builder()
                     .uri("/books/102?password=PRIVATE")
                     .header("cookie", "session=UNVERIFIED-MUST-NOT-BECOME-SUBJECT")
+                    .header("x-request-id", "CLIENT-CANNOT-CHOOSE-TRACE")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .expect("server-generated request ID")
+            .to_str()
+            .unwrap();
+        assert_eq!(request_id.len(), 32);
+        assert_ne!(request_id, "CLIENT-CANNOT-CHOOSE-TRACE");
+        let trace = response
+            .extensions()
+            .get::<tor_observability::services::trace::RequestTrace>()
+            .expect("correlated internal request trace");
+        assert_eq!(format!("{:032x}", trace.trace_id), request_id);
         let view = recorder.snapshot_for_diagnostics().expect("bounded worker");
         assert_eq!(view.total, 1);
         assert_eq!(view.count_route(RouteCode::Books), 1);
