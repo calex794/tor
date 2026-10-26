@@ -26,7 +26,7 @@ pub fn index(books: &[OwnedBook]) -> Html<String> {
         }
     }
     let content = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-card">
+        r#"<section class="section auth-section"><div class="container"><div class="auth-card">
         <p class="eyebrow">Кабинет автора</p><h1>Мои книги</h1>
         <p><a class="button" href="/me/books/new">Создать книгу</a></p>
         {list}
