@@ -168,6 +168,15 @@ pub struct OwnedChapter {
     pub revision: i64,
 }
 
+/// Hidden working revision of a chapter in an already published book.
+pub struct PendingChapter {
+    pub number: i32,
+    pub title: String,
+    pub body: String,
+    pub revision: i64,
+    pub version_id: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
