@@ -83,6 +83,70 @@ async function inspect(page, name, where) {
       }
       await page.close();
     }
+    // H-web-07: real source dark tokens and original dark logo, no JavaScript.
+    // The old NEwBOO manual theme control is intentionally not advertised
+    // until the strict script-src 'none' policy has a reviewed server alternative.
+    for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+      const page = await browser.newPage({
+        viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark'
+      });
+      for (const [location, url] of [
+        ['home', '/'],
+        ['catalog', '/catalog'],
+        ['book', '/books/1'],
+        ['reader', '/reader/101'],
+        ['register', '/register']
+      ]) {
+        const response = await page.goto(base + url, { waitUntil: 'networkidle' });
+        assert(response && response.status() === 200,
+          name + ': dark theme ' + location + ' failed HTTP');
+        const css = await page.evaluate(() => {
+          const root = getComputedStyle(document.documentElement);
+          const logo = getComputedStyle(document.querySelector('.site-logo'));
+          const body = getComputedStyle(document.body);
+          return {
+            scheme: root.colorScheme,
+            background: body.backgroundColor,
+            token: root.getPropertyValue('--bg-main').trim(),
+            text: root.getPropertyValue('--text-main').trim(),
+            logo: logo.backgroundImage
+          };
+        });
+        assert(css.scheme.includes('dark'), name + ': CSS did not advertise dark controls');
+        assert(css.token === '#0b1120' && css.text === '#f8fafc',
+          name + ': original NEwBOO dark tokens missing: ' + JSON.stringify(css));
+        assert(css.background === 'rgb(11, 17, 32)',
+          name + ': still uses light page background');
+        assert(css.logo.includes('pandaolate-header-dark.png'),
+          name + ': original dark PNG not selected');
+        await inspect(page, name + '-dark', location);
+        if (location === 'catalog' && width === 390) {
+          await page.locator('.site-mobile-menu__trigger').click();
+          assert(await page.getByRole('navigation', { name: 'Мобильная навигация' }).isVisible(),
+            name + ': dark mobile menu not usable');
+          await page.locator('.site-mobile-menu__trigger').click();
+        }
+      }
+      await page.emulateMedia({ colorScheme: 'light' });
+      await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
+      const restored = await page.evaluate(() => {
+        const root = getComputedStyle(document.documentElement);
+        return {
+          scheme: root.colorScheme,
+          token: root.getPropertyValue('--bg-main').trim(),
+          logo: getComputedStyle(document.querySelector('.site-logo')).backgroundImage,
+          background: getComputedStyle(document.body).backgroundColor
+        };
+      });
+      assert(restored.scheme.includes('light') && restored.token === '#f7f7f8',
+        name + ': light theme should be preserved on preference change');
+      assert(restored.background === 'rgb(247, 247, 248)' &&
+        restored.logo.includes('pandaolate-header.png') &&
+        !restored.logo.includes('-dark.png'),
+        name + ': original light logo and surface not restored');
+      await inspect(page, name + '-light', 'catalog');
+      await page.close();
+    }
     // Exercise real PostgreSQL account forms on both target viewport sizes.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
@@ -223,6 +287,17 @@ async function inspect(page, name, where) {
       assert(await page.locator('.account-error__actions').getByRole('link', { name: 'Войти', exact: true }).isVisible(),
         name + ': login action absent');
       await inspect(page, name, 'registration-error');
+      await page.emulateMedia({ colorScheme: 'dark' });
+      const errorStyle = await page.locator('.account-error__card')
+        .evaluate(node => ({
+          background: getComputedStyle(node).backgroundColor,
+          text: getComputedStyle(node).color
+        }));
+      assert(errorStyle.background === 'rgb(17, 24, 39)',
+        name + ': registration error remains white in dark mode');
+      assert(errorStyle.text === 'rgb(248, 250, 252)',
+        name + ': registration error has unreadable foreground in dark mode');
+      await inspect(page, name + '-dark', 'registration-error');
       await page.close();
     }
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
