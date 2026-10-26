@@ -140,6 +140,25 @@ async fn catalog(
                 tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
                 tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
             })?;
+        // First page shows the exact count once. Cursor requests remain
+        // cheap and do not perform a repeated full-filter count.
+        let total = if query.after.is_none() {
+            Some(
+                search
+                    .count_faceted(
+                        query.q.as_deref().unwrap_or(""),
+                        query.language.as_deref(),
+                        query.genre.as_deref(),
+                    )
+                    .await
+                    .map_err(|error| match error {
+                        tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
+                        tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+                    })?,
+            )
+        } else {
+            None
+        };
         let cards: Vec<_> = page
             .items
             .into_iter()
@@ -162,6 +181,7 @@ async fn catalog(
             query.genre.as_deref(),
             page.next_cursor.as_deref(),
             sort,
+            total,
         ));
     }
     if query.q.is_some()

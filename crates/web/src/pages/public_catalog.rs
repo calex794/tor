@@ -156,6 +156,7 @@ pub fn catalog_search(
     genre: Option<&str>,
     cursor: Option<&str>,
     sort: &str,
+    total: Option<u64>,
 ) -> Html<String> {
     let oldest = if sort == "oldest" { " selected" } else { "" };
     let newest = if sort == "newest" { " selected" } else { "" };
@@ -186,9 +187,14 @@ pub fn catalog_search(
             escape_html(cursor),
         ).expect("string write");
     }
+    let count_markup = total
+        .map(|number| {
+            format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
+        })
+        .unwrap_or_default();
     let content = include_str!("../../templates/catalog.html")
         .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
-        .replace("<!--SEARCH_FORM-->", &controls);
+        .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
     layout(
         "Каталог",
         "Поиск опубликованных книг на Пандаолейт.",
