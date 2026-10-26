@@ -2,9 +2,9 @@
 //! No per-request records or user-associated data are retained.
 #[cfg(unix)]
 pub mod lookup;
+pub mod process;
 #[cfg(unix)]
 pub mod publisher;
-pub mod process;
 pub mod trace;
 pub mod wire;
 
@@ -69,7 +69,9 @@ impl HttpMetrics {
                     total.server_errors = total.server_errors.saturating_add(counters.count);
                 }
                 total.slower_than_one_second = total.slower_than_one_second.saturating_add(
-                    counters.count.saturating_sub(counters.buckets[BOUNDS.len() - 1]),
+                    counters
+                        .count
+                        .saturating_sub(counters.buckets[BOUNDS.len() - 1]),
                 );
             }
         }
@@ -158,9 +160,21 @@ mod tests {
     fn operator_snapshot_counts_errors_and_slow_without_identifiers() {
         let metrics = HttpMetrics::default();
         assert_eq!(metrics.summary(), HttpSummary::default());
-        metrics.observe(RouteGroup::Home, StatusGroup::Success, Duration::from_millis(80));
-        metrics.observe(RouteGroup::Reader, StatusGroup::ClientError, Duration::from_secs(2));
-        metrics.observe(RouteGroup::Other, StatusGroup::ServerError, Duration::from_secs(4));
+        metrics.observe(
+            RouteGroup::Home,
+            StatusGroup::Success,
+            Duration::from_millis(80),
+        );
+        metrics.observe(
+            RouteGroup::Reader,
+            StatusGroup::ClientError,
+            Duration::from_secs(2),
+        );
+        metrics.observe(
+            RouteGroup::Other,
+            StatusGroup::ServerError,
+            Duration::from_secs(4),
+        );
         let view = metrics.summary();
         assert_eq!(view.requests, 3);
         assert_eq!(view.client_errors, 1);
