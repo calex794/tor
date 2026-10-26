@@ -172,6 +172,13 @@
     },
     {
       "method": "GET",
+      "template": "/metrics",
+      "source": "crates/web/src/lib.rs",
+      "handler": "observability::metrics_endpoint",
+      "policy": "token"
+    },
+    {
+      "method": "GET",
       "template": "/read/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "private_reader",
