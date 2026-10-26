@@ -353,3 +353,23 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .reader-save-button { width: 100%; font-size: 14px; }
   .reader-piece:target { padding-left: 9px; }
 }
+
+
+/* B-03: a usable private Markdown editor and deliberate release confirmation. */
+.auth-card.author-chapter-card { width: min(900px, 100%); }
+.author-chapter-card .breadcrumbs { flex-wrap: wrap; overflow-wrap: anywhere; }
+.author-chapter-form { display: grid; gap: 11px; }
+.author-chapter-form textarea {
+  display: block; width: 100%; min-height: 310px; resize: vertical;
+  padding: 16px; border: 1px solid #bdcbbf; border-radius: 12px;
+  background: #fff; color: #1d3122; font: 16px/1.65 ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.author-chapter-form textarea:focus-visible { outline: 3px solid #44835b; outline-offset: 2px; }
+.author-chapter-hint { color: #68776b; line-height: 1.5; font-size: 13px; margin: 0 0 12px; }
+.author-chapter-card form .button { width: 100%; margin-top: 10px; }
+.author-chapter-card > p:not(.eyebrow) { line-height: 1.7; }
+@media (max-width: 680px) {
+  .author-editor { padding-block: 30px; }
+  .auth-card.author-chapter-card { padding: 24px 18px; }
+  .author-chapter-form textarea { min-height: 46vh; padding: 12px; font-size: 16px; }
+}
