@@ -463,14 +463,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     );
     // B-06: after the first release, new chapters stay hidden until an
     // explicit owner confirmation of the current immutable version.
-    b06_cases::publish_second_chapter(
-        &app,
-        book_id,
-        &book_path,
-        &session,
-        &author_cookies,
-    )
-    .await;
+    b06_cases::publish_second_chapter(&app, book_id, &book_path, &session, &author_cookies).await;
     assert_eq!(
         send(
             &app,
