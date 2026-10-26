@@ -190,6 +190,12 @@ async fn register() -> impl axum::response::IntoResponse {
 
 /// Optional, non-blocking persistence of anonymous technical RIL aggregates.
 /// Uses the already bounded PostgreSQL pool and never changes readiness/ACL.
+/// Internal aggregate diagnostics only; no user keys or route sequences.
+/// This is not an HTTP endpoint.
+pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
+    ril::path_report_for_diagnostics()
+}
+
 pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
         catalog.pool(),
