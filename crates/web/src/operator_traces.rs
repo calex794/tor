@@ -20,7 +20,7 @@ fn equal_secret(a: &[u8], b: &[u8]) -> bool {
 
 /// Independent operator password until TOR has reviewed staff-role permissions.
 /// Never accept the ordinary site cookie or a user-supplied trace ID as authority.
-fn authorized(headers: &HeaderMap, secret: Option<&str>) -> bool {
+pub(crate) fn authorized(headers: &HeaderMap, secret: Option<&str>) -> bool {
     let Some(secret) = secret.filter(|value| {
         (32..=256).contains(&value.len()) && value.bytes().all(|byte| (33..=126).contains(&byte))
     }) else {
@@ -48,7 +48,7 @@ fn authorized(headers: &HeaderMap, secret: Option<&str>) -> bool {
     equal_secret(password, secret.as_bytes())
 }
 
-fn secure<T: IntoResponse>(value: T) -> Response {
+pub(crate) fn secure<T: IntoResponse>(value: T) -> Response {
     let mut response = value.into_response();
     let h = response.headers_mut();
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -74,7 +74,7 @@ fn secure<T: IntoResponse>(value: T) -> Response {
     response
 }
 
-fn denied() -> Response {
+pub(crate) fn denied() -> Response {
     let mut response = secure(StatusCode::UNAUTHORIZED);
     response.headers_mut().insert(
         header::WWW_AUTHENTICATE,
