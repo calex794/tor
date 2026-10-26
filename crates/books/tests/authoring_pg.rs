@@ -200,6 +200,31 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
             .await
             .unwrap();
     assert_eq!(count, 1, "one first release event, even on repeat");
+    let late_key = "n".repeat(43);
+    let late_chapter = save_chapter(SaveChapterRequest {
+        book_id: book_id as u64,
+        chapter_id: None,
+        number: 2,
+        expected_revision: 0,
+        title: "Новая глава после публикации",
+        body: "Не публиковать автоматически",
+        access: "free",
+        price_amount: 0,
+        command_key: &late_key,
+    })
+    .unwrap();
+    assert_eq!(
+        author.create_free_chapter(user, &late_chapter).await,
+        Err(AuthorError::Conflict),
+        "saving a chapter after book release must not publish without confirmation"
+    );
+    let unexpected: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=2")
+            .bind(book_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+    assert!(unexpected.is_none(), "no partially created public chapter");
     let public_title: Option<String> = sqlx::query_scalar(
         "SELECT b.title FROM books b
          JOIN chapters c ON c.book_id=b.id
