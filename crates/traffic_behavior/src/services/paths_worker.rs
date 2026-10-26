@@ -36,21 +36,20 @@ impl PathRecorder {
                 let mut analyzer = PathAnalyzer::new(max_subjects);
                 loop {
                     match receiver.recv_timeout(Duration::from_secs(60)) {
+                        Ok(Message::Event(event)) => {
+                            let _ = analyzer.record(event);
+                        }
+                        Ok(Message::Report(reply)) => {
+                            let _ = reply.send(analyzer.report());
+                        }
+                        Ok(Message::Forget(key, reply)) => {
+                            let _ = reply.send(analyzer.forget_subject(key));
+                        }
                         Err(RecvTimeoutError::Timeout) => {
                             let now = origin.elapsed().as_millis().min(u64::MAX as u128) as u64;
                             analyzer.prune_idle(now);
                         }
                         Err(RecvTimeoutError::Disconnected) => break,
-                        Ok(message) => match message {
-                        Message::Event(event) => {
-                            let _ = analyzer.record(event);
-                        }
-                        Message::Report(reply) => {
-                            let _ = reply.send(analyzer.report());
-                        }
-                        Message::Forget(key, reply) => {
-                            let _ = reply.send(analyzer.forget_subject(key));
-                        },
                     }
                 }
             });
