@@ -469,12 +469,28 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
         Err(SyncError::Conflict),
         "a delayed V1 device must not write over the new publication"
     );
+    // The no-JavaScript HTML form resets to the first block in V2.
+    // This must replace a V1 anchor even though the numeric position goes back.
+    let reset = ReadingPlace {
+        block_index: 1,
+        char_offset: 0,
+    };
+    reading
+        .save_position(93701, 93720, 93732, reset)
+        .await
+        .unwrap();
+    let saved_reset = reading.saved_place(93701, 93720, 93732).await.unwrap();
+    assert_eq!(saved_reset, Some(reset));
+    let reset_state = sync.free_state(93701, 93720).await.unwrap().unwrap();
+    assert_eq!(reset_state.version_id, 93732);
+    assert_eq!(reset_state.place, reset);
+    assert_eq!(reset_state.receipt.revision, 2);
     let fresh = ReadingPlace {
         block_index: 1,
         char_offset: 2,
     };
-    let receipt = sync.save_free(93701, 93720, 93732, fresh, 1).await.unwrap();
-    assert_eq!(receipt.revision, 2);
+    let receipt = sync.save_free(93701, 93720, 93732, fresh, 2).await.unwrap();
+    assert_eq!(receipt.revision, 3);
     let state = sync.free_state(93701, 93720).await.unwrap().unwrap();
     assert_eq!(state.version_id, 93732);
     assert_eq!(state.place, fresh);
@@ -483,7 +499,7 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
         1
     );
     assert_eq!(
-        sync.save_free(93701, 93720, 93731, old, 2).await,
+        sync.save_free(93701, 93720, 93731, old, 3).await,
         Err(SyncError::Conflict),
         "old version cannot replace the new saved position"
     );
