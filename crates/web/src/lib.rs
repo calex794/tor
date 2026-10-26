@@ -92,17 +92,20 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
                 tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
                 tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
             })?;
-        let cards = rows.into_iter().map(|book| pages::PublicBookCard {
-            id: book.id,
-            title: book.title,
-            language: book.language,
-            author_name: if book.author_name.is_empty() {
-                None
-            } else {
-                Some(book.author_name)
-            },
-            genres: book.genres,
-        }).collect::<Vec<_>>();
+        let cards = rows
+            .into_iter()
+            .map(|book| pages::PublicBookCard {
+                id: book.id,
+                title: book.title,
+                language: book.language,
+                author_name: if book.author_name.is_empty() {
+                    None
+                } else {
+                    Some(book.author_name)
+                },
+                genres: book.genres,
+            })
+            .collect::<Vec<_>>();
         return Ok(pages::home_recent(&cards));
     }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
