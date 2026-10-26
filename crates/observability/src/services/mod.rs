@@ -4,6 +4,7 @@
 pub mod lookup;
 #[cfg(unix)]
 pub mod publisher;
+pub mod process;
 pub mod trace;
 pub mod wire;
 
