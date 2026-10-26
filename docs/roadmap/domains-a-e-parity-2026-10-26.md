@@ -75,6 +75,14 @@
 
 В TOR B-10 + D-08 + H + I должны **явно** принять и реализовать сохраняющий маршрут: проверка роли owner/team, новая immutable версия долей, expected revision/CAS, согласование с активным Layer, одна запись auditable command/outbox. Формы HTML и API не создают два писателя. Две параллельные смены долей дают 409 или однозначно сериализованный результат; прежняя покупка получает прежний snapshot. После реализации обязательно браузерное испытание редактирования долей. Не утверждать «один-в-один с рабочим legacy HTTP», пока изолированно не доказана прежняя доступность.
 
+### AE-E09 — комментарии к книге отдельно от главы, подборки и слоя
+
+**Новая подтверждённая по исходнику операция.** В NEwBOO [books_interactions.py#L287](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/books_interactions.py#L287) маршруты `POST /books/{book_ref}/comments` и `POST /books/{book_ref}/comments/{comment_id}/delete` создают/удаляют **комментарий к самой книге**, а [books_fragments.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/books_fragments.py) отдаёт `GET /books/{book_ref}/fragments/comments`. Это **не** комментарий к главе E-02/S011, коллекции E-07/F011, платному Layer AE-D02 и клубу E-09.
+
+**Встроить в E-02/E-03/G-07/H-08 и B-12**, не создавать вторую ветку `DiscussionThread`. E хранит `target_type=book, book_id, parent_comment_id?, anchor_id?, body, visibility_status, command_key`; B передаёт безопасную видимость книги, A актор, H форму. POST требует зарегистрированный Actor и CSRF; action limiter действует отдельно от чтения. Пустой/запрещённый комментарий отвергается. Уведомления и переиндексация идут через G only-once outbox **только для разрешённого visible**; `_idempotency_replayed` не вызывает вторую инвалидацию. Режим `review` не раскрывается гостю. Удаление из старого HTML вызывает `delete_comment_as_book_owner_async`; **проверить роль владельца книги**, не путать её с владельцем текста комментария. Удалённая/скрытая книга не должна раскрыть комментарии через прямой fragment URL или общий Inbox.
+
+**Приёмка:** гость GET общедоступной книги и 401 на POST; пользователь POST visible, ответ/parent → один comment/thread/inbox event, повтор с `comment_intent_key` не создаёт второй; второй пользователь не удаляет чужой комментарий кнопкой владельца; владелец удаляет по разрешённой политике с audit/cache invalidation; скрытый/moderated текст и приватные якоря не появляются в fragment/SEO/уведомлении; PG+HTTP+Chromium, 2 Actor и перезапуск G worker. Это три отдельных HTTP действия; [смысловая карта](legacy-inventory/route-action-candidates.tsv) относит их к **X-BOOK-COMMENTS**.
+
 ## Сквозные условия сдачи и владельцы
 
 | Опыт | Владельцы | Требуемое доказательство |
