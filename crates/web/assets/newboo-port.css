@@ -898,3 +898,41 @@ body {
     color: #fecaca;
   }
 }
+
+
+/* H-web-08: NEwBOO home-spotlight-card and scrollable shelf. Source:
+   backend/app/web/static/css/components/{home-surface,carousel,book-card}.css */
+.home-spotlight-card {
+  display: block; position: relative; min-height: 320px; overflow: hidden;
+  border-radius: var(--radius-xl); color: #fff; text-decoration: none;
+  background: radial-gradient(circle at 82% 38%, rgba(79,70,229,.44), transparent 38%),
+    linear-gradient(135deg, #0f172a, #312e81 56%, #0f172a);
+}
+.home-spotlight-card__inner {
+  display: grid; grid-template-columns: minmax(0,1fr) 190px;
+  gap: 28px; align-items: center; min-height: 320px; padding: 32px 44px;
+}
+.home-spotlight-card__content { min-width: 0; }
+.home-spotlight-card__eyebrow { display: inline-block; padding: 7px 12px;
+  border-radius: 999px; background: rgba(255,255,255,.13);
+  font-size: 13px; font-weight: 800; }
+.home-spotlight-card__title { margin: 16px 0; font-size: clamp(28px,4vw,46px);
+  line-height: 1.05; overflow-wrap: anywhere; color: #fff; }
+.home-spotlight-card__text { margin: 0; color: #e2e8f0; }
+.home-spotlight-card__cover-wrap { display: flex; justify-content: center; min-width: 0; }
+.home-spotlight-card__cover { display: flex; width: 170px; aspect-ratio: 2/3;
+  align-items: center; justify-content: center; border-radius: var(--radius-lg);
+  background: rgba(255,255,255,.13); color: #e2e8f0; font-size: 14px;
+  text-align: center; transform: rotate(3deg); box-shadow: 0 15px 35px rgba(0,0,0,.3); }
+.home-shelf__track { display: flex; gap: 16px; padding: 2px 2px 16px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+  scroll-snap-type: x proximity; }
+.home-shelf__track .book-mini-card--shelf { flex: 0 0 180px; width: 180px;
+  min-width: 180px; scroll-snap-align: start; }
+@media (max-width: 640px) {
+  .home-spotlight-card, .home-spotlight-card__inner { min-height: 260px; }
+  .home-spotlight-card__inner { grid-template-columns: minmax(0,1fr) 104px;
+    gap: 14px; padding: 20px; }
+  .home-spotlight-card__cover { width: 100px; }
+  .home-shelf__track .book-mini-card--shelf { flex-basis: 148px; width: 148px; min-width: 148px; }
+}
