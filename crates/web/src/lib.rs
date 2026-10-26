@@ -2,7 +2,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::Html,
+    response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -27,7 +27,6 @@ pub mod cover_worker;
 mod pages;
 mod password_jobs;
 mod ril;
-mod safe_markdown;
 
 #[derive(Clone)]
 struct AppState {
@@ -115,13 +114,18 @@ async fn book_toc(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Query(query): Query<TocQuery>,
-) -> Result<Json<TocResponse>, StatusCode> {
-    let reader = state.reader.ok_or(StatusCode::NOT_FOUND)?;
-    let book = reader
+) -> Response {
+    let Some(reader) = state.reader else {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    };
+    let book = match reader
         .public_book_page(id, query.limit.unwrap_or(100), query.after.as_deref())
         .await
-        .map_err(reading_status)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    {
+        Ok(Some(book)) => book,
+        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        Err(error) => return auth_cookies::private_response(reading_status(error), &[]),
+    };
     let items = book
         .chapters
         .into_iter()
@@ -132,56 +136,63 @@ async fn book_toc(
             access_level: if chapter.is_paid { "paid" } else { "free" },
         })
         .collect();
-    Ok(Json(TocResponse {
+    Json(TocResponse {
         items,
         next_cursor: book.next_cursor,
-    }))
+    })
+    .into_response()
 }
 
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Query(query): Query<TocQuery>,
-) -> Result<Html<String>, StatusCode> {
+) -> Response {
     if let Some(reader) = state.reader {
         let limit = query.limit.unwrap_or(100);
-        let book = reader
+        let book = match reader
             .public_book_page(id, limit, query.after.as_deref())
             .await
-            .map_err(reading_status)?
-            .ok_or(StatusCode::NOT_FOUND)?;
-        return Ok(pages::book_detail_with_chapters(&book, limit));
+        {
+            Ok(Some(book)) => book,
+            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+            Err(error) => return auth_cookies::private_response(reading_status(error), &[]),
+        };
+        return pages::book_detail_with_chapters(&book, limit).into_response();
     }
     let repo = state.books.as_ref();
-    let book = GetPublicBook::new(repo)
-        .execute(id)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    Ok(pages::book_detail(&pages::PublicBookCard {
+    let book = match GetPublicBook::new(repo).execute(id).await {
+        Ok(Some(book)) => book,
+        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    };
+    pages::book_detail(&pages::PublicBookCard {
         id: book.id(),
         title: book.title().into(),
         language: book.key().target_language().into(),
-    }))
+    })
+    .into_response()
 }
-async fn reader_page(
-    State(state): State<AppState>,
-    Path(id): Path<u64>,
-) -> Result<impl axum::response::IntoResponse, StatusCode> {
-    let reader = state.reader.ok_or(StatusCode::NOT_FOUND)?;
-    let chapter = reader
-        .public_chapter(id)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    Ok((
-        [
-            ("cache-control", "private, no-store"),
-            ("content-security-policy", "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"),
-            ("x-content-type-options", "nosniff"),
-        ],
-        pages::reader(&chapter),
-    ))
+/// C-10: successful and denied reading both use no-store and strict CSP.
+async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
+    let Some(reader) = state.reader else {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    };
+    let chapter = match reader.public_chapter(id).await {
+        Ok(Some(chapter)) => chapter,
+        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    };
+    if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
+        return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
+    }
+    auth_cookies::private_response(pages::reader(&chapter), &[])
+}
+
+/// S3 delivery is not connected: deny every alternative reader API request.
+/// Neither a published free chapter nor a paid ID can expose raw markdown.
+async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
+    auth_cookies::private_response(StatusCode::NOT_FOUND, &[])
 }
 async fn login() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Вход")
@@ -252,6 +263,7 @@ fn make_router(
         .route("/books/{id}", get(book_detail))
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
+        .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
         .route("/readyz", get(ready));

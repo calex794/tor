@@ -394,3 +394,18 @@ button:disabled, input:disabled { cursor: not-allowed; }
   white-space: pre-wrap; padding: 16px; border-radius: 10px;
   border: 1px solid #dce7dd; background: #f8fbf7; color: #263a2c;
 }
+
+/* C-10/S065: long Unicode, Markdown and fenced code never widen the viewport. */
+.reader-page, .reader-width, .chapter-content, .reader-piece { min-width: 0; }
+.reader-markdown pre, .reader-markdown code {
+  max-width: 100%; overflow-wrap: anywhere; word-break: break-word;
+}
+.reader-markdown pre { overflow-x: auto; }
+.reader-markdown a { overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .reader-width { width: 100%; }
+  .reader-page .chapter-content { margin-top: 16px; padding: 16px; font-size: 17px; line-height: 1.7; }
+  .reader-page .reader-piece { padding: 14px; }
+  .reader-page .reader-piece__text { font-size: 17px; line-height: 1.7; }
+  .reader-page .chapter-navigation { gap: 10px; }
+}

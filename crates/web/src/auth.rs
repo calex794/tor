@@ -28,6 +28,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book, AuthorError},
 };
+use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
 use tor_reading::{
     repositories::PgReader,
@@ -491,7 +492,8 @@ async fn private_reader(
         Err(status) => return deny(status),
     };
     let chapter = match state.reader.public_chapter(id).await {
-        Ok(Some(chapter)) => chapter,
+        Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
+        Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
@@ -531,7 +533,8 @@ async fn save_place(
         Err(status) => return deny(status),
     };
     let chapter = match state.reader.public_chapter(id).await {
-        Ok(Some(chapter)) => chapter,
+        Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
+        Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };

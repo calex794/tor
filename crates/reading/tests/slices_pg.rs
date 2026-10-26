@@ -314,3 +314,82 @@ async fn c_09_purchased_v1_survives_v2_but_not_revoke_or_hold() {
         Err(SyncError::NotFound)
     );
 }
+
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL and disposable tor_ci"]
+async fn c_10_large_safe_reader_and_protected_versions() {
+    use tor_reading::{
+        domain::renderer::{render, valid_reader_length},
+        repositories::PgReader,
+        services::PublicReadingRepository,
+    };
+    let url = std::env::var("TEST_DATABASE_URL").expect("PG test database");
+    assert!(url.ends_with("/tor_ci"), "production must never be tested");
+    let pool = sqlx::PgPool::connect(&url).await.expect("test database");
+    let reader = PgReader::new(pool.clone());
+    let live = reader.public_chapter(101).await.unwrap().unwrap();
+    assert!(render(&live.body_markdown).contains("<strong>"));
+    for denied in [102, 103, 104, 105, 106, 107] {
+        assert!(
+            reader.public_chapter(denied).await.unwrap().is_none(),
+            "draft, paid, held and delayed chapters cannot return text: {denied}"
+        );
+    }
+
+    let source = format!(
+        "# Заголовок\n\n{}\n\n<svg onload=alert(1)>",
+        "😀".repeat(49_800)
+    );
+    assert!(valid_reader_length(&source));
+    sqlx::query(
+        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
+         VALUES (96500,'ci:c10:long-reader','ru','Длинная книга','public')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount) \
+         VALUES (96501,96500,1,'Большая глава','public','free',0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown) \
+         VALUES (96502,96501,1,$1)",
+    )
+    .bind(&source)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES (96501,96502)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let chapter = reader.public_chapter(96501).await.unwrap().unwrap();
+    assert_eq!(chapter.body_markdown, source);
+    let html = render(&chapter.body_markdown);
+    assert!(html.contains("😀😀"));
+    assert!(html.contains("&lt;svg"));
+    assert!(!html.contains("<svg"));
+    assert!(!html.contains("onload=\""));
+    assert!(
+        html.len() < 1_000_000,
+        "renderer amplification must be bounded"
+    );
+    let blocks = tor_reading::services::progress::reader_blocks(&chapter.body_markdown);
+    assert!(blocks.len() <= 200);
+    assert!(tor_reading::services::progress::valid_text_place(
+        tor_reading::services::progress::ReadingPlace {
+            block_index: 2,
+            char_offset: 90_000,
+        },
+        &blocks,
+    )
+    .is_ok());
+    sqlx::query("DELETE FROM books WHERE id=96500")
+        .execute(&pool)
+        .await
+        .unwrap();
+}
