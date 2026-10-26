@@ -82,33 +82,36 @@ pub fn decode_reply(bytes: &[u8]) -> Option<LookupResult> {
 }
 
 /// One bounded blocking IPC request. Always call through spawn_blocking from Axum.
-pub fn request(socket: &Path, id: u128) -> Result<LookupResult, ()> {
+#[derive(Clone, Copy, Debug)]
+pub struct LookupError;
+
+pub fn request(socket: &Path, id: u128) -> Result<LookupResult, LookupError> {
     if !socket.is_absolute() {
-        return Err(());
+        return Err(LookupError);
     }
-    let mut stream = UnixStream::connect(socket).map_err(|_| ())?;
+    let mut stream = UnixStream::connect(socket).map_err(|_| LookupError)?;
     stream
         .set_read_timeout(Some(Duration::from_millis(850)))
-        .map_err(|_| ())?;
+        .map_err(|_| LookupError)?;
     stream
         .set_write_timeout(Some(Duration::from_millis(850)))
-        .map_err(|_| ())?;
+        .map_err(|_| LookupError)?;
     let bytes = query_frame(id);
     stream
         .write_all(&(bytes.len() as u32).to_be_bytes())
-        .map_err(|_| ())?;
-    stream.write_all(&bytes).map_err(|_| ())?;
+        .map_err(|_| LookupError)?;
+    stream.write_all(&bytes).map_err(|_| LookupError)?;
     let mut length = [0_u8; 4];
-    stream.read_exact(&mut length).map_err(|_| ())?;
+    stream.read_exact(&mut length).map_err(|_| LookupError)?;
     let n = u32::from_be_bytes(length) as usize;
     if !(21..=REPLY_MAX).contains(&n) {
-        return Err(());
+        return Err(LookupError);
     }
     let mut bytes = vec![0_u8; n];
-    stream.read_exact(&mut bytes).map_err(|_| ())?;
-    let answer = decode_reply(&bytes).ok_or(())?;
+    stream.read_exact(&mut bytes).map_err(|_| LookupError)?;
+    let answer = decode_reply(&bytes).ok_or(LookupError)?;
     if answer.found.as_ref().is_some_and(|(_, t)| t.trace_id != id) {
-        return Err(());
+        return Err(LookupError);
     }
     Ok(answer)
 }
