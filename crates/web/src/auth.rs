@@ -2,9 +2,8 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    author_pages,
     auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
-    pages,
+    author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
