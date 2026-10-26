@@ -434,12 +434,10 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES (93720,93731)",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES (93720,93731)")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let sync = PgReadingSync::new(pool.clone());
     let reading = PgReadingProgress::new(pool.clone());
@@ -462,7 +460,10 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
     let after = reading.continue_reading(93701).await.unwrap();
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].block_index, 0, "do not invent a V2 anchor from V1");
-    assert_eq!(reading.saved_place(93701, 93720, 93732).await.unwrap(), None);
+    assert_eq!(
+        reading.saved_place(93701, 93720, 93732).await.unwrap(),
+        None
+    );
     assert_eq!(
         sync.save_free(93701, 93720, 93731, old, 1).await,
         Err(SyncError::Conflict),
@@ -477,7 +478,10 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
     let state = sync.free_state(93701, 93720).await.unwrap().unwrap();
     assert_eq!(state.version_id, 93732);
     assert_eq!(state.place, fresh);
-    assert_eq!(reading.continue_reading(93701).await.unwrap()[0].block_index, 1);
+    assert_eq!(
+        reading.continue_reading(93701).await.unwrap()[0].block_index,
+        1
+    );
     assert_eq!(
         sync.save_free(93701, 93720, 93731, old, 2).await,
         Err(SyncError::Conflict),
