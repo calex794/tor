@@ -246,3 +246,94 @@ pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, sessio
     assert!(body.contains(r#""revision":3"#));
     assert!(body.contains(r#""char_offset":2"#) || body.contains(r#""char_offset":3"#));
 }
+
+/// Browser-facing C-05: a re-published chapter must discard stale V1 anchors,
+/// while still letting the reader save a new position through the HTML form.
+pub(super) async fn reader_v2_html_flow(
+    app: &Router,
+    pool: &sqlx::PgPool,
+    session: &str,
+    chapter_raw: &str,
+) {
+    let chapter_id = chapter_raw.parse::<i64>().expect("published chapter ID");
+    let path = format!("/read/{chapter_id}");
+    let save_path = format!("{path}/place");
+    let page = send(app, request("GET", &path, "", session, ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let html = body_of(page).await;
+    let old_version = html
+        .split("name=\"version_id\" value=\"")
+        .nth(1)
+        .expect("published version on reader page")
+        .split('"')
+        .next()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let csrf = csrf_token(&html);
+    let cookies = format!("{session}; {csrf_cookie}");
+    let saved_form =
+        format!("csrf_token={csrf}&version_id={old_version}&block_index=1&char_offset=0");
+    let saved = send(
+        app,
+        request("POST", &save_path, &saved_form, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(saved.status(), StatusCode::SEE_OTHER);
+    let library = send(app, request("GET", "/me/library", "", session, ORIGIN)).await;
+    let library_html = body_of(library).await;
+    assert!(library_html.contains(&format!("href=\"{path}#p-1\"")));
+
+    // Simulate an author publication in the disposable test database.
+    let newer: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+         SELECT $1, COALESCE(MAX(version_no),0)+1, 'V2-UPDATED-TEXT' \
+         FROM chapter_versions WHERE chapter_id=$1 RETURNING id",
+    )
+    .bind(chapter_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$1 WHERE chapter_id=$2")
+        .bind(newer)
+        .bind(chapter_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let changed_library = send(app, request("GET", "/me/library", "", session, ORIGIN)).await;
+    let changed_library_html = body_of(changed_library).await;
+    assert!(changed_library_html.contains("Глава обновлена"));
+    assert!(changed_library_html.contains(&format!("href=\"{path}\"")));
+    assert!(!changed_library_html.contains(&format!("href=\"{path}#p-1\"")));
+
+    let changed = send(app, request("GET", &path, "", session, ORIGIN)).await;
+    assert_eq!(changed.status(), StatusCode::OK);
+    let new_csrf_cookie = cookie(&changed, "tor-dev-csrf=");
+    let changed_html = body_of(changed).await;
+    assert!(changed_html.contains("V2-UPDATED-TEXT"));
+    assert!(!changed_html.contains("Перейти к сохранённому месту"));
+    assert!(changed_html.contains(&format!("name=\"version_id\" value=\"{newer}\"")));
+    let new_csrf = csrf_token(&changed_html);
+    let new_cookies = format!("{session}; {new_csrf_cookie}");
+
+    let stale_form =
+        format!("csrf_token={new_csrf}&version_id={old_version}&block_index=1&char_offset=0");
+    let stale = send(
+        app,
+        request("POST", &save_path, &stale_form, &new_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    let new_form = format!("csrf_token={new_csrf}&version_id={newer}&block_index=1&char_offset=0");
+    let saved_new = send(
+        app,
+        request("POST", &save_path, &new_form, &new_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(saved_new.status(), StatusCode::SEE_OTHER);
+    assert_eq!(saved_new.headers()[header::LOCATION], format!("{path}#p-1"));
+    let resumed = send(app, request("GET", &path, "", session, ORIGIN)).await;
+    assert_eq!(resumed.status(), StatusCode::OK);
+    assert!(body_of(resumed).await.contains("href=\"#p-1\""));
+}
