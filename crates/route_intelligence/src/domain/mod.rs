@@ -3,8 +3,7 @@
 mod cost_map;
 pub use cost_map::{
     attach_sql_evidence, rank_route_costs, route_cost_family, CostMapError, RouteCostBucket,
-    RouteCostRanking, RouteSqlEvidence,
-    COST_MAP_VERSION, COST_ROUTE_COUNT,
+    RouteCostRanking, RouteSqlEvidence, COST_MAP_VERSION, COST_ROUTE_COUNT,
 };
 
 use std::time::Duration;
