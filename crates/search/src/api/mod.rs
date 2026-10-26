@@ -1,5 +1,5 @@
 //! The public JSON search route exposes only published book metadata.
-use crate::{domain::SearchError, repositories::PgSearch};
+use crate::{domain::SearchError, repositories::{CatalogFacets, PgSearch}};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -18,6 +18,8 @@ struct SearchApiState {
 struct SearchQuery {
     q: Option<String>,
     genre: Option<String>,
+    tag: Option<String>,
+    fandom: Option<String>,
     language: Option<String>,
     after: Option<String>,
     limit: Option<usize>,
@@ -33,6 +35,8 @@ struct SearchItem {
     language: String,
     author_name: String,
     genres: Vec<String>,
+    tags: Vec<String>,
+    fandoms: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -92,10 +96,14 @@ async fn search_books(
     }
     let page = state
         .search
-        .search_faceted_sorted(
-            query.q.as_deref().unwrap_or(""),
-            query.language.as_deref(),
-            query.genre.as_deref(),
+        .search_catalog(
+            CatalogFacets {
+                term: query.q.as_deref().unwrap_or(""),
+                language: query.language.as_deref(),
+                genre: query.genre.as_deref(),
+                tag: query.tag.as_deref(),
+                fandom: query.fandom.as_deref(),
+            },
             query.after.as_deref(),
             query.limit.unwrap_or(20),
             query.sort.as_deref(),
@@ -106,11 +114,13 @@ async fn search_books(
         Some(
             state
                 .search
-                .count_faceted(
-                    query.q.as_deref().unwrap_or(""),
-                    query.language.as_deref(),
-                    query.genre.as_deref(),
-                )
+                .count_catalog(CatalogFacets {
+                    term: query.q.as_deref().unwrap_or(""),
+                    language: query.language.as_deref(),
+                    genre: query.genre.as_deref(),
+                    tag: query.tag.as_deref(),
+                    fandom: query.fandom.as_deref(),
+                })
                 .await
                 .map_err(search_error)?,
         )
@@ -127,6 +137,8 @@ async fn search_books(
                 language: item.language,
                 author_name: item.author_name,
                 genres: item.genres,
+                tags: item.tags,
+                fandoms: item.fandoms,
             })
             .collect(),
         next_cursor: page.next_cursor,
