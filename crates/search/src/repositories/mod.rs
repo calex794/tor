@@ -29,7 +29,8 @@ impl PgSearch {
         after: Option<&str>,
         limit: usize,
     ) -> Result<SearchPage, SearchError> {
-        self.search_faceted(term, language, None, after, limit).await
+        self.search_faceted(term, language, None, after, limit)
+            .await
     }
 
     /// Legacy search stays strict: without a filter, callers must explicitly
@@ -42,7 +43,8 @@ impl PgSearch {
         after: Option<&str>,
         limit: usize,
     ) -> Result<SearchPage, SearchError> {
-        self.search_faceted_sorted(term, language, genre, after, limit, None).await
+        self.search_faceted_sorted(term, language, genre, after, limit, None)
+            .await
     }
 
     /// F-02: no OFFSET, stable identity keyset, allow full-catalog paging only
@@ -63,7 +65,13 @@ impl PgSearch {
             validate_facets(term, language, genre, after, limit)?
         };
         catalog::read_page(
-            &self.pool, term, language.as_deref(), genre.as_deref(), after, limit, direction,
+            &self.pool,
+            term,
+            language.as_deref(),
+            genre.as_deref(),
+            after,
+            limit,
+            direction,
         )
         .await
     }

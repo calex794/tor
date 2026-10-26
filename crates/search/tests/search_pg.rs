@@ -395,7 +395,14 @@ async fn f_02_both_keyset_orders_skip_private_rows_without_gaps_or_duplicates() 
         let mut visited = HashSet::new();
         for _ in 0..10 {
             let page = repo
-                .search_faceted_sorted("", Some("ru"), Some("f02-keyset"), cursor.as_deref(), 5, Some(sort))
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-keyset"),
+                    cursor.as_deref(),
+                    5,
+                    Some(sort),
+                )
                 .await
                 .unwrap();
             assert!(page.items.len() <= 5);
@@ -415,11 +422,13 @@ async fn f_02_both_keyset_orders_skip_private_rows_without_gaps_or_duplicates() 
         assert_eq!(actual, expected_for_sort, "cursor order {sort}");
     }
     assert_eq!(
-        repo.search_faceted_sorted("", None, None, None, 20, Some("bogus")).await,
+        repo.search_faceted_sorted("", None, None, None, 20, Some("bogus"))
+            .await,
         Err(SearchError::Invalid),
     );
     assert_eq!(
-        repo.search_faceted_sorted("", None, None, Some("01"), 20, Some("newest")).await,
+        repo.search_faceted_sorted("", None, None, Some("01"), 20, Some("newest"))
+            .await,
         Err(SearchError::Invalid),
     );
 }

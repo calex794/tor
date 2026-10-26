@@ -192,10 +192,19 @@ mod tests {
         for invalid in ["", "latest", "newest;drop", "NEWEST"] {
             assert_eq!(CatalogSort::parse(Some(invalid)), Err(SearchError::Invalid));
         }
-        assert_eq!(validate_facets("", None, None, None, 20), Err(SearchError::Invalid));
+        assert_eq!(
+            validate_facets("", None, None, None, 20),
+            Err(SearchError::Invalid)
+        );
         assert_eq!(validate_browse("", None, None, None, 20).unwrap().0, 0);
-        assert_eq!(validate_browse("", None, None, Some("00"), 20), Err(SearchError::Invalid));
-        assert_eq!(validate_browse("", None, None, None, 101), Err(SearchError::Invalid));
+        assert_eq!(
+            validate_browse("", None, None, Some("00"), 20),
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            validate_browse("", None, None, None, 101),
+            Err(SearchError::Invalid)
+        );
     }
 
     #[test]

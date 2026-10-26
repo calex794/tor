@@ -255,6 +255,10 @@ async fn f_02_catalog_sort_keeps_legacy_json_contract_and_rejects_bad_cursors() 
         "/api/v1/search/books?sort=newest&limit=101",
         "/api/v1/search/books?sort=newest&after=01",
     ] {
-        assert_eq!(get(app.clone(), path).await.0, StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(
+            get(app.clone(), path).await.0,
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
     }
 }

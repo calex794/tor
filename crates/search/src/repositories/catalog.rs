@@ -61,7 +61,9 @@ pub(super) async fn read_page(
                 author_name: row
                     .try_get("author_name")
                     .map_err(|_| SearchError::Unavailable)?,
-                genres: row.try_get("genres").map_err(|_| SearchError::Unavailable)?,
+                genres: row
+                    .try_get("genres")
+                    .map_err(|_| SearchError::Unavailable)?,
             })
         })
         .collect::<Result<Vec<_>, SearchError>>()?;
