@@ -3,6 +3,15 @@ name = "tor-ingest"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+s3 = ["dep:aws-sdk-s3"]
+
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 fast_image_resize = "3"
+async-trait.workspace = true
+sqlx.workspace = true
+sha2 = "0.10"
+tokio = { workspace = true, features = ["io-util"] }
+aws-sdk-s3 = { version = "1", optional = true }

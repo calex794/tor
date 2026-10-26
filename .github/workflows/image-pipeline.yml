@@ -24,7 +24,7 @@ concurrency:
 jobs:
   image:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 28
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -37,3 +37,5 @@ jobs:
         run: cargo test -p tor-ingest --all-targets
       - name: Clippy G only
         run: cargo clippy -p tor-ingest --all-targets -- -D warnings
+      - name: Compile S3 adapter (AWS SDK, no credentials)
+        run: cargo check -p tor-ingest --features s3
