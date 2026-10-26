@@ -3,7 +3,7 @@
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
-    pages,
+    author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
@@ -22,6 +22,10 @@ use tor_accounts::{
     },
     services::validation as rules,
 };
+use tor_books::{
+    repositories::postgres::PgAuthoring,
+    services::authoring::{new_book, AuthorError},
+};
 use tor_reading::repositories::PgReadingProgress;
 use tor_reading::{
     repositories::PgReader,
@@ -34,6 +38,7 @@ use tor_reading::{
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
+    authoring: PgAuthoring,
     progress: PgReadingProgress,
     reader: PgReader,
     cookies: CookiePolicy,
@@ -68,6 +73,14 @@ struct SavePlaceForm {
     char_offset: i32,
 }
 
+#[derive(Deserialize)]
+struct NewBookForm {
+    title: String,
+    target_language: String,
+    command_key: String,
+    csrf_token: Option<String>,
+}
+
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -75,8 +88,10 @@ pub(crate) fn router(
     origin: String,
 ) -> Router {
     let progress = PgReadingProgress::new(accounts.pool().clone());
+    let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
+        authoring,
         progress,
         reader,
         cookies: CookiePolicy { secure, origin },
@@ -87,6 +102,9 @@ pub(crate) fn router(
         .route("/login", get(show_login).post(login))
         .route("/me", get(me))
         .route("/me/library", get(my_library))
+        .route("/me/books", get(author_books).post(create_book))
+        .route("/me/books/new", get(new_author_book))
+        .route("/me/books/{id}", get(author_book))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/logout", post(logout))
@@ -317,6 +335,87 @@ async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i
         .active_session_user(&session_token_digest(&token))
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}
+
+/// Browser author workspace backed by the current PostgreSQL user session.
+async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    match state.authoring.list_owned_books(actor).await {
+        Ok(books) => private_response(author_pages::index(&books), &[]),
+        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    match session_user(&state, &headers).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    }
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    // Each form gets a unique cryptographic command key for safe POST replay.
+    let command_key = generate_session_token();
+    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
+}
+
+async fn create_book(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<NewBookForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    // Manual authorship does not invoke collectors or trust client-supplied IDs.
+    // The source identity is stable across retries of this exact form.
+    let identity = format!("manual:{actor}:{}", form.command_key);
+    let request = match new_book(
+        &identity,
+        &form.target_language,
+        &form.title,
+        &form.command_key,
+    ) {
+        Ok(request) => request,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    match state.authoring.create_owned_book(actor, &request).await {
+        Ok(id) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+        Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+        Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+        Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+        Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+async fn author_book(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(book)) => private_response(author_pages::detail(&book), &[]),
+        Ok(None) => deny(StatusCode::NOT_FOUND),
+        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
 }
 
 /// Interactive reading is private to a verified account. Public free reading

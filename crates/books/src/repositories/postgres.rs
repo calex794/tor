@@ -226,6 +226,30 @@ impl PgAuthoring {
         Ok(book_id)
     }
 
+    /// Read only this author's books, with a bounded amount of HTML data.
+    pub async fn list_owned_books(&self, user_id: i64) -> Result<Vec<OwnedBook>, AuthorError> {
+        if user_id <= 0 {
+            return Err(AuthorError::Forbidden);
+        }
+        let rows = sqlx::query(
+            "SELECT id, title FROM books
+             WHERE owner_user_id=$1 AND NOT is_deleted AND NOT admin_hold
+             ORDER BY id DESC LIMIT 100",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(OwnedBook {
+                    id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
+                })
+            })
+            .collect()
+    }
+
     /// Never reveal an unpublished book, including its existence, to a non-owner.
     pub async fn owned_book(
         &self,

@@ -139,6 +139,97 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let new_csrf_cookie = cookie(&private, "tor-dev-csrf=");
     let private_html = body_of(private).await;
     assert!(private_html.contains("href=\"/me/library\""));
+    assert!(private_html.contains("href=\"/me/books\""));
+    // B-01/B-02: the first genuine author journey persists a private book.
+    let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
+    assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
+    assert_eq!(anon_new.headers()[header::LOCATION], "/login");
+    let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
+    assert_eq!(new_page.status(), StatusCode::OK);
+    let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
+    let new_html = body_of(new_page).await;
+    let author_csrf = csrf_token(&new_html);
+    let command_key = new_html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .expect("idempotency key")
+        .split('"')
+        .next()
+        .expect("valid key");
+    assert_eq!(command_key.len(), 43);
+    let create_form = format!(
+        "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&command_key={command_key}&csrf_token={author_csrf}"
+    );
+    let author_cookies = format!("{session}; {author_csrf_cookie}");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/me/books", &create_form, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Author POST requires a CSRF cookie"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/me/books",
+                &create_form,
+                &author_cookies,
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Author POST rejects cross-origin writes"
+    );
+    let created_book = send(
+        &app,
+        request("POST", "/me/books", &create_form, &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(created_book.status(), StatusCode::SEE_OTHER);
+    let book_path = created_book.headers()[header::LOCATION]
+        .to_str()
+        .expect("same-origin redirect")
+        .to_owned();
+    assert!(book_path.starts_with("/me/books/"));
+    let replay = send(
+        &app,
+        request("POST", "/me/books", &create_form, &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::SEE_OTHER);
+    assert_eq!(replay.headers()[header::LOCATION], book_path);
+    let altered_form = create_form.replace("target_language=ru", "target_language=en");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/me/books", &altered_form, &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "replay with altered payload must not mutate the original book"
+    );
+    let book_page = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
+    assert_eq!(book_page.status(), StatusCode::OK);
+    let authored_html = body_of(book_page).await;
+    assert!(authored_html.contains("&lt;script&gt;"));
+    assert!(!authored_html.contains("<script>"));
+    let owner_index = send(&app, request("GET", "/me/books", "", &session, ORIGIN)).await;
+    assert_eq!(owner_index.status(), StatusCode::OK);
+    let index_html = body_of(owner_index).await;
+    assert!(index_html.contains(&format!("href=\"{book_path}\"")));
+    assert!(!index_html.contains("<script>"));
+    let anon_detail = send(&app, request("GET", &book_path, "", "", ORIGIN)).await;
+    assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
+    assert_eq!(anon_detail.headers()[header::LOCATION], "/login");
+
     let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
     assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");
