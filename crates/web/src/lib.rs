@@ -79,6 +79,32 @@ async fn public_cards(
 }
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
+    if let Some(catalog) = state.postgres {
+        // The F-04 repository filters draft/held/deleted rows before LIMIT.
+        // Do not label the original ascending demo catalogue as "newest".
+        let showcase = tor_search::services::showcases::RecentShowcases::new(
+            &tor_search::repositories::showcases::PgShowcases::new(catalog.pool()),
+        );
+        let rows = showcase
+            .latest_added(None, 12)
+            .await
+            .map_err(|error| match error {
+                tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
+                tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            })?;
+        let cards = rows.into_iter().map(|book| pages::PublicBookCard {
+            id: book.id,
+            title: book.title,
+            language: book.language,
+            author_name: if book.author_name.is_empty() {
+                None
+            } else {
+                Some(book.author_name)
+            },
+            genres: book.genres,
+        }).collect::<Vec<_>>();
+        return Ok(pages::home_recent(&cards));
+    }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
 #[derive(Default, Deserialize)]
