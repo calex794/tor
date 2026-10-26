@@ -1,0 +1,44 @@
+<section class="section author-page">
+  <div class="container author-shell">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <a href="/me">Мой кабинет</a>
+      <span aria-hidden="true">/</span>
+      <a href="/me/books">Мои книги</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">Новая книга</span>
+    </nav>
+    <div class="author-heading">
+      <div>
+        <p class="eyebrow">Кабинет автора</p>
+        <h1>Создать книгу</h1>
+        <p>Сначала создаём закрытый черновик. Другим читателям он не виден.</p>
+      </div>
+    </div>
+    <form class="author-form" method="post" action="/books/new" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+      <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
+      <div class="author-form__field">
+        <label for="author-title">Название книги</label>
+        <input id="author-title" name="title" type="text" required maxlength="200"
+               placeholder="Название произведения">
+      </div>
+      <div class="author-form__field">
+        <label for="author-source">Идентификатор оригинала</label>
+        <input id="author-source" name="source_identity" type="text" required maxlength="256"
+               aria-describedby="author-source-hint" placeholder="Например, my-work:001">
+        <p class="author-form__hint" id="author-source-hint">
+          Постоянный код произведения. Вместе с языком определяет уникальность книги.
+        </p>
+      </div>
+      <div class="author-form__field">
+        <label for="author-language">Язык перевода</label>
+        <input id="author-language" name="target_language" type="text" value="ru"
+               required maxlength="32" pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*">
+      </div>
+      <div class="author-form__actions">
+        <button class="button" type="submit">Создать книгу</button>
+        <a class="button button--quiet" href="/me/books">Отмена</a>
+      </div>
+    </form>
+  </div>
+</section>
