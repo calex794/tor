@@ -113,7 +113,7 @@ pub fn book_detail_with_chapters(
         write!(
             items,
             "<nav class=\"chapter-toc__more\" aria-label=\"Страницы оглавления\"><a class=\"button button--small\" href=\"/books/{}?limit={}&amp;after={}#chapters\">Следующие главы</a></nav>",
-            book.id, limit, cursor
+            book.id, limit, escape_html(cursor)
         )
         .expect("writing String");
     }
@@ -427,6 +427,19 @@ mod tests {
         assert!(page.0.contains("&lt;script&gt;"));
         assert!(!page.0.contains("<script>"));
         assert!(page.0.contains("href=\"/books/9\""));
+    }
+    #[test]
+    fn toc_cursor_is_escaped_in_html_attribute() {
+        let book = tor_reading::services::PublicBookPage {
+            id: 7,
+            title: "Test".into(),
+            language: "ru".into(),
+            chapters: vec![],
+            next_cursor: Some("\\\" onclick=\\\"alert(1)".into()),
+        };
+        let html = book_detail_with_chapters(&book, 20).0;
+        assert!(html.contains("after=&quot; onclick=&quot;alert(1)"));
+        assert!(!html.contains("after=\\\" onclick=\\\""));
     }
     #[test]
     fn empty_catalog_is_explicit() {
