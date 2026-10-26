@@ -2,6 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
+use tor_search::repositories::catalog::TaxonomyOptions;
 
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
@@ -13,12 +14,15 @@ pub struct PublicBookCard {
 }
 
 /// NEwBOO BookCard layout, with real PostgreSQL-backed author and genre metadata.
-fn book_cards(books: &[PublicBookCard], shelf: bool) -> String {
+fn book_cards(books: &[PublicBookCard], shelf: bool, shelf_label: &str) -> String {
     if books.is_empty() {
         return "<div class=\"ui-empty-state\"><h3 class=\"ui-empty-state__title\">Каталог пока наполняется</h3><p class=\"ui-empty-state__text\">В каталоге пока нет опубликованных книг.</p></div>".to_owned();
     }
     let mut html = if shelf {
-        String::from("<div class=\"home-shelf__track\" aria-label=\"Недавно добавленные книги\">")
+        format!(
+            "<div class=\"home-shelf__track\" aria-label=\"{}\">",
+            escape_html(shelf_label)
+        )
     } else {
         String::from("<div class=\"catalog-grid\">")
     };
@@ -83,6 +87,56 @@ fn spotlight(book: &PublicBookCard) -> String {
     )
 }
 
+/// Group the already authorized latest-book rows without extra SQL queries.
+/// These are shelves of recent books, never a popularity/rating recommendation.
+fn recent_genre_shelves(books: &[PublicBookCard]) -> String {
+    let mut genres = Vec::<&str>::new();
+    for book in books {
+        for genre in &book.genres {
+            let value = genre.trim();
+            if !value.is_empty() && !genres.contains(&value) {
+                genres.push(value);
+                if genres.len() == 3 {
+                    break;
+                }
+            }
+        }
+        if genres.len() == 3 {
+            break;
+        }
+    }
+
+    let mut html = String::new();
+    for (index, genre) in genres.into_iter().enumerate() {
+        let matches: Vec<_> = books
+            .iter()
+            .filter(|book| book.genres.iter().any(|value| value.trim() == genre))
+            .take(4)
+            .cloned()
+            .collect();
+        let genre_html = escape_html(genre);
+        let genre_url = encode_search_term(genre);
+        let label = format!("Недавно добавленные книги жанра {genre}");
+        write!(
+            html,
+            r#"<section class="section home-genre-section" aria-labelledby="home-genre-{index}">
+  <div class="container">
+    <div class="home-section-header-row">
+      <header class="ui-section-header">
+        <h2 class="ui-section-header__title" id="home-genre-{index}">Новинки: {genre_html}</h2>
+      </header>
+      <a class="ui-button ui-button--ghost ui-button--small" href="/catalog?genre={genre_url}&amp;sort=newest">Все книги жанра</a>
+    </div>
+    {}
+  </div>
+</section>"#,
+            book_cards(&matches, true, &label)
+        )
+        .expect("write genre shelf");
+    }
+    html
+}
+
 fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
@@ -107,7 +161,18 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
                 "Опубликованные книги"
             },
         )
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, latest));
+        .replace(
+            "<!--PUBLIC_BOOKS-->",
+            &book_cards(books, latest, "Недавно добавленные книги"),
+        )
+        .replace(
+            "<!--GENRE_SHELVES-->",
+            &if latest {
+                recent_genre_shelves(books)
+            } else {
+                String::new()
+            },
+        );
     layout(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
@@ -128,7 +193,7 @@ pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false, ""))
         .replace("<!--SEARCH_FORM-->", "");
     layout(
         "Каталог",
@@ -149,29 +214,73 @@ fn encode_search_term(value: &str) -> String {
     result
 }
 
-pub fn catalog_search(
-    books: &[PublicBookCard],
-    query: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
-    cursor: Option<&str>,
-    sort: &str,
-    total: Option<u64>,
-) -> Html<String> {
+/// Presentation-only query state; rendering never makes independent PG reads.
+pub struct CatalogPageQuery<'a> {
+    pub query: &'a str,
+    pub language: Option<&'a str>,
+    pub genre: Option<&'a str>,
+    pub tag: Option<&'a str>,
+    pub fandom: Option<&'a str>,
+    pub cursor: Option<&'a str>,
+    pub sort: &'a str,
+    pub total: Option<u64>,
+    pub options: Option<&'a TaxonomyOptions>,
+}
+
+pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -> Html<String> {
+    let CatalogPageQuery {
+        query,
+        language,
+        genre,
+        tag,
+        fandom,
+        cursor,
+        sort,
+        total,
+        options,
+    } = request;
     let oldest = if sort == "oldest" { " selected" } else { "" };
     let newest = if sort == "newest" { " selected" } else { "" };
     let title = if sort == "title" { " selected" } else { "" };
     let author = if sort == "author" { " selected" } else { "" };
     let mut controls = format!(
-        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option><option value="title"{}>По названию</option><option value="author"{}>По автору</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
+        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" list="catalog-genres" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input" id="book-tag" type="text" name="tag" list="catalog-tags" maxlength="40" value="{}" placeholder="Тег" aria-label="Тег"><input class="ui-input" id="book-fandom" type="text" name="fandom" list="catalog-fandoms" maxlength="40" value="{}" placeholder="Фэндом" aria-label="Фэндом"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option><option value="title"{}>По названию</option><option value="author"{}>По автору</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
         escape_html(query),
         escape_html(genre.unwrap_or("")),
+        escape_html(tag.unwrap_or("")),
+        escape_html(fandom.unwrap_or("")),
         escape_html(language.unwrap_or("")),
         oldest,
         newest,
         title,
         author,
     );
+    if !query.trim().is_empty()
+        || language.is_some()
+        || genre.is_some()
+        || tag.is_some()
+        || fandom.is_some()
+    {
+        controls = controls.replacen(
+            "</form>",
+            "<a class=\"ui-button ui-button--ghost\" href=\"/catalog\">Сбросить</a></form>",
+            1,
+        );
+    }
+    if let Some(options) = options {
+        for (id, values) in [
+            ("catalog-genres", &options.genres),
+            ("catalog-tags", &options.tags),
+            ("catalog-fandoms", &options.fandoms),
+        ] {
+            write!(controls, "<datalist id=\"{id}\">").expect("String write");
+            for value in values {
+                write!(controls, "<option value=\"{}\">", escape_html(value))
+                    .expect("String write");
+            }
+            controls.push_str("</datalist>");
+        }
+    }
     if let Some(cursor) = cursor {
         let language_param = language
             .filter(|value| !value.is_empty())
@@ -181,12 +290,22 @@ pub fn catalog_search(
             .filter(|value| !value.is_empty())
             .map(|value| format!("&amp;genre={}", encode_search_term(value)))
             .unwrap_or_default();
+        let tag_param = tag
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("&amp;tag={}", encode_search_term(value)))
+            .unwrap_or_default();
+        let fandom_param = fandom
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("&amp;fandom={}", encode_search_term(value)))
+            .unwrap_or_default();
         write!(
             controls,
-            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
+            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
             encode_search_term(query),
             language_param,
             genre_param,
+            tag_param,
+            fandom_param,
             escape_html(sort),
             escape_html(cursor),
         ).expect("string write");
@@ -197,7 +316,20 @@ pub fn catalog_search(
         })
         .unwrap_or_default();
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
+        .replace(
+            "<!--PUBLIC_BOOKS-->",
+            &if books.is_empty()
+                && (!query.trim().is_empty()
+                    || language.is_some()
+                    || genre.is_some()
+                    || tag.is_some()
+                    || fandom.is_some())
+            {
+                "<div class=\"ui-empty-state\"><h3>Книги не найдены</h3><p>Попробуйте изменить условия поиска.</p></div>".to_owned()
+            } else {
+                book_cards(books, false, "")
+            },
+        )
         .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
     layout(
         "Каталог",
@@ -246,6 +378,53 @@ mod home_tests {
         assert!(!html.contains("<img>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&quot; onclick=&quot;evil"));
+    }
+
+    #[test]
+    fn f_04_recent_genres_are_from_real_rows_without_untrusted_html_or_fake_popularity() {
+        let mut latest = book(12, "Новейшая");
+        latest.genres = vec!["Научная фантастика".into(), "Фэнтези".into()];
+        let mut older = book(10, "Другая");
+        older.genres = vec!["Фэнтези".into(), "<img onerror=x>".into()];
+        let mut last = book(9, "Третья");
+        last.genres = vec!["Детектив".into()];
+        let html = home_recent(&[latest, older, last]).0;
+        assert!(html.contains("Новинки: Научная фантастика"));
+        assert!(html.contains("Новинки: Фэнтези"));
+        assert!(
+            !html.contains("Новинки: Детектив"),
+            "show at most three genres"
+        );
+        assert!(html.contains("/catalog?genre=%D0%9D%D0%B0%D1%83%D1%87%D0%BD%D0%B0%D1%8F%20%D1%84%D0%B0%D0%BD%D1%82%D0%B0%D1%81%D1%82%D0%B8%D0%BA%D0%B0&amp;sort=newest"));
+        assert!(html.contains("&lt;img onerror=x&gt;"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("Популярные книги"));
+        assert!(!html.contains("Рекомендуем для вас"));
+
+        let demo = home(&[book(1, "Не новая")]).0;
+        assert!(!demo.contains("home-genre-section"));
+        assert!(!home_recent(&[]).0.contains("home-genre-section"));
+    }
+
+    #[test]
+    fn f_04_genre_shelves_respect_four_card_limit_and_latest_order() {
+        let books = (1..=7)
+            .rev()
+            .map(|id| {
+                let mut book = book(id, &format!("Книга {id}"));
+                book.genres = vec!["фэнтези".into()];
+                book
+            })
+            .collect::<Vec<_>>();
+        let shelves = recent_genre_shelves(&books);
+        assert_eq!(
+            shelves
+                .matches("class=\"book-mini-card book-mini-card--shelf\"")
+                .count(),
+            4
+        );
+        assert!(shelves.contains("href=\"/books/7\""));
+        assert!(!shelves.contains("href=\"/books/3\""));
     }
 
     #[test]

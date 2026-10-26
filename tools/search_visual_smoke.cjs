@@ -41,11 +41,13 @@ async function apiHas(page, id, query) {
   assert(Array.isArray(body.items) && Object.hasOwn(body, 'next_cursor'), 'invalid search JSON');
   return body.items.some(book => book.id === id);
 }
-async function search(page, { q = '', genre = '', language = '' }) {
+async function search(page, { q = '', genre = '', language = '', tag = '', fandom = '' }) {
   const res = await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
   assert(res && res.status() === 200, 'catalog HTTP failed');
   await page.getByLabel('Название или автор').fill(q);
   await page.getByLabel('Жанр', { exact: true }).fill(genre);
+  await page.getByLabel('Тег', { exact: true }).fill(tag);
+  await page.getByLabel('Фэндом', { exact: true }).fill(fandom);
   await page.getByLabel('Язык перевода').fill(language);
   await page.getByRole('button', { name: 'Найти' }).click();
   await page.waitForLoadState('networkidle');
@@ -76,6 +78,8 @@ async function draftBook(page, viewport) {
   await page.getByLabel('Название книги').fill(title);
   await page.getByLabel('Автор произведения (необязательно)').fill('АвторПоиска');
   await page.getByLabel('Жанры через запятую (до 8)').fill('Фэнтези, Приключения');
+  await page.getByLabel('Теги через запятую (до 8)').fill('f02tag-' + viewport);
+  await page.getByLabel('Фэндомы через запятую (до 8)').fill('f02fandom-' + viewport);
   await page.getByLabel('Язык').fill('ru');
   await page.getByRole('button', { name: 'Создать книгу' }).click();
   await page.waitForURL(/\/me\/books\/\d+$/);
@@ -105,16 +109,28 @@ async function draftBook(page, viewport) {
       const guest = await guestContext.newPage();
       try {
         const id = await draftBook(page, viewport);
-        const filters = { q: 'АвторПоиска', genre: 'фэнтези', language: 'ru' };
+        const filters = {
+          q: 'АвторПоиска', genre: 'фэнтези', language: 'ru',
+          tag: 'f02tag-' + viewport, fandom: 'f02fandom-' + viewport,
+        };
         await search(guest, filters);
         assert(await bookLink(guest, id).count() === 0, viewport + ': draft leaked to HTML');
         assert(!(await apiHas(guest, id, filters)), viewport + ': draft leaked to JSON');
+        assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 0,
+          viewport + ': private tag leaked to options');
 
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await page.waitForURL(base + '/books/' + id);
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
+        assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 1,
+          viewport + ': published tag missing from options');
+        await search(guest, { ...filters, tag: 'not-the-tag' });
+        assert(await bookLink(guest, id).count() === 0, viewport + ': wrong tag matched');
+        await search(guest, { ...filters, fandom: 'not-the-fandom' });
+        assert(await bookLink(guest, id).count() === 0, viewport + ': wrong fandom matched');
+        await search(guest, filters);
         // F-02: real HTML total must agree with the explicitly requested API total.
         const countRes = await guest.request.get(
           base + '/api/v1/search/books?' +
@@ -128,6 +144,14 @@ async function draftBook(page, viewport) {
           'Найдено книг: ' + count.total,
           viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
+        // F-04: the homepage uses the same live public rows, not cached draft metadata.
+        const homeResponse = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+        assert(homeResponse && homeResponse.status() === 200, viewport + ': homepage unavailable');
+        assert(await guest.locator('.home-genre-section').count() > 0,
+          viewport + ': real genre shelves missing');
+        assert(await guest.locator('a[href="/books/' + id + '"]').count() >= 2,
+          viewport + ': newly published book not in latest/genre shelves');
+        await search(guest, filters);
 
         // F-02: lexical sorting is a real catalog control, not just an API flag.
         for (const sort of ['title', 'author']) {
@@ -151,7 +175,7 @@ async function draftBook(page, viewport) {
         changeBook(id, 'genre');
         await guest.reload({ waitUntil: 'networkidle' });
         assert(await bookLink(guest, id).count() === 0, viewport + ': old genre leaked');
-        const detective = { q: 'АвторПоиска', genre: 'детектив', language: 'ru' };
+        const detective = { ...filters, genre: 'детектив' };
         await search(guest, detective);
         assert(await bookLink(guest, id).isVisible(), viewport + ': new genre missing');
         assert(await apiHas(guest, id, detective), viewport + ': updated genre missing from JSON');
@@ -159,6 +183,13 @@ async function draftBook(page, viewport) {
 
         for (const phase of ['hold', 'draft', 'deleted']) {
           changeBook(id, phase);
+          if (phase === 'hold') {
+            const home = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+            assert(home && home.status() === 200, viewport + ': homepage after hold unavailable');
+            assert(await guest.locator('a[href="/books/' + id + '"]').count() === 0,
+              viewport + ': revoked book leaked into homepage/genre shelves');
+            await guest.goto(base + '/catalog?' + new URLSearchParams(detective));
+          }
           await guest.reload({ waitUntil: 'networkidle' });
           assert(await bookLink(guest, id).count() === 0, viewport + ': ' + phase + ' in HTML');
           assert(!(await apiHas(guest, id, detective)), viewport + ': ' + phase + ' in JSON');
@@ -167,7 +198,7 @@ async function draftBook(page, viewport) {
             viewport + ': ' + phase + ' public book detail accessible');
           await guest.goto(base + '/catalog?' + new URLSearchParams(detective));
         }
-        console.log('F03 search ' + viewport + ' PASS: real publication, author/genre/language, live revocation');
+        console.log('F03/F02 search ' + viewport + ' PASS: publication, author/genre/language/tag/fandom, revocation');
       } finally {
         await author.close();
         await guestContext.close();

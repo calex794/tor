@@ -18,6 +18,8 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 mod b04_cases;
 #[path = "auth_postgres/b06_cases.rs"]
 mod b06_cases;
+#[path = "auth_postgres/c06_cases.rs"]
+mod c06_cases;
 #[path = "auth_postgres/c11_cases.rs"]
 mod c11_cases;
 #[path = "auth_postgres/h_account_cases.rs"]
@@ -954,6 +956,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     c11_cases::stale_second_session_cannot_overwrite(&app, &second_session).await;
     c11_cases::concurrent_sessions_one_progress_winner(&app, &second_session).await;
     c11_cases::reader_v2_html_flow(&app, &second_session, public_chapter_id).await;
+    c06_cases::purchased_version_http_journey(&app, &session, &second_session).await;
 
     let logout_csrf = csrf_token(&private_html);
     let combined_cookies = format!("{session}; {new_csrf_cookie}");
