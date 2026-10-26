@@ -1,0 +1,23 @@
+<section class="section auth-section">
+  <div class="container">
+    <div class="auth-card author-chapter-card">
+      <p class="eyebrow">Кабинет автора · редактирование черновика</p>
+      <h1>Редактировать главу</h1>
+      <p>Редакция №<!--REVISION-->. Изменения сохраняются только в закрытом черновике. Публикация книги выполняется отдельно.</p>
+      <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters/<!--CHAPTER_ID-->/edit" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
+        <input type="hidden" name="expected_revision" value="<!--REVISION-->">
+        <label for="edit-chapter-number">Номер главы</label>
+        <input id="edit-chapter-number" name="number" type="number" min="1" max="1000000" value="<!--NUMBER-->" readonly required>
+        <label for="edit-chapter-title">Название главы</label>
+        <input id="edit-chapter-title" name="title" type="text" value="<!--TITLE-->" maxlength="200" required>
+        <label for="edit-chapter-body">Текст главы (Markdown, до 50 000 символов)</label>
+        <textarea id="edit-chapter-body" name="body" rows="18" maxlength="50000" required><!--BODY--></textarea>
+        <p class="author-edit-warning">Если глава изменена в другой вкладке, сохранение будет отклонено. Откройте страницу заново, чтобы получить последнюю редакцию.</p>
+        <button class="button" type="submit">Сохранить изменения</button>
+      </form>
+      <p class="auth-card__footer"><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+    </div>
+  </div>
+</section>
