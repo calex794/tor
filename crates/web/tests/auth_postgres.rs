@@ -663,7 +663,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let csrf_cookies = format!("{session}; {new_csrf_cookie}");
     c11_cases::oversized_chapter_is_denied_across_reader_and_progress(
         &app,
-        &pool,
         &session,
         &csrf_cookies,
         csrf,
