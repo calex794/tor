@@ -131,7 +131,7 @@ pub fn rank_route_costs(
         .enumerate()
         .filter(|(_, total)| total.requests > 0)
         .map(|(route, total)| {
-            let target = ((total.requests as u128 * 95 + 99) / 100) as u64;
+            let target = (total.requests as u128 * 95).div_ceil(100) as u64;
             let mut collected = 0_u64;
             let mut p95 = 3;
             for (bucket, count) in total.histogram.iter().enumerate() {
