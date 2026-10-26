@@ -135,7 +135,7 @@ async function inspect(page, name, where) {
       assert(!(await page.content()).includes('<h2>Приватность</h2>'),
         name + ': obsolete privacy panel still rendered');
       await inspect(page, name, 'me');
-      await page.getByRole('link', { name: 'Моя библиотека' }).click();
+      await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');

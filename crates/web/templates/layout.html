@@ -4,33 +4,63 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#22533a">
+  <meta name="theme-color" content="#4f46e5">
   <title><!--PAGE_TITLE--> · Пандаолейт</title>
   <meta name="description" content="<!--PAGE_DESCRIPTION-->">
   <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/newboo.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Перейти к содержимому</a>
   <header class="site-header">
     <div class="container site-header__inner">
-      <a class="brand" href="/" aria-label="Пандаолейт — главная">
-        <span class="brand__symbol" aria-hidden="true">П</span>
-        <span>Пандаолейт</span>
-      </a>
+      <details class="site-mobile-menu">
+        <summary class="site-mobile-menu__trigger" aria-label="Открыть меню">
+          <svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M4 7h16M4 12h16M4 17h16"></path>
+          </svg>
+        </summary>
+        <div class="site-mobile-menu__panel">
+          <nav class="site-mobile-nav" aria-label="Мобильная навигация">
+            <a class="site-mobile-nav__link" href="/catalog">Каталог</a>
+            <a class="site-mobile-nav__link" href="/me/library">Библиотека</a>
+            <a class="site-mobile-nav__link" href="/me">Личный кабинет</a>
+            <a class="site-mobile-nav__link" href="/register">Регистрация</a>
+          </nav>
+        </div>
+      </details>
+      <a class="site-logo" href="/" aria-label="Пандаолейт — главная"></a>
       <nav class="site-nav" aria-label="Основная навигация">
-        <a class="site-nav__link" href="/catalog">Все книги</a>
+        <a class="site-nav__link" href="/catalog">Каталог</a>
+        <a class="site-nav__link" href="/me/library">Библиотека</a>
+      </nav>
+      <div class="site-header__auth">
         <a class="site-nav__link" href="/login">Войти</a>
         <a class="button button--small" href="/register">Регистрация</a>
-      </nav>
+      </div>
     </div>
   </header>
   <main id="main">
     <!--PAGE_CONTENT-->
   </main>
-  <footer class="site-footer">
-    <div class="container site-footer__inner">
-      <span>Пандаолейт — книги и переводы</span>
-      <a href="/catalog">Каталог</a>
+  <footer class="site-footer" aria-label="Нижняя навигация">
+    <div class="container">
+      <div class="site-footer__inner">
+        <div class="site-footer__brand">
+          <a class="site-footer__logo" href="/">Пандаолейт</a>
+          <p class="site-footer__text">Платформа для чтения, публикации и поддержки переводов новелл.</p>
+        </div>
+        <nav class="site-footer__column" aria-label="Разделы">
+          <h2 class="site-footer__title">Разделы</h2>
+          <a class="site-footer__link" href="/catalog">Каталог новелл</a>
+          <a class="site-footer__link" href="/">Главная</a>
+        </nav>
+        <nav class="site-footer__column" aria-label="Читателю">
+          <h2 class="site-footer__title">Читателю</h2>
+          <a class="site-footer__link" href="/me/library">Моя библиотека</a>
+          <a class="site-footer__link" href="/me">Личный кабинет</a>
+        </nav>
+      </div>
     </div>
   </footer>
 </body>

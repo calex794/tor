@@ -9,15 +9,8 @@ mod account;
 pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
-
-#[derive(Clone, Debug)]
-pub struct PublicBookCard {
-    pub id: u64,
-    pub title: String,
-    pub language: String,
-    pub author_name: Option<String>,
-    pub genres: Vec<String>,
-}
+mod public_catalog;
+pub use public_catalog::{catalog, catalog_search, home, PublicBookCard};
 
 pub fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -40,114 +33,6 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
             .replace("<!--PAGE_TITLE-->", &escape_html(title))
             .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
             .replace("<!--PAGE_CONTENT-->", content),
-    )
-}
-
-fn book_cards(books: &[PublicBookCard]) -> String {
-    if books.is_empty() {
-        return "<p class=\"empty-state\">В каталоге пока нет опубликованных книг.</p>".to_owned();
-    }
-    let mut html = String::new();
-    for book in books {
-        let title = escape_html(&book.title);
-        let language = escape_html(&book.language);
-        let mut details = String::new();
-        if let Some(author) = &book.author_name {
-            write!(
-                details,
-                "<p class=\"book-card__meta\">Автор: {}</p>",
-                escape_html(author)
-            )
-            .expect("format String");
-        }
-        if !book.genres.is_empty() {
-            write!(
-                details,
-                "<p class=\"book-card__meta\">Жанры: {}</p>",
-                escape_html(&book.genres.join(", "))
-            )
-            .expect("format String");
-        }
-        write!(
-            html,
-            "<article class=\"book-card\"><div class=\"book-card__cover\" aria-hidden=\"true\">К</div><div class=\"book-card__body\"><span class=\"book-card__label\">Книга · {language}</span><h3 class=\"book-card__title\"><a href=\"/books/{}\">{title}</a></h3>{details}</div></article>",
-            book.id
-        ).expect("format String");
-    }
-    html
-}
-
-pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    let content =
-        include_str!("../templates/home.html").replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
-    layout(
-        "Главная",
-        "Пандаолейт — демонстрационный каталог без пользовательских данных.",
-        &content,
-    )
-}
-
-pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
-    let content = include_str!("../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
-        .replace("<!--SEARCH_FORM-->", "");
-    layout(
-        "Каталог",
-        "Опубликованные книги и переводы на Пандаолейт.",
-        &content,
-    )
-}
-
-fn encode_search_term(value: &str) -> String {
-    let mut result = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
-            result.push(char::from(byte));
-        } else {
-            write!(result, "%{byte:02X}").expect("string write");
-        }
-    }
-    result
-}
-
-pub fn catalog_search(
-    books: &[PublicBookCard],
-    query: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
-    cursor: Option<&str>,
-) -> Html<String> {
-    let mut controls = format!(
-        r#"<form action="/catalog" method="get" role="search" class="catalog-search"><label for="book-query">Название или автор</label><input id="book-query" type="search" name="q" maxlength="80" value="{}"><label for="book-genre">Жанр</label><input id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="фэнтези"><label for="book-language">Язык перевода</label><input id="book-language" type="text" name="language" maxlength="32" placeholder="ru" value="{}"><button class="button button--small" type="submit">Найти</button></form>"#,
-        escape_html(query),
-        escape_html(genre.unwrap_or("")),
-        escape_html(language.unwrap_or("")),
-    );
-    if let Some(cursor) = cursor {
-        let language_param = language
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;language={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let genre_param = genre
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;genre={}", encode_search_term(value)))
-            .unwrap_or_default();
-        write!(
-            controls,
-            r#"<nav aria-label="Следующая страница поиска"><a href="/catalog?q={}{}{}&amp;after={}">Следующие книги</a></nav>"#,
-            encode_search_term(query),
-            language_param,
-            genre_param,
-            escape_html(cursor),
-        ).expect("string write");
-    }
-    let content = include_str!("../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
-        .replace("<!--SEARCH_FORM-->", &controls);
-    layout(
-        "Каталог",
-        "Поиск опубликованных книг на Пандаолейт.",
-        &content,
     )
 }
 
@@ -441,6 +326,38 @@ pub async fn stylesheet() -> impl IntoResponse {
     )
 }
 
+/// NEwBOO public design tokens, components and layout, kept separate from
+/// the functioning reader/author styles until their port is independently tested.
+pub async fn newboo_stylesheet() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-port.css"),
+    )
+}
+
+pub async fn brand_logo() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../assets/brand/pandaolate-header.png").as_slice(),
+    )
+}
+
+pub async fn brand_logo_dark() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../assets/brand/pandaolate-header-dark.png").as_slice(),
+    )
+}
+
 pub fn inactive_account_page(title: &str) -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")],
      layout(title, "Аккаунты пока недоступны.", "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Профиль читателя</p><h1>Аккаунты пока не открыты</h1><p class=\"page-description\">Вход и регистрация будут доступны после завершения проверки безопасности и подключения постоянной базы данных. Сейчас каталог можно просматривать без аккаунта.</p><a class=\"button\" href=\"/catalog\">Перейти в каталог</a></div></div></section>"))
@@ -555,4 +472,32 @@ mod tests {
         assert!(!html.contains("/me/behavior"));
         assert!(!html.contains("RIL_BEHAVIOR_CONTROLS"));
     }
+
+    #[test]
+    fn ne_wboo_public_shell_and_catalog_reuse_source_components() {
+        let html = catalog(&[PublicBookCard {
+            id: 4,
+            title: "Старый <каталог>".into(),
+            language: "ru".into(),
+            author_name: Some("Автор".into()),
+            genres: vec!["Фэнтези".into()],
+        }])
+        .0;
+        assert!(html.contains("site-logo"));
+        assert!(html.contains("href=\"/assets/newboo.css\""));
+        assert!(html.contains("book-mini-card book-mini-card--compact"));
+        assert!(html.contains("Старый &lt;каталог&gt;"));
+        assert!(!html.contains("Старый <каталог>"));
+        assert!(html.contains("href=\"/books/4\""));
+        assert!(html.contains("Автор: Автор"));
+        assert!(html.contains("Жанры: Фэнтези"));
+        assert!(html.contains("Нижняя навигация"));
+        assert!(!html.contains("Выберите свою следующую историю"));
+    }
+
+    #[test]
+    fn source_brand_is_exactly_a_png() {
+        assert!(include_bytes!("../assets/brand/pandaolate-header.png").starts_with(b"\x89PNG"));
+    }
+
 }

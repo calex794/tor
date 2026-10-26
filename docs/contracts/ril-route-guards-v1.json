@@ -11,9 +11,9 @@
     },
     {
       "method": "GET",
-      "template": "/",
+      "template": "/api/v1/books/{id}/toc",
       "source": "crates/web/src/lib.rs",
-      "handler": "homepage",
+      "handler": "book_toc",
       "policy": "public"
     },
     {
@@ -21,13 +21,6 @@
       "template": "/api/v1/books",
       "source": "crates/books/src/api/mod.rs",
       "handler": "list_books",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
-      "template": "/api/v1/books/{id}/toc",
-      "source": "crates/web/src/lib.rs",
-      "handler": "book_toc",
       "policy": "public"
     },
     {
@@ -67,6 +60,27 @@
     },
     {
       "method": "GET",
+      "template": "/assets/brand/pandaolate-header-dark.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::brand_logo_dark",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/brand/pandaolate-header.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::brand_logo",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo.css",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::newboo_stylesheet",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/site.css",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::stylesheet",
@@ -84,6 +98,13 @@
       "template": "/catalog",
       "source": "crates/web/src/lib.rs",
       "handler": "catalog",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/",
+      "source": "crates/web/src/lib.rs",
+      "handler": "homepage",
       "policy": "public"
     },
     {
@@ -109,27 +130,6 @@
     },
     {
       "method": "GET",
-      "template": "/me",
-      "source": "crates/web/src/auth.rs",
-      "handler": "me",
-      "policy": "session"
-    },
-    {
-      "method": "GET",
-      "template": "/me/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "author_books",
-      "policy": "owner"
-    },
-    {
-      "method": "GET",
-      "template": "/me/books/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "author_book",
-      "policy": "owner"
-    },
-    {
-      "method": "GET",
       "template": "/me/books/{id}/chapters/{chapter_id}/edit",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "edit_chapter",
@@ -151,9 +151,30 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_book",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/new",
       "source": "crates/web/src/auth.rs",
       "handler": "new_author_book",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_books",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/add/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::show_add",
       "policy": "session"
     },
     {
@@ -165,9 +186,9 @@
     },
     {
       "method": "GET",
-      "template": "/me/library/add/{id}",
+      "template": "/me",
       "source": "crates/web/src/auth.rs",
-      "handler": "library_actions::show_add",
+      "handler": "me",
       "policy": "session"
     },
     {
@@ -235,20 +256,6 @@
     },
     {
       "method": "POST",
-      "template": "/me/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "create_book",
-      "policy": "owner"
-    },
-    {
-      "method": "POST",
-      "template": "/me/books/{id}/chapters",
-      "source": "crates/web/src/author_chapter_http.rs",
-      "handler": "create_chapter",
-      "policy": "owner"
-    },
-    {
-      "method": "POST",
       "template": "/me/books/{id}/chapters/{chapter_id}/edit",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "update_chapter",
@@ -263,9 +270,23 @@
     },
     {
       "method": "POST",
+      "template": "/me/books/{id}/chapters",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "create_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/publish",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "publish_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books",
+      "source": "crates/web/src/auth.rs",
+      "handler": "create_book",
       "policy": "owner"
     },
     {
