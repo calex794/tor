@@ -19,7 +19,10 @@ fn book_cards(books: &[PublicBookCard], shelf: bool, shelf_label: &str) -> Strin
         return "<div class=\"ui-empty-state\"><h3 class=\"ui-empty-state__title\">Каталог пока наполняется</h3><p class=\"ui-empty-state__text\">В каталоге пока нет опубликованных книг.</p></div>".to_owned();
     }
     let mut html = if shelf {
-        format!("<div class=\"home-shelf__track\" aria-label=\"{}\">", escape_html(shelf_label))
+        format!(
+            "<div class=\"home-shelf__track\" aria-label=\"{}\">",
+            escape_html(shelf_label)
+        )
     } else {
         String::from("<div class=\"catalog-grid\">")
     };
@@ -158,7 +161,10 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
                 "Опубликованные книги"
             },
         )
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, latest, "Недавно добавленные книги"))
+        .replace(
+            "<!--PUBLIC_BOOKS-->",
+            &book_cards(books, latest, "Недавно добавленные книги"),
+        )
         .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
@@ -385,7 +391,10 @@ mod home_tests {
         let html = home_recent(&[latest, older, last]).0;
         assert!(html.contains("Новинки: Научная фантастика"));
         assert!(html.contains("Новинки: Фэнтези"));
-        assert!(!html.contains("Новинки: Детектив"), "show at most three genres");
+        assert!(
+            !html.contains("Новинки: Детектив"),
+            "show at most three genres"
+        );
         assert!(html.contains("/catalog?genre=%D0%9D%D0%B0%D1%83%D1%87%D0%BD%D0%B0%D1%8F%20%D1%84%D0%B0%D0%BD%D1%82%D0%B0%D1%81%D1%82%D0%B8%D0%BA%D0%B0&amp;sort=newest"));
         assert!(html.contains("&lt;img onerror=x&gt;"));
         assert!(!html.contains("<img onerror=x>"));
@@ -408,7 +417,12 @@ mod home_tests {
             })
             .collect::<Vec<_>>();
         let shelves = recent_genre_shelves(&books);
-        assert_eq!(shelves.matches("class=\"book-mini-card book-mini-card--shelf\"").count(), 4);
+        assert_eq!(
+            shelves
+                .matches("class=\"book-mini-card book-mini-card--shelf\"")
+                .count(),
+            4
+        );
         assert!(shelves.contains("href=\"/books/7\""));
         assert!(!shelves.contains("href=\"/books/3\""));
     }
