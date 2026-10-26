@@ -7,11 +7,11 @@ use crate::{
     },
 };
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgPoolOptions, PgRow},
     PgPool, Row,
 };
-use sha2::{Digest, Sha256};
 use std::time::Duration;
 const REQUIRED_MIGRATION: i64 = 202610130003;
 
@@ -129,7 +129,6 @@ impl PublicBookRepository for PgCatalog {
     }
 }
 
-
 /// Author-side PostgreSQL operations. Public catalog reads remain separate.
 #[derive(Clone)]
 pub struct PgAuthoring {
@@ -157,7 +156,11 @@ impl PgAuthoring {
             hasher.update(part.as_bytes());
         }
         let digest: [u8; 32] = hasher.finalize().into();
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let claimed = sqlx::query_scalar::<_, i64>(
             "INSERT INTO book_create_commands (user_id, command_key, payload_hash)
              VALUES ($1, $2, $3)
@@ -182,13 +185,15 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?
             .ok_or(AuthorError::Unavailable)?;
-            let previous_digest: Vec<u8> =
-                existing.try_get("payload_hash").map_err(|_| AuthorError::Unavailable)?;
-            if previous_digest.as_slice() != digest {
+            let previous_digest: Vec<u8> = existing
+                .try_get("payload_hash")
+                .map_err(|_| AuthorError::Unavailable)?;
+            if previous_digest.as_slice() != digest.as_slice() {
                 return Err(AuthorError::Conflict);
             }
-            let previous_id: Option<i64> =
-                existing.try_get("book_id").map_err(|_| AuthorError::Unavailable)?;
+            let previous_id: Option<i64> = existing
+                .try_get("book_id")
+                .map_err(|_| AuthorError::Unavailable)?;
             return previous_id.ok_or(AuthorError::Unavailable);
         }
 
