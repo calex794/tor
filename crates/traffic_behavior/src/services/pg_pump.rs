@@ -59,7 +59,7 @@ impl PgRollupPump {
             }
         }
         self.ticks = self.ticks.wrapping_add(1);
-        if self.ticks.is_multiple_of(360) {
+        if self.ticks % 360 == 0 {
             let _ = self.repo.prune_expired().await;
         }
     }
