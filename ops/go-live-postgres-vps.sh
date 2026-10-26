@@ -55,34 +55,30 @@ if [[ $app_whoami != tor_app ]]; then
 fi
 unset app_password app_line
 
-# First run migrates the empty database. A re-run accepts the same nine
-# canonical SQLx versions; all other states require manual investigation.
-table_count=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
-  "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_sqlx_migrations'")
-if [[ $table_count == 0 ]]; then
-  echo "=== Applying original SQLx schema (first PostgreSQL go-live) ==="
-  first_migration_script=$(mktemp /root/.tor-first-migration.XXXXXXXX)
-  trap 'rm -f "$first_migration_script"' EXIT
-  curl --fail --silent --show-error --location --retry 3 \
-    "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
-    -o "$first_migration_script"
-  bash -n "$first_migration_script"
-  bash "$first_migration_script" "$sha"
-  rm -f "$first_migration_script"
-  trap - EXIT
-elif [[ $table_count == 17 ]]; then
-  echo "=== Existing SQLx schema; confirming version history ==="
-else
-  echo "Unexpected TOR database schema ($table_count domain tables); refusing cutover" >&2
-  exit 1
-fi
+# Apply the canonical SQLx migrator from the verified staged release.
+# It creates the initial schema or upgrades additive migrations in place.
+migration_script=$(mktemp /root/.tor-migration.XXXXXXXX)
+trap 'rm -f "$migration_script"' EXIT
+curl --fail --silent --show-error --location --retry 3 \
+  "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
+  -o "$migration_script"
+bash -n "$migration_script"
+bash "$migration_script" "$sha"
+rm -f "$migration_script"
+trap - EXIT
 
 hist=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
-  "SELECT count(*) FROM _sqlx_migrations WHERE success = true")
+  "SELECT count(*) FROM _sqlx_migrations WHERE success = TRUE")
 hist_total=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
   "SELECT count(*) FROM _sqlx_migrations")
-if [[ $hist != 9 || $hist_total != 9 ]]; then
-  echo "Refusing: exactly nine successful SQLx versions are required" >&2
+donor_hist=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
+  "SELECT count(*) FROM _sqlx_migrations WHERE success = TRUE
+   AND version IN (202610120001,202610120002,202610120003,202610120004,
+                   202610120005,202610120006,202610130001,202610130002,
+                   202610130003)")
+if [[ ! $hist =~ ^[0-9]+$ || $hist -lt 9 ||
+      $hist_total != "$hist" || $donor_hist != 9 ]]; then
+  echo "Refusing: SQLx history is incomplete or dirty" >&2
   exit 1
 fi
 roles_ok=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
@@ -182,7 +178,7 @@ curl -fsS --max-time 8 --resolve pandaolate.ru:443:127.0.0.1 \
 trap - ERR
 [[ -z $backup_dropin ]] || rm -f "$backup_dropin"
 echo "TOR_PRODUCTION_OK $sha"
-echo "POSTGRES_READY_OK (9/9 migrations, tor_app read-only schema history)"
+echo "POSTGRES_READY_OK ($hist/$hist migrations, tor_app read-only schema history)"
 echo "AUTH_PAGES_OK /register /login"
 echo "HTTPS_READY_OK https://pandaolate.ru/readyz"
 echo "REAL_DATA_MODE: PostgreSQL; no RAM demo"

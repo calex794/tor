@@ -21,8 +21,8 @@ for line in MANIFEST.read_text(encoding="utf-8").splitlines():
 names = [name for _, name in entries]
 all_migrations = sorted(p.name for p in MIGRATIONS.glob("*.sql"))
 # First nine files are immutable donor blobs; new TOR migrations are additive.
-if len(names) != 9 or names != all_migrations[:9] or len(all_migrations) != 10:
-    raise SystemExit("Expected nine pinned donor migrations plus one TOR extension")
+if len(names) != 9 or names != all_migrations[:9] or len(all_migrations) < 10:
+    raise SystemExit("Expected nine pinned donor migrations and additive TOR extensions")
 if any(not re.fullmatch(r"\d{12}_[a-z0-9_]+\.sql", name) for name in all_migrations[9:]):
     raise SystemExit("Invalid TOR extension filename")
 if len(set(n[:12] for n in all_migrations)) != len(all_migrations):

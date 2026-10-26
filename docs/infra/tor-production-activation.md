@@ -36,8 +36,8 @@ bash /root/tor-go-live.sh "$sha"
 The one-shot operator script checks real PostgreSQL, SCRAM tor_app
 credentials, both binary checksums, schema owner and the release location.
 If the schema is empty, it calls the pinned canonical SQLx runner,
-creates a local compressed backup first, and verifies nine SQLx versions
-and 17 domain tables. It then installs a systemd override using
+creates a local compressed backup first, and verifies nine donor SQLx versions plus any additive TOR versions
+and at least 17 domain tables. It then installs a systemd override using
 EnvironmentFile=/etc/tor/tor-app.env (read by systemd PID 1), sets
 TOR_DEMO_MODE=0, TOR_AUTH_ENABLED=1 and
 TOR_PUBLIC_ORIGIN=https://pandaolate.ru, and atomically switches the
@@ -52,9 +52,9 @@ Acceptance markers:
 
 ~~~text
 MIGRATION_HISTORY_ACCESS_OK
-MIGRATIONS_OK: 9/9 SQLx versions, 17 domain tables
+MIGRATIONS_OK: <N>/<N> SQLx versions, <TABLE_COUNT> domain tables
 TOR_PRODUCTION_OK <SHA>
-POSTGRES_READY_OK (9/9 migrations, tor_app read-only schema history)
+POSTGRES_READY_OK (<N>/<N> migrations, tor_app read-only schema history)
 AUTH_PAGES_OK /register /login
 HTTPS_READY_OK https://pandaolate.ru/readyz
 REAL_DATA_MODE: PostgreSQL; no RAM demo
@@ -63,6 +63,12 @@ REAL_DATA_MODE: PostgreSQL; no RAM demo
 The catalog may be empty because no actual books have been entered yet.
 **Do not insert fake production records.** Deliver authoring and real
 content iteratively using the existing nine TOR workstreams.
+
+**Production implementation note:** the cover image worker introduced
+migration 202610260001 (four additional tables), so the release runner must
+verify the embedded SQLx migration list rather than assuming exactly nine
+total versions or 17 total tables. The CLI reports TOR_SQLX_APPLIED_OK N/N;
+future additive migrations use the same mechanism.
 
 ## Fast, normal CI/CD after the first switch
 
@@ -75,8 +81,8 @@ remains configured for real PostgreSQL on every subsequent restart.
 
 **Next engineering task:** integrate the migration upgrade process
 for future schema version 010+ into the normal deploy path.
-This first-run procedure recognizes exactly the existing nine
-historical migrations. Do not silently deploy breaking DB changes:
+The SQLx runner recognizes all current additive migrations and verifies the
+nine immutable historical donor versions. Do not silently deploy breaking DB changes:
 binary rollback does not roll back DDL.
 
 **Actual production limits:** accounts, catalog and public reading
