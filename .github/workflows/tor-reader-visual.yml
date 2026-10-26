@@ -6,6 +6,7 @@ on:
       - 'crates/accounts/**'
       - 'crates/web/**'
       - 'tools/reader_visual_smoke.cjs'
+      - 'tools/author_chapter_visual_smoke.cjs'
       - '.github/workflows/tor-reader-visual.yml'
   push:
     branches: [main]
@@ -88,6 +89,8 @@ jobs:
           INSERT INTO chapter_publications(chapter_id,version_id)
           VALUES(101,201),(102,202),(103,203);
           SQL
+          # Fixed-ID book fixtures require a sequence correction by the migrator role.
+          psql -X -v ON_ERROR_STOP=1 "$MIGRATION_URL" -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), TRUE)"
       - name: Build the real PostgreSQL-backed server
         run: cargo build -p tor-web
       - name: Install Chromium
@@ -107,6 +110,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:3098/readyz
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
       - name: Preserve screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4
