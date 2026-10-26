@@ -31,6 +31,8 @@ pub struct NewBook {
     pub target_language: String,
     pub title: String,
     pub command_key: String,
+    pub author_name: String,
+    pub genres: Vec<String>,
 }
 
 pub fn new_book(
@@ -55,7 +57,49 @@ pub fn new_book(
         target_language: key.target_language().to_owned(),
         title: title.to_owned(),
         command_key: command_key.to_owned(),
+        author_name: String::new(),
+        genres: Vec::new(),
     })
+}
+
+/// B owns canonical author and genre metadata; F only reads it after publication.
+pub fn new_book_with_discovery(
+    source: &str,
+    language: &str,
+    title: &str,
+    command_key: &str,
+    author_name: &str,
+    genres: &str,
+) -> Result<NewBook, AuthorError> {
+    let mut book = new_book(source, language, title, command_key)?;
+    let author = author_name.trim();
+    if author.chars().count() > 160 || author.chars().any(char::is_control) {
+        return Err(AuthorError::Invalid);
+    }
+    let mut labels = Vec::<String>::new();
+    if !genres.trim().is_empty() {
+        if genres.chars().count() > 400 {
+            return Err(AuthorError::Invalid);
+        }
+        for item in genres.split(',') {
+            let clean = item.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+            if clean.is_empty()
+                || clean.chars().count() > 40
+                || clean.chars().any(char::is_control)
+            {
+                return Err(AuthorError::Invalid);
+            }
+            if !labels.contains(&clean) {
+                labels.push(clean);
+            }
+            if labels.len() > 8 {
+                return Err(AuthorError::Invalid);
+            }
+        }
+    }
+    book.author_name = author.to_owned();
+    book.genres = labels;
+    Ok(book)
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -189,6 +233,31 @@ mod tests {
         assert_eq!(book.target_language, "ru");
         assert_eq!(book.title, "Проба");
         assert!(new_book("source:123", "ru", "Проба", "bad").is_err());
+    }
+
+    #[test]
+    fn b_01_discovery_metadata_is_bounded_and_canonical() {
+        let book = new_book_with_discovery(
+            "source:1", "ru", "Роман", KEY, "  Автор ", " Фантастика, Фэнтези,фантастика",
+        )
+        .unwrap();
+        assert_eq!(book.author_name, "Автор");
+        assert_eq!(book.genres, vec!["фантастика", "фэнтези"]);
+        assert!(new_book_with_discovery(
+            "source:1", "ru", "Роман", KEY, "Автор", "Фэнтези,",
+        )
+        .is_err());
+        assert!(new_book_with_discovery(
+            "source:1", "ru", "Роман", KEY, &"x".repeat(161), "",
+        )
+        .is_err());
+        assert!(new_book_with_discovery(
+            "source:1", "ru", "Роман", KEY, "", &"genre,".repeat(9),
+        )
+        .is_err());
+        let legacy = new_book("source:1", "ru", "Роман", KEY).unwrap();
+        assert!(legacy.author_name.is_empty());
+        assert!(legacy.genres.is_empty());
     }
 
     #[test]
