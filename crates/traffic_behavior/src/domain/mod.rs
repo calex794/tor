@@ -4,7 +4,9 @@
 
 mod paths;
 mod rollup;
-pub use paths::{Hygiene, PathAnalyzer, PathAssessment, PathReasons, PathReport, PATH_VERSION, PATH_WINDOW};
+pub use paths::{
+    Hygiene, PathAnalyzer, PathAssessment, PathReasons, PathReport, PATH_VERSION, PATH_WINDOW,
+};
 pub use rollup::{RollupDelta, RouteCount, Transition, TransitionCount};
 
 use std::collections::{BTreeSet, HashMap};
