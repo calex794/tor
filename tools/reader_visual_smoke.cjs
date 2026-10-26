@@ -78,9 +78,25 @@ async function inspect(page, name, where) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       await page.goto(base + '/register');
       assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
+      assert(await page.locator('form[action="/register"][novalidate]').count() === 1,
+        name + ': browser-native English validation must be disabled');
       await inspect(page, name, 'register');
       await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
+      await page.getByLabel('Пароль (12–128 символов)').fill('1234');
+      const invalidPost = page.waitForResponse(response =>
+        response.url().endsWith('/register') && response.request().method() === 'POST'
+      );
+      await page.getByRole('button', { name: 'Создать учётную запись' }).click();
+      const invalidResponse = await invalidPost;
+      assert(invalidResponse.status() === 400, name + ': expected server-side weak-password rejection');
+      assert(await page.getByRole('alert').getByText('Пароль должен содержать от 12 до 128 символов').isVisible(),
+        name + ': Russian password feedback missing');
+      assert(await page.getByLabel('Электронная почта').inputValue() === 'visual.' + name + '@example.test',
+        name + ': email lost after validation error');
+      assert(await page.getByLabel('Пароль (12–128 символов)').inputValue() === '',
+        name + ': submitted password must not be replayed');
+      await inspect(page, name, 'register-validation');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
       const beforeCookies = await page.context().cookies(base);
       const beforeCsrf = beforeCookies.find(c => c.name === 'tor-dev-csrf');
@@ -112,6 +128,12 @@ async function inspect(page, name, where) {
       }
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
+      assert(await page.getByRole('link', { name: 'Мои книги' }).isVisible(),
+        name + ': author link missing');
+      assert(!(await page.content()).includes('Анализ ваших переходов'),
+        name + ': unimplemented personal analysis advertised');
+      assert(!(await page.content()).includes('<h2>Приватность</h2>'),
+        name + ': obsolete privacy panel still rendered');
       await inspect(page, name, 'me');
       await page.getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
@@ -159,9 +181,27 @@ async function inspect(page, name, where) {
       await page.getByRole('button', { name: 'Войти', exact: true }).click();
       await page.waitForURL('**/me');
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': login did not restore session');
+      // Same address as an existing account: a proper styled 409 page, never raw text.
+      await page.goto(base + '/register');
+      await page.getByLabel('Отображаемое имя').fill('Читатель ' + name);
+      await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
+      await page.getByLabel('Пароль (12–128 символов)').fill('TestPassphrase2026');
+      const duplicatePost = page.waitForResponse(response =>
+        response.url().endsWith('/register') && response.request().method() === 'POST'
+      );
+      await page.getByRole('button', { name: 'Создать учётную запись' }).click();
+      const conflict = await duplicatePost;
+      assert(conflict.status() === 409, name + ': duplicate account status changed');
+      assert(await page.getByRole('heading', { name: 'Не удалось завершить регистрацию' }).isVisible(),
+        name + ': styled registration error heading missing');
+      assert(await page.getByRole('link', { name: 'Повторить регистрацию' }).isVisible(),
+        name + ': retry registration action absent');
+      assert(await page.locator('.account-error__actions').getByRole('link', { name: 'Войти', exact: true }).isVisible(),
+        name + ': login action absent');
+      await inspect(page, name, 'registration-error');
       await page.close();
     }
-    console.log('TOR PG reader+auth browser PASS: 2 viewports, 12 screenshots, no overflow and real DB');
+    console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
     await browser.close();
   }

@@ -86,7 +86,9 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         .to_owned();
     let html =
         String::from_utf8(to_bytes(first.into_body(), 100_000).await.unwrap().to_vec()).unwrap();
-    assert!(html.contains("Анализ ваших переходов отключён"));
+    // Internal RIL consent remains independent of the visible account UI.
+    assert!(!html.contains("Анализ ваших переходов"));
+    assert!(!html.contains("Приватность"));
     let csrf = html
         .split("name=\"csrf_token\" value=\"")
         .nth(1)

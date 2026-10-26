@@ -417,3 +417,93 @@ button:disabled, input:disabled { cursor: not-allowed; }
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+
+/* A/H: Russian, script-free account feedback and a standalone error screen. */
+.auth-form__help {
+  margin: -8px 0 7px;
+  color: #607566;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.auth-form__error {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid #e7c8b1;
+  border-left: 4px solid #aa602e;
+  border-radius: 8px;
+  background: #fff6ef;
+  color: #7c3d1c;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.account-error {
+  min-height: min(760px, 80svh);
+  display: grid;
+  align-items: center;
+  background: radial-gradient(circle at 14% 15%, #e9f3e8 0%, transparent 42%),
+    radial-gradient(circle at 90% 95%, #f7ebd6 0%, transparent 38%), #f5f8f3;
+  padding-block: clamp(48px, 8vw, 100px);
+}
+.account-error__card {
+  width: min(620px, 100%);
+  margin-inline: auto;
+  padding: clamp(28px, 6vw, 58px);
+  border: 1px solid #dce7d9;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 22px 64px rgba(38, 75, 48, .09);
+}
+.account-error__symbol {
+  width: 66px;
+  height: 66px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 26px;
+  border: 1px solid #edca9c;
+  border-radius: 21px;
+  background: linear-gradient(145deg, #fff8ec, #fbe8d0);
+  color: #99571e;
+  font-size: 32px;
+  font-weight: 800;
+}
+.account-error__card h1 {
+  max-width: 520px;
+  margin: 0;
+  font-size: clamp(30px, 5vw, 46px);
+  line-height: 1.17;
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+}
+.account-error__message {
+  margin: 22px 0 30px;
+  color: #607166;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.account-error__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.account-error__actions .button { min-height: 48px; }
+.account-error__hint {
+  border-top: 1px solid #e6ece4;
+  margin: 32px 0 12px;
+  padding-top: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #6a7b6c;
+}
+.account-error__catalog {
+  color: #23633f;
+  font-size: 14px;
+  font-weight: 700;
+  text-underline-offset: 4px;
+}
+@media (max-width: 480px) {
+  .account-error { min-height: 0; padding-block: 30px; }
+  .account-error__card { border-radius: 18px; }
+  .account-error__actions { align-items: stretch; flex-direction: column; }
+  .account-error__actions .button { width: 100%; }
+}
