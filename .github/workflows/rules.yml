@@ -34,12 +34,16 @@ jobs:
         run: python3 tools/check_ril_routes.py
       - name: Enforce reviewed RIL auth, ownership, CSRF and rate guard parity
         run: python3 tools/check_ril_governance.py
+      - name: Verify RIL external exposure contract and route fingerprint
+        run: python3 tools/check_ril_exposure.py
       - name: Check locked NEwBOO HTTP routes and deferred handler coverage
         run: python3 tools/check_legacy_coverage.py
       - name: Enforce prelaunch API finance access S3 recommendations and release contracts
         run: python3 tools/check_contracts.py
       - name: Verify architecture guard catches regressions
         run: python3 -m unittest discover -s tests/architecture -v
+      - name: Syntax-check read-only TOR RIL-09 VPS audit
+        run: bash -n ops/audit-ril-exposure-vps.sh
       - name: Check TOR SSH bootstrap shell syntax
         run: bash -n ops/bootstrap-tor-deploy.sh
       - name: Check TOR rollback verification shell syntax
