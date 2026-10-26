@@ -4,7 +4,6 @@ use std::{
     fs,
     io::{Read, Write},
     os::unix::{fs::PermissionsExt, net::UnixStream},
-    path::PathBuf,
     process::{Child, Command, Stdio},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
