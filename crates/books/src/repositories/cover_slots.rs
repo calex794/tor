@@ -177,20 +177,6 @@ impl PgCoverSlots {
     }
 }
 
-#[cfg(test)]
-mod public_cover_tests {
-    use super::PublicCoverKind;
-
-    #[test]
-    fn accepts_only_bounded_cover_variants() {
-        assert!(PublicCoverKind::from_route("card").is_some());
-        assert!(PublicCoverKind::from_route("main").is_some());
-        for invalid in ["", "CARD", "../card", "source", "thumb", "card/../main"] {
-            assert!(PublicCoverKind::from_route(invalid).is_none());
-        }
-    }
-}
-
 impl PgCoverSlots {
     /// A bounded single-query projection for H/F cards, with exactly the same
     /// fail-closed visibility, ownership and attached-variant predicates as
@@ -231,5 +217,19 @@ impl PgCoverSlots {
                     .map_err(|_| sqlx::Error::Protocol("invalid stored book id".into()))
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod public_cover_tests {
+    use super::PublicCoverKind;
+
+    #[test]
+    fn accepts_only_bounded_cover_variants() {
+        assert!(PublicCoverKind::from_route("card").is_some());
+        assert!(PublicCoverKind::from_route("main").is_some());
+        for invalid in ["", "CARD", "../card", "source", "thumb", "card/../main"] {
+            assert!(PublicCoverKind::from_route(invalid).is_none());
+        }
     }
 }
