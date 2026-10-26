@@ -1,6 +1,6 @@
 //! Fixed-size, in-process hourly deltas. No raw request data or identities.
 //! Each dimension is an enum value, never a free-form label.
-use super::{BehaviorEvent, GapBucket, LatencyGroup, RouteCode, StatusGroup};
+use super::{BehaviorEvent, GapBucket, RouteCode};
 
 const ROUTES: usize = 15;
 const STATUS: usize = 6;
@@ -121,6 +121,7 @@ impl RollupDelta {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{LatencyGroup, StatusGroup};
     use std::time::Duration;
 
     #[test]
