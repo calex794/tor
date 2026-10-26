@@ -1,0 +1,71 @@
+name: TOR F-02 PostgreSQL 100k
+on:
+  pull_request:
+    paths:
+      - 'crates/search/tests/f02_load_pg.rs'
+      - '.github/workflows/tor-f02-load.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  f02-100k:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-f02-ci-superuser
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-f02-ci-superuser
+      TEST_DATABASE_URL: postgresql://tor_app:tor-f02-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-f02-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Create isolated PostgreSQL database and roles
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-f02-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-f02-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply canonical SQLx migrations
+        run: DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Run isolated 100k keyset scan and actual PostgreSQL EXPLAIN
+        run: |
+          set -o pipefail
+          cargo test -p tor-search --test f02_load_pg -- --ignored --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/f02-pg100k-report.txt"
+      - name: Preserve query plans and timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-f02-pg100k-explain
+          path: ${{ runner.temp }}/f02-pg100k-report.txt
+          if-no-files-found: warn
+          retention-days: 14
