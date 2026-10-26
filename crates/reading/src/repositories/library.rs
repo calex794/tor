@@ -1,9 +1,7 @@
 //! Reader-owned PostgreSQL bookmarks. Saving a book is NOT a chapter entitlement.
 #![forbid(unsafe_code)]
 
-use crate::services::library::{
-    LibraryError, SavedBook, SavedBookPage, MAX_LIBRARY_LIMIT,
-};
+use crate::services::library::{LibraryError, SavedBook, SavedBookPage, MAX_LIBRARY_LIMIT};
 use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
@@ -43,14 +41,12 @@ impl PgLibrary {
             return Err(LibraryError::Invalid);
         }
         // Removal is permitted after a book becomes private or is moderated.
-        sqlx::query(
-            "DELETE FROM reader_library_items WHERE user_id = $1 AND book_id = $2",
-        )
-        .bind(user_id)
-        .bind(book_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|_| LibraryError::Unavailable)?;
+        sqlx::query("DELETE FROM reader_library_items WHERE user_id = $1 AND book_id = $2")
+            .bind(user_id)
+            .bind(book_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| LibraryError::Unavailable)?;
         Ok(())
     }
 

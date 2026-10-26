@@ -309,17 +309,18 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
     )
 }
 
-pub fn bookmark_prompt(
-    book: &tor_reading::services::PublicBookPage,
-    csrf: &str,
-) -> Html<String> {
+pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str) -> Html<String> {
     let title = escape_html(&book.title);
     let token = escape_html(csrf);
     let html = format!(
         "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Личная библиотека</p><h1>Добавить книгу</h1><p>{title}</p><form method=\"post\" action=\"/me/library/{}/save\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button\" type=\"submit\">Сохранить книгу</button></form><p><a href=\"/books/{}\">Вернуться к книге</a></p></div></div></section>",
         book.id, book.id
     );
-    layout("Добавить книгу", "Сохранить книгу в личной библиотеке.", &html)
+    layout(
+        "Добавить книгу",
+        "Сохранить книгу в личной библиотеке.",
+        &html,
+    )
 }
 
 pub fn my_library(

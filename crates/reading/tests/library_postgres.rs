@@ -23,15 +23,29 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
     .await
     .unwrap();
 
-    assert_eq!(bookmarks.add_book(92001, 2).await, Err(LibraryError::NotFound));
-    assert_eq!(bookmarks.add_book(92001, 3).await, Err(LibraryError::NotFound));
+    assert_eq!(
+        bookmarks.add_book(92001, 2).await,
+        Err(LibraryError::NotFound)
+    );
+    assert_eq!(
+        bookmarks.add_book(92001, 3).await,
+        Err(LibraryError::NotFound)
+    );
     bookmarks.add_book(92001, 1).await.unwrap();
     bookmarks.add_book(92001, 1).await.unwrap();
     let own = bookmarks.list_books(92001, 30, None).await.unwrap();
     assert_eq!(own.items.len(), 1, "a replay must not duplicate a bookmark");
     assert_eq!(own.items[0].book_id, 1);
-    assert!(bookmarks.list_books(92002, 30, None).await.unwrap().items.is_empty());
-    assert!(reader.public_chapter(103).await.unwrap().is_none(), "bookmark != paid right");
+    assert!(bookmarks
+        .list_books(92002, 30, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(
+        reader.public_chapter(103).await.unwrap().is_none(),
+        "bookmark != paid right"
+    );
 
     sqlx::query(
         "INSERT INTO books(id,source_identity,target_language,title,visibility) \

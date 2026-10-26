@@ -115,7 +115,10 @@ pub(crate) fn router(
         .route("/me/library", get(my_library))
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/library/{id}/save", post(library_actions::browser_add))
-        .route("/me/library/{id}/remove", post(library_actions::browser_remove))
+        .route(
+            "/me/library/{id}/remove",
+            post(library_actions::browser_remove),
+        )
         .route("/api/v1/me/library", get(library_actions::api_list))
         .route(
             "/api/v1/me/library/{id}",

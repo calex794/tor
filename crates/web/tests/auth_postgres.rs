@@ -252,9 +252,12 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let save_book = format!("csrf_token={token}");
     let saved_cookies = format!("{session}; {bookmark_cookie}");
     assert_eq!(
-        send(&app, request("POST", "/api/v1/me/library/1", &save_book, &session, ORIGIN))
-            .await
-            .status(),
+        send(
+            &app,
+            request("POST", "/api/v1/me/library/1", &save_book, &session, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -275,7 +278,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(
         send(
             &app,
-            request("POST", "/api/v1/me/library/2", &save_book, &saved_cookies, ORIGIN)
+            request(
+                "POST",
+                "/api/v1/me/library/2",
+                &save_book,
+                &saved_cookies,
+                ORIGIN
+            )
         )
         .await
         .status(),
@@ -285,7 +294,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
         assert_eq!(
             send(
                 &app,
-                request("POST", "/api/v1/me/library/1", &save_book, &saved_cookies, ORIGIN)
+                request(
+                    "POST",
+                    "/api/v1/me/library/1",
+                    &save_book,
+                    &saved_cookies,
+                    ORIGIN
+                )
             )
             .await
             .status(),
@@ -293,28 +308,40 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
         );
     }
     let bookmarks = body_of(
-        send(&app, request("GET", "/api/v1/me/library", "", &session, ORIGIN)).await,
+        send(
+            &app,
+            request("GET", "/api/v1/me/library", "", &session, ORIGIN),
+        )
+        .await,
     )
     .await;
     assert!(bookmarks.contains("\"book_id\":\"1\""));
     assert_eq!(bookmarks.matches("\"book_id\"").count(), 1);
     assert!(!bookmarks.contains("PRIVATE-PAID-MARKER"));
-    let saved_html = body_of(
-        send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await,
-    )
-    .await;
+    let saved_html =
+        body_of(send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await).await;
     assert!(saved_html.contains("Убрать из библиотеки"));
     assert_eq!(
         send(
             &app,
-            request("DELETE", "/api/v1/me/library/1", &save_book, &saved_cookies, ORIGIN)
+            request(
+                "DELETE",
+                "/api/v1/me/library/1",
+                &save_book,
+                &saved_cookies,
+                ORIGIN
+            )
         )
         .await
         .status(),
         StatusCode::NO_CONTENT
     );
     let after_remove = body_of(
-        send(&app, request("GET", "/api/v1/me/library", "", &session, ORIGIN)).await,
+        send(
+            &app,
+            request("GET", "/api/v1/me/library", "", &session, ORIGIN),
+        )
+        .await,
     )
     .await;
     assert!(after_remove.contains("\"items\":[]"));
