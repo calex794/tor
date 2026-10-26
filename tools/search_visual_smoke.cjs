@@ -32,7 +32,7 @@ function changeBook(id, phase) {
   assert(result === 'UPDATE 1', phase + ': expected one test-owned book update');
 }
 function bookLink(page, id) {
-  return page.locator('.book-card__title a[href="/books/' + id + '"]');
+  return page.locator('.book-mini-card__link[href="/books/' + id + '"]');
 }
 async function apiHas(page, id, query) {
   const res = await page.request.get(base + '/api/v1/search/books?' + new URLSearchParams(query));
@@ -59,7 +59,7 @@ async function snapshot(page, name) {
   }));
   assert(x.doc <= x.viewport + 1 && x.body <= x.viewport + 1,
     name + ': horizontal overflow ' + JSON.stringify(x));
-  assert(await page.getByRole('heading', { name: 'Выберите свою следующую историю' }).isVisible(),
+  assert(await page.getByRole('heading', { name: 'Каталог', exact: true }).isVisible(),
     name + ': missing catalog heading');
   await page.screenshot({ path: path.join(shots, 'search-' + name + '.png'), fullPage: true });
 }

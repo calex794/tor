@@ -142,3 +142,240 @@ body {
   .home-section-header-row { flex-direction: column; align-items: flex-start; }
   .home-showcase { grid-template-columns: 1fr; }
 }
+
+
+/* H-web-02 — original NEwBOO form and mascot. Existing Rust/PG validation
+   and strict script-src none are preserved. The panda remains useful without JS.
+   Source: newboo/backend/app/web/static/css/components/auth-shell.css */
+:root {
+  --auth-panda-ink: #101317;
+  --auth-panda-face: #fff;
+  --auth-panda-highlight: rgba(255,255,255,.88);
+}
+.auth-section { background: var(--bg-main); }
+.auth-card--newboo {
+  width: min(510px, 100%);
+  display: grid;
+  gap: 18px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--text-main) 8%, transparent);
+  border-radius: var(--radius-xl);
+}
+.auth-card--newboo .auth-card__header {
+  display: grid;
+  gap: 7px;
+}
+.auth-card--newboo .auth-card__header > * { margin: 0; }
+.auth-card--newboo .auth-card__kicker {
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.auth-card--newboo .auth-card__title {
+  color: var(--text-main);
+  font-size: clamp(30px,7vw,42px);
+  line-height: 1.05;
+}
+.auth-card--newboo .auth-card__text {
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.auth-card--newboo .auth-form {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.auth-card--newboo .auth-form label { color: var(--text-main); }
+.auth-card--newboo .auth-form input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dark);
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+.auth-card--newboo .auth-form input:focus-visible {
+  outline: 0;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--focus-ring-color);
+}
+.auth-card--newboo .auth-card__footer { margin: 0; color: var(--text-muted); }
+.auth-card--newboo .auth-card__footer a { color: var(--primary-color); }
+.auth-card--newboo .auth-form__help { margin: -10px 0 7px; }
+
+/* Pandaolate auth mascot. The card keeps the actual form as the main focus;
+   the panda only peeks over the edge and uses two tiny paw poses: resting on the
+   card in the normal state, then covering the glasses in the password state. */
+.auth-card--newboo {
+  position: relative;
+  margin-top: 96px;
+  padding-top: 110px;
+  overflow: visible;
+}
+.auth-panda {
+  position: absolute;
+  z-index: 0;
+  top: -112px;
+  left: 50%;
+  width: 254px;
+  height: 186px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+.auth-panda__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--text-main) 8%, transparent));
+}
+.auth-panda__ear,
+.auth-panda__patch,
+.auth-panda__nose,
+.auth-panda__pupil,
+.auth-panda__paw,
+.auth-panda__arm-stroke {
+  fill: var(--auth-panda-ink);
+}
+.auth-panda__face,
+.auth-panda__eye-white {
+  fill: var(--auth-panda-face);
+}
+.auth-panda__face {
+  stroke: var(--auth-panda-ink);
+  stroke-width: 4.5;
+}
+.auth-panda__tuft,
+.auth-panda__whisker,
+.auth-panda__brow,
+.auth-panda__mouth,
+.auth-panda__glasses {
+  fill: none;
+  stroke: var(--auth-panda-ink);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.auth-panda__tuft {
+  stroke-width: 3.5;
+}
+.auth-panda__whisker {
+  stroke-width: 2.8;
+}
+.auth-panda__brow {
+  stroke-width: 6.5;
+}
+.auth-panda__mouth {
+  stroke-width: 3.8;
+}
+.auth-panda__glasses {
+  stroke-width: 6.5;
+}
+.auth-panda__spark,
+.auth-panda__claw {
+  fill: var(--auth-panda-highlight);
+}
+.auth-panda__head {
+  transform-box: view-box;
+  transform-origin: 130px 122px;
+  transition: transform 240ms cubic-bezier(0.2, 0.78, 0.25, 1);
+}
+.auth-panda__eye--left,
+.auth-panda__eye--right {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 180ms ease;
+}
+.auth-panda__rest-paw,
+.auth-panda__cover-arm {
+  transform-box: view-box;
+  transform-origin: center;
+  transition: transform 320ms cubic-bezier(0.22, 0.9, 0.24, 1), opacity 220ms ease;
+}
+.auth-panda__rest-paws {
+  transition: opacity 180ms ease;
+}
+.auth-panda__cover-arm--left {
+  transform-origin: 82px 148px;
+  transform: translateY(10px) rotate(-10deg);
+  opacity: 0;
+}
+.auth-panda__cover-arm--right {
+  transform-origin: 178px 148px;
+  transform: translateY(10px) rotate(10deg);
+  opacity: 0;
+}
+.auth-panda.is-watching .auth-panda__head {
+  transform: translateY(3px);
+}
+.auth-panda.is-watching .auth-panda__eye--left,
+.auth-panda.is-watching .auth-panda__eye--right {
+  transform: translateY(3px);
+}
+.auth-panda.is-watching .auth-panda__rest-paw--left,
+.auth-panda.is-watching .auth-panda__rest-paw--right {
+  transform: translateY(-2px);
+}
+.auth-panda.is-hiding-password .auth-panda__head {
+  transform: translateY(5px);
+}
+.auth-panda.is-hiding-password .auth-panda__rest-paws {
+  opacity: 0;
+}
+.auth-panda.is-hiding-password .auth-panda__rest-paw--left {
+  transform: translate(-5px, 6px) rotate(-12deg);
+}
+.auth-panda.is-hiding-password .auth-panda__rest-paw--right {
+  transform: translate(5px, 6px) rotate(12deg);
+}
+.auth-panda.is-hiding-password .auth-panda__cover-arm--left {
+  transform: translateY(0) rotate(0deg);
+  opacity: 1;
+}
+.auth-panda.is-hiding-password .auth-panda__cover-arm--right {
+  transform: translateY(0) rotate(0deg);
+  opacity: 1;
+}
+/* Keep real form content above the mascot body where the two overlap. */
+.auth-card__header,
+.auth-form,
+.auth-oauth-divider,
+.auth-hint,
+.auth-card > .ui-alert,
+.auth-card > .ui-button {
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 640px) {
+  .auth-card--newboo {
+    margin-top: 78px;
+    padding-top: 92px;
+  }
+  .auth-panda {
+    top: -98px;
+    width: 224px;
+    height: 164px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-panda__head,
+  .auth-panda__eye--left,
+  .auth-panda__eye--right,
+  .auth-panda__rest-paw,
+  .auth-panda__rest-paws,
+  .auth-panda__cover-arm {
+    transition-duration: 1ms;
+  }
+}
+
+
+/* Original mascot's password-cover pose without adding script to CSP-protected
+   registration/login. Chromium & modern browsers support :has(). */
+.auth-card--newboo:has(input[type=password]:focus) .auth-panda__head { transform: translateY(5px); }
+.auth-card--newboo:has(input[type=password]:focus) .auth-panda__rest-paws { opacity: 0; }
+.auth-card--newboo:has(input[type=password]:focus) .auth-panda__cover-arm--left,
+.auth-card--newboo:has(input[type=password]:focus) .auth-panda__cover-arm--right {
+  transform: translateY(0) rotate(0deg);
+  opacity: 1;
+}
