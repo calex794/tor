@@ -88,6 +88,7 @@ jobs:
         run: |
           PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO users(id,email_normalized,display_name,password_hash)
+          OVERRIDING SYSTEM VALUE
           SELECT id,'cover-'||id||'@example.invalid','CI Cover Owner','$argon2id$test'
             FROM generate_series(901,905) AS id;
           INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
