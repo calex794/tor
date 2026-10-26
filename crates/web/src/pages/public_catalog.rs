@@ -181,3 +181,55 @@ pub fn catalog_search(
         &content,
     )
 }
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+
+    fn book(id: u64, title: &str) -> PublicBookCard {
+        PublicBookCard {
+            id, title: title.to_owned(), language: "ru".to_owned(),
+            author_name: None, genres: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn recent_home_has_real_spotlight_and_shelf_without_fake_ranking() {
+        let html = home_recent(&[book(8, "Последняя книга"), book(3, "Ранняя")]).0;
+        assert!(html.contains("home-spotlight-card"));
+        assert!(html.contains("href=\"/books/8\""));
+        assert!(html.contains("Недавно добавленные"));
+        assert!(html.contains("Ранняя"));
+        assert!(!html.contains("Топ дня"));
+        assert!(!html.contains("Рекомендуем для вас"));
+    }
+
+    #[test]
+    fn recent_home_escapes_untrusted_metadata_everywhere() {
+        let html = home_recent(&[PublicBookCard {
+            id: 17, title: "<script>x</script>".into(), language: "ru".into(),
+            author_name: Some("\" onclick=\"evil".into()),
+            genres: vec!["<img>".into()],
+        }]).0;
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("onclick=\"evil"));
+        assert!(!html.contains("<img>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&quot; onclick=&quot;evil"));
+    }
+
+    #[test]
+    fn empty_recent_home_never_invents_featured_books() {
+        let html = home_recent(&[]).0;
+        assert!(!html.contains("home-spotlight-card"));
+        assert!(html.contains("Каталог пока наполняется"));
+    }
+
+    #[test]
+    fn demo_home_must_not_claim_latest_order() {
+        let html = home(&[book(1, "Demo")]).0;
+        assert!(!html.contains("Недавно добавленные"));
+        assert!(!html.contains("home-spotlight-card"));
+        assert!(html.contains("Опубликованные книги"));
+    }
+}
