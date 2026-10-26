@@ -164,7 +164,10 @@ async fn create_chapter(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let outcome = if is_public {
-        state.authoring.create_pending_free_chapter(actor, &request).await
+        state
+            .authoring
+            .create_pending_free_chapter(actor, &request)
+            .await
     } else {
         state.authoring.create_free_chapter(actor, &request).await
     };
