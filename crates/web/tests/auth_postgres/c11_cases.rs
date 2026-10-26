@@ -128,3 +128,46 @@ pub(super) async fn reader_and_progress_share_access_policy(
     assert_eq!(forged.headers()[header::CACHE_CONTROL], "no-store");
     assert!(body_of(forged).await.is_empty());
 }
+
+pub(super) async fn reopened_reader_has_saved_anchor(app: &Router, session: &str) {
+    let resumed = send(app, request("GET", "/read/101", "", session, ORIGIN)).await;
+    assert_eq!(resumed.status(), StatusCode::OK);
+    assert_eq!(resumed.headers()[header::CACHE_CONTROL], "no-store");
+    let html = body_of(resumed).await;
+    assert!(html.contains("href=\"#p-1\""));
+    assert!(html.contains("id=\"p-1\""));
+    assert!(!html.contains("Место ещё не сохранено"));
+}
+
+pub(super) async fn resume_after_login(app: &Router, logged: &Response) {
+    let renewed_session = cookie(logged, "tor-dev-session=");
+    let library = send(
+        app,
+        request("GET", "/me/library", "", &renewed_session, ORIGIN),
+    )
+    .await;
+    assert_eq!(library.status(), StatusCode::OK);
+    assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(body_of(library).await.contains("href=\"/read/101#p-1\""));
+    reopened_reader_has_saved_anchor(app, &renewed_session).await;
+}
+
+pub(super) async fn second_session_reads_saved_progress(app: &Router, session: &str) {
+    let reply = send(
+        app,
+        json_request(
+            "GET",
+            "/api/v1/me/progress/free?chapter_id=101",
+            "",
+            session,
+            ORIGIN,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(reply.status(), StatusCode::OK);
+    assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+    let json = body_of(reply).await;
+    assert!(json.contains(r#""revision":2"#));
+    assert!(json.contains(r#""char_offset":1"#));
+}

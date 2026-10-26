@@ -1,0 +1,32 @@
+<!-- Adapted from NEwBOO templates/books/detail.html, book-hero.css and book-section.css.
+     Only fields and actions already supported by TOR are rendered. -->
+<section class="book-detail-page">
+  <div class="container book-detail-page__container">
+    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+      <a href="/">Главная</a><span aria-hidden="true">/</span>
+      <a href="/catalog">Каталог</a><span aria-hidden="true">/</span>
+      <span aria-current="page"><!--BOOK_TITLE--></span>
+    </nav>
+    <section class="book-hero-card" aria-labelledby="book-title">
+      <div class="book-hero-card__cover-col">
+        <div class="book-cover-xl" aria-label="Обложка пока не загружена">
+          <span>Нет обложки</span>
+        </div>
+        <div class="book-hero-actions" aria-label="Действия с книгой">
+          <!--PRIMARY_ACTION-->
+          <!--LIBRARY_ACTION-->
+        </div>
+      </div>
+      <div class="book-hero-card__body">
+        <p class="book-hero-card__kicker">Книга · <!--BOOK_LANGUAGE--></p>
+        <h1 class="book-hero-card__title" id="book-title"><!--BOOK_TITLE--></h1>
+        <div class="book-hero-card__facts">
+          <span>Язык перевода: <!--BOOK_LANGUAGE--></span>
+        </div>
+        <!--BOOK_CREDITS-->
+        <p class="book-hero-card__description"><!--BOOK_DESCRIPTION--></p>
+      </div>
+    </section>
+    <!--CHAPTERS-->
+  </div>
+</section>

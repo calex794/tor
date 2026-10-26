@@ -256,3 +256,179 @@ async fn f_03_revocation_removes_author_genre_and_title_from_public_search() {
         .unwrap();
     assert!(!deleted.items.iter().any(|book| book.id == id as u64));
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL fixtures"]
+async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
+    use tor_search::{repositories::showcases::PgShowcases, services::showcases::RecentShowcases};
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let db: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(db, "tor_ci", "must never mutate a production database");
+
+    // Insert the public book before two larger private IDs. Filtering must
+    // happen in SQL before LIMIT 1, not in the view/service after paging.
+    let rows = [
+        ("ci:f04:visible", "F04 доступно", "public", false),
+        ("ci:f04:held", "F04 блокировано", "public", true),
+        ("ci:f04:draft", "F04 черновик", "draft", false),
+    ];
+    let mut visible_id = 0_i64;
+    for (source, title, visibility, held) in rows {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books
+                (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
+             VALUES ($1,'ru',$2,'Автор F04',ARRAY['f04-test-genre'],$3,$4,FALSE)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,genres=EXCLUDED.genres,
+                           author_name=EXCLUDED.author_name,
+                           visibility=EXCLUDED.visibility,admin_hold=EXCLUDED.admin_hold,
+                           is_deleted=FALSE RETURNING id",
+        )
+        .bind(source)
+        .bind(title)
+        .bind(visibility)
+        .bind(held)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if source == "ci:f04:visible" {
+            visible_id = id;
+        }
+    }
+
+    let repository = PgShowcases::new(pool.clone());
+    let service = RecentShowcases::new(&repository);
+    let listed = service
+        .latest_added(Some(" F04-TEST-GENRE "), 1)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, visible_id as u64);
+    assert_eq!(listed[0].author_name, "Автор F04");
+    assert_eq!(listed[0].genres, vec!["f04-test-genre".to_owned()]);
+
+    // No cache: each transition must be reflected in the very next request.
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL fixtures"]
+async fn f_02_both_keyset_orders_skip_private_rows_without_gaps_or_duplicates() {
+    use std::collections::HashSet;
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never mutate production");
+
+    // 27 published + 3 larger private IDs, all carrying the same genre.
+    // Their source identities isolate this case from concurrently running tests.
+    let mut expected = Vec::<u64>::new();
+    for index in 0..30 {
+        let identity = format!("ci:f02:keyset:{index:03}");
+        let visible = index < 27;
+        let visibility = if index == 27 { "draft" } else { "public" };
+        let held = index == 28;
+        let deleted = index == 29;
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
+             VALUES ($1,'ru',$2,'Keyset Author',ARRAY['f02-keyset'],$3,$4,$5)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold,is_deleted=EXCLUDED.is_deleted
+             RETURNING id",
+        )
+        .bind(&identity)
+        .bind(format!("F02 Book {index:03}"))
+        .bind(visibility)
+        .bind(held)
+        .bind(deleted)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if visible {
+            expected.push(u64::try_from(id).unwrap());
+        }
+    }
+    expected.sort_unstable();
+    let repo = PgSearch::new(pool);
+    for (sort, ascending) in [("oldest", true), ("newest", false)] {
+        let mut actual = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut visited = HashSet::new();
+        for _ in 0..10 {
+            let page = repo
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-keyset"),
+                    cursor.as_deref(),
+                    5,
+                    Some(sort),
+                )
+                .await
+                .unwrap();
+            assert!(page.items.len() <= 5);
+            for item in page.items {
+                assert!(visited.insert(item.id), "duplicate on {sort}");
+                actual.push(item.id);
+            }
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        let mut expected_for_sort = expected.clone();
+        if !ascending {
+            expected_for_sort.reverse();
+        }
+        assert_eq!(actual, expected_for_sort, "cursor order {sort}");
+    }
+    assert_eq!(
+        repo.search_faceted_sorted("", None, None, None, 20, Some("bogus"))
+            .await,
+        Err(SearchError::Invalid),
+    );
+    assert_eq!(
+        repo.search_faceted_sorted("", None, None, Some("01"), 20, Some("newest"))
+            .await,
+        Err(SearchError::Invalid),
+    );
+}

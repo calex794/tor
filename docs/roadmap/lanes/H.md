@@ -3,6 +3,8 @@
 **Дополнение 26.10 (PREF):** [OpenAPI contracts и Origin/CSRF](../contracts/api-evolution-v1.md), [paid S3/WebCrypto](../contracts/paid-delivery-v1.md), [reader signals](../contracts/events-analytics-v1.md), [release browser gates](../contracts/release-profile-v1.md). HTML повторяет сервисы JSON; платный plaintext не должен идти через Rust/общий cache.
 
 
+**Контроль внешнего вида:** [исходные шаблоны и реестр потерь при переносе NEwBOO](../newboo-web-parity.md). Визуальный паритет исходного `backend/app/web` — обязательная отдельная приёмка; один работающий Rust маршрут не означает восстановленный интерфейс.
+
 **Статус:** пооперационный *план реализации*, не отчёт о готовом коде. Связанные карточки [Tela](https://telawiki.com/spaces/430/pages/7733/h-main) и каноническая [матрица сценариев](https://app.notion.com/p/ea10f617944046b6bf37dc8473f41c2d). Весь код только в TOR. Источники: [NEwBOO 17125ef758](https://github.com/HeisLuka/newboo/tree/17125ef758a791e9630505c14d24f7fe65aed228), [bokarust d11b27b431](https://github.com/calex794/bokarust/tree/d11b27b43125b93e59809147e8e687203fa0753b).
 
 **Решения уже приняты:** [архитектура](../decisions-v1.md), [API](../api-v1.md), [схема PG, события и лимиты](../data-and-events.md), [режим тестов/фикстуры](../tests-and-handoffs.md). Фраза «сверить» в старой карточке означает **доказать соответствие выбранному контракту**, а не придумать новую архитектуру.

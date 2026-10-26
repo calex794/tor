@@ -67,6 +67,27 @@
     },
     {
       "method": "GET",
+      "template": "/assets/brand/pandaolate-header-dark.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::brand_logo_dark",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/brand/pandaolate-header.png",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::brand_logo",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo.css",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::newboo_stylesheet",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/site.css",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::stylesheet",

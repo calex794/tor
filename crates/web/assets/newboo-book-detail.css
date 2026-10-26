@@ -1,0 +1,101 @@
+/* H-web-04: faithful public book hero from NEwBOO components/book-hero.css,
+   components/book-section.css and pages/book-detail.css. No unsupported actions. */
+.book-detail-page { padding: 32px 0 56px; }
+.book-detail-page__container { display: flex; flex-direction: column; gap: 28px; }
+.book-detail-page .breadcrumbs { display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; color: var(--text-muted); }
+.book-detail-page .breadcrumbs a { color: var(--primary-color); }
+.book-hero-card {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  padding: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  box-shadow: 0 18px 45px color-mix(in srgb, var(--text-main) 7%, transparent);
+}
+.book-hero-card__cover-col { display: flex; flex-direction: column; gap: 16px; }
+.book-cover-xl {
+  position: relative;
+  display: flex;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--book-card-cover-bg);
+  color: var(--book-card-cover-text);
+  font-weight: 800;
+  text-align: center;
+}
+.book-hero-actions { display: flex; flex-direction: column; gap: 10px; }
+.book-hero-actions .ui-button { width: 100%; min-height: 44px; text-align: center; }
+.book-hero-actions .ui-button--ghost {
+  border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 7%, var(--bg-surface));
+  color: var(--text-main);
+}
+.book-hero-card__body { min-width: 0; padding-top: 4px; }
+.book-hero-card__kicker {
+  margin: 0 0 12px;
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.book-hero-card__title {
+  margin: 0;
+  color: var(--text-main);
+  font-size: clamp(32px, 4vw, 56px);
+  font-weight: 950;
+  line-height: .98;
+  letter-spacing: -.06em;
+  overflow-wrap: anywhere;
+}
+.book-hero-card__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+.book-hero-card__credits { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 16px; color: var(--text-secondary); font-size: 14px; }
+.book-hero-card__credit { display: inline-flex; gap: 6px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.book-hero-card__credit-label { color: var(--text-muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.book-hero-card__description {
+  max-width: 760px;
+  margin: 20px 0 0;
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.book-section-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--text-main) 5%, transparent);
+}
+.book-section-card__kicker { margin: 0 0 6px; color: var(--primary-color); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.book-section-card__title { margin: 0 0 16px; color: var(--text-main); font-size: 24px; font-weight: 900; letter-spacing: -.035em; }
+.book-detail-page .chapter-toc__list { min-width: 0; }
+.book-detail-page .chapter-toc__item { min-width: 0; overflow-wrap: anywhere; }
+.book-detail-page .chapter-toc__more { margin-top: 18px; }
+@media (max-width: 760px) {
+  .book-hero-card { grid-template-columns: minmax(0, 1fr); padding: 18px; gap: 20px; border-radius: 20px; }
+  .book-hero-card__cover-col { width: min(220px, 100%); margin-inline: auto; }
+  .book-hero-card__title { font-size: clamp(30px, 8vw, 44px); }
+  .book-detail-page { padding: 20px 0 40px; }
+  .book-section-card { padding: 14px; }
+  .book-section-card__title { font-size: 22px; }
+}

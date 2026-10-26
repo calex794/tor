@@ -9,15 +9,8 @@ mod account;
 pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
-
-#[derive(Clone, Debug)]
-pub struct PublicBookCard {
-    pub id: u64,
-    pub title: String,
-    pub language: String,
-    pub author_name: Option<String>,
-    pub genres: Vec<String>,
-}
+mod public_catalog;
+pub use public_catalog::{catalog, catalog_search, home, PublicBookCard};
 
 pub fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -43,117 +36,9 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
     )
 }
 
-fn book_cards(books: &[PublicBookCard]) -> String {
-    if books.is_empty() {
-        return "<p class=\"empty-state\">В каталоге пока нет опубликованных книг.</p>".to_owned();
-    }
-    let mut html = String::new();
-    for book in books {
-        let title = escape_html(&book.title);
-        let language = escape_html(&book.language);
-        let mut details = String::new();
-        if let Some(author) = &book.author_name {
-            write!(
-                details,
-                "<p class=\"book-card__meta\">Автор: {}</p>",
-                escape_html(author)
-            )
-            .expect("format String");
-        }
-        if !book.genres.is_empty() {
-            write!(
-                details,
-                "<p class=\"book-card__meta\">Жанры: {}</p>",
-                escape_html(&book.genres.join(", "))
-            )
-            .expect("format String");
-        }
-        write!(
-            html,
-            "<article class=\"book-card\"><div class=\"book-card__cover\" aria-hidden=\"true\">К</div><div class=\"book-card__body\"><span class=\"book-card__label\">Книга · {language}</span><h3 class=\"book-card__title\"><a href=\"/books/{}\">{title}</a></h3>{details}</div></article>",
-            book.id
-        ).expect("format String");
-    }
-    html
-}
-
-pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    let content =
-        include_str!("../templates/home.html").replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
-    layout(
-        "Главная",
-        "Пандаолейт — демонстрационный каталог без пользовательских данных.",
-        &content,
-    )
-}
-
-pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
-    let content = include_str!("../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
-        .replace("<!--SEARCH_FORM-->", "");
-    layout(
-        "Каталог",
-        "Опубликованные книги и переводы на Пандаолейт.",
-        &content,
-    )
-}
-
-fn encode_search_term(value: &str) -> String {
-    let mut result = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
-            result.push(char::from(byte));
-        } else {
-            write!(result, "%{byte:02X}").expect("string write");
-        }
-    }
-    result
-}
-
-pub fn catalog_search(
-    books: &[PublicBookCard],
-    query: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
-    cursor: Option<&str>,
-) -> Html<String> {
-    let mut controls = format!(
-        r#"<form action="/catalog" method="get" role="search" class="catalog-search"><label for="book-query">Название или автор</label><input id="book-query" type="search" name="q" maxlength="80" value="{}"><label for="book-genre">Жанр</label><input id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="фэнтези"><label for="book-language">Язык перевода</label><input id="book-language" type="text" name="language" maxlength="32" placeholder="ru" value="{}"><button class="button button--small" type="submit">Найти</button></form>"#,
-        escape_html(query),
-        escape_html(genre.unwrap_or("")),
-        escape_html(language.unwrap_or("")),
-    );
-    if let Some(cursor) = cursor {
-        let language_param = language
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;language={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let genre_param = genre
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;genre={}", encode_search_term(value)))
-            .unwrap_or_default();
-        write!(
-            controls,
-            r#"<nav aria-label="Следующая страница поиска"><a href="/catalog?q={}{}{}&amp;after={}">Следующие книги</a></nav>"#,
-            encode_search_term(query),
-            language_param,
-            genre_param,
-            escape_html(cursor),
-        ).expect("string write");
-    }
-    let content = include_str!("../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
-        .replace("<!--SEARCH_FORM-->", &controls);
-    layout(
-        "Каталог",
-        "Поиск опубликованных книг на Пандаолейт.",
-        &content,
-    )
-}
-
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None)
+    book_detail_body(book, None, None)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
@@ -180,13 +65,15 @@ pub fn book_detail_with_chapters(
                     items,
                     "<li class=\"chapter-toc__item chapter-toc__item--paid\"><span>Глава {}. {title}</span><span class=\"chapter-toc__badge\">Платная · пока недоступна</span></li>",
                     chapter.number
-                ).expect("writing String");
+                )
+                .expect("writing String");
             } else {
                 write!(
                     items,
                     "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
                     chapter.id, chapter.number
-                ).expect("writing String");
+                )
+                .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -199,17 +86,24 @@ pub fn book_detail_with_chapters(
         )
         .expect("writing String");
     }
-    items.push_str(&format!(
-        "<p><a class=\"button button--small\" href=\"/me/library/add/{}\">Добавить в библиотеку</a></p>",
-        book.id
-    ));
     let section = format!(
-        "<section class=\"section chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><div class=\"container\"><p class=\"eyebrow\">Оглавление</p><h2 id=\"toc-title\">Главы книги</h2>{items}</div></section>"
+        "<section class=\"book-section-card chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><p class=\"book-section-card__kicker\">Оглавление</p><h2 class=\"book-section-card__title\" id=\"toc-title\">Главы книги</h2>{items}</section>"
     );
-    book_detail_body(&card, Some(&section))
+    // The CTA is only a chapter already verified as public and free by PgReader.
+    // We never produce a paid chapter link or invent rights from bookmarks.
+    let first_free = book
+        .chapters
+        .iter()
+        .find(|chapter| !chapter.is_paid)
+        .map(|chapter| chapter.id);
+    book_detail_body(&card, Some(&section), first_free)
 }
 
-fn book_detail_body(book: &PublicBookCard, toc: Option<&str>) -> Html<String> {
+fn book_detail_body(
+    book: &PublicBookCard,
+    toc: Option<&str>,
+    first_free: Option<u64>,
+) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
     let description = if toc.is_some() {
@@ -217,34 +111,58 @@ fn book_detail_body(book: &PublicBookCard, toc: Option<&str>) -> Html<String> {
     } else {
         "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
     };
-    let body = format!(
-        "<section class=\"section book-detail-page\"><div class=\"container\">\
-         <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\">\
-         <a href=\"/\">Главная</a><span aria-hidden=\"true\">/</span>\
-         <a href=\"/catalog\">Каталог</a><span aria-hidden=\"true\">/</span>\
-         <span aria-current=\"page\">{title}</span></nav>\
-         <div class=\"book-detail__layout\">\
-         <div class=\"book-detail__art\" aria-hidden=\"true\"><span>П</span></div>\
-         <div class=\"book-detail__info\">\
-         <p class=\"eyebrow\">Книга · {language}</p><h1>{title}</h1>\
-         <p class=\"book-detail__description\">{description}</p>\
-         <div class=\"book-detail__actions\">\
-         <a class=\"button\" href=\"{action}\" >{label}</a>\
-         <span class=\"book-detail__note\">Вход для просмотра каталога не требуется</span>\
-         </div></div></div></div></section>{toc}",
-        action = if toc.is_some() {
-            "#chapters"
-        } else {
-            "/catalog"
-        },
-        label = if toc.is_some() {
-            "К оглавлению"
-        } else {
-            "Вернуться к книгам"
-        },
-        toc = toc.unwrap_or("")
-    );
-    layout(&book.title, "Карточка книги в каталоге Пандаолейт.", &body)
+    let action = if let Some(id) = first_free {
+        format!("<a class=\"ui-button ui-button--primary\" href=\"/reader/{id}\">Читать доступную главу</a>")
+    } else if toc.is_some() {
+        "<a class=\"ui-button ui-button--primary\" href=\"#chapters\">Посмотреть главы</a>"
+            .to_owned()
+    } else {
+        "<a class=\"ui-button ui-button--ghost\" href=\"/catalog\">Вернуться к книгам</a>"
+            .to_owned()
+    };
+    let library_action = if toc.is_some() {
+        format!(
+            "<a class=\"ui-button ui-button--ghost book-hero-actions__library\" href=\"/me/library/add/{}\">Добавить в библиотеку</a>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
+    let mut credits = String::new();
+    if let Some(author) = &book.author_name {
+        write!(
+            credits,
+            "<span class=\"book-hero-card__credit\"><span class=\"book-hero-card__credit-label\">Автор</span>{}</span>",
+            escape_html(author)
+        )
+        .expect("write author");
+    }
+    if !book.genres.is_empty() {
+        write!(
+            credits,
+            "<span class=\"book-hero-card__credit\"><span class=\"book-hero-card__credit-label\">Жанры</span>{}</span>",
+            escape_html(&book.genres.join(", "))
+        )
+        .expect("write genres");
+    }
+    let credits = if credits.is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"book-hero-card__credits\">{credits}</div>")
+    };
+    let content = include_str!("../templates/book_detail.html")
+        .replace("<!--BOOK_TITLE-->", &title)
+        .replace("<!--BOOK_LANGUAGE-->", &language)
+        .replace("<!--BOOK_DESCRIPTION-->", description)
+        .replace("<!--BOOK_CREDITS-->", &credits)
+        .replace("<!--PRIMARY_ACTION-->", &action)
+        .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace("<!--CHAPTERS-->", toc.unwrap_or(""));
+    layout(
+        &book.title,
+        "Карточка книги в каталоге Пандаолейт.",
+        &content,
+    )
 }
 
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
@@ -441,6 +359,46 @@ pub async fn stylesheet() -> impl IntoResponse {
     )
 }
 
+/// NEwBOO public design tokens, components and layout, kept separate from
+/// the functioning reader/author styles until their port is independently tested.
+pub async fn newboo_stylesheet() -> impl IntoResponse {
+    static CSS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        let mut css = String::from(include_str!("../assets/newboo-port.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-book-detail.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-reader.css"));
+        css
+    });
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        CSS.as_str(),
+    )
+}
+
+pub async fn brand_logo() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../assets/brand/pandaolate-header.png").as_slice(),
+    )
+}
+
+pub async fn brand_logo_dark() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_bytes!("../assets/brand/pandaolate-header-dark.png").as_slice(),
+    )
+}
+
 pub fn inactive_account_page(title: &str) -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")],
      layout(title, "Аккаунты пока недоступны.", "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Профиль читателя</p><h1>Аккаунты пока не открыты</h1><p class=\"page-description\">Вход и регистрация будут доступны после завершения проверки безопасности и подключения постоянной базы данных. Сейчас каталог можно просматривать без аккаунта.</p><a class=\"button\" href=\"/catalog\">Перейти в каталог</a></div></div></section>"))
@@ -476,6 +434,7 @@ mod tests {
             None,
             Some("фэнтези"),
             None,
+            "oldest",
         )
         .0;
         assert!(html.contains("&lt;img"));
@@ -554,5 +513,86 @@ mod tests {
         assert!(!html.contains("Анализ ваших переходов"));
         assert!(!html.contains("/me/behavior"));
         assert!(!html.contains("RIL_BEHAVIOR_CONTROLS"));
+    }
+
+    #[test]
+    fn ne_wboo_public_shell_and_catalog_reuse_source_components() {
+        let html = catalog(&[PublicBookCard {
+            id: 4,
+            title: "Старый <каталог>".into(),
+            language: "ru".into(),
+            author_name: Some("Автор".into()),
+            genres: vec!["Фэнтези".into()],
+        }])
+        .0;
+        assert!(html.contains("site-logo"));
+        assert!(html.contains("href=\"/assets/newboo.css\""));
+        assert!(html.contains("book-mini-card book-mini-card--compact"));
+        assert!(html.contains("Старый &lt;каталог&gt;"));
+        assert!(!html.contains("Старый <каталог>"));
+        assert!(html.contains("href=\"/books/4\""));
+        assert!(html.contains("Автор: Автор"));
+        assert!(html.contains("Жанры: Фэнтези"));
+        assert!(html.contains("Нижняя навигация"));
+        assert!(!html.contains("Выберите свою следующую историю"));
+    }
+
+    #[test]
+    fn source_brand_is_exactly_a_png() {
+        assert!(include_bytes!("../assets/brand/pandaolate-header.png").starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn ne_wboo_book_detail_uses_original_hero_without_fake_cover_or_leaked_html() {
+        let page = book_detail(&PublicBookCard {
+            id: 15,
+            title: "<script>Книга</script>".into(),
+            language: "ru".into(),
+            author_name: Some("<Автор>".into()),
+            genres: vec!["Фэнтези".into()],
+        })
+        .0;
+        assert!(page.contains("book-hero-card"));
+        assert!(page.contains("book-cover-xl"));
+        assert!(page.contains("Нет обложки"));
+        assert!(page.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+        assert!(!page.contains("<script>Книга</script>"));
+        assert!(page.contains("&lt;Автор&gt;"));
+        assert!(page.contains("Фэнтези"));
+        assert!(page.contains("href=\"/catalog\""));
+        assert!(!page.contains("href=\"/reader/"));
+        assert!(!page.contains("href=\"/me/library/add/15\""));
+        assert!(!page.contains("<!--BOOK_CREDITS-->"));
+        assert!(include_str!("../assets/newboo-book-detail.css").contains(".book-hero-card"));
+    }
+
+    #[test]
+    fn book_detail_toc_keeps_approved_library_action_and_free_only_policy() {
+        let book = tor_reading::services::PublicBookPage {
+            id: 7,
+            title: "Публичная".into(),
+            language: "ru".into(),
+            chapters: vec![],
+            next_cursor: None,
+        };
+        let html = book_detail_with_chapters(&book, 20).0;
+        assert!(html.contains("book-section-card chapter-toc"));
+        assert!(html.contains("id=\"chapters\""));
+        assert!(html.contains("href=\"#chapters\""));
+        assert!(html.contains("href=\"/me/library/add/7\""));
+        assert!(!html.contains("href=\"/reader/"));
+        assert!(!html.contains("<!--CHAPTERS-->"));
+    }
+
+    #[test]
+    fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
+        let template = include_str!("../templates/reader.html");
+        assert!(template.contains("reader-topbar"));
+        assert!(template.contains("reader-page__title"));
+        assert!(template.contains("<!--CHAPTER_CONTENT-->"));
+        assert!(template.contains("href=\"/books/<!--BOOK_ID-->\""));
+        assert!(!template.contains("data-reader-theme-cycle"));
+        assert!(!template.contains("Сохранение прогресса появится"));
+        assert!(include_str!("../assets/newboo-reader.css").contains(".reader-topbar__back"));
     }
 }

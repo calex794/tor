@@ -46,6 +46,16 @@ async function inspect(page, name, where) {
       await page.goto(base + '/books/1');
       await page.getByRole('link', { name: /Глава 1\. Начало истории/ }).click();
       await page.waitForURL('**/reader/101');
+      assert(await page.locator('.reader-public .reader-topbar__back[href="/books/1"]').isVisible(),
+        name + ': NEwBOO reader back link missing');
+      assert(await page.locator('.reader-public .reader-topbar__title').isVisible(),
+        name + ': reader topbar missing');
+      assert(await page.locator('.reader-public .reader-page__title').isVisible(),
+        name + ': original chapter heading missing');
+      assert(await page.locator('.reader-public .reader-page__meta').getByText('Бесплатная глава', { exact: false }).isVisible(),
+        name + ': published free chapter label missing');
+      assert(!(await page.content()).includes('data-reader-theme-cycle'),
+        name + ': unimplemented reader settings displayed');
       assert(await page.getByText('Первая строка').count() > 0, name + ': no actual text');
       const html = await page.content();
       assert(!html.includes('<script>alert(1)</script>'), name + ': unsafe author HTML');
@@ -78,6 +88,10 @@ async function inspect(page, name, where) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       await page.goto(base + '/register');
       assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
+      assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
+        name + ': original NEwBOO panda missing on registration');
+      assert(await page.locator('.auth-card__kicker').getByText('Пандаолейт').isVisible(),
+        name + ': original auth header missing');
       assert(await page.locator('form[action="/register"][novalidate]').count() === 1,
         name + ': browser-native English validation must be disabled');
       await inspect(page, name, 'register');
@@ -128,6 +142,14 @@ async function inspect(page, name, where) {
       }
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
+      assert(await page.getByRole('heading', { name: 'Кабинет', exact: true }).isVisible(),
+        name + ': original NEwBOO dashboard heading missing');
+      assert(await page.getByRole('heading', { name: 'Чтение', exact: true }).isVisible(),
+        name + ': reading dashboard section missing');
+      assert(await page.getByRole('heading', { name: 'Работа с книгами', exact: true }).isVisible(),
+        name + ': author dashboard section missing');
+      assert(await page.locator('.dashboard-tile__link[href="/me/books/new"]').isVisible(),
+        name + ': create book tile missing');
       assert(await page.getByRole('link', { name: 'Мои книги' }).isVisible(),
         name + ': author link missing');
       assert(!(await page.content()).includes('Анализ ваших переходов'),
@@ -135,7 +157,7 @@ async function inspect(page, name, where) {
       assert(!(await page.content()).includes('<h2>Приватность</h2>'),
         name + ': obsolete privacy panel still rendered');
       await inspect(page, name, 'me');
-      await page.getByRole('link', { name: 'Моя библиотека' }).click();
+      await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
@@ -177,6 +199,8 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль').fill('TestPassphrase2026');
+      assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
+        name + ': original NEwBOO panda missing on login');
       await inspect(page, name, 'login');
       await page.getByRole('button', { name: 'Войти', exact: true }).click();
       await page.waitForURL('**/me');

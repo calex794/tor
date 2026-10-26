@@ -1,8 +1,12 @@
 <section class="section auth-section">
   <div class="container">
-    <div class="auth-card">
-      <p class="eyebrow">Личный кабинет</p>
-      <h1>Вход</h1>
+    <div class="auth-card auth-card--newboo">
+      <!--AUTH_PANDA-->
+      <header class="auth-card__header">
+        <p class="auth-card__kicker">Пандаолейт</p>
+        <h1 class="auth-card__title">Вход</h1>
+        <p class="auth-card__text">Войдите, чтобы продолжить чтение и открыть личную библиотеку.</p>
+      </header>
       <form class="auth-form" method="post" action="/login" autocomplete="on" novalidate>
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <label for="login-email">Электронная почта</label>
