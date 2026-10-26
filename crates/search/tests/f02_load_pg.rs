@@ -34,10 +34,20 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     assert_eq!(inserted, 100_000);
     println!("F02_100K seed_ms={}", seed_start.elapsed().as_millis());
 
+    // The app role does not own the table and must not receive DDL privileges.
+    // Use the isolated schema-owner connection only for planner statistics.
+    let migrator_url = std::env::var("MIGRATOR_URL").expect("test migrator URL");
+    let migrator = PgPool::connect(&migrator_url).await.unwrap();
+    let identity: (String, String) =
+        sqlx::query_as("SELECT current_database(), current_user")
+            .fetch_one(&migrator)
+            .await
+            .unwrap();
+    assert_eq!(identity, ("tor_ci".to_owned(), "tor_migrator".to_owned()));
     sqlx::query("ANALYZE books")
-        .execute(&pool)
+        .execute(&migrator)
         .await
-        .expect("refresh query statistics");
+        .expect("refresh planner statistics");
 
     // Independent SQL oracle, not the search repository under test.
     let expected: Vec<i64> = sqlx::query_scalar(
