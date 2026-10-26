@@ -22,8 +22,7 @@ fn equal_secret(a: &[u8], b: &[u8]) -> bool {
 /// Never accept the ordinary site cookie or a user-supplied trace ID as authority.
 fn authorized(headers: &HeaderMap, secret: Option<&str>) -> bool {
     let Some(secret) = secret.filter(|value| {
-        (32..=256).contains(&value.len())
-            && value.bytes().all(|byte| (33..=126).contains(&byte))
+        (32..=256).contains(&value.len()) && value.bytes().all(|byte| (33..=126).contains(&byte))
     }) else {
         return false;
     };
@@ -54,8 +53,14 @@ fn secure<T: IntoResponse>(value: T) -> Response {
     let h = response.headers_mut();
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     h.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
-    h.insert(HeaderName::from_static("referrer-policy"), HeaderValue::from_static("no-referrer"));
-    h.insert(HeaderName::from_static("x-frame-options"), HeaderValue::from_static("DENY"));
+    h.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+    h.insert(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
     h.insert(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
@@ -117,7 +122,8 @@ fn trace_details(result: &LookupResult) -> String {
         result.archived,
     );
     match &trace.sqlx {
-        None => details.push_str("<p>SQLx не измерялась: это не означает, что запросов к базе не было.</p>"),
+        None => details
+            .push_str("<p>SQLx не измерялась: это не означает, что запросов к базе не было.</p>"),
         Some(sql) => {
             write!(
                 details,
@@ -200,7 +206,10 @@ async fn respond(
         let _ = (trace_id, socket);
         secure((
             StatusCode::SERVICE_UNAVAILABLE,
-            document(&display, "<section class=\"card\">Архив поддерживается только на Unix.</section>"),
+            document(
+                &display,
+                "<section class=\"card\">Архив поддерживается только на Unix.</section>",
+            ),
         ))
     }
 }
@@ -257,7 +266,8 @@ mod tests {
             Some("id=00000000000000000000000000000010"),
             Some(&secret),
             None,
-        ).await;
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         let contents = to_bytes(response.into_body(), 20_000).await.unwrap();
         let body = String::from_utf8(contents.to_vec()).unwrap();
@@ -268,11 +278,18 @@ mod tests {
     #[tokio::test]
     async fn malformed_input_is_rejected_without_echo() {
         let secret = "a".repeat(48);
-        for query in ["id=<script>", "id=1", "other=1", "id=11111111111111111111111111111111&role=admin"] {
+        for query in [
+            "id=<script>",
+            "id=1",
+            "other=1",
+            "id=11111111111111111111111111111111&role=admin",
+        ] {
             let response = respond(credentials(&secret), Some(query), Some(&secret), None).await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             let body = to_bytes(response.into_body(), 20_000).await.unwrap();
-            assert!(!String::from_utf8(body.to_vec()).unwrap().contains("<script>"));
+            assert!(!String::from_utf8(body.to_vec())
+                .unwrap()
+                .contains("<script>"));
         }
     }
 
@@ -281,7 +298,10 @@ mod tests {
         let secret = "a".repeat(48);
         let mut header = credentials(&secret);
         assert!(authorized(&header, Some(&secret)));
-        header.append(header::AUTHORIZATION, HeaderValue::from_static("Basic Zm9vOmJhcg=="));
+        header.append(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic Zm9vOmJhcg=="),
+        );
         assert!(!authorized(&header, Some(&secret)));
         assert!(!authorized(&credentials(&secret), Some("short")));
         assert!(!authorized(&credentials(&secret), Some("💠")));
@@ -308,7 +328,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "tor-operator-{}-{}",
             std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir(&dir).unwrap();
         let socket = dir.join("trace.sock");
@@ -353,7 +376,8 @@ mod tests {
             Some("id=00000000000000000000000000abcdef"),
             Some(&secret),
             Some(socket),
-        ).await;
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 50_000).await.unwrap();
         let html = String::from_utf8(body.to_vec()).unwrap();
