@@ -19,7 +19,14 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
-async fn send(app: &Router, method: &str, path: &str, form: &str, cookies: &str, origin: &str) -> Response {
+async fn send(
+    app: &Router,
+    method: &str,
+    path: &str,
+    form: &str,
+    cookies: &str,
+    origin: &str,
+) -> Response {
     let request = Request::builder()
         .method(method)
         .uri(path)
@@ -32,25 +39,46 @@ async fn send(app: &Router, method: &str, path: &str, form: &str, cookies: &str,
 }
 
 async fn response_body(reply: Response) -> String {
-    String::from_utf8(to_bytes(reply.into_body(), 128 * 1024).await.unwrap().to_vec()).unwrap()
+    String::from_utf8(
+        to_bytes(reply.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 fn csrf(html: &str) -> String {
     html.split("name=\"csrf_token\" value=\"")
-        .nth(1).unwrap().split('"').next().unwrap().to_owned()
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned()
 }
 
 fn command_key(html: &str) -> String {
     html.split("name=\"command_key\" value=\"")
-        .nth(1).unwrap().split('"').next().unwrap().to_owned()
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned()
 }
 
 fn cookie(reply: &Response, prefix: &str) -> String {
-    reply.headers().get_all(header::SET_COOKIE).iter()
+    reply
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
         .find_map(|value| {
             let s = value.to_str().ok()?;
-            s.starts_with(prefix).then(|| s.split(';').next().unwrap_or("").to_owned())
-        }).expect("csrf cookie on private form")
+            s.starts_with(prefix)
+                .then(|| s.split(';').next().unwrap_or("").to_owned())
+        })
+        .expect("csrf cookie on private form")
 }
 
 #[tokio::test]
@@ -65,36 +93,65 @@ async fn b_03_06_browser_creates_private_chapter_then_releases() {
     let accounts = PgAccounts::from_pool(pool.clone());
     accounts.probe().await.unwrap();
 
-    let owner = accounts.insert_user(
-        "b03-ui-owner@tor-ci.example", "B03 UI Owner", "$argon2id$test"
-    ).await.unwrap();
-    let outsider = accounts.insert_user(
-        "b03-ui-other@tor-ci.example", "B03 UI Other", "$argon2id$test"
-    ).await.unwrap();
+    let owner = accounts
+        .insert_user(
+            "b03-ui-owner@tor-ci.example",
+            "B03 UI Owner",
+            "$argon2id$test",
+        )
+        .await
+        .unwrap();
+    let outsider = accounts
+        .insert_user(
+            "b03-ui-other@tor-ci.example",
+            "B03 UI Other",
+            "$argon2id$test",
+        )
+        .await
+        .unwrap();
 
     let author = PgAuthoring::new(pool.clone());
     let request = new_book(
-        &format!("tor-ci:b03-ui:{owner}"), "ru", "Пример книги", &"b".repeat(43)
-    ).unwrap();
+        &format!("tor-ci:b03-ui:{owner}"),
+        "ru",
+        "Пример книги",
+        &"b".repeat(43),
+    )
+    .unwrap();
     let book_id = author.create_owned_book(owner, &request).await.unwrap();
     let path = format!("/me/books/{book_id}/chapters/new");
     let release_path = format!("/me/books/{book_id}/release");
 
     let token = generate_session_token();
     let digest = session_token_digest(&token);
-    accounts.insert_session(owner, &digest, NonZeroU32::new(3600).unwrap()).await.unwrap();
+    accounts
+        .insert_session(owner, &digest, NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
     let session = format!("tor-dev-session={token}");
     let other_token = generate_session_token();
     let other_digest = session_token_digest(&other_token);
-    accounts.insert_session(outsider, &other_digest, NonZeroU32::new(3600).unwrap()).await.unwrap();
+    accounts
+        .insert_session(outsider, &other_digest, NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
     let other_session = format!("tor-dev-session={other_token}");
 
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, reader, accounts, false, ORIGIN.to_owned()
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
-    assert_eq!(send(&app, "GET", &path, "", "", ORIGIN).await.status(), StatusCode::SEE_OTHER);
     assert_eq!(
-        send(&app, "GET", &path, "", &other_session, ORIGIN).await.status(),
+        send(&app, "GET", &path, "", "", ORIGIN).await.status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        send(&app, "GET", &path, "", &other_session, ORIGIN)
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let form_reply = send(&app, "GET", &path, "", &session, ORIGIN).await;
@@ -111,23 +168,33 @@ async fn b_03_06_browser_creates_private_chapter_then_releases() {
         "number=1&title=Chapter+one&body=Safe+Markdown+text&command_key={key}&csrf_token={token_field}"
     );
     assert_eq!(
-        send(&app, "POST", &path, &form, &session, ORIGIN).await.status(),
+        send(&app, "POST", &path, &form, &session, ORIGIN)
+            .await
+            .status(),
         StatusCode::FORBIDDEN,
         "missing CSRF cookie"
     );
     assert_eq!(
-        send(&app, "POST", &path, &form, &cookies, "https://evil.example").await.status(),
+        send(&app, "POST", &path, &form, &cookies, "https://evil.example")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(&app, "POST", &path, &form, &format!("{other_session}; {csrf_cookie}"), ORIGIN)
-            .await.status(),
+        send(
+            &app,
+            "POST",
+            &path,
+            &form,
+            &format!("{other_session}; {csrf_cookie}"),
+            ORIGIN
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
         "another account may not write this book"
     );
-    let before = send(
-        &app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN
-    ).await;
+    let before = send(&app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN).await;
     assert_eq!(before.status(), StatusCode::NOT_FOUND);
 
     let saved = send(&app, "POST", &path, &form, &cookies, ORIGIN).await;
@@ -137,13 +204,16 @@ async fn b_03_06_browser_creates_private_chapter_then_releases() {
     assert_eq!(replay.status(), StatusCode::SEE_OTHER);
     let changed = form.replace("Safe+Markdown+text", "Different+Markdown+text");
     assert_eq!(
-        send(&app, "POST", &path, &changed, &cookies, ORIGIN).await.status(),
+        send(&app, "POST", &path, &changed, &cookies, ORIGIN)
+            .await
+            .status(),
         StatusCode::CONFLICT
     );
 
     assert_eq!(
         send(&app, "GET", &release_path, "", &other_session, ORIGIN)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let release_page = send(&app, "GET", &release_path, "", &cookies, ORIGIN).await;
@@ -153,36 +223,58 @@ async fn b_03_06_browser_creates_private_chapter_then_releases() {
     let release_body = format!("csrf_token={}", csrf(&release_html));
     assert_eq!(
         send(&app, "POST", &release_path, &release_body, &session, ORIGIN)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(&app, "POST", &release_path, &release_body, &cookies, "https://evil.example")
-            .await.status(),
+        send(
+            &app,
+            "POST",
+            &release_path,
+            &release_body,
+            &cookies,
+            "https://evil.example"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
         send(&app, "POST", &release_path, &release_body, &cookies, ORIGIN)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
         send(&app, "POST", &release_path, &release_body, &cookies, ORIGIN)
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER,
         "release must be idempotent"
     );
-    let public_book = send(
-        &app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN
-    ).await;
+    let public_book = send(&app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN).await;
     assert_eq!(public_book.status(), StatusCode::OK);
     let public_html = response_body(public_book).await;
-    let chapter_ref = public_html.split("href=\"/reader/")
-        .nth(1).expect("published chapter link")
-        .split('"').next().expect("chapter ID");
+    let chapter_ref = public_html
+        .split("href=\"/reader/")
+        .nth(1)
+        .expect("published chapter link")
+        .split('"')
+        .next()
+        .expect("chapter ID");
     let reader_html = response_body(
-        send(&app, "GET", &format!("/reader/{chapter_ref}"), "", "", ORIGIN).await
-    ).await;
+        send(
+            &app,
+            "GET",
+            &format!("/reader/{chapter_ref}"),
+            "",
+            "",
+            ORIGIN,
+        )
+        .await,
+    )
+    .await;
     assert!(reader_html.contains("Safe Markdown text"));
     pool.close().await;
 }
