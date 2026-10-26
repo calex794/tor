@@ -16,7 +16,10 @@ fn registry_is_finite_and_classifies_each_declared_method() {
         assert_eq!(p.risk_hint, registered.risk);
         assert_eq!(p.ril_taxonomy_version, RIL_TAXONOMY_VERSION);
         assert_eq!(p.ril_classifier_version, RIL_CLASSIFIER_VERSION);
-        assert_eq!(p.route_known_definition_version, ROUTE_KNOWN_DEFINITION_VERSION);
+        assert_eq!(
+            p.route_known_definition_version,
+            ROUTE_KNOWN_DEFINITION_VERSION
+        );
     }
     assert_eq!(unique.len(), 17);
 }
@@ -28,10 +31,22 @@ fn public_private_and_write_routes_are_distinct() {
     assert_eq!(get.product_area, ProductArea::Auth);
     assert_eq!(get.cost_class, CostClass::CheapRead);
     assert_eq!(post.cost_class, CostClass::Write);
-    assert_eq!(classify(Some("/read/{id}/place"), "POST").cost_class, CostClass::Write);
-    assert_eq!(classify(Some("/me/library"), "GET").product_area, ProductArea::Reading);
-    assert_eq!(classify(Some("/api/v1/books"), "GET").traffic_surface, TrafficSurface::Api);
-    assert_eq!(classify(Some("/catalog"), "HEAD").cost_class, CostClass::CheapRead);
+    assert_eq!(
+        classify(Some("/read/{id}/place"), "POST").cost_class,
+        CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/library"), "GET").product_area,
+        ProductArea::Reading
+    );
+    assert_eq!(
+        classify(Some("/api/v1/books"), "GET").traffic_surface,
+        TrafficSurface::Api
+    );
+    assert_eq!(
+        classify(Some("/catalog"), "HEAD").cost_class,
+        CostClass::CheapRead
+    );
 }
 
 #[test]
@@ -59,7 +74,11 @@ fn one_hundred_thousand_ids_do_not_create_new_label_series() {
         .map(|_| {
             let p = classify(Some("/books/{id}"), "GET");
             assert_eq!(p.route_match_kind, RouteMatchKind::Prefix);
-            (p.route_family, p.product_area.as_str(), p.cost_class.as_str())
+            (
+                p.route_family,
+                p.product_area.as_str(),
+                p.cost_class.as_str(),
+            )
         })
         .collect();
     assert_eq!(unique_families.len(), 1);
@@ -69,10 +88,22 @@ fn one_hundred_thousand_ids_do_not_create_new_label_series() {
 #[test]
 fn bounded_latency_and_status_buckets() {
     let p = classify(Some("/api/v1/books"), "GET");
-    assert_eq!(RouteObservation::new(p, 200, Duration::from_millis(1)).status_bucket, StatusBucket::Success);
-    assert_eq!(RouteObservation::new(p, 404, Duration::from_millis(20)).latency_bucket, LatencyBucket::Under100Ms);
-    assert_eq!(RouteObservation::new(p, 503, Duration::from_secs(3)).latency_bucket, LatencyBucket::Slow);
-    assert_eq!(RouteObservation::new(p, 503, Duration::from_secs(3)).status_bucket, StatusBucket::ServerError);
+    assert_eq!(
+        RouteObservation::new(p, 200, Duration::from_millis(1)).status_bucket,
+        StatusBucket::Success
+    );
+    assert_eq!(
+        RouteObservation::new(p, 404, Duration::from_millis(20)).latency_bucket,
+        LatencyBucket::Under100Ms
+    );
+    assert_eq!(
+        RouteObservation::new(p, 503, Duration::from_secs(3)).latency_bucket,
+        LatencyBucket::Slow
+    );
+    assert_eq!(
+        RouteObservation::new(p, 503, Duration::from_secs(3)).status_bucket,
+        StatusBucket::ServerError
+    );
 }
 
 #[test]
