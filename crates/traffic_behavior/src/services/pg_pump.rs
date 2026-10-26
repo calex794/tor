@@ -169,3 +169,46 @@ impl PgRollupPump {
         })
     }
 }
+
+#[cfg(test)]
+mod vitality_tests {
+    use super::*;
+
+    #[test]
+    fn heartbeat_tracks_cycles_and_failure_streak_without_identity() {
+        let monitor = PgPumpMonitor::default();
+        let first = monitor.snapshot();
+        assert_eq!(first.cycles, 0);
+        assert!(first.age_since_start_s.is_some());
+        monitor.begin();
+        assert!(monitor.snapshot().active);
+        monitor.end(true);
+        assert_eq!(monitor.snapshot().consecutive_failures, 1);
+        monitor.begin();
+        monitor.end(true);
+        monitor.begin();
+        monitor.end(true);
+        let unhealthy = monitor.snapshot();
+        assert_eq!(unhealthy.cycles, 3);
+        assert_eq!(unhealthy.failed_cycles, 3);
+        assert_eq!(unhealthy.consecutive_failures, 3);
+        assert!(unhealthy.age_since_last_completion_s.is_some());
+        monitor.begin();
+        monitor.end(false);
+        let healthy = monitor.snapshot();
+        assert_eq!(healthy.cycles, 4);
+        assert_eq!(healthy.failed_cycles, 3);
+        assert_eq!(healthy.consecutive_failures, 0);
+        assert!(!format!("{healthy:?}").contains("batch_id"));
+    }
+
+    #[test]
+    fn an_active_cycle_is_visible_before_completion() {
+        let monitor = PgPumpMonitor::default();
+        monitor.begin();
+        let view = monitor.snapshot();
+        assert!(view.active);
+        assert!(view.running_for_s.is_some());
+        assert_eq!(view.cycles, 0);
+    }
+}
