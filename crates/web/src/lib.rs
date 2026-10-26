@@ -136,7 +136,12 @@ async fn catalog(
             fandom: query.fandom.as_deref(),
         };
         let page = search
-            .search_catalog(facets, query.after.as_deref(), DEFAULT_PAGE_SIZE, Some(sort))
+            .search_catalog(
+                facets,
+                query.after.as_deref(),
+                DEFAULT_PAGE_SIZE,
+                Some(sort),
+            )
             .await
             .map_err(|error| match error {
                 tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
@@ -146,7 +151,8 @@ async fn catalog(
         // cheap and do not perform a repeated full-filter count.
         let total = if query.after.is_none() {
             Some(
-                search.count_catalog(facets)
+                search
+                    .count_catalog(facets)
                     .await
                     .map_err(|error| match error {
                         tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
@@ -157,7 +163,12 @@ async fn catalog(
             None
         };
         let options = if query.after.is_none() {
-            Some(search.taxonomy_options().await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?)
+            Some(
+                search
+                    .taxonomy_options()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+            )
         } else {
             None
         };

@@ -410,7 +410,8 @@ async fn f_02_http_taxonomy_filters_validate_and_never_change_legacy_api() {
     let (status, json) = get(
         app.clone(),
         "/api/v1/search/books?tag=f02-absent&fandom=f02-absent&sort=newest&include_total=true",
-    ).await;
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(json.contains(r#""total":0"#), "{json}");
     assert!(json.contains(r#""items":[]"#), "{json}");
@@ -420,7 +421,11 @@ async fn f_02_http_taxonomy_filters_validate_and_never_change_legacy_api() {
         "/api/v1/search/books?tag=bad%0Atag",
         "/api/v1/search/books?fandom=bad%2Cfandom",
     ] {
-        assert_eq!(get(app.clone(), path).await.0, StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(
+            get(app.clone(), path).await.0,
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
     }
     let (status, legacy) = get(app, "/api/v1/books").await;
     assert_eq!(status, StatusCode::OK);

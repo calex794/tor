@@ -487,26 +487,49 @@ async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_ch
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES ('f02-tags-owner@tor-ci.example','F02 Owner','$argon2id$test')
          ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
-         RETURNING id"
-    ).fetch_one(&pool).await.unwrap();
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let repo = PgAuthoring::new(pool.clone());
     let key = "t".repeat(43);
     let identity = format!("ci:f02:book-owner:{owner}");
     let request = new_book_with_taxonomy(
-        &identity, "ru", "Книга тегов", &key, "Автор", "Фэнтези",
-        " Магия, магия, Научная фантастика ", "Звёздные войны"
-    ).unwrap();
+        &identity,
+        "ru",
+        "Книга тегов",
+        &key,
+        "Автор",
+        "Фэнтези",
+        " Магия, магия, Научная фантастика ",
+        "Звёздные войны",
+    )
+    .unwrap();
     let id = repo.create_owned_book(owner, &request).await.unwrap();
     assert_eq!(repo.create_owned_book(owner, &request).await, Ok(id));
-    let (visibility, tags, fandoms): (String,Vec<String>,Vec<String>) =
+    let (visibility, tags, fandoms): (String, Vec<String>, Vec<String>) =
         sqlx::query_as("SELECT visibility,tags,fandoms FROM books WHERE id=$1")
-            .bind(id).fetch_one(&pool).await.unwrap();
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(visibility, "draft");
     assert_eq!(tags, vec!["магия", "научная фантастика"]);
     assert_eq!(fandoms, vec!["звёздные войны"]);
     let changed = new_book_with_taxonomy(
-        &identity, "ru", "Книга тегов", &key, "Автор", "Фэнтези",
-        "Другой тег", "Звёздные войны"
-    ).unwrap();
-    assert_eq!(repo.create_owned_book(owner, &changed).await, Err(AuthorError::Conflict));
+        &identity,
+        "ru",
+        "Книга тегов",
+        &key,
+        "Автор",
+        "Фэнтези",
+        "Другой тег",
+        "Звёздные войны",
+    )
+    .unwrap();
+    assert_eq!(
+        repo.create_owned_book(owner, &changed).await,
+        Err(AuthorError::Conflict)
+    );
 }

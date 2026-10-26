@@ -227,20 +227,33 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     // same bounded keyset and count paths, without OFFSET.
     sqlx::query(
         "UPDATE books SET tags=ARRAY['f02-100k-tag'], fandoms=ARRAY['f02-100k-fandom']
-         WHERE source_identity LIKE 'ci:f02:100k:%'"
-    ).execute(&pool).await.unwrap();
+         WHERE source_identity LIKE 'ci:f02:100k:%'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let taxonomy = tor_search::repositories::CatalogFacets {
-        term: "", language: Some("ru"), genre: Some("f02-load"),
-        tag: Some("f02-100k-tag"), fandom: Some("f02-100k-fandom"),
+        term: "",
+        language: Some("ru"),
+        genre: Some("f02-load"),
+        tag: Some("f02-100k-tag"),
+        fandom: Some("f02-100k-fandom"),
     };
     assert_eq!(search.count_catalog(taxonomy).await.unwrap(), 85_000);
-    let first = search.search_catalog(taxonomy, None, 100, Some("title")).await.unwrap();
+    let first = search
+        .search_catalog(taxonomy, None, 100, Some("title"))
+        .await
+        .unwrap();
     assert_eq!(first.items.len(), 100);
-    assert!(first.items.iter().all(|item|
-        item.tags.iter().any(|value| value == "f02-100k-tag")
-        && item.fandoms.iter().any(|value| value == "f02-100k-fandom")
-    ));
-    println!("F02_100K taxonomy_total=85000 first_page={}", first.items.len());
+    assert!(first
+        .items
+        .iter()
+        .all(|item| item.tags.iter().any(|value| value == "f02-100k-tag")
+            && item.fandoms.iter().any(|value| value == "f02-100k-fandom")));
+    println!(
+        "F02_100K taxonomy_total=85000 first_page={}",
+        first.items.len()
+    );
 
     // These are the repository's two static query shapes, with representative
     // midpoint cursors. Record real PostgreSQL execution plans as CI evidence.

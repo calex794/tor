@@ -122,9 +122,8 @@ pub fn new_book_with_taxonomy(
     tags: &str,
     fandoms: &str,
 ) -> Result<NewBook, AuthorError> {
-    let mut book = new_book_with_discovery(
-        source, language, title, command_key, author_name, genres,
-    )?;
+    let mut book =
+        new_book_with_discovery(source, language, title, command_key, author_name, genres)?;
     book.tags = normalize_taxonomy_labels(tags)?;
     book.fandoms = normalize_taxonomy_labels(fandoms)?;
     Ok(book)
@@ -140,11 +139,12 @@ fn normalize_taxonomy_labels(raw: &str) -> Result<Vec<String>, AuthorError> {
     }
     let mut labels = Vec::<String>::new();
     for value in raw.split(',') {
-        let clean = value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-        if clean.is_empty()
-            || clean.chars().count() > 40
-            || value.chars().any(char::is_control)
-        {
+        let clean = value
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        if clean.is_empty() || clean.chars().count() > 40 || value.chars().any(char::is_control) {
             return Err(AuthorError::Invalid);
         }
         if !labels.contains(&clean) {
@@ -321,22 +321,35 @@ mod tests {
     #[test]
     fn b_01_tags_and_fandoms_are_canonical_and_bounded() {
         let book = new_book_with_taxonomy(
-            "source:1", "ru", "Роман", KEY, "Автор", "Фэнтези",
-            " Магия, Космос,магия ", "Наруто, Star Wars",
-        ).unwrap();
+            "source:1",
+            "ru",
+            "Роман",
+            KEY,
+            "Автор",
+            "Фэнтези",
+            " Магия, Космос,магия ",
+            "Наруто, Star Wars",
+        )
+        .unwrap();
         assert_eq!(book.tags, vec!["магия", "космос"]);
         assert_eq!(book.fandoms, vec!["наруто", "star wars"]);
+        assert!(new_book_with_taxonomy("source:1", "ru", "Роман", KEY, "", "", "a,", "").is_err());
+        assert!(
+            new_book_with_taxonomy("source:1", "ru", "Роман", KEY, "", "", "bad\nlabel", "")
+                .is_err()
+        );
         assert!(new_book_with_taxonomy(
-            "source:1", "ru", "Роман", KEY, "", "", "a,", ""
-        ).is_err());
-        assert!(new_book_with_taxonomy(
-            "source:1", "ru", "Роман", KEY, "", "", "bad\nlabel", ""
-        ).is_err());
-        assert!(new_book_with_taxonomy(
-            "source:1", "ru", "Роман", KEY, "", "", "", &"a,".repeat(9)
-        ).is_err());
-        let legacy = new_book_with_discovery("source:1", "ru", "Роман", KEY, "", "")
-            .unwrap();
+            "source:1",
+            "ru",
+            "Роман",
+            KEY,
+            "",
+            "",
+            "",
+            &"a,".repeat(9)
+        )
+        .is_err());
+        let legacy = new_book_with_discovery("source:1", "ru", "Роман", KEY, "", "").unwrap();
         assert!(legacy.tags.is_empty() && legacy.fandoms.is_empty());
     }
 

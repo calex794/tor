@@ -178,7 +178,12 @@ pub fn catalog_search(
         title,
         author,
     );
-    if !query.trim().is_empty() || language.is_some() || genre.is_some() || tag.is_some() || fandom.is_some() {
+    if !query.trim().is_empty()
+        || language.is_some()
+        || genre.is_some()
+        || tag.is_some()
+        || fandom.is_some()
+    {
         controls = controls.replacen(
             "</form>",
             "<a class=\"ui-button ui-button--ghost\" href=\"/catalog\">Сбросить</a></form>",

@@ -696,18 +696,70 @@ async fn f_02_taxonomy_combination_revocation_and_public_options() {
     use tor_search::repositories::CatalogFacets;
     let url = std::env::var("TEST_DATABASE_URL").expect("test database");
     let pool = PgPool::connect(&url).await.unwrap();
-    let db: String = sqlx::query_scalar("SELECT current_database()").fetch_one(&pool).await.unwrap();
+    let db: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(db, "tor_ci", "never mutate live data");
 
     let mut revocable = 0_i64;
     for (name, tags, fandoms, visibility, held, deleted) in [
-        ("a", vec!["f02-a", "f02-common"], vec!["f02-world"], "public", false, false),
-        ("b", vec!["f02-common"], vec!["f02-world"], "public", false, false),
-        ("c", vec!["f02-common"], vec!["f02-other"], "public", false, false),
-        ("d", vec!["f02-other"], vec!["f02-world"], "public", false, false),
-        ("draft", vec!["f02-secret-draft"], vec!["f02-secret-draft"], "draft", false, false),
-        ("held", vec!["f02-secret-hold"], vec!["f02-secret-hold"], "public", true, false),
-        ("deleted", vec!["f02-secret-delete"], vec!["f02-secret-delete"], "public", false, true),
+        (
+            "a",
+            vec!["f02-a", "f02-common"],
+            vec!["f02-world"],
+            "public",
+            false,
+            false,
+        ),
+        (
+            "b",
+            vec!["f02-common"],
+            vec!["f02-world"],
+            "public",
+            false,
+            false,
+        ),
+        (
+            "c",
+            vec!["f02-common"],
+            vec!["f02-other"],
+            "public",
+            false,
+            false,
+        ),
+        (
+            "d",
+            vec!["f02-other"],
+            vec!["f02-world"],
+            "public",
+            false,
+            false,
+        ),
+        (
+            "draft",
+            vec!["f02-secret-draft"],
+            vec!["f02-secret-draft"],
+            "draft",
+            false,
+            false,
+        ),
+        (
+            "held",
+            vec!["f02-secret-hold"],
+            vec!["f02-secret-hold"],
+            "public",
+            true,
+            false,
+        ),
+        (
+            "deleted",
+            vec!["f02-secret-delete"],
+            vec!["f02-secret-delete"],
+            "public",
+            false,
+            true,
+        ),
     ] {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books (source_identity,target_language,title,author_name,genres,tags,fandoms,
@@ -727,55 +779,90 @@ async fn f_02_taxonomy_combination_revocation_and_public_options() {
         .bind(held)
         .bind(deleted)
         .fetch_one(&pool).await.unwrap();
-        if name == "a" { revocable = id; }
+        if name == "a" {
+            revocable = id;
+        }
     }
     let search = PgSearch::new(pool.clone());
     let facets = CatalogFacets {
-        term: "", language: Some(" RU "), genre: Some("Фэнтези"),
-        tag: Some(" F02-COMMON "), fandom: Some("F02-WORLD"),
+        term: "",
+        language: Some(" RU "),
+        genre: Some("Фэнтези"),
+        tag: Some(" F02-COMMON "),
+        fandom: Some("F02-WORLD"),
     };
     assert_eq!(search.count_catalog(facets).await, Ok(2));
     for sort in ["oldest", "newest", "title", "author"] {
         let mut after: Option<String> = None;
         let mut seen = Vec::new();
         for _ in 0..3 {
-            let page = search.search_catalog(facets, after.as_deref(), 1, Some(sort)).await.unwrap();
+            let page = search
+                .search_catalog(facets, after.as_deref(), 1, Some(sort))
+                .await
+                .unwrap();
             seen.extend(page.items.iter().map(|b| b.id));
             after = page.next_cursor;
-            if after.is_none() { break; }
+            if after.is_none() {
+                break;
+            }
         }
         assert_eq!(seen.len(), 2, "missing pages for {sort}");
         assert_ne!(seen[0], seen[1], "duplicate for {sort}");
     }
     assert_eq!(
-        search.search_catalog(
-            CatalogFacets { tag: Some("bad\nvalue"), ..facets }, None, 20, Some("newest")
-        ).await,
+        search
+            .search_catalog(
+                CatalogFacets {
+                    tag: Some("bad\nvalue"),
+                    ..facets
+                },
+                None,
+                20,
+                Some("newest")
+            )
+            .await,
         Err(SearchError::Invalid)
     );
     assert_eq!(
-        search.search_catalog(
-            CatalogFacets { fandom: Some("bad,value"), ..facets }, None, 20, Some("newest")
-        ).await,
+        search
+            .search_catalog(
+                CatalogFacets {
+                    fandom: Some("bad,value"),
+                    ..facets
+                },
+                None,
+                20,
+                Some("newest")
+            )
+            .await,
         Err(SearchError::Invalid)
     );
     assert_eq!(
-        search.count_catalog(CatalogFacets { tag: Some("f02-impossible"), ..facets }).await,
+        search
+            .count_catalog(CatalogFacets {
+                tag: Some("f02-impossible"),
+                ..facets
+            })
+            .await,
         Ok(0)
     );
     let options = search.taxonomy_options().await.unwrap();
     assert!(options.tags.iter().any(|x| x == "f02-common"));
     assert!(options.fandoms.iter().any(|x| x == "f02-world"));
-    for forbidden in [
-        "f02-secret-draft", "f02-secret-hold", "f02-secret-delete"
-    ] {
+    for forbidden in ["f02-secret-draft", "f02-secret-hold", "f02-secret-delete"] {
         assert!(!options.tags.iter().any(|x| x == forbidden));
         assert!(!options.fandoms.iter().any(|x| x == forbidden));
     }
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
-        .bind(revocable).execute(&pool).await.unwrap();
+        .bind(revocable)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(search.count_catalog(facets).await, Ok(1));
-    let remaining = search.search_catalog(facets, None, 20, Some("newest")).await.unwrap();
+    let remaining = search
+        .search_catalog(facets, None, 20, Some("newest"))
+        .await
+        .unwrap();
     assert_eq!(remaining.items.len(), 1);
     assert_ne!(remaining.items[0].id, revocable as u64);
 }

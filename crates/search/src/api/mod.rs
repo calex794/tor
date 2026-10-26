@@ -1,5 +1,8 @@
 //! The public JSON search route exposes only published book metadata.
-use crate::{domain::SearchError, repositories::{CatalogFacets, PgSearch}};
+use crate::{
+    domain::SearchError,
+    repositories::{CatalogFacets, PgSearch},
+};
 use axum::{
     extract::{Query, State},
     http::StatusCode,

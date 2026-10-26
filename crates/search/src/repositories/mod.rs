@@ -50,7 +50,14 @@ impl PgSearch {
         language: Option<&str>,
         genre: Option<&str>,
     ) -> Result<u64, SearchError> {
-        self.count_catalog(CatalogFacets { term, language, genre, tag: None, fandom: None }).await
+        self.count_catalog(CatalogFacets {
+            term,
+            language,
+            genre,
+            tag: None,
+            fandom: None,
+        })
+        .await
     }
 
     pub async fn count_catalog(&self, filters: CatalogFacets<'_>) -> Result<u64, SearchError> {
@@ -59,9 +66,14 @@ impl PgSearch {
         let tag = normalize_genre(filters.tag)?;
         let fandom = normalize_genre(filters.fandom)?;
         catalog::count_filtered(
-            &self.pool, filters.term, language.as_deref(), genre.as_deref(),
-            tag.as_deref(), fandom.as_deref()
-        ).await
+            &self.pool,
+            filters.term,
+            language.as_deref(),
+            genre.as_deref(),
+            tag.as_deref(),
+            fandom.as_deref(),
+        )
+        .await
     }
 
     pub async fn taxonomy_options(&self) -> Result<catalog::TaxonomyOptions, SearchError> {
@@ -84,13 +96,27 @@ impl PgSearch {
 
     /// Old public search methods continue to work unchanged.
     pub async fn search_faceted_sorted(
-        &self, term: &str, language: Option<&str>, genre: Option<&str>,
-        after: Option<&str>, limit: usize, sort: Option<&str>
+        &self,
+        term: &str,
+        language: Option<&str>,
+        genre: Option<&str>,
+        after: Option<&str>,
+        limit: usize,
+        sort: Option<&str>,
     ) -> Result<SearchPage, SearchError> {
         self.search_catalog(
-            CatalogFacets { term, language, genre, tag: None, fandom: None },
-            after, limit, sort
-        ).await
+            CatalogFacets {
+                term,
+                language,
+                genre,
+                tag: None,
+                fandom: None,
+            },
+            after,
+            limit,
+            sort,
+        )
+        .await
     }
 
     /// All filtering is SQL-bound before LIMIT or cursor application.
@@ -104,8 +130,13 @@ impl PgSearch {
         let direction = CatalogSort::parse(sort)?;
         let lexical = matches!(direction, CatalogSort::Title | CatalogSort::Author);
         let numeric_cursor = if lexical { None } else { after };
-        let (after_id, language, genre) =
-            validate_browse(filters.term, filters.language, filters.genre, numeric_cursor, limit)?;
+        let (after_id, language, genre) = validate_browse(
+            filters.term,
+            filters.language,
+            filters.genre,
+            numeric_cursor,
+            limit,
+        )?;
         let tag = normalize_genre(filters.tag)?;
         let fandom = normalize_genre(filters.fandom)?;
         if sort.is_none()
@@ -119,13 +150,29 @@ impl PgSearch {
         }
         if lexical {
             return catalog::read_lexical_page(
-                &self.pool, filters.term, language.as_deref(), genre.as_deref(),
-                tag.as_deref(), fandom.as_deref(), after, limit, direction
-            ).await;
+                &self.pool,
+                filters.term,
+                language.as_deref(),
+                genre.as_deref(),
+                tag.as_deref(),
+                fandom.as_deref(),
+                after,
+                limit,
+                direction,
+            )
+            .await;
         }
         catalog::read_page(
-            &self.pool, filters.term, language.as_deref(), genre.as_deref(),
-            tag.as_deref(), fandom.as_deref(), after_id, limit, direction
-        ).await
+            &self.pool,
+            filters.term,
+            language.as_deref(),
+            genre.as_deref(),
+            tag.as_deref(),
+            fandom.as_deref(),
+            after_id,
+            limit,
+            direction,
+        )
+        .await
     }
 }
