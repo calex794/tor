@@ -121,4 +121,27 @@ mod tests {
         assert!(html.contains("autocomplete=\"new-password\""));
         assert!(!html.contains("value=\"1234\""));
     }
+
+    #[test]
+    fn original_dashboard_sections_keep_only_implemented_routes() {
+        let html = my_account("<Читатель>", "csrf-token").0;
+        assert!(html.contains("class=\"me-page\""));
+        assert!(html.contains("class=\"me-overview\""));
+        assert!(html.contains("class=\"me-block-grid\""));
+        assert!(html.contains("class=\"dashboard-tile dashboard-tile--reader\""));
+        assert!(html.contains("Работа с книгами"));
+        assert!(html.contains("Чтение"));
+        assert!(html.contains("Сейчас"));
+        for route in ["/me/library", "/me/books", "/me/books/new", "/catalog"] {
+            assert!(html.contains(&format!("href=\"{route}\"")));
+        }
+        assert!(html.contains("name=\"csrf_token\" value=\"csrf-token\""));
+        assert!(html.contains("&lt;Читатель&gt;"));
+        assert!(!html.contains("<Читатель>"));
+        assert!(!html.contains("Приватность"));
+        assert!(!html.contains("персонального анализа"));
+        assert!(!html.contains("href=\"/me/settings\""));
+        assert!(!html.contains("href=\"/me/purchases\""));
+        assert!(!html.contains("href=\"/me/finance\""));
+    }
 }

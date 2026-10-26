@@ -1,18 +1,90 @@
-<section class="section auth-section">
+<!-- NEwBOO templates/me/index.html — only working TOR actions and routes. -->
+<section class="me-page">
   <div class="container">
-    <div class="auth-card">
-      <p class="eyebrow">Личный кабинет</p>
-      <h1>Мой кабинет</h1>
-      <p>Вы вошли как <strong><!--DISPLAY_NAME--></strong>.</p>
-      <form method="post" action="/logout">
+    <nav class="dashboard-nav" aria-label="Разделы кабинета">
+      <a class="dashboard-nav__item is-active" href="/me" aria-current="page">Обзор</a>
+      <a class="dashboard-nav__item" href="/me/library">Библиотека</a>
+      <a class="dashboard-nav__item" href="/me/books">Книги автора</a>
+    </nav>
+    <header class="ui-page-header me-page-header">
+      <div class="ui-page-header__content">
+        <p class="ui-page-header__kicker">Личный кабинет</p>
+        <h1 class="ui-page-header__title">Кабинет</h1>
+        <p class="ui-page-header__text">Чтение, библиотека и работа с книгами — в одном месте.</p>
+      </div>
+      <form class="me-page__logout" method="post" action="/logout">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
-        <button class="button" type="submit">Выйти</button>
+        <button class="ui-button ui-button--ghost ui-button--small" type="submit">Выйти</button>
       </form>
-      <div class="account-profile__state"><span class="account-profile__status" aria-hidden="true"></span> Учётная запись активна</div>
-      <p class="account-profile__hint">Создавайте книги в кабинете автора и продолжайте чтение с сохранённого места.</p>
-      <p><a class="button button--quiet" href="/me/books">Мои книги</a></p>
-      <p><a class="button button--quiet" href="/me/library">Моя библиотека</a></p>
-      <p><a href="/catalog">Перейти в каталог</a></p>
-    </div>
+    </header>
+
+    <section class="me-overview" aria-label="Сводка кабинета">
+      <article class="me-role-card">
+        <div class="me-role-card__content">
+          <div class="me-role-card__label">Вы вошли как</div>
+          <div class="me-role-card__value"><!--DISPLAY_NAME--></div>
+          <p class="me-role-card__status">Учётная запись активна</p>
+        </div>
+      </article>
+      <section class="me-now-card" aria-labelledby="me-now-title">
+        <header class="me-now-card__header">
+          <div>
+            <h2 class="me-now-card__title" id="me-now-title">Сейчас</h2>
+            <p class="me-now-card__text">Можно вернуться к чтению или открыть свои книги.</p>
+          </div>
+        </header>
+        <div class="me-now-list">
+          <a class="me-now-item me-now-item--reading" href="/me/library">
+            <span class="me-now-item__copy">
+              <strong class="me-now-item__title">Продолжить чтение</strong>
+              <span class="me-now-item__text">Открыть библиотеку и сохранённые места.</span>
+            </span>
+            <span class="me-now-item__arrow" aria-hidden="true">→</span>
+          </a>
+        </div>
+      </section>
+    </section>
+
+    <section class="me-section" aria-labelledby="me-reading-title">
+      <header class="ui-section-header">
+        <h2 class="ui-section-header__title" id="me-reading-title">Чтение</h2>
+        <p class="ui-section-header__text">Ваши сохранённые книги и открытый каталог.</p>
+      </header>
+      <div class="me-block-grid">
+        <article class="dashboard-tile dashboard-tile--reader">
+          <a class="dashboard-tile__link" href="/me/library">
+            <h3 class="dashboard-tile__title">Моя библиотека</h3>
+            <p class="dashboard-tile__text">Сохранённые книги и продолжение чтения.</p>
+          </a>
+        </article>
+        <article class="dashboard-tile dashboard-tile--reader">
+          <a class="dashboard-tile__link" href="/catalog">
+            <h3 class="dashboard-tile__title">Каталог</h3>
+            <p class="dashboard-tile__text">Все опубликованные и доступные книги.</p>
+          </a>
+        </article>
+      </div>
+    </section>
+
+    <section class="me-section" aria-labelledby="me-work-title">
+      <header class="ui-section-header">
+        <h2 class="ui-section-header__title" id="me-work-title">Работа с книгами</h2>
+        <p class="ui-section-header__text">Создавайте книги, добавляйте главы и публикуйте их.</p>
+      </header>
+      <div class="me-block-grid">
+        <article class="dashboard-tile dashboard-tile--translator">
+          <a class="dashboard-tile__link" href="/me/books">
+            <h3 class="dashboard-tile__title">Мои книги</h3>
+            <p class="dashboard-tile__text">Просмотр и редактирование собственных книг.</p>
+          </a>
+        </article>
+        <article class="dashboard-tile dashboard-tile--translator">
+          <a class="dashboard-tile__link" href="/me/books/new">
+            <h3 class="dashboard-tile__title">Создать книгу</h3>
+            <p class="dashboard-tile__text">Начать новую историю в кабинете автора.</p>
+          </a>
+        </article>
+      </div>
+    </section>
   </div>
 </section>

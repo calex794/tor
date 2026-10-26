@@ -132,6 +132,14 @@ async function inspect(page, name, where) {
       }
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
+      assert(await page.getByRole('heading', { name: 'Кабинет', exact: true }).isVisible(),
+        name + ': original NEwBOO dashboard heading missing');
+      assert(await page.getByRole('heading', { name: 'Чтение', exact: true }).isVisible(),
+        name + ': reading dashboard section missing');
+      assert(await page.getByRole('heading', { name: 'Работа с книгами', exact: true }).isVisible(),
+        name + ': author dashboard section missing');
+      assert(await page.locator('.dashboard-tile__link[href="/me/books/new"]').isVisible(),
+        name + ': create book tile missing');
       assert(await page.getByRole('link', { name: 'Мои книги' }).isVisible(),
         name + ': author link missing');
       assert(!(await page.content()).includes('Анализ ваших переходов'),
