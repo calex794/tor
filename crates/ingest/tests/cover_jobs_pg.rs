@@ -57,7 +57,6 @@ async fn g_07_claim_fence_recovery_and_forbidden_registration() {
     // Operator counters reflect the actual job state, without exposing an actor.
     assert!(repo.queue_counts().await.unwrap().pending >= 1);
 
-
     let (one, two) = tokio::join!(repo.claim_next(), repo.claim_next());
     let claims: Vec<_> = [one.unwrap(), two.unwrap()].into_iter().flatten().collect();
     assert_eq!(
