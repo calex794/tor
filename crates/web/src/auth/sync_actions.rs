@@ -2,7 +2,6 @@
 #![forbid(unsafe_code)]
 
 use super::{deny, session_user, AuthState};
-use tor_reading::domain::renderer::valid_reader_length;
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Query, State},
@@ -11,6 +10,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::services::{
     progress::{reader_blocks, valid_text_place, ReadingPlace},
     sync::{positive_id, StoredProgress, SyncError, SyncReceipt},
