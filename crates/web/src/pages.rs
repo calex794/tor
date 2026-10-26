@@ -12,8 +12,6 @@ pub use account::{
 mod reader_private;
 pub use reader_private::private_reader;
 mod public_catalog;
-#[cfg(test)]
-use public_catalog::catalog_search;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
     PublicBookCard,
@@ -340,6 +338,9 @@ pub fn inactive_account_page(title: &str) -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")],
      layout(title, "Аккаунты пока недоступны.", "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Профиль читателя</p><h1>Аккаунты пока не открыты</h1><p class=\"page-description\">Вход и регистрация будут доступны после завершения проверки безопасности и подключения постоянной базы данных. Сейчас каталог можно просматривать без аккаунта.</p><a class=\"button\" href=\"/catalog\">Перейти в каталог</a></div></div></section>"))
 }
+
+#[cfg(test)]
+use public_catalog::catalog_search;
 
 #[cfg(test)]
 pub fn book_detail_with_chapters(
