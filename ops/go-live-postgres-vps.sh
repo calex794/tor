@@ -197,6 +197,20 @@ fi
 curl -fsS --max-time 8 --resolve pandaolate.ru:443:127.0.0.1 \
   https://pandaolate.ru/readyz | grep -qx ok
 
+# The schema marker only proves that SQLx ran. Auto-activation must also
+# have evidence that the real PostgreSQL runtime completed HTTPS acceptance.
+# Never write this root-owned marker before successful production cutover.
+pg_active_marker="$schema_dir/pg-activated"
+if [[ -L $pg_active_marker ]]; then
+  echo "Refusing symlink for PostgreSQL activation marker" >&2
+  false
+fi
+pg_active_tmp=$(mktemp "$schema_dir/.pg-activated.XXXXXXXX")
+printf '%s\n' 'PG_ACTIVATED' > "$pg_active_tmp"
+chown root:root "$pg_active_tmp"
+chmod 0644 "$pg_active_tmp"
+mv -fT "$pg_active_tmp" "$pg_active_marker"
+
 trap - ERR
 [[ -z $backup_dropin ]] || rm -f "$backup_dropin"
 echo "TOR_PRODUCTION_OK $sha"

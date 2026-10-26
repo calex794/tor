@@ -101,8 +101,23 @@ jobs:
           destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
           opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
           installed="$(ssh "${opts[@]}" "$destination" 'test -r /var/lib/tor-release/schema-version && cat /var/lib/tor-release/schema-version' || true)"
-          if [[ "$installed" != "$required" ]]; then
-            echo "SKIP_AUTO_ACTIVATION: verified schema is ${installed:-unknown}, candidate requires $required"
+          # A successful migrator alone cannot authorize a new server binary.
+          # Go-live creates the root-owned marker ONLY after PG-backed HTTPS
+          # and authentication pages passed; verify its service configuration.
+          pg_ready="$(ssh "${opts[@]}" "$destination" '
+            set -e
+            test -r /var/lib/tor-release/pg-activated
+            test "$(cat /var/lib/tor-release/pg-activated)" = PG_ACTIVATED
+            conf=/etc/systemd/system/tor-web.service.d/20-postgres.conf
+            test -f "$conf" && test ! -L "$conf"
+            grep -Fxq "Environment=TOR_DEMO_MODE=0" "$conf"
+            grep -Fxq "Environment=TOR_AUTH_ENABLED=1" "$conf"
+            grep -Fxq "EnvironmentFile=/etc/tor/tor-app.env" "$conf"
+            curl -fsS --max-time 4 http://127.0.0.1:3000/readyz | grep -qx ok
+            printf verified
+          ' || true)"
+          if [[ "$installed" != "$required" || "$pg_ready" != verified ]]; then
+            echo "SKIP_AUTO_ACTIVATION: verified schema is ${installed:-unknown}, candidate requires $required; PG-live proof is ${pg_ready:-missing}"
             echo "Stage completed; root must run pinned go-live-postgres-vps.sh to apply migrations before activation"
             echo "can_activate=false" >> "$GITHUB_OUTPUT"
           else

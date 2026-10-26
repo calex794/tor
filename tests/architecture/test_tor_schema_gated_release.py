@@ -49,6 +49,32 @@ class SchemaGatedReleaseTests(unittest.TestCase):
         self.assertIn('chmod 0644 "$schema_tmp"', GO_LIVE)
         self.assertIn("TOR_SCHEMA_MARKED", GO_LIVE)
 
+    def test_pg_runtime_requires_separate_root_activation_proof(self):
+        self.assertIn("/var/lib/tor-release/pg-activated", STAGE)
+        self.assertIn('test "$(cat /var/lib/tor-release/pg-activated)" = PG_ACTIVATED', STAGE)
+        self.assertIn('grep -Fxq "Environment=TOR_DEMO_MODE=0"', STAGE)
+        self.assertIn('grep -Fxq "Environment=TOR_AUTH_ENABLED=1"', STAGE)
+        self.assertIn('grep -Fxq "EnvironmentFile=/etc/tor/tor-app.env"', STAGE)
+        self.assertIn('"$installed" != "$required" || "$pg_ready" != verified', STAGE)
+        self.assertLess(
+            STAGE.index('test "$(cat /var/lib/tor-release/pg-activated)"'),
+            STAGE.index("Activate verified release only when"),
+        )
+
+    def test_pg_active_proof_written_after_https_and_http_acceptance(self):
+        self.assertIn('pg_active_marker="$schema_dir/pg-activated"', GO_LIVE)
+        self.assertIn("printf '%s\\n' 'PG_ACTIVATED'", GO_LIVE)
+        self.assertIn('chown root:root "$pg_active_tmp"', GO_LIVE)
+        self.assertIn('chmod 0644 "$pg_active_tmp"', GO_LIVE)
+        self.assertLess(
+            GO_LIVE.index('https://pandaolate.ru/readyz | grep -qx ok'),
+            GO_LIVE.index('pg_active_marker="$schema_dir/pg-activated"'),
+        )
+        self.assertLess(
+            GO_LIVE.index('mv -fT "$pg_active_tmp" "$pg_active_marker"'),
+            GO_LIVE.index("TOR_PRODUCTION_OK"),
+        )
+
     def test_current_main_checked_after_staging(self):
         self.assertIn("git ls-remote origin refs/heads/main", STAGE)
         self.assertLess(
