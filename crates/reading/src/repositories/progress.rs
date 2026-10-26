@@ -1,6 +1,6 @@
 //! PostgreSQL-backed private continuation positions. No purchase rights inferred.
 #![forbid(unsafe_code)]
-use crate::services::progress::{ContinueReading, ProgressError, ReadingPlace};
+use crate::services::progress::{ContinueReading, ProgressError, ReadingPlace, SavedPlaceState};
 use sqlx::{PgPool, Row};
 
 #[derive(Clone)]
@@ -19,27 +19,44 @@ impl PgReadingProgress {
         chapter_id: i64,
         version_id: i64,
     ) -> Result<Option<ReadingPlace>, ProgressError> {
+        match self.saved_state(user_id, chapter_id, version_id).await? {
+            SavedPlaceState::Current(place) => Ok(Some(place)),
+            SavedPlaceState::NotSaved | SavedPlaceState::PreviousVersion => Ok(None),
+        }
+    }
+
+    pub async fn saved_state(
+        &self,
+        user_id: i64,
+        chapter_id: i64,
+        version_id: i64,
+    ) -> Result<SavedPlaceState, ProgressError> {
         let row = sqlx::query(
-            "SELECT block_index, char_offset FROM reader_book_positions \
-             WHERE user_id = $1 AND chapter_id = $2 AND version_id = $3",
+            "SELECT version_id, block_index, char_offset FROM reader_book_positions \
+             WHERE user_id = $1 AND chapter_id = $2",
         )
         .bind(user_id)
         .bind(chapter_id)
-        .bind(version_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| ProgressError::Unavailable)?;
-        row.map(|record| {
-            Ok(ReadingPlace {
-                block_index: record
-                    .try_get("block_index")
-                    .map_err(|_| ProgressError::Unavailable)?,
-                char_offset: record
-                    .try_get("char_offset")
-                    .map_err(|_| ProgressError::Unavailable)?,
-            })
-        })
-        .transpose()
+        let Some(row) = row else {
+            return Ok(SavedPlaceState::NotSaved);
+        };
+        let saved_version: i64 = row
+            .try_get("version_id")
+            .map_err(|_| ProgressError::Unavailable)?;
+        if saved_version != version_id {
+            return Ok(SavedPlaceState::PreviousVersion);
+        }
+        Ok(SavedPlaceState::Current(ReadingPlace {
+            block_index: row
+                .try_get("block_index")
+                .map_err(|_| ProgressError::Unavailable)?,
+            char_offset: row
+                .try_get("char_offset")
+                .map_err(|_| ProgressError::Unavailable)?,
+        }))
     }
 
     pub async fn continue_reading(
