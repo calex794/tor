@@ -5,3 +5,6 @@ pub use progress::PgReadingProgress;
 
 pub mod library;
 pub use library::PgLibrary;
+
+pub mod sync;
+pub use sync::PgReadingSync;

@@ -134,7 +134,8 @@ impl PgReadingProgress {
                chapter_revision = EXCLUDED.chapter_revision, \
                version_id = EXCLUDED.version_id, \
                block_index = EXCLUDED.block_index, \
-               char_offset = EXCLUDED.char_offset, updated_at = now() \
+               char_offset = EXCLUDED.char_offset, \
+               revision = saved.revision + 1, updated_at = now() \
              WHERE saved.chapter_no < EXCLUDED.chapter_no \
                 OR (saved.chapter_no = EXCLUDED.chapter_no \
                   AND (saved.chapter_revision < EXCLUDED.chapter_revision \
