@@ -271,11 +271,7 @@ async fn f_02_exact_total_html_and_opt_in_json_obey_public_visibility() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test database");
     let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
 
-    let (status, html) = get(
-        app.clone(),
-        "/catalog?q=TOR%20CI%20public&sort=oldest",
-    )
-    .await;
+    let (status, html) = get(app.clone(), "/catalog?q=TOR%20CI%20public&sort=oldest").await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Найдено книг: 1"), "{html}");
     assert!(html.contains("TOR CI public"));
@@ -322,13 +318,14 @@ async fn f_02_exact_total_html_and_opt_in_json_obey_public_visibility() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!second.contains(r#""total":"#), "cursor request must stay cheap");
+    assert!(
+        !second.contains(r#""total":"#),
+        "cursor request must stay cheap"
+    );
     assert_eq!(
         get(
             app.clone(),
-            &format!(
-                "/api/v1/search/books?sort=newest&limit=1&after={cursor}&include_total=true"
-            ),
+            &format!("/api/v1/search/books?sort=newest&limit=1&after={cursor}&include_total=true"),
         )
         .await
         .0,
@@ -336,5 +333,8 @@ async fn f_02_exact_total_html_and_opt_in_json_obey_public_visibility() {
     );
     let (status, legacy) = get(app, "/api/v1/books").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(legacy.starts_with('['), "original endpoint must be a JSON array");
+    assert!(
+        legacy.starts_with('['),
+        "original endpoint must be a JSON array"
+    );
 }
