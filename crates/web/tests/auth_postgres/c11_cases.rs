@@ -148,6 +148,8 @@ pub(super) async fn resume_after_login(app: &Router, logged: &Response) {
     .await;
     assert_eq!(library.status(), StatusCode::OK);
     assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(body_of(library).await.contains("href=\\\"/read/101#p-1\\\""));
+    assert!(body_of(library)
+        .await
+        .contains("href=\"/read/101#p-1\""));
     reopened_reader_has_saved_anchor(app, &renewed_session).await;
 }
