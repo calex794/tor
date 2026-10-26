@@ -1,0 +1,6 @@
+[package]
+name = "tor-route_intelligence"
+version.workspace = true
+edition.workspace = true
+
+# Route Intelligence core is intentionally pure: no Axum, SQLx or storage I/O.

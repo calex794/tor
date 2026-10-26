@@ -1,5 +1,7 @@
 # PostgreSQL 18 на VPS TOR (1 vCPU, 961 МиБ RAM)
 
+> **С 26.10.2026 базу уже установили,** роли и секреты проверены на VPS, а в `tor.public` пока 0 таблиц. Если цель — включить реальный сайт, **не повторять установку и отдельные демонстрационные этапы**: использовать [однокомандный production cutover](tor-production-activation.md). Текст ниже — исторический bootstrap и справочник по параметрам.
+
 **Задача линии I-05.** Поднять постоянное хранилище рядом с `tor-web` без Docker и без остановки HTTP-сервера. По проверке владельца от 26.10.2026 PostgreSQL/psql отсутствует, порт 5432 свободен, MemAvailable 585 МиБ, диск 17 ГБ, `tor-web.service` включён и активен.
 
 **Источники:** [официальная установка для Ubuntu](https://www.postgresql.org/download/linux/ubuntu/), [ресурсные параметры PG18](https://www.postgresql.org/docs/18/runtime-config-resource.html), [канонические TOR DDL и порядок миграций](../roadmap/data-and-events.md). Не использовать `apt install postgresql` без версии: Ubuntu 24.04 обычно устанавливает PG16. Стабильную PG18 брать из официального репозитория PGDG, `noble-pgdg` с `Signed-By`.
