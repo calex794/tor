@@ -504,6 +504,28 @@ mod tests {
         assert!(page.0.contains("href=\"/books/9\""));
     }
     #[test]
+    fn catalog_metadata_must_be_escaped_in_cards() {
+        let html = catalog_search(
+            &[PublicBookCard {
+                id: 17,
+                title: "Visible".to_owned(),
+                language: "ru".to_owned(),
+                author_name: Some("<img src=x onerror=alert(1)>".to_owned()),
+                genres: vec!["фэнтези<script>".to_owned()],
+            }],
+            "",
+            None,
+            Some("фэнтези"),
+            None,
+        )
+        .0;
+        assert!(html.contains("&lt;img"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<img src"));
+        assert!(!html.contains("<script>"));
+    }
+
+    #[test]
     fn toc_cursor_is_escaped_in_html_attribute() {
         let book = tor_reading::services::PublicBookPage {
             id: 7,

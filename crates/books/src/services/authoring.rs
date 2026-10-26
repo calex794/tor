@@ -82,6 +82,9 @@ pub fn new_book_with_discovery(
             return Err(AuthorError::Invalid);
         }
         for item in genres.split(',') {
+            if item.chars().any(char::is_control) {
+                return Err(AuthorError::Invalid);
+            }
             let clean = item.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
             if clean.is_empty()
                 || clean.chars().count() > 40
