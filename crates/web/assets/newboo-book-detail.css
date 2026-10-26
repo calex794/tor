@@ -99,3 +99,6 @@
   .book-section-card { padding: 14px; }
   .book-section-card__title { font-size: 22px; }
 }
+
+/* H-web-09: the book detail uses a real image in the existing cover slot. */
+img.book-cover-xl { display: block; height: auto; object-fit: cover; }

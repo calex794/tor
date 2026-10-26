@@ -1,7 +1,7 @@
 //! The original NEwBOO public catalogue layout, sourced from real TOR read data.
 use super::{escape_html, layout};
 use axum::response::Html;
-use std::fmt::Write;
+use std::{collections::HashSet, fmt::Write};
 use tor_search::repositories::catalog::TaxonomyOptions;
 
 #[derive(Clone, Debug)]
@@ -14,7 +14,12 @@ pub struct PublicBookCard {
 }
 
 /// NEwBOO BookCard layout, with real PostgreSQL-backed author and genre metadata.
-fn book_cards(books: &[PublicBookCard], shelf: bool, shelf_label: &str) -> String {
+fn book_cards(
+    books: &[PublicBookCard],
+    shelf: bool,
+    shelf_label: &str,
+    covers: &HashSet<u64>,
+) -> String {
     if books.is_empty() {
         return "<div class=\"ui-empty-state\"><h3 class=\"ui-empty-state__title\">Каталог пока наполняется</h3><p class=\"ui-empty-state__text\">В каталоге пока нет опубликованных книг.</p></div>".to_owned();
     }
@@ -51,9 +56,17 @@ fn book_cards(books: &[PublicBookCard], shelf: bool, shelf_label: &str) -> Strin
         } else {
             "book-mini-card--compact"
         };
+        let cover = if covers.contains(&book.id) {
+            format!(
+                r#"<img src="/covers/{}/card.webp" alt="" loading="lazy" decoding="async" draggable="false">"#,
+                book.id
+            )
+        } else {
+            "<span>Нет обложки</span>".to_owned()
+        };
         write!(
             html,
-            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\"><span>Нет обложки</span></div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
+            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
             book.id,
         )
         .expect("format String");
@@ -63,13 +76,22 @@ fn book_cards(books: &[PublicBookCard], shelf: bool, shelf_label: &str) -> Strin
 }
 
 /// The public NEwBOO spotlight is populated only from actual published rows.
-fn spotlight(book: &PublicBookCard) -> String {
+fn spotlight(book: &PublicBookCard, covers: &HashSet<u64>) -> String {
     let title = escape_html(&book.title);
     let details = book
         .author_name
         .as_deref()
         .map(escape_html)
         .unwrap_or_else(|| format!("Язык: {}", escape_html(&book.language)));
+    let cover = if covers.contains(&book.id) {
+        format!(
+            r#"<img class="home-spotlight-card__cover" src="/covers/{}/main.webp" alt="" decoding="async" draggable="false">"#,
+            book.id
+        )
+    } else {
+        r#"<div class="home-spotlight-card__cover home-spotlight-card__cover--empty">Нет обложки</div>"#
+            .to_owned()
+    };
     format!(
         r#"<a class="home-spotlight-card" href="/books/{id}" aria-label="Открыть книгу {title}">
            <div class="home-spotlight-card__inner">
@@ -79,7 +101,7 @@ fn spotlight(book: &PublicBookCard) -> String {
                <p class="home-spotlight-card__text">{details}</p>
              </div>
              <div class="home-spotlight-card__cover-wrap">
-               <div class="home-spotlight-card__cover home-spotlight-card__cover--empty">Нет обложки</div>
+               {cover}
              </div>
            </div>
          </a>"#,
@@ -89,7 +111,7 @@ fn spotlight(book: &PublicBookCard) -> String {
 
 /// Group the already authorized latest-book rows without extra SQL queries.
 /// These are shelves of recent books, never a popularity/rating recommendation.
-fn recent_genre_shelves(books: &[PublicBookCard]) -> String {
+fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
     let mut genres = Vec::<&str>::new();
     for book in books {
         for genre in &book.genres {
@@ -130,14 +152,14 @@ fn recent_genre_shelves(books: &[PublicBookCard]) -> String {
     {}
   </div>
 </section>"#,
-            book_cards(&matches, true, &label)
+            book_cards(&matches, true, &label, covers)
         )
         .expect("write genre shelf");
     }
     html
 }
 
-fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
+fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
@@ -146,7 +168,7 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
     let hero = if latest {
         books
             .first()
-            .map(spotlight)
+            .map(|book| spotlight(book, covers))
             .unwrap_or_else(|| fallback.to_owned())
     } else {
         fallback.to_owned()
@@ -163,12 +185,12 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
         )
         .replace(
             "<!--PUBLIC_BOOKS-->",
-            &book_cards(books, latest, "Недавно добавленные книги"),
+            &book_cards(books, latest, "Недавно добавленные книги", covers),
         )
         .replace(
             "<!--GENRE_SHELVES-->",
             &if latest {
-                recent_genre_shelves(books)
+                recent_genre_shelves(books, covers)
             } else {
                 String::new()
             },
@@ -182,18 +204,21 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
 
 /// Demo mode cannot claim recent insertion order; only the PG projection can.
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, false)
+    home_body(books, false, &HashSet::new())
 }
 
 /// F-04 read model supplies descending creation identity, never a false daily top
 /// or a claim about publication time, rating or personal recommendations.
-pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
-    home_body(books, true)
+pub fn home_recent_with_covers(books: &[PublicBookCard], covers: &HashSet<u64>) -> Html<String> {
+    home_body(books, true, covers)
 }
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false, ""))
+        .replace(
+            "<!--PUBLIC_BOOKS-->",
+            &book_cards(books, false, "", &HashSet::new()),
+        )
         .replace("<!--SEARCH_FORM-->", "");
     layout(
         "Каталог",
@@ -227,7 +252,11 @@ pub struct CatalogPageQuery<'a> {
     pub options: Option<&'a TaxonomyOptions>,
 }
 
-pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -> Html<String> {
+pub fn catalog_search_with_covers(
+    books: &[PublicBookCard],
+    request: CatalogPageQuery<'_>,
+    covers: &HashSet<u64>,
+) -> Html<String> {
     let CatalogPageQuery {
         query,
         language,
@@ -327,7 +356,7 @@ pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -
             {
                 "<div class=\"ui-empty-state\"><h3>Книги не найдены</h3><p>Попробуйте изменить условия поиска.</p></div>".to_owned()
             } else {
-                book_cards(books, false, "")
+                book_cards(books, false, "", covers)
             },
         )
         .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
@@ -336,6 +365,16 @@ pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -
         "Поиск опубликованных книг на Пандаолейт.",
         &content,
     )
+}
+
+#[cfg(test)]
+pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
+    home_body(books, true, &HashSet::new())
+}
+
+#[cfg(test)]
+pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -> Html<String> {
+    catalog_search_with_covers(books, request, &HashSet::new())
 }
 
 #[cfg(test)]
@@ -416,7 +455,7 @@ mod home_tests {
                 book
             })
             .collect::<Vec<_>>();
-        let shelves = recent_genre_shelves(&books);
+        let shelves = recent_genre_shelves(&books, &HashSet::new());
         assert_eq!(
             shelves
                 .matches("class=\"book-mini-card book-mini-card--shelf\"")
@@ -432,6 +471,36 @@ mod home_tests {
         let html = home_recent(&[]).0;
         assert!(!html.contains("home-spotlight-card"));
         assert!(html.contains("Каталог пока наполняется"));
+    }
+
+    #[test]
+    fn only_verified_public_cover_ids_render_same_origin_images() {
+        let cards = [book(8, "Книга 8"), book(3, "Книга 3")];
+        let available = HashSet::from([8_u64]);
+        let home = home_recent_with_covers(&cards, &available).0;
+        assert!(home.contains(r#"src="/covers/8/main.webp""#));
+        assert!(home.contains(r#"src="/covers/8/card.webp""#));
+        assert!(!home.contains("/covers/3/"));
+        assert!(home.contains("Нет обложки"));
+        assert!(!home.contains("staging/covers"));
+        let catalog = catalog_search_with_covers(
+            &cards,
+            CatalogPageQuery {
+                query: "",
+                language: None,
+                genre: None,
+                tag: None,
+                fandom: None,
+                cursor: None,
+                sort: "oldest",
+                total: Some(2),
+                options: None,
+            },
+            &available,
+        )
+        .0;
+        assert!(catalog.contains(r#"src="/covers/8/card.webp""#));
+        assert!(!catalog.contains("/covers/3/"));
     }
 
     #[test]

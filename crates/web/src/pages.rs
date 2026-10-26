@@ -12,8 +12,11 @@ pub use account::{
 mod reader_private;
 pub use reader_private::private_reader;
 mod public_catalog;
+#[cfg(test)]
+use public_catalog::catalog_search;
 pub use public_catalog::{
-    catalog, catalog_search, home, home_recent, CatalogPageQuery, PublicBookCard,
+    catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
+    PublicBookCard,
 };
 
 pub fn escape_html(value: &str) -> String {
@@ -42,13 +45,14 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None, None)
+    book_detail_body(book, None, None, false)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
-pub fn book_detail_with_chapters(
+pub fn book_detail_with_chapters_cover(
     book: &tor_reading::services::PublicBookPage,
     limit: u16,
+    has_cover: bool,
 ) -> Html<String> {
     let card = PublicBookCard {
         id: book.id,
@@ -100,13 +104,14 @@ pub fn book_detail_with_chapters(
         .iter()
         .find(|chapter| !chapter.is_paid)
         .map(|chapter| chapter.id);
-    book_detail_body(&card, Some(&section), first_free)
+    book_detail_body(&card, Some(&section), first_free, has_cover)
 }
 
 fn book_detail_body(
     book: &PublicBookCard,
     toc: Option<&str>,
     first_free: Option<u64>,
+    has_cover: bool,
 ) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
@@ -154,7 +159,17 @@ fn book_detail_body(
     } else {
         format!("<div class=\"book-hero-card__credits\">{credits}</div>")
     };
+    let cover = if has_cover {
+        format!(
+            r#"<img class="book-cover-xl" src="/covers/{}/main.webp" alt="Обложка книги «{title}»" decoding="async" draggable="false">"#,
+            book.id
+        )
+    } else {
+        r#"<div class="book-cover-xl" aria-label="Обложка пока не загружена"><span>Нет обложки</span></div>"#
+            .to_owned()
+    };
     let content = include_str!("../templates/book_detail.html")
+        .replace("<!--BOOK_COVER-->", &cover)
         .replace("<!--BOOK_TITLE-->", &title)
         .replace("<!--BOOK_LANGUAGE-->", &language)
         .replace("<!--BOOK_DESCRIPTION-->", description)
@@ -324,6 +339,14 @@ pub async fn brand_logo_dark() -> impl IntoResponse {
 pub fn inactive_account_page(title: &str) -> impl IntoResponse {
     ([(header::CACHE_CONTROL, "no-store")],
      layout(title, "Аккаунты пока недоступны.", "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Профиль читателя</p><h1>Аккаунты пока не открыты</h1><p class=\"page-description\">Вход и регистрация будут доступны после завершения проверки безопасности и подключения постоянной базы данных. Сейчас каталог можно просматривать без аккаунта.</p><a class=\"button\" href=\"/catalog\">Перейти в каталог</a></div></div></section>"))
+}
+
+#[cfg(test)]
+pub fn book_detail_with_chapters(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+) -> Html<String> {
+    book_detail_with_chapters_cover(book, limit, false)
 }
 
 #[cfg(test)]

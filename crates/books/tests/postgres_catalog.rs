@@ -114,6 +114,11 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
         .expect("public main");
     assert_eq!(main.sha256, [0x33; 32]);
     assert_eq!(main.size_bytes, 202);
+    let batch = covers.public_card_ids(&[1, 2, 3, 905, 906]).await.unwrap();
+    assert_eq!(batch.len(), 1);
+    assert!(batch.contains(&905));
+    assert!(covers.public_card_ids(&[]).await.unwrap().is_empty());
+    assert!(covers.public_card_ids(&[905; 101]).await.is_err());
     assert!(covers
         .public_variant(906, PublicCoverKind::Card)
         .await
@@ -129,6 +134,7 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
         .await
         .unwrap()
         .is_none());
+    assert!(covers.public_card_ids(&[905]).await.unwrap().is_empty());
     sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=905")
         .execute(&pool)
         .await
@@ -138,6 +144,7 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
         .await
         .unwrap()
         .is_none());
+    assert!(covers.public_card_ids(&[905]).await.unwrap().is_empty());
     sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=905")
         .execute(&pool)
         .await
