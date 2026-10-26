@@ -548,6 +548,16 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(
         send(
             &app,
+            request("GET", &chapter_form_path, "", &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "no new chapter form on a public book before chapter-release is implemented"
+    );
+    assert_eq!(
+        send(
+            &app,
             request(
                 "POST",
                 &publish_path,
