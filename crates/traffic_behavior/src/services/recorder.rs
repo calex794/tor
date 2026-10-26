@@ -2,8 +2,7 @@
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
 use crate::domain::{
     BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot, SqlCostEvent,
-    VerifiedSubjectKey,
-    MAX_SUBJECTS,
+    VerifiedSubjectKey, MAX_SUBJECTS,
 };
 use crate::services::paths_worker::PathRecorder;
 use std::collections::{HashSet, VecDeque};
