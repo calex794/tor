@@ -53,26 +53,54 @@ mod tests {
     fn ids_are_lossless_and_signed_values_are_rejected() {
         assert_eq!(positive_id("9223372036854775807"), Ok(i64::MAX));
         for candidate in ["", "0", "-1", "+2", "1.2", " 1", "18446744073709551615"] {
-            assert_eq!(positive_id(candidate), Err(SyncError::Invalid), "{candidate}");
+            assert_eq!(
+                positive_id(candidate),
+                Err(SyncError::Invalid),
+                "{candidate}"
+            );
         }
     }
 
     #[test]
     fn place_and_revision_validation_is_bounded() {
         assert_eq!(
-            checked_place(ReadingPlace { block_index: 1, char_offset: 0 }, 0),
+            checked_place(
+                ReadingPlace {
+                    block_index: 1,
+                    char_offset: 0
+                },
+                0
+            ),
             Ok(())
         );
         assert_eq!(
-            checked_place(ReadingPlace { block_index: 200, char_offset: 100_000 }, 1),
+            checked_place(
+                ReadingPlace {
+                    block_index: 200,
+                    char_offset: 100_000
+                },
+                1
+            ),
             Ok(())
         );
         assert_eq!(
-            checked_place(ReadingPlace { block_index: 1, char_offset: 0 }, -1),
+            checked_place(
+                ReadingPlace {
+                    block_index: 1,
+                    char_offset: 0
+                },
+                -1
+            ),
             Err(SyncError::Invalid)
         );
         assert_eq!(
-            checked_place(ReadingPlace { block_index: 201, char_offset: 0 }, 0),
+            checked_place(
+                ReadingPlace {
+                    block_index: 201,
+                    char_offset: 0
+                },
+                0
+            ),
             Err(SyncError::Invalid)
         );
     }

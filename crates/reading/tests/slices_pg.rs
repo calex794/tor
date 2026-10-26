@@ -41,11 +41,7 @@ async fn c_09_free_two_devices_cannot_rollback_or_reuse_revision() {
         Err(SyncError::Conflict)
     );
     assert_eq!(
-        sync.free_state(93501, 101)
-            .await
-            .unwrap()
-            .unwrap()
-            .place,
+        sync.free_state(93501, 101).await.unwrap().unwrap().place,
         first
     );
 
@@ -180,12 +176,10 @@ async fn c_09_purchased_v1_survives_v2_but_not_revoke_or_hold() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES (93620,93631)",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES (93620,93631)")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO chapter_purchase_facts \
           (id,user_id,chapter_id,version_id,settlement_reference,amount_minor,currency) \
@@ -196,8 +190,14 @@ async fn c_09_purchased_v1_survives_v2_but_not_revoke_or_hold() {
     .unwrap();
 
     let sync = PgReadingSync::new(pool.clone());
-    assert!(sync.purchased_allowed(93601, 93640, 93620, 93631).await.unwrap());
-    assert!(!sync.purchased_allowed(93602, 93640, 93620, 93631).await.unwrap());
+    assert!(sync
+        .purchased_allowed(93601, 93640, 93620, 93631)
+        .await
+        .unwrap());
+    assert!(!sync
+        .purchased_allowed(93602, 93640, 93620, 93631)
+        .await
+        .unwrap());
     assert_eq!(
         sync.purchased_state(93602, 93640, 93620, 93631).await,
         Err(SyncError::NotFound)
@@ -241,12 +241,10 @@ async fn c_09_purchased_v1_survives_v2_but_not_revoke_or_hold() {
     );
 
     // A new publication MUST NOT silently move the purchase away from V1.
-    sqlx::query(
-        "UPDATE chapter_publications SET version_id=93632 WHERE chapter_id=93620",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=93632 WHERE chapter_id=93620")
+        .execute(&pool)
+        .await
+        .unwrap();
     let after_v2 = PgReadingSync::new(pool.clone());
     let saved = after_v2
         .purchased_state(93601, 93640, 93620, 93631)

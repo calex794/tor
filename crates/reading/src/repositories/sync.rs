@@ -135,16 +135,14 @@ impl PgReadingSync {
         if actor <= 0 || purchase_id <= 0 || chapter_id <= 0 || version_id <= 0 {
             return Err(SyncError::Invalid);
         }
-        sqlx::query_scalar(
-            "SELECT tor_purchase_version_readable($1, $2, $3, $4)",
-        )
-        .bind(actor)
-        .bind(purchase_id)
-        .bind(chapter_id)
-        .bind(version_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| SyncError::Unavailable)
+        sqlx::query_scalar("SELECT tor_purchase_version_readable($1, $2, $3, $4)")
+            .bind(actor)
+            .bind(purchase_id)
+            .bind(chapter_id)
+            .bind(version_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| SyncError::Unavailable)
     }
 
     /// Paid plaintext is used only internally to check a UTF-16 anchor after
@@ -265,7 +263,9 @@ impl PgReadingSync {
 
 fn parse_receipt(row: PgRow) -> Result<SyncReceipt, SyncError> {
     Ok(SyncReceipt {
-        revision: row.try_get("revision").map_err(|_| SyncError::Unavailable)?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| SyncError::Unavailable)?,
         updated_at: row
             .try_get("updated_at")
             .map_err(|_| SyncError::Unavailable)?,

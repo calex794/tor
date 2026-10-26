@@ -654,7 +654,14 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(
         send(
             &app,
-            json_request("PUT", "/api/v1/me/progress/free", fresh_place, &session, ORIGIN, csrf),
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/free",
+                fresh_place,
+                &session,
+                ORIGIN,
+                csrf
+            ),
         )
         .await
         .status(),

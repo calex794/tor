@@ -135,10 +135,7 @@ pub(super) async fn get_free(
         Err(_) => return deny(StatusCode::NOT_FOUND),
     };
     match state.sync.free_state(actor, chapter_id).await {
-        Ok(saved) => private_response(
-            Json(actual_state(chapter_id, version_id, saved)),
-            &[],
-        ),
+        Ok(saved) => private_response(Json(actual_state(chapter_id, version_id, saved)), &[]),
         Err(error) => deny(status(error)),
     }
 }
@@ -209,9 +206,7 @@ pub(super) async fn get_purchased(
         id(&query.chapter_id),
         id(&query.version_id),
     ) {
-        (Ok(purchase_id), Ok(chapter_id), Ok(version_id)) => {
-            (purchase_id, chapter_id, version_id)
-        }
+        (Ok(purchase_id), Ok(chapter_id), Ok(version_id)) => (purchase_id, chapter_id, version_id),
         (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => return deny(error),
     };
     match state
@@ -219,10 +214,7 @@ pub(super) async fn get_purchased(
         .purchased_state(actor, purchase_id, chapter_id, version_id)
         .await
     {
-        Ok(saved) => private_response(
-            Json(actual_state(chapter_id, version_id, saved)),
-            &[],
-        ),
+        Ok(saved) => private_response(Json(actual_state(chapter_id, version_id, saved)), &[]),
         Err(error) => deny(status(error)),
     }
 }
@@ -245,9 +237,7 @@ pub(super) async fn put_purchased(
         id(&command.chapter_id),
         id(&command.version_id),
     ) {
-        (Ok(purchase_id), Ok(chapter_id), Ok(version_id)) => {
-            (purchase_id, chapter_id, version_id)
-        }
+        (Ok(purchase_id), Ok(chapter_id), Ok(version_id)) => (purchase_id, chapter_id, version_id),
         (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => return deny(error),
     };
     let body = match state
