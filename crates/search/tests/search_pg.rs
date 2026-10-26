@@ -555,3 +555,133 @@ async fn f_02_exact_total_matches_filters_and_immediate_revocation() {
         "deleted must not reappear in total"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_02_lexical_keysets_match_postgres_order_and_hide_private_rows() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never write to production");
+    for (key, title, author, visibility, held, deleted) in [
+        ("a", "Море", "Иван", "public", false, false),
+        ("b", "Яблоко", "Анна", "public", false, false),
+        ("c", "море", "Анна", "public", false, false),
+        ("d", "яблоко", "Борис", "public", false, false),
+        ("e", "Apple", "", "public", false, false),
+        ("f", "Apple", "", "public", false, false),
+        ("draft", "A-hidden", "A-hidden", "draft", false, false),
+        ("held", "A-held", "A-held", "public", true, false),
+        ("deleted", "A-deleted", "A-deleted", "public", false, true),
+    ] {
+        sqlx::query(
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,
+                                visibility,admin_hold,is_deleted)
+             VALUES ($1,'ru',$2,$3,ARRAY['f02-lexical'],$4,$5,$6)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold,is_deleted=EXCLUDED.is_deleted",
+        )
+        .bind(format!("ci:f02:lexical:{key}"))
+        .bind(title)
+        .bind(author)
+        .bind(visibility)
+        .bind(held)
+        .bind(deleted)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let search = PgSearch::new(pool.clone());
+    for (sort, oracle) in [
+        (
+            "title",
+            "SELECT id FROM books WHERE visibility='public'
+               AND NOT admin_hold AND NOT is_deleted
+               AND genres @> ARRAY['f02-lexical']
+               ORDER BY lower(title) ASC,id ASC",
+        ),
+        (
+            "author",
+            "SELECT id FROM books WHERE visibility='public'
+               AND NOT admin_hold AND NOT is_deleted
+               AND genres @> ARRAY['f02-lexical']
+               ORDER BY lower(author_name) ASC,id ASC",
+        ),
+    ] {
+        let expected: Vec<i64> = sqlx::query_scalar(oracle).fetch_all(&pool).await.unwrap();
+        assert_eq!(expected.len(), 6);
+        let mut actual = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut pages = 0;
+        loop {
+            let page = search
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-lexical"),
+                    cursor.as_deref(),
+                    2,
+                    Some(sort),
+                )
+                .await
+                .unwrap();
+            assert!(!page.items.is_empty());
+            assert!(page.items.len() <= 2);
+            actual.extend(page.items.into_iter().map(|book| i64::try_from(book.id).unwrap()));
+            pages += 1;
+            assert!(pages <= 5, "cursor loop for {sort}");
+            match page.next_cursor {
+                Some(next) => {
+                    assert!(next.starts_with(&format!("{sort}.")));
+                    assert_ne!(cursor.as_deref(), Some(next.as_str()));
+                    cursor = Some(next);
+                }
+                None => break,
+            }
+        }
+        assert_eq!(pages, 3);
+        assert_eq!(actual, expected, "{sort}: unstable order or private row");
+    }
+    for (sort, cursor) in [
+        ("title", "1"),
+        ("author", "title.6162.1"),
+        ("title", "title.gg.1"),
+        ("title", "title.0.1"),
+        ("title", "title.00.0"),
+        ("author", "author.00.01"),
+    ] {
+        assert_eq!(
+            search
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-lexical"),
+                    Some(cursor),
+                    2,
+                    Some(sort),
+                )
+                .await,
+            Err(SearchError::Invalid),
+            "bad {sort} cursor {cursor}"
+        );
+    }
+    let excessive = format!("title.{}.1", "a".repeat(2049));
+    assert_eq!(
+        search
+            .search_faceted_sorted(
+                "",
+                Some("ru"),
+                Some("f02-lexical"),
+                Some(&excessive),
+                2,
+                Some("title"),
+            )
+            .await,
+        Err(SearchError::Invalid),
+    );
+}
