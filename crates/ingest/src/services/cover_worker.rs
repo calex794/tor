@@ -36,8 +36,14 @@ impl<J: CoverJobs, S: CoverObjectStore, B: BookCoverAttach> CoverWorker<'_, J, S
         let done = self.process_claim(&claim).await;
         match done {
             Ok(applied) => {
-                self.jobs.conclude(claim.job_id, claim.epoch, applied).await?;
-                Ok(if applied { WorkerResult::Attached } else { WorkerResult::Superseded })
+                self.jobs
+                    .conclude(claim.job_id, claim.epoch, applied)
+                    .await?;
+                Ok(if applied {
+                    WorkerResult::Attached
+                } else {
+                    WorkerResult::Superseded
+                })
             }
             Err(CoverError::LostLease) => Err(CoverError::LostLease),
             Err(problem) => {
@@ -49,7 +55,9 @@ impl<J: CoverJobs, S: CoverObjectStore, B: BookCoverAttach> CoverWorker<'_, J, S
                     CoverError::LostLease => unreachable!(),
                     CoverError::Unavailable => "store_or_pg_unavailable",
                 };
-                self.jobs.record_failure(claim.job_id, claim.epoch, retryable, code).await?;
+                self.jobs
+                    .record_failure(claim.job_id, claim.epoch, retryable, code)
+                    .await?;
                 Ok(WorkerResult::RetryOrQuarantine)
             }
         }
@@ -63,25 +71,38 @@ impl<J: CoverJobs, S: CoverObjectStore, B: BookCoverAttach> CoverWorker<'_, J, S
         }
         let existing = self.jobs.existing_variants(claim.job_id).await?;
         if existing.is_empty() {
-            let source = self.storage.get_bounded(&claim.source_key, MAX_SOURCE_BYTES).await?;
+            let source = self
+                .storage
+                .get_bounded(&claim.source_key, MAX_SOURCE_BYTES)
+                .await?;
             if source.len() as i64 != claim.source_size || sha256(&source) != claim.source_sha256 {
                 return Err(CoverError::Invalid);
             }
             let mime = claim.source_mime.clone();
             // Decode/crop/WebP is CPU-intensive; never run it on Tokio's executor.
             let images = tokio::task::spawn_blocking(move || process_cover(&source, &mime))
-                .await.map_err(|_| CoverError::Unavailable)?
+                .await
+                .map_err(|_| CoverError::Unavailable)?
                 .map_err(|_| CoverError::Invalid)?;
-            if images.len() != 2 { return Err(CoverError::Invalid); }
+            if images.len() != 2 {
+                return Err(CoverError::Invalid);
+            }
             let mut pair = Vec::with_capacity(2);
             for variant in images {
-                let hash=sha256(&variant.bytes);
+                let hash = sha256(&variant.bytes);
                 let key = format!(
                     "staging/covers/variants/{}/{}/{}-{}.webp",
-                    claim.job_id, claim.epoch, variant.name, hex_digest(&hash)
+                    claim.job_id,
+                    claim.epoch,
+                    variant.name,
+                    hex_digest(&hash)
                 );
                 self.storage.put_verified(&key, &variant.bytes).await?;
-                if !self.storage.exists_verified(&key, &hash, variant.bytes.len() as i64).await? {
+                if !self
+                    .storage
+                    .exists_verified(&key, &hash, variant.bytes.len() as i64)
+                    .await?
+                {
                     return Err(CoverError::Unavailable);
                 }
                 pair.push(CoverVariant {
@@ -92,20 +113,21 @@ impl<J: CoverJobs, S: CoverObjectStore, B: BookCoverAttach> CoverWorker<'_, J, S
                 });
             }
             let pair: [CoverVariant; 2] = pair.try_into().map_err(|_| CoverError::Invalid)?;
-            self.jobs.record_pair(claim.job_id, claim.epoch, &pair).await?;
+            self.jobs
+                .record_pair(claim.job_id, claim.epoch, &pair)
+                .await?;
         } else {
             // A previous worker may have staged both artifacts and crashed
             // before B's slot transaction. Verify S3 again, never trust PG alone.
-            if existing.len() != 2
-                || existing[0].name != "card"
-                || existing[1].name != "main"
-            {
+            if existing.len() != 2 || existing[0].name != "card" || existing[1].name != "main" {
                 return Err(CoverError::Conflict);
             }
             for variant in &existing {
-                if !self.storage.exists_verified(
-                    &variant.storage_key, &variant.sha256, variant.size_bytes
-                ).await? {
+                if !self
+                    .storage
+                    .exists_verified(&variant.storage_key, &variant.sha256, variant.size_bytes)
+                    .await?
+                {
                     return Err(CoverError::Unavailable);
                 }
             }

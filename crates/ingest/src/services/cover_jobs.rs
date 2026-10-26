@@ -1,6 +1,6 @@
 //! G-07 job lifecycle; SQLx remains in repositories and B owns slot mutation.
-use async_trait::async_trait;
 use crate::domain::cover::{CoverClaim, CoverError, CoverVariant};
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait CoverJobs: Send + Sync {
