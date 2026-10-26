@@ -141,7 +141,11 @@ pub(super) async fn reopened_reader_has_saved_anchor(app: &Router, session: &str
 
 pub(super) async fn resume_after_login(app: &Router, logged: &Response) {
     let renewed_session = cookie(logged, "tor-dev-session=");
-    let library = send(app, request("GET", "/me/library", "", &renewed_session, ORIGIN)).await;
+    let library = send(
+        app,
+        request("GET", "/me/library", "", &renewed_session, ORIGIN),
+    )
+    .await;
     assert_eq!(library.status(), StatusCode::OK);
     assert_eq!(library.headers()[header::CACHE_CONTROL], "no-store");
     assert!(body_of(library).await.contains("href=\\\"/read/101#p-1\\\""));
