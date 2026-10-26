@@ -5,10 +5,13 @@ use crate::{
     auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
     author_pages, pages,
     password_jobs::PasswordJobs,
+    ril::{self, VerifiedRilSubject},
 };
 use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, Form, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    body::Body,
+    extract::{ConnectInfo, DefaultBodyLimit, Form, MatchedPath, Path, Query, State},
+    http::{HeaderMap, Method, Request, StatusCode},
+    middleware::{self, Next},
     response::{Redirect, Response},
     routing::{get, post},
     Router,
@@ -17,6 +20,7 @@ use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     repositories::PgAccounts,
+    services::ril_pseudonym::RilSubjectSigner,
     services::security::{
         generate_session_token, hash_password, session_token_digest, verify_password,
     },
@@ -27,6 +31,7 @@ use tor_books::{
     services::authoring::{new_book, AuthorError},
 };
 use tor_reading::repositories::{PgLibrary, PgReadingProgress};
+use tor_traffic_behavior::VerifiedSubjectKey;
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -46,6 +51,7 @@ struct AuthState {
     reader: PgReader,
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
+    ril_signer: Option<RilSubjectSigner>,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +67,12 @@ struct LoginForm {
     email: String,
     password: String,
     csrf_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct BehaviorConsentForm {
+    csrf_token: Option<String>,
+    choice: String,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +102,17 @@ struct NewBookForm {
     csrf_token: Option<String>,
 }
 
+// Identified collection defaults OFF. Only a single-instance deployment with
+// a separately provisioned HMAC key may enable opt-in behavior paths.
+fn configured_ril_signer() -> Option<RilSubjectSigner> {
+    if std::env::var("TOR_RIL_SINGLE_INSTANCE").as_deref() != Ok("1") {
+        return None;
+    }
+    std::env::var("TOR_RIL_HMAC_KEY")
+        .ok()
+        .and_then(|value| RilSubjectSigner::from_hex(&value))
+}
+
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -107,7 +130,9 @@ pub(crate) fn router(
         reader,
         cookies: CookiePolicy { secure, origin },
         password_jobs: PasswordJobs::new(4),
+        ril_signer: configured_ril_signer(),
     };
+    let observation_state = state.clone();
     Router::new()
         .route("/register", get(show_registration).post(register))
         .route("/login", get(show_login).post(login))
@@ -130,9 +155,50 @@ pub(crate) fn router(
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/logout", post(logout))
+        .route("/me/behavior", post(set_behavior_consent))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
+        .layer(middleware::from_fn_with_state(observation_state, annotate_verified_ril))
 }
+
+// The outer RIL layer cannot inspect cookies to invent a user. Only this
+// A-owned layer looks up a current PG session and explicit consent.
+async fn annotate_verified_ril(
+    State(state): State<AuthState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let template = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+    let observe = request.method() == Method::GET
+        && matches!(template, Some("/me") | Some("/me/library") | Some("/read/{id}")
+            | Some("/me/books") | Some("/me/books/new") | Some("/me/books/{id}"));
+    let verified = if observe {
+        if let (Some(signer), Some(token)) = (
+            state.ril_signer.as_ref(),
+            state.cookies.session_token(request.headers()),
+        ) {
+            let digest = session_token_digest(&token);
+            match state.accounts.ril_verified_opted_in_session(&digest).await {
+                Ok(Some((id, epoch))) => Some(VerifiedSubjectKey::from_hmac_digest(
+                    signer.pseudonym(id, epoch),
+                )),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let mut response = next.run(request).await;
+    if response.status().is_success() {
+        if let Some(key) = verified {
+            response.extensions_mut().insert(VerifiedRilSubject(key));
+        }
+    }
+    response
+}
+
 
 async fn show_registration(State(state): State<AuthState>) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
@@ -325,8 +391,15 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let (enabled, _) = match state.accounts.ril_behavior_consent(user_id).await {
+        Ok(consent) => consent,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_account(&name, &csrf), &cookies)
+    private_response(
+        pages::my_account(&name, &csrf, enabled, state.ril_signer.is_some()),
+        &cookies,
+    )
 }
 
 async fn my_library(
@@ -543,6 +616,48 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+}
+
+/// A separately enabled, CSRF-protected opt-in. Neither token nor user ID
+/// comes from the form. A changed consent epoch makes old HMAC identities stale.
+async fn set_behavior_consent(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<BehaviorConsentForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let enable = match form.choice.as_str() {
+        "enable" => true,
+        "disable" => false,
+        _ => return deny(StatusCode::BAD_REQUEST),
+    };
+    if enable && state.ril_signer.is_none() {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let epoch = match state.accounts.set_ril_behavior_consent(actor, enable).await {
+        Ok(epoch) => epoch,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !enable && epoch > 1 {
+        if let Some(signer) = state.ril_signer.as_ref() {
+            let key = VerifiedSubjectKey::from_hmac_digest(signer.pseudonym(actor, epoch - 1));
+            if !ril::forget_subject(key).await {
+                // PG consent already disabled. Do not claim erased until
+                // both in-process workers have acknowledged deletion.
+                return deny(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+    private_response(Redirect::to("/me"), &[])
 }
 
 async fn logout(
