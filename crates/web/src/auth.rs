@@ -3,7 +3,7 @@
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
-    author_pages, pages,
+    author_chapter_http, author_chapter_pages, author_pages, pages,
     password_jobs::PasswordJobs,
     ril::{self, VerifiedRilSubject},
 };
@@ -30,8 +30,8 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book, AuthorError},
 };
-use tor_reading::repositories::{PgLibrary, PgReadingProgress};
 use tor_traffic_behavior::VerifiedSubjectKey;
+use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -41,12 +41,14 @@ use tor_reading::{
 };
 
 mod library_actions;
+mod sync_actions;
 
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
     authoring: PgAuthoring,
     progress: PgReadingProgress,
+    sync: PgReadingSync,
     bookmarks: PgLibrary,
     reader: PgReader,
     cookies: CookiePolicy,
@@ -119,13 +121,22 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
+    let chapter_routes = author_chapter_http::router(
+        accounts.clone(),
+        CookiePolicy {
+            secure,
+            origin: origin.clone(),
+        },
+    );
     let progress = PgReadingProgress::new(accounts.pool().clone());
+    let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
         authoring,
         progress,
+        sync,
         bookmarks,
         reader,
         cookies: CookiePolicy { secure, origin },
@@ -138,6 +149,14 @@ pub(crate) fn router(
         .route("/login", get(show_login).post(login))
         .route("/me", get(me))
         .route("/me/library", get(my_library))
+        .route(
+            "/api/v1/me/progress/free",
+            get(sync_actions::get_free).put(sync_actions::put_free),
+        )
+        .route(
+            "/api/v1/me/progress/purchased",
+            get(sync_actions::get_purchased).put(sync_actions::put_purchased),
+        )
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/library/{id}/save", post(library_actions::browser_add))
         .route(
@@ -159,6 +178,7 @@ pub(crate) fn router(
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
         .layer(middleware::from_fn_with_state(observation_state, annotate_verified_ril))
+        .merge(chapter_routes)
 }
 
 // The outer RIL layer cannot inspect cookies to invent a user. Only this
@@ -178,8 +198,11 @@ async fn annotate_verified_ril(
             state.cookies.session_token(request.headers()),
         ) {
             let digest = session_token_digest(&token);
-            match state.accounts.ril_verified_opted_in_session(&digest).await {
-                Ok(Some((id, epoch))) => Some(VerifiedSubjectKey::from_hmac_digest(
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                state.accounts.ril_verified_opted_in_session(&digest),
+            ).await {
+                Ok(Ok(Some((id, epoch)))) => Some(VerifiedSubjectKey::from_hmac_digest(
                     signer.pseudonym(id, epoch),
                 )),
                 _ => None,
@@ -221,8 +244,7 @@ fn invalid_credentials() -> Response {
     )
 }
 
-/// Reserve capacity before Argon2 to slow password guessing and account spray.
-/// A client IP comes from the TCP peer, NEVER from untrusted forwarding headers.
+/// Bound Argon2 work by verified TCP peer IP, never forwarding headers.
 async fn limit(
     state: &AuthState,
     action: &str,
@@ -391,10 +413,7 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (enabled, _) = match state.accounts.ril_behavior_consent(user_id).await {
-        Ok(consent) => consent,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
+    let (enabled, _) = state.accounts.ril_behavior_consent(user_id).await.unwrap_or((false, 0));
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
         pages::my_account(&name, &csrf, enabled, state.ril_signer.is_some()),
@@ -435,8 +454,7 @@ async fn my_library(
     private_response(pages::my_library(&books, &saved, &csrf), &cookies)
 }
 
-/// Resolve the authenticated actor exclusively from the database-backed session.
-/// A client-supplied user ID is never accepted.
+/// Resolve actor from the session database, never client-supplied user IDs.
 async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
     let Some(token) = state.cookies.session_token(headers) else {
         return Ok(None);
@@ -522,11 +540,25 @@ async fn author_book(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match state.authoring.owned_book(actor, id).await {
-        Ok(Some(book)) => private_response(author_pages::detail(&book), &[]),
-        Ok(None) => deny(StatusCode::NOT_FOUND),
-        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
+    let book = match state.authoring.owned_book(actor, id).await {
+        Ok(Some(book)) => book,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let published = match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(published) => published,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let chapters = match state.authoring.list_owned_chapters(actor, id).await {
+        Ok(chapters) => chapters,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(
+        author_chapter_pages::detail(&book, published, &chapters, &csrf),
+        &cookies,
+    )
 }
 
 /// Interactive reading is private to a verified account. Public free reading
@@ -562,8 +594,7 @@ async fn private_reader(
     private_response(pages::private_reader(id, &chapter, &csrf, saved), &cookies)
 }
 
-/// Manual, no-JavaScript place saving. Every write verifies session, Origin,
-/// double-submit CSRF, current published version, and free-content visibility.
+/// Manual place save checks session, Origin, CSRF, published version and visibility.
 async fn save_place(
     State(state): State<AuthState>,
     Path(id): Path<u64>,

@@ -1,4 +1,5 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
+mod chapter_edit;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
@@ -253,6 +254,77 @@ impl PgAuthoring {
             .collect()
     }
 
+    /// Owner-scoped publication status. Guests must never infer private drafts.
+    pub async fn owned_book_is_public(
+        &self,
+        user_id: i64,
+        book_id: i64,
+    ) -> Result<bool, AuthorError> {
+        if user_id <= 0 || book_id <= 0 {
+            return Err(AuthorError::Missing);
+        }
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT visibility FROM books
+             WHERE id=$1 AND owner_user_id=$2 AND NOT is_deleted AND NOT admin_hold",
+        )
+        .bind(book_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        match status.as_deref() {
+            Some("public") => Ok(true),
+            Some("draft") => Ok(false),
+            Some(_) => Err(AuthorError::Unavailable),
+            None => Err(AuthorError::Missing),
+        }
+    }
+
+    /// Show only chapters of the authenticated owner's book, bounded to 200 rows.
+    pub async fn list_owned_chapters(
+        &self,
+        user_id: i64,
+        book_id: i64,
+    ) -> Result<Vec<crate::services::authoring::OwnedChapterSummary>, AuthorError> {
+        use crate::services::authoring::OwnedChapterSummary;
+        if user_id <= 0 || book_id <= 0 {
+            return Err(AuthorError::Missing);
+        }
+        let rows = sqlx::query(
+            "SELECT c.id,c.chapter_no,c.title,c.access_level FROM chapters c
+             JOIN books b ON b.id=c.book_id
+             WHERE c.book_id=$1 AND b.owner_user_id=$2
+               AND NOT c.is_deleted AND NOT b.is_deleted
+               AND NOT c.admin_hold AND NOT b.admin_hold
+             ORDER BY c.chapter_no,c.id LIMIT 200",
+        )
+        .bind(book_id)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        rows.into_iter()
+            .map(|row| {
+                let access: String = row
+                    .try_get("access_level")
+                    .map_err(|_| AuthorError::Unavailable)?;
+                let access = match access.as_str() {
+                    "free" => ChapterAccess::Free,
+                    "paid" => ChapterAccess::Paid,
+                    _ => return Err(AuthorError::Unavailable),
+                };
+                Ok(OwnedChapterSummary {
+                    id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
+                    number: row
+                        .try_get("chapter_no")
+                        .map_err(|_| AuthorError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
+                    access,
+                })
+            })
+            .collect()
+    }
+
     /// Never reveal an unpublished book, including its existence, to a non-owner.
     pub async fn owned_book(
         &self,
@@ -338,6 +410,11 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         let book_visibility = book_visibility.ok_or(AuthorError::Missing)?;
+        // Adding a chapter to a public book requires a separate chapter-release
+        // workflow. Saving text must not implicitly publish it.
+        if book_visibility != "draft" {
+            return Err(AuthorError::Conflict);
+        }
 
         let claimed: Option<i64> = sqlx::query_scalar(
             "INSERT INTO chapter_save_commands (user_id, command_key, payload_hash)
@@ -414,19 +491,8 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
 
-        // First-release facts are emitted only once the parent is public.
-        // A chapter in an unlisted draft is not publicly released yet.
-        if book_visibility == "public" {
-            sqlx::query(
-                "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-                 VALUES ($1,$2) ON CONFLICT (chapter_id) DO NOTHING",
-            )
-            .bind(chapter_id)
-            .bind(version_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-        }
+        // No release event on save. release_book emits it atomically when
+        // the owner deliberately makes the previously hidden book public.
         sqlx::query(
             "UPDATE chapter_save_commands
              SET chapter_id=$3,version_id=$4,saved_revision=1

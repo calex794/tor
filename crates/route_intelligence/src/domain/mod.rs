@@ -93,7 +93,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 29] = [
+const ROUTES: [RouteRegistration; 38] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -226,7 +226,88 @@ const ROUTES: [RouteRegistration; 29] = [
         Reading,
         Write,
     ), // 27
-    RouteRegistration::new("/me/behavior", "POST", "/me/", Exact, Page, Dashboard, Write), // 28
+    RouteRegistration::new(
+        "/me/books/{id}/chapters/new",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 28
+    RouteRegistration::new(
+        "/me/books/{id}/chapters",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 29
+    RouteRegistration::new(
+        "/me/books/{id}/publish",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 30
+    RouteRegistration::new(
+        "/api/v1/me/progress/free",
+        "GET",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Read,
+    ), // 31
+    RouteRegistration::new(
+        "/api/v1/me/progress/free",
+        "PUT",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Write,
+    ), // 32
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased",
+        "GET",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Read,
+    ), // 33
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased",
+        "PUT",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Write,
+    ), // 34
+    RouteRegistration::new(
+        "/me/books/{id}/chapters/{chapter_id}/edit",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 35
+    RouteRegistration::new(
+        "/me/books/{id}/chapters/{chapter_id}/edit",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 36
+    RouteRegistration::new("/me/behavior", "POST", "/me/", Exact, Page, Dashboard, Write), // 37
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -318,7 +399,16 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/library/add/{id}"), "GET") => Some(25),
         (Some("/me/library/{id}/save"), "POST") => Some(26),
         (Some("/me/library/{id}/remove"), "POST") => Some(27),
-        (Some("/me/behavior"), "POST") => Some(28),
+        (Some("/me/books/{id}/chapters/new"), "GET") => Some(28),
+        (Some("/me/books/{id}/chapters"), "POST") => Some(29),
+        (Some("/me/books/{id}/publish"), "POST") => Some(30),
+        (Some("/api/v1/me/progress/free"), "GET") => Some(31),
+        (Some("/api/v1/me/progress/free"), "PUT") => Some(32),
+        (Some("/api/v1/me/progress/purchased"), "GET") => Some(33),
+        (Some("/api/v1/me/progress/purchased"), "PUT") => Some(34),
+        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "GET") => Some(35),
+        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "POST") => Some(36),
+        (Some("/me/behavior"), "POST") => Some(37),
         _ => None,
     };
     index

@@ -20,6 +20,8 @@ use tor_reading::{
 };
 mod auth;
 mod auth_cookies;
+mod author_chapter_http;
+mod author_chapter_pages;
 mod author_pages;
 pub mod cover_worker;
 mod pages;

@@ -353,3 +353,37 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .reader-save-button { width: 100%; font-size: 14px; }
   .reader-piece:target { padding-left: 9px; }
 }
+
+
+/* B-03/H: comfortable, bounded author chapter form on mobile and desktop. */
+.auth-card.author-chapter-card { width: min(860px, 100%); }
+.author-chapter-card h1 { overflow-wrap: anywhere; }
+.author-chapter-card .author-form { display: grid; gap: 11px; }
+.author-chapter-card .author-form textarea {
+  display: block; width: 100%; min-height: 320px; resize: vertical;
+  padding: 15px; border: 1px solid #bdcbbf; border-radius: 10px;
+  background: #fff; color: #1d3122; font: 16px/1.7 ui-monospace, Consolas, monospace;
+}
+.author-chapter-card .author-form textarea:focus-visible { outline: 3px solid #44835b; outline-offset: 2px; }
+.author-chapter-card .author-form .button { width: 100%; min-height: 48px; }
+@media (max-width: 680px) {
+  .auth-card.author-chapter-card { padding: 24px 18px; }
+  .author-chapter-card .author-form textarea { min-height: 44vh; padding: 12px; }
+}
+
+/* B-02: author workspace readable on desktop and mobile. */
+.auth-card.author-card { width: min(760px, 100%); }
+.author-card > h1 { overflow-wrap: anywhere; }
+.author-book-list { list-style: none; padding: 0; margin: 24px 0; display: grid; gap: 12px; }
+.author-book-list li { min-width: 0; }
+.author-book-link { display: block; padding: 16px 18px; border-radius: 12px; border: 1px solid #dce7dd; background: #f8fbf7; color: #26583a; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.author-book-link:hover { border-color: #6b9674; background: #edf5eb; }
+.author-card .auth-form input { background: #fff; }
+@media (max-width: 680px) {
+  .auth-card.author-card { padding: 24px 20px; }
+  .author-book-link { padding: 15px; }
+  .author-card .button { min-height: 44px; }
+}
+
+/* B-04: make stale-revision guidance legible on small screens. */
+.author-edit-warning { font-size: 13px; color: #536755; line-height: 1.6; }

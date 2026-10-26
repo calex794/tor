@@ -14,6 +14,9 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+#[path = "auth_postgres/b04_cases.rs"]
+mod b04_cases;
+
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
         .method(method)
@@ -23,6 +26,27 @@ fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> 
         .header(header::ORIGIN, origin)
         .body(Body::from(body.to_owned()))
         .expect("HTTP");
+    req.extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40001))));
+    req
+}
+fn json_request(
+    method: &str,
+    uri: &str,
+    body: &str,
+    cookies: &str,
+    origin: &str,
+    csrf: &str,
+) -> Request<Body> {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, cookies)
+        .header(header::ORIGIN, origin)
+        .header("x-csrf-token", csrf)
+        .body(Body::from(body.to_owned()))
+        .expect("JSON HTTP");
     req.extensions_mut()
         .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40001))));
     req
@@ -230,6 +254,238 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_detail.headers()[header::LOCATION], "/login");
 
+    // B-03/B-04: real browser writer journey with CSRF, immutable chapter and
+    // deliberate release. The anonymous catalog does not leak the draft.
+    let book_id = book_path
+        .trim_start_matches("/me/books/")
+        .parse::<i64>()
+        .expect("book ID");
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &format!("/books/{book_id}"), "", "", ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let chapter_form_path = format!("/me/books/{book_id}/chapters/new");
+    assert_eq!(
+        send(&app, request("GET", &chapter_form_path, "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let chapter_page = send(
+        &app,
+        request("GET", &chapter_form_path, "", &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(chapter_page.status(), StatusCode::OK);
+    let chapter_html = body_of(chapter_page).await;
+    let chapter_csrf = csrf_token(&chapter_html);
+    let chapter_key = chapter_html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .expect("chapter idempotency key")
+        .split('"')
+        .next()
+        .unwrap();
+    let chapter_payload = format!(
+        "number=1&title=%D0%93%D0%BB%D0%B0%D0%B2%D0%B0&body=%23%20Real%20chapter&command_key={chapter_key}&csrf_token={chapter_csrf}"
+    );
+    let chapter_path = format!("/me/books/{book_id}/chapters");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", &chapter_path, &chapter_payload, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Chapter creation requires CSRF cookie"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                &chapter_path,
+                &chapter_payload,
+                &author_cookies,
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Chapter writes reject other origins"
+    );
+    let chapter_created = send(
+        &app,
+        request(
+            "POST",
+            &chapter_path,
+            &chapter_payload,
+            &author_cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(chapter_created.status(), StatusCode::SEE_OTHER);
+    assert_eq!(chapter_created.headers()[header::LOCATION], book_path);
+    // Retrying the exact command returns the same chapter, not a duplicate.
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                &chapter_path,
+                &chapter_payload,
+                &author_cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let altered = chapter_payload.replace("number=1", "number=2");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", &chapter_path, &altered, &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let private_book = send(
+        &app,
+        request("GET", &book_path, "", &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(private_book.status(), StatusCode::OK);
+    let author_book_html = body_of(private_book).await;
+    assert!(author_book_html.contains("Опубликовать книгу"));
+    assert!(author_book_html.contains("Глава"));
+    let edit_path = b04_cases::draft_edit_case(
+        &app,
+        book_id,
+        &book_path,
+        &session,
+        &author_cookies,
+        &author_book_html,
+    )
+    .await;
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &format!("/books/{book_id}"), "", "", ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let publish_path = format!("/me/books/{book_id}/publish");
+    let publish_payload = format!("csrf_token={chapter_csrf}");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", &publish_path, &publish_payload, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let released = send(
+        &app,
+        request(
+            "POST",
+            &publish_path,
+            &publish_payload,
+            &author_cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(released.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        released.headers()[header::LOCATION],
+        format!("/books/{book_id}")
+    );
+    let public_book = send(
+        &app,
+        request("GET", &format!("/books/{book_id}"), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(public_book.status(), StatusCode::OK);
+    let public_html = body_of(public_book).await;
+    assert!(public_html.contains("Глава"));
+    let public_chapter_id = public_html
+        .split("href=\"/reader/")
+        .nth(1)
+        .expect("public chapter reader URL")
+        .split('"')
+        .next()
+        .expect("chapter ID");
+    let new_reader = send(
+        &app,
+        request(
+            "GET",
+            &format!("/reader/{public_chapter_id}"),
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(new_reader.status(), StatusCode::OK);
+    assert!(
+        body_of(new_reader).await.contains("Updated chapter"),
+        "Published Markdown is readable through real PostgreSQL"
+    );
+    let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
+    let published_html = body_of(published_detail).await;
+    assert!(published_html.contains("Опубликована"));
+    assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &edit_path, "", &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "published chapter text cannot be edited as a draft"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &chapter_form_path, "", &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "no new chapter form on a public book before chapter-release is implemented"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                &publish_path,
+                &publish_payload,
+                &author_cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER,
+        "Publishing the same book twice is safe"
+    );
+
     let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
     assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");
@@ -405,6 +661,160 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     .await;
     assert_eq!(saved.status(), StatusCode::SEE_OTHER);
     assert_eq!(saved.headers()[header::LOCATION], "/read/101#p-1");
+    // C-09: JSON progress persists across independent client sessions, while
+    // stale and concurrent requests cannot move the cursor backwards.
+    let csrf_cookies = format!("{session}; {new_csrf_cookie}");
+    let read_free = send(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/me/progress/free?chapter_id=101",
+            "",
+            &session,
+            ORIGIN,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(read_free.status(), StatusCode::OK);
+    assert_eq!(read_free.headers()[header::CACHE_CONTROL], "no-store");
+    let free_state = body_of(read_free).await;
+    assert!(free_state.contains("\"version_id\":\"201\""));
+    assert!(free_state.contains("\"revision\":1"));
+
+    let fresh_place = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":1,"expected_revision":1}"#;
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/free",
+                fresh_place,
+                &session,
+                ORIGIN,
+                csrf
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "JSON write requires the matching CSRF cookie"
+    );
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/free",
+                fresh_place,
+                &csrf_cookies,
+                "https://evil.example",
+                csrf,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "cross-site JSON write rejected"
+    );
+    let sync_saved = send(
+        &app,
+        json_request(
+            "PUT",
+            "/api/v1/me/progress/free",
+            fresh_place,
+            &csrf_cookies,
+            ORIGIN,
+            csrf,
+        ),
+    )
+    .await;
+    assert_eq!(sync_saved.status(), StatusCode::OK);
+    let receipt = body_of(sync_saved).await;
+    assert!(receipt.contains("\"revision\":2"));
+    assert!(receipt.contains("\"char_offset\":1"));
+    assert!(!receipt.contains("Первая строка"));
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/free",
+                fresh_place,
+                &csrf_cookies,
+                ORIGIN,
+                csrf,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let restored = body_of(
+        send(
+            &app,
+            json_request(
+                "GET",
+                "/api/v1/me/progress/free?chapter_id=101",
+                "",
+                &session,
+                ORIGIN,
+                "",
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(restored.contains("\"revision\":2"));
+    assert!(restored.contains("\"char_offset\":1"));
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "GET",
+                "/api/v1/me/progress/free?chapter_id=103",
+                "",
+                &session,
+                ORIGIN,
+                "",
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "paid text is invisible through the free progress endpoint"
+    );
+
+    // A logged-in user cannot claim an invented purchase or see paid text.
+    let paid_query =
+        "/api/v1/me/progress/purchased?purchase_id=93840&chapter_id=93820&version_id=93831";
+    assert_eq!(
+        send(
+            &app,
+            json_request("GET", paid_query, "", &session, ORIGIN, ""),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let false_purchase = r#"{"purchase_id":"93840","chapter_id":"93820","version_id":"93831","block_id":1,"char_offset":2,"expected_revision":0}"#;
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/purchased",
+                false_purchase,
+                &csrf_cookies,
+                ORIGIN,
+                csrf,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+
     let library_after = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
     let after = body_of(library_after).await;
     assert!(after.contains("href=\"/read/101#p-1\""));

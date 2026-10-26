@@ -1,0 +1,21 @@
+<section class="section auth-section">
+  <div class="container">
+    <div class="auth-card author-chapter-card">
+      <p class="eyebrow">Кабинет автора</p>
+      <h1>Новая бесплатная глава</h1>
+      <p>Текст и версия сохраняются в PostgreSQL. Книга станет доступна читателям только после отдельной публикации.</p>
+      <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
+        <label for="chapter-number">Номер главы</label>
+        <input id="chapter-number" name="number" type="number" min="1" max="1000000" value="1" required>
+        <label for="chapter-title">Название главы</label>
+        <input id="chapter-title" name="title" type="text" maxlength="200" required>
+        <label for="chapter-body">Текст главы (Markdown, до 50 000 символов)</label>
+        <textarea id="chapter-body" name="body" rows="14" maxlength="50000" required></textarea>
+        <button class="button" type="submit">Сохранить главу</button>
+      </form>
+      <p class="auth-card__footer"><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+    </div>
+  </div>
+</section>
