@@ -135,7 +135,7 @@ async fn c_09_free_two_devices_cannot_rollback_or_reuse_revision() {
 
 #[tokio::test]
 #[ignore = "requires TEST_DATABASE_URL and disposable tor_ci"]
-async fn c_09_purchased_v1_survives_v2_but_not_revoke_or_hold() {
+async fn c_09_c_06_purchased_v1_survives_v2_but_not_revoke_or_hold() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG test database");
     assert!(url.ends_with("/tor_ci"), "production must never be tested");
     let pool = sqlx::postgres::PgPoolOptions::new()
