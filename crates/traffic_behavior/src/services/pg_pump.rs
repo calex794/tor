@@ -45,7 +45,10 @@ impl Default for PgPumpMonitor {
 
 impl PgPumpMonitor {
     fn begin(&self) {
-        let mut vital = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut vital = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = Instant::now();
         vital.since.get_or_insert(now);
         vital.last_started = Some(now);
@@ -53,7 +56,10 @@ impl PgPumpMonitor {
     }
 
     fn end(&self, failed: bool) {
-        let mut vital = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut vital = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         vital.active = false;
         vital.last_completed = Some(Instant::now());
         vital.cycles = vital.cycles.saturating_add(1);
@@ -66,9 +72,13 @@ impl PgPumpMonitor {
     }
 
     pub fn snapshot(&self) -> PgPumpSnapshot {
-        let vital = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let vital = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = Instant::now();
-        let elapsed = |at: Option<Instant>| at.map(|time| now.saturating_duration_since(time).as_secs());
+        let elapsed =
+            |at: Option<Instant>| at.map(|time| now.saturating_duration_since(time).as_secs());
         PgPumpSnapshot {
             active: vital.active,
             cycles: vital.cycles,
@@ -76,7 +86,11 @@ impl PgPumpMonitor {
             consecutive_failures: vital.consecutive_failures,
             age_since_start_s: elapsed(vital.since),
             age_since_last_completion_s: elapsed(vital.last_completed),
-            running_for_s: if vital.active { elapsed(vital.last_started) } else { None },
+            running_for_s: if vital.active {
+                elapsed(vital.last_started)
+            } else {
+                None
+            },
         }
     }
 }
@@ -104,7 +118,13 @@ impl PgRollupPump {
         recorder: TrafficRecorder,
         monitor: PgPumpMonitor,
     ) -> Self {
-        Self { repo, recorder, pending: None, ticks: 0, monitor }
+        Self {
+            repo,
+            recorder,
+            pending: None,
+            ticks: 0,
+            monitor,
+        }
     }
 
     /// One bounded progress unit. Failures affect *telemetry only*, not HTTP.
@@ -123,7 +143,7 @@ impl PgRollupPump {
                         delta,
                     });
                 }
-                Ok(Some(_)) => {} // healthy idle cycle
+                Ok(Some(_)) => {}                   // healthy idle cycle
                 Ok(None) | Err(_) => failed = true, // worker refused the barrier
             }
         }
