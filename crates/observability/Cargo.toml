@@ -1,0 +1,4 @@
+[package]
+name = "tor-observability"
+version.workspace = true
+edition.workspace = true
