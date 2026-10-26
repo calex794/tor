@@ -152,10 +152,7 @@ pub(super) async fn resume_after_login(app: &Router, logged: &Response) {
     reopened_reader_has_saved_anchor(app, &renewed_session).await;
 }
 
-pub(super) async fn second_session_reads_saved_progress(
-    app: &Router,
-    session: &str,
-) {
+pub(super) async fn second_session_reads_saved_progress(app: &Router, session: &str) {
     let reply = send(
         app,
         json_request(
