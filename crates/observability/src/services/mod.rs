@@ -1,6 +1,8 @@
 //! Process-local, cumulative and fixed-cardinality HTTP histograms.
 //! No per-request records or user-associated data are retained.
 #[cfg(unix)]
+pub mod lookup;
+#[cfg(unix)]
 pub mod publisher;
 pub mod trace;
 pub mod wire;

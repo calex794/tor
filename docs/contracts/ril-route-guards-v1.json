@@ -200,6 +200,13 @@
     },
     {
       "method": "GET",
+      "template": "/ops/traces",
+      "source": "crates/web/src/lib.rs",
+      "handler": "operator_traces::page",
+      "policy": "operator"
+    },
+    {
+      "method": "GET",
       "template": "/read/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "private_reader",

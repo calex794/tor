@@ -25,6 +25,7 @@ mod author_chapter_pages;
 mod author_pages;
 pub mod cover_worker;
 mod observability;
+mod operator_traces;
 mod pages;
 mod password_jobs;
 mod ril;
@@ -427,7 +428,8 @@ fn make_router(
         )
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
-        .route("/metrics", get(observability::metrics_endpoint));
+        .route("/metrics", get(observability::metrics_endpoint))
+        .route("/ops/traces", get(operator_traces::page));
     if !active_auth {
         app = app
             .route("/login", get(login))
@@ -497,6 +499,18 @@ mod tests {
     async fn demo_must_not_advertise_unimplemented_reader() {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
     }
+    #[tokio::test]
+    async fn operator_diagnostics_never_open_without_independent_credentials() {
+        for path in [
+            "/ops/traces",
+            "/ops/traces?id=00000000000000000000000000000010",
+            "/ops/traces?id=%3Cscript%3E",
+        ] {
+            // Even when the query is invalid, access control runs first.
+            assert_eq!(get(path).await.0, StatusCode::UNAUTHORIZED);
+        }
+    }
+
     #[tokio::test]
     async fn no_user_or_finance_write_routes() {
         assert_eq!(

@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token"}
+POLICIES = {"public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
@@ -153,6 +153,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: protected route downgraded to public/entry")
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny":
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
+        errors.append(f"{label}: operator route requires independently reviewed credential")
+
     if policy in PROTECTED:
         if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
             errors.append(f"{label}: missing verified PG session guard")
@@ -197,6 +200,28 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and re.search(r"\bequal_secret\s*\(", authorized)
         ):
             errors.append(f"{label}: missing fail-closed token guard")
+
+    if policy == "operator":
+        # The only reviewed exception is the isolated read-only diagnostic page.
+        # Verified independently from reader/author sessions and bearer metrics.
+        operator = functions.get("authorized", "")
+        gate = functions.get("respond", "")
+        rejected = functions.get("denied", "")
+        if (entry["method"], entry["template"], entry["handler"]) != (
+            "GET", "/ops/traces", "operator_traces::page"
+        ):
+            errors.append(f"{label}: operator privilege allowed only for reviewed trace page")
+        if not (
+            "TOR_OBS_OPERATOR_PASSWORD" in body
+            and "respond(" in body
+            and "if !authorized(&headers, secret)" in gate
+            and "return denied()" in gate
+            and "StatusCode::UNAUTHORIZED" in rejected
+            and "get_all(header::AUTHORIZATION)" in operator
+            and "Basic " in operator
+            and "equal_secret(" in operator
+        ):
+            errors.append(f"{label}: operator password boundary missing or unverified")
 
     if policy == "deny" and "StatusCode::NOT_FOUND" not in evidence:
         errors.append(f"{label}: disabled endpoint no longer denies")
