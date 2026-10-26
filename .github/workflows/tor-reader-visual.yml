@@ -5,8 +5,10 @@ on:
       - 'crates/reading/**'
       - 'crates/accounts/**'
       - 'crates/web/**'
+      - 'crates/search/**'
       - 'tools/reader_visual_smoke.cjs'
       - 'tools/author_chapter_visual_smoke.cjs'
+      - 'tools/search_visual_smoke.cjs'
       - '.github/workflows/tor-reader-visual.yml'
   push:
     branches: [main]
@@ -14,7 +16,9 @@ on:
       - 'crates/reading/**'
       - 'crates/accounts/**'
       - 'crates/web/**'
+      - 'crates/search/**'
       - 'tools/reader_visual_smoke.cjs'
+      - 'tools/search_visual_smoke.cjs'
       - '.github/workflows/tor-reader-visual.yml'
   workflow_dispatch:
 permissions:
@@ -111,6 +115,7 @@ jobs:
           curl -fsS http://127.0.0.1:3098/readyz
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
+          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
       - name: Preserve screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4
