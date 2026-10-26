@@ -25,11 +25,7 @@ pub(super) async fn draft_edit_case(
             .status(),
         StatusCode::SEE_OTHER
     );
-    let editor = send(
-        app,
-        request("GET", &edit_path, "", author_cookies, ORIGIN),
-    )
-    .await;
+    let editor = send(app, request("GET", &edit_path, "", author_cookies, ORIGIN)).await;
     assert_eq!(editor.status(), StatusCode::OK);
     assert_eq!(editor.headers()[header::CACHE_CONTROL], "no-store");
     let edit_html = body_of(editor).await;
@@ -101,11 +97,7 @@ pub(super) async fn draft_edit_case(
         StatusCode::CONFLICT,
         "stale tab must not overwrite revision two"
     );
-    let editor_again = send(
-        app,
-        request("GET", &edit_path, "", author_cookies, ORIGIN),
-    )
-    .await;
+    let editor_again = send(app, request("GET", &edit_path, "", author_cookies, ORIGIN)).await;
     assert_eq!(editor_again.status(), StatusCode::OK);
     let updated_html = body_of(editor_again).await;
     assert!(updated_html.contains("name=\"expected_revision\" value=\"2\""));
