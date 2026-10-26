@@ -25,7 +25,9 @@ async fn atomic_sql_costs_are_idempotent_and_bounded_in_real_pg() {
     assert!(repo.read_sql_costs(31).await.is_err());
 
     let baseline = repo.read_sql_costs(1).await.unwrap();
-    let old = baseline.iter().find(|row| row.route == RouteCode::Books as i16);
+    let old = baseline
+        .iter()
+        .find(|row| row.route == RouteCode::Books as i16);
     let old_requests = old.map_or(0, |r| r.observed_requests);
     let old_queries = old.map_or(0, |r| r.observed_queries);
     let old_elapsed = old.map_or(0, |r| r.sqlx_elapsed_us);
@@ -50,7 +52,10 @@ async fn atomic_sql_costs_are_idempotent_and_bounded_in_real_pg() {
     assert!(!repo.materialize(&claim).await.unwrap());
     let after = repo.read_sql_costs(1).await.unwrap();
     assert!(after.len() <= 15);
-    let value = after.iter().find(|r| r.route == RouteCode::Books as i16).unwrap();
+    let value = after
+        .iter()
+        .find(|r| r.route == RouteCode::Books as i16)
+        .unwrap();
     assert_eq!(value.observed_requests - old_requests, 2);
     assert_eq!(value.observed_queries - old_queries, 3);
     assert_eq!(value.sqlx_elapsed_us - old_elapsed, 4567);
@@ -75,8 +80,19 @@ async fn atomic_sql_costs_are_idempotent_and_bounded_in_real_pg() {
     .iter()
     .map(|r| r.try_get::<String, _>("column_name").unwrap())
     .collect();
-    for forbidden in ["path", "sql", "user_id", "ip", "session_id", "request_id", "query_text"] {
-        assert!(!columns.iter().any(|col| col == forbidden), "unexpected PII column");
+    for forbidden in [
+        "path",
+        "sql",
+        "user_id",
+        "ip",
+        "session_id",
+        "request_id",
+        "query_text",
+    ] {
+        assert!(
+            !columns.iter().any(|col| col == forbidden),
+            "unexpected PII column"
+        );
     }
     pool.close().await;
 }
