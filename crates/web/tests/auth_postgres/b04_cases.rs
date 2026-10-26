@@ -76,7 +76,10 @@ pub(super) async fn draft_edit_case(
     )
     .await;
     assert_eq!(updated.status(), StatusCode::SEE_OTHER);
-    assert_eq!(updated.headers()[header::LOCATION].to_str().unwrap(), book_path);
+    assert_eq!(
+        updated.headers()[header::LOCATION].to_str().unwrap(),
+        book_path
+    );
     assert_eq!(
         send(
             &app,
