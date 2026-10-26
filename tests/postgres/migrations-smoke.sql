@@ -10,7 +10,7 @@ DECLARE
 BEGIN
     SELECT count(*) INTO actual_count
       FROM pg_catalog.pg_tables WHERE schemaname='public';
-    IF actual_count < 21 THEN
+    IF actual_count < 23 THEN
         RAISE EXCEPTION 'Expected at least 21 domain tables, got %', actual_count;
     END IF;
     IF to_regclass('public.cover_variant_jobs') IS NULL
@@ -22,6 +22,8 @@ BEGIN
        OR to_regclass('public.ril_route_hourly') IS NULL
        OR to_regclass('public.ril_transition_hourly') IS NULL
        OR to_regclass('public.ril_daily_rollup') IS NULL
+       OR to_regclass('public.ril_flush_sql_costs') IS NULL
+       OR to_regclass('public.ril_sql_cost_hourly') IS NULL
        OR to_regclass('public.cover_upload_objects') IS NULL
        OR to_regclass('public.reader_book_positions') IS NULL
        OR to_regclass('public.chapter_purchase_facts') IS NULL
