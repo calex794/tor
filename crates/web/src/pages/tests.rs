@@ -22,15 +22,17 @@ fn catalog_metadata_must_be_escaped_in_cards() {
             author_name: Some("<img src=x onerror=alert(1)>".to_owned()),
             genres: vec!["фэнтези<script>".to_owned()],
         }],
-        "",
-        None,
-        Some("фэнтези"),
-        None,
-        None,
-        None,
-        "oldest",
-        Some(1),
-        None,
+        CatalogPageQuery {
+            query: "",
+            language: None,
+            genre: Some("фэнтези"),
+            tag: None,
+            fandom: None,
+            cursor: None,
+            sort: "oldest",
+            total: Some(1),
+            options: None,
+        },
     )
     .0;
     assert!(html.contains("Найдено книг: 1"));

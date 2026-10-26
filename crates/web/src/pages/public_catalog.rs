@@ -150,18 +150,31 @@ fn encode_search_term(value: &str) -> String {
     result
 }
 
-pub fn catalog_search(
-    books: &[PublicBookCard],
-    query: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
-    tag: Option<&str>,
-    fandom: Option<&str>,
-    cursor: Option<&str>,
-    sort: &str,
-    total: Option<u64>,
-    options: Option<&TaxonomyOptions>,
-) -> Html<String> {
+/// Presentation-only query state; rendering never makes independent PG reads.
+pub struct CatalogPageQuery<'a> {
+    pub query: &'a str,
+    pub language: Option<&'a str>,
+    pub genre: Option<&'a str>,
+    pub tag: Option<&'a str>,
+    pub fandom: Option<&'a str>,
+    pub cursor: Option<&'a str>,
+    pub sort: &'a str,
+    pub total: Option<u64>,
+    pub options: Option<&'a TaxonomyOptions>,
+}
+
+pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -> Html<String> {
+    let CatalogPageQuery {
+        query,
+        language,
+        genre,
+        tag,
+        fandom,
+        cursor,
+        sort,
+        total,
+        options,
+    } = request;
     let oldest = if sort == "oldest" { " selected" } else { "" };
     let newest = if sort == "newest" { " selected" } else { "" };
     let title = if sort == "title" { " selected" } else { "" };

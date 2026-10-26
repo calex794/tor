@@ -189,15 +189,17 @@ async fn catalog(
             .collect();
         return Ok(pages::catalog_search(
             &cards,
-            query.q.as_deref().unwrap_or(""),
-            query.language.as_deref(),
-            query.genre.as_deref(),
-            query.tag.as_deref(),
-            query.fandom.as_deref(),
-            page.next_cursor.as_deref(),
-            sort,
-            total,
-            options.as_ref(),
+            pages::CatalogPageQuery {
+                query: query.q.as_deref().unwrap_or(""),
+                language: query.language.as_deref(),
+                genre: query.genre.as_deref(),
+                tag: query.tag.as_deref(),
+                fandom: query.fandom.as_deref(),
+                cursor: page.next_cursor.as_deref(),
+                sort,
+                total,
+                options: options.as_ref(),
+            },
         ));
     }
     if query.q.is_some()
