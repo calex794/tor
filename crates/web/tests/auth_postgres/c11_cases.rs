@@ -251,7 +251,6 @@ pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, sessio
 /// while still letting the reader save a new position through the HTML form.
 pub(super) async fn reader_v2_html_flow(
     app: &Router,
-    pool: &sqlx::PgPool,
     session: &str,
     chapter_raw: &str,
 ) {
@@ -285,22 +284,34 @@ pub(super) async fn reader_v2_html_flow(
     let library_html = body_of(library).await;
     assert!(library_html.contains(&format!("href=\"{path}#p-1\"")));
 
-    // Simulate an author publication in the disposable test database.
-    let newer: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
-         SELECT $1, COALESCE(MAX(version_no),0)+1, 'V2-UPDATED-TEXT' \
-         FROM chapter_versions WHERE chapter_id=$1 RETURNING id",
-    )
-    .bind(chapter_id)
-    .fetch_one(pool)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE chapter_publications SET version_id=$1 WHERE chapter_id=$2")
-        .bind(newer)
-        .bind(chapter_id)
-        .execute(pool)
-        .await
-        .unwrap();
+    // The Web crate deliberately has no SQLx dependency. Use the CI-installed
+    // PostgreSQL client to simulate publication in the isolated test database.
+    let url = std::env::var("TEST_DATABASE_URL").expect("test-only PostgreSQL URL");
+    assert!(url.ends_with("/tor_ci"), "never write to production");
+    let sql = format!(
+        "WITH added AS ( \
+          INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+          SELECT {chapter_id}, COALESCE(MAX(version_no),0)+1, 'V2-UPDATED-TEXT' \
+          FROM chapter_versions WHERE chapter_id={chapter_id} RETURNING id \
+         ) UPDATE chapter_publications SET version_id=added.id \
+         FROM added WHERE chapter_publications.chapter_id={chapter_id} \
+         RETURNING added.id"
+    );
+    let output = std::process::Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1"])
+        .args(["-d", &url, "-c", &sql])
+        .output()
+        .expect("psql installed in PostgreSQL integration workflow");
+    assert!(
+        output.status.success(),
+        "test publication failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let newer = String::from_utf8(output.stdout)
+        .unwrap()
+        .trim()
+        .parse::<i64>()
+        .expect("new publication version ID");
     let changed_library = send(app, request("GET", "/me/library", "", session, ORIGIN)).await;
     let changed_library_html = body_of(changed_library).await;
     assert!(changed_library_html.contains("Глава обновлена"));
