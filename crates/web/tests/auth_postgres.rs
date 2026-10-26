@@ -457,7 +457,18 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     .await;
     assert_eq!(discovered.status(), StatusCode::OK);
     let found = body_of(discovered).await;
-    assert!(found.contains(&format!(r#""id":"{book_id}""#)));
+    let name_only = body_of(
+        send(&app, request("GET", "/api/v1/search/books?q=Alice", "", "", ORIGIN)).await,
+    )
+    .await;
+    let genre_only = body_of(
+        send(&app, request("GET", "/api/v1/search/books?genre=fantasy", "", "", ORIGIN)).await,
+    )
+    .await;
+    assert!(
+        found.contains(&format!(r#""id":"{book_id}""#)),
+        "book_id={book_id}; combined={found}; name_only={name_only}; genre_only={genre_only}"
+    );
     assert!(found.contains("Alice Voyager"));
     let gallery = send(
         &app,
