@@ -171,3 +171,29 @@ pub(super) async fn second_session_reads_saved_progress(app: &Router, session: &
     assert!(json.contains(r#""revision":2"#));
     assert!(json.contains(r#""char_offset":1"#));
 }
+
+pub(super) async fn stale_second_session_cannot_overwrite(
+    app: &Router,
+    session: &str,
+) {
+    let page = send(app, request("GET", "/read/101", "", session, ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let token = csrf_token(&body_of(page).await).to_owned();
+    let cookies = format!("{session}; {csrf_cookie}");
+    let stale = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":0,"expected_revision":1}"#;
+    let reply = send(
+        app,
+        json_request(
+            "PUT",
+            "/api/v1/me/progress/free",
+            stale,
+            &cookies,
+            ORIGIN,
+            &token,
+        ),
+    )
+    .await;
+    assert_eq!(reply.status(), StatusCode::CONFLICT);
+    second_session_reads_saved_progress(app, session).await;
+}
