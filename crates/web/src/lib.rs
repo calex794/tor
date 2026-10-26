@@ -209,6 +209,33 @@ pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathRep
     ril::path_report_for_diagnostics()
 }
 
+/// Operator-owned, read-only FinOps diagnostics from persisted RIL-06 data.
+/// No HTTP route, authorization decision, user paths or synchronous request SQL.
+/// Requires a real PG catalog; a failure yields no report (never fake zero cost).
+pub async fn ril_cost_map_for_diagnostics(
+    catalog: &PgCatalog,
+    days: u16,
+    limit: usize,
+) -> Option<Vec<tor_route_intelligence::RouteCostRanking>> {
+    use tor_route_intelligence::{rank_route_costs, RouteCostBucket};
+    use tor_traffic_behavior::repositories::PgRilRollups;
+
+    let rows = PgRilRollups::new(catalog.pool())
+        .read_cost_buckets(days)
+        .await
+        .ok()?;
+    let buckets: Vec<RouteCostBucket> = rows
+        .into_iter()
+        .map(|row| RouteCostBucket {
+            route_code: row.route,
+            status_group: row.status,
+            latency_group: row.latency,
+            request_count: row.count,
+        })
+        .collect();
+    rank_route_costs(&buckets, limit).ok()
+}
+
 pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
         catalog.pool(),

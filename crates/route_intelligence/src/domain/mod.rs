@@ -1,5 +1,11 @@
 //! Registered route templates are the ONLY input. Never feed raw URL paths or IDs.
 //! The explicit match is constant-shape; no linear scan or allocated lookup per request.
+mod cost_map;
+pub use cost_map::{
+    rank_route_costs, route_cost_family, CostMapError, RouteCostBucket, RouteCostRanking,
+    COST_MAP_VERSION, COST_ROUTE_COUNT,
+};
+
 use std::time::Duration;
 
 pub const RIL_TAXONOMY_VERSION: &str = "ril_taxonomy_v1";
