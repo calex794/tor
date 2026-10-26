@@ -472,6 +472,18 @@ mod tests {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
     }
     #[tokio::test]
+    async fn operator_diagnostics_never_open_without_independent_credentials() {
+        for path in [
+            "/ops/traces",
+            "/ops/traces?id=00000000000000000000000000000010",
+            "/ops/traces?id=%3Cscript%3E",
+        ] {
+            // Even when the query is invalid, access control runs first.
+            assert_eq!(get(path).await.0, StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    #[tokio::test]
     async fn no_user_or_finance_write_routes() {
         assert_eq!(
             get("/api/v1/books?limit=10000").await.0,
