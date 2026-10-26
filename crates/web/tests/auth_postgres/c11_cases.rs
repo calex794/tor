@@ -134,8 +134,8 @@ pub(super) async fn reopened_reader_has_saved_anchor(app: &Router, session: &str
     assert_eq!(resumed.status(), StatusCode::OK);
     assert_eq!(resumed.headers()[header::CACHE_CONTROL], "no-store");
     let html = body_of(resumed).await;
-    assert!(html.contains("href=\\\"#p-1\\\""));
-    assert!(html.contains("id=\\\"p-1\\\""));
+    assert!(html.contains("href=\"#p-1\""));
+    assert!(html.contains("id=\"p-1\""));
     assert!(!html.contains("Место ещё не сохранено"));
 }
 
