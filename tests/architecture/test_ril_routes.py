@@ -34,8 +34,8 @@ class RilCoverageTests(unittest.TestCase):
     def test_new_route_requires_taxonomy_and_classifier(self):
         self.mutate(
             "crates/web/src/lib.rs",
-            '.route("/catalog", get(catalog))',
-            '.route("/catalog", get(catalog))'
+            '.route("/catalog", get(catalog_http::catalog))',
+            '.route("/catalog", get(catalog_http::catalog))'
             '.route("/new/{id}", get(catalog))',
         )
         self.assertTrue(any("missing RIL taxonomy" in error and "/new/{id}" in error
@@ -53,7 +53,7 @@ class RilCoverageTests(unittest.TestCase):
     def test_dynamic_router_registration_fails_closed(self):
         self.mutate(
             "crates/web/src/lib.rs",
-            '.route("/catalog", get(catalog))',
+            '.route("/catalog", get(catalog_http::catalog))',
             '.route(dynamic_path, get(catalog))',
         )
         self.assertTrue(any("dynamic or non-literal" in error
