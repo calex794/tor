@@ -101,6 +101,13 @@ async fn new_chapter(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+    // A saved draft cannot be added to an already public book until a
+    // separate chapter-release operation exists.
+    match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(true) => return deny(StatusCode::NOT_FOUND),
+        Ok(false) => (),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
     private_response(
