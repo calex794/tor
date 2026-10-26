@@ -249,4 +249,53 @@ impl PgAuthoring {
             revision: saved_revision,
         })
     }
+
+    /// Read only the current working version of the owner's unpublished chapter.
+    /// A public book, another author and a deleted/held chapter all look absent.
+    pub async fn owned_unpublished_free_chapter(
+        &self,
+        actor: i64,
+        book_id: i64,
+        chapter_id: i64,
+    ) -> Result<Option<crate::services::authoring::OwnedChapter>, AuthorError> {
+        use crate::services::authoring::OwnedChapter;
+        if actor <= 0 || book_id <= 0 || chapter_id <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT c.chapter_no,c.title,c.edit_revision,v.body_markdown
+             FROM chapters c
+             JOIN books b ON b.id=c.book_id
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
+             WHERE c.id=$1 AND c.book_id=$2 AND b.owner_user_id=$3
+               AND b.visibility='draft' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND c.access_level='free' AND c.price_amount=0",
+        )
+        .bind(chapter_id)
+        .bind(book_id)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        row.map(|row| {
+            Ok(OwnedChapter {
+                number: row
+                    .try_get("chapter_no")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
+                body: row
+                    .try_get("body_markdown")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                access: ChapterAccess::Free,
+                price_amount: 0,
+                revision: row
+                    .try_get("edit_revision")
+                    .map_err(|_| AuthorError::Unavailable)?,
+            })
+        })
+        .transpose()
+    }
+
 }
