@@ -78,7 +78,10 @@ mod tests {
 
     #[test]
     fn only_vm_rss_is_allowed_from_proc_status() {
-        assert_eq!(resident_kib("Name:\tprivate\nVmPeak:\t999 kB\nVmRSS:\t12345 kB\n"), Some(12345));
+        assert_eq!(
+            resident_kib("Name:\tprivate\nVmPeak:\t999 kB\nVmRSS:\t12345 kB\n"),
+            Some(12345)
+        );
         assert_eq!(resident_kib("VmSize:\t12345 kB"), None);
         assert_eq!(resident_kib("VmRSS:\tsecret kB"), None);
         assert_eq!(resident_kib("VmRSS:\t999 MB"), None);
