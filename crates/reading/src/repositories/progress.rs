@@ -96,7 +96,7 @@ impl PgReadingProgress {
             .collect()
     }
 
-    /// Updates only if this place advances the user's stored position.
+    /// Advance position, or reset its anchor when the published version changes.
     /// Even two concurrent PostgreSQL writes cannot move the cursor backwards.
     pub async fn save_position(
         &self,
@@ -140,7 +140,8 @@ impl PgReadingProgress {
                 OR (saved.chapter_no = EXCLUDED.chapter_no \
                   AND (saved.chapter_revision < EXCLUDED.chapter_revision \
                     OR (saved.chapter_revision = EXCLUDED.chapter_revision \
-                      AND (saved.block_index < EXCLUDED.block_index \
+                      AND (saved.version_id <> EXCLUDED.version_id \
+                        OR saved.block_index < EXCLUDED.block_index \
                         OR (saved.block_index = EXCLUDED.block_index \
                             AND saved.char_offset < EXCLUDED.char_offset)))))",
         )
