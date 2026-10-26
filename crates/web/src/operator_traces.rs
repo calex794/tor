@@ -186,7 +186,7 @@ async fn respond(
             ));
         };
         let found = tokio::task::spawn_blocking(move || lookup::request(&socket, trace_id)).await;
-        return match found {
+        match found {
             Ok(Ok(found)) => {
                 let status = if found.matches == 0 {
                     StatusCode::NOT_FOUND
@@ -199,7 +199,7 @@ async fn respond(
                 StatusCode::SERVICE_UNAVAILABLE,
                 document(&display, "<section class=\"card\" role=\"alert\">Архив временно недоступен. Это не означает, что трасса отсутствует.</section>"),
             )),
-        };
+        }
     }
     #[cfg(not(unix))]
     {
