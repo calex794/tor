@@ -2,7 +2,9 @@
 //! Subject keys must be pseudonyms from a trusted, keyed HMAC computed elsewhere.
 //! This crate never takes an IP, URI, cookie, account ID, or free-form route label.
 
+mod paths;
 mod rollup;
+pub use paths::{Hygiene, PathAnalyzer, PathAssessment, PathReasons, PathReport, PATH_VERSION, PATH_WINDOW};
 pub use rollup::{RollupDelta, RouteCount, Transition, TransitionCount};
 
 use std::collections::{BTreeSet, HashMap};
