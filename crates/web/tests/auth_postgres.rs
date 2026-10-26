@@ -912,7 +912,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     .await;
     assert_eq!(renewed_library.status(), StatusCode::OK);
     assert_eq!(renewed_library.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(body_of(renewed_library).await.contains("href=\"/read/101#p-1\""));
+    assert!(body_of(renewed_library)
+        .await
+        .contains("href=\"/read/101#p-1\""));
     let renewed_reader = send(
         &app,
         request("GET", "/read/101", "", &renewed_session, ORIGIN),
