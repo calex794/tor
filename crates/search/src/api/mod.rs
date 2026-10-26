@@ -21,6 +21,7 @@ struct SearchQuery {
     language: Option<String>,
     after: Option<String>,
     limit: Option<usize>,
+    sort: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -82,12 +83,13 @@ async fn search_books(
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorEnvelope>)> {
     let page = state
         .search
-        .search_faceted(
+        .search_faceted_sorted(
             query.q.as_deref().unwrap_or(""),
             query.language.as_deref(),
             query.genre.as_deref(),
             query.after.as_deref(),
             query.limit.unwrap_or(20),
+            query.sort.as_deref(),
         )
         .await
         .map_err(search_error)?;

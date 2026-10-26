@@ -11,6 +11,30 @@ pub struct SearchPage {
     pub items: Vec<SearchBook>,
     pub next_cursor: Option<String>,
 }
+/// Stable keyset directions. These describe book identity order, not popularity
+/// or publication timestamp: those are separate roadmap capabilities.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CatalogSort {
+    Oldest,
+    Newest,
+}
+
+impl CatalogSort {
+    pub fn parse(raw: Option<&str>) -> Result<Self, SearchError> {
+        match raw {
+            None | Some("oldest") => Ok(Self::Oldest),
+            Some("newest") => Ok(Self::Newest),
+            _ => Err(SearchError::Invalid),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Oldest => "oldest",
+            Self::Newest => "newest",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchError {
     Invalid,
@@ -75,11 +99,24 @@ pub fn validate_facets(
     after: Option<&str>,
     limit: usize,
 ) -> Result<(i64, Option<String>, Option<String>), SearchError> {
-    let language = normalize_language(language)?;
-    let genre = normalize_genre(genre)?;
-    if term.trim().is_empty() && language.is_none() && genre.is_none() {
+    let normalized = validate_browse(term, language, genre, after, limit)?;
+    if term.trim().is_empty() && normalized.1.is_none() && normalized.2.is_none() {
         return Err(SearchError::Invalid);
     }
+    Ok(normalized)
+}
+
+/// The full public catalog can be paged even when no search filters are set.
+/// This is deliberately different from an unqualified legacy search request.
+pub fn validate_browse(
+    term: &str,
+    language: Option<&str>,
+    genre: Option<&str>,
+    after: Option<&str>,
+    limit: usize,
+) -> Result<(i64, Option<String>, Option<String>), SearchError> {
+    let language = normalize_language(language)?;
+    let genre = normalize_genre(genre)?;
     if term.trim().chars().count() > 80 || term.chars().any(char::is_control) {
         return Err(SearchError::Invalid);
     }
@@ -145,6 +182,20 @@ mod tests {
             validate_facets("", Some("ru"), None, Some("01"), 20),
             Err(SearchError::Invalid)
         );
+    }
+
+    #[test]
+    fn f_02_rejects_unknown_order_and_keeps_legacy_query_policy() {
+        assert_eq!(CatalogSort::parse(None), Ok(CatalogSort::Oldest));
+        assert_eq!(CatalogSort::parse(Some("oldest")), Ok(CatalogSort::Oldest));
+        assert_eq!(CatalogSort::parse(Some("newest")), Ok(CatalogSort::Newest));
+        for invalid in ["", "latest", "newest;drop", "NEWEST"] {
+            assert_eq!(CatalogSort::parse(Some(invalid)), Err(SearchError::Invalid));
+        }
+        assert_eq!(validate_facets("", None, None, None, 20), Err(SearchError::Invalid));
+        assert_eq!(validate_browse("", None, None, None, 20).unwrap().0, 0);
+        assert_eq!(validate_browse("", None, None, Some("00"), 20), Err(SearchError::Invalid));
+        assert_eq!(validate_browse("", None, None, None, 101), Err(SearchError::Invalid));
     }
 
     #[test]

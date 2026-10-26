@@ -220,3 +220,41 @@ async fn f_03_http_author_and_genre_facets_do_not_leak() {
     assert!(html.contains("Жюль"));
     assert!(!html.contains("TOR CI hidden"));
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci with standard public/hidden/held fixtures"]
+async fn f_02_catalog_sort_keeps_legacy_json_contract_and_rejects_bad_cursors() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+
+    let (status, html) = get(app.clone(), "/catalog").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("TOR CI public"));
+    assert!(html.contains(r#"name="sort""#));
+    assert!(!html.contains("TOR CI hidden"));
+    assert!(!html.contains("TOR CI held"));
+
+    let (status, newest) = get(app.clone(), "/catalog?sort=newest").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(newest.contains(r#"value="newest" selected"#));
+    assert!(!newest.contains("TOR CI hidden"));
+    let (status, json) = get(app.clone(), "/api/v1/search/books?sort=newest&limit=1").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json.contains(r#""next_cursor":"#));
+
+    // The original books endpoint is still a JSON array, not a new envelope.
+    let (status, legacy) = get(app.clone(), "/api/v1/books").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(legacy.starts_with('['));
+
+    for path in [
+        "/catalog?sort=bad",
+        "/catalog?sort=newest&after=01",
+        "/catalog?sort=newest&after=-1",
+        "/api/v1/search/books?sort=bad",
+        "/api/v1/search/books?sort=newest&limit=101",
+        "/api/v1/search/books?sort=newest&after=01",
+    ] {
+        assert_eq!(get(app.clone(), path).await.0, StatusCode::BAD_REQUEST, "{path}");
+    }
+}

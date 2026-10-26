@@ -86,71 +86,59 @@ struct CatalogQuery {
     language: Option<String>,
     genre: Option<String>,
     after: Option<String>,
+    sort: Option<String>,
 }
 async fn catalog(
     State(state): State<AppState>,
     Query(query): Query<CatalogQuery>,
 ) -> Result<Html<String>, StatusCode> {
     if let Some(search) = state.search.as_ref() {
-        let term = query.q.as_deref().unwrap_or("").trim();
-        let filtered = !term.is_empty()
-            || query
-                .language
-                .as_ref()
-                .is_some_and(|x| !x.trim().is_empty())
-            || query.genre.as_ref().is_some_and(|x| !x.trim().is_empty());
-        if filtered {
-            let page = search
-                .search_faceted(
-                    term,
-                    query.language.as_deref(),
-                    query.genre.as_deref(),
-                    query.after.as_deref(),
-                    DEFAULT_PAGE_SIZE,
-                )
-                .await
-                .map_err(|error| match error {
-                    tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
-                    tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-                })?;
-            let books: Vec<_> = page
-                .items
-                .into_iter()
-                .map(|item| pages::PublicBookCard {
-                    id: item.id,
-                    title: item.title,
-                    language: item.language,
-                    author_name: if item.author_name.is_empty() {
-                        None
-                    } else {
-                        Some(item.author_name)
-                    },
-                    genres: item.genres,
-                })
-                .collect();
-            return Ok(pages::catalog_search(
-                &books,
-                term,
+        // Always page the real PG catalog, even without a text filter.
+        // Demo mode remains a separate legacy-compatible path.
+        let sort = query.sort.as_deref().unwrap_or("oldest");
+        let page = search
+            .search_faceted_sorted(
+                query.q.as_deref().unwrap_or(""),
                 query.language.as_deref(),
                 query.genre.as_deref(),
-                page.next_cursor.as_deref(),
-            ));
-        }
-        if query.after.is_some() {
-            return Err(StatusCode::BAD_REQUEST);
-        }
+                query.after.as_deref(),
+                DEFAULT_PAGE_SIZE,
+                Some(sort),
+            )
+            .await
+            .map_err(|error| match error {
+                tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
+                tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            })?;
+        let cards: Vec<_> = page
+            .items
+            .into_iter()
+            .map(|item| pages::PublicBookCard {
+                id: item.id,
+                title: item.title,
+                language: item.language,
+                author_name: if item.author_name.is_empty() {
+                    None
+                } else {
+                    Some(item.author_name)
+                },
+                genres: item.genres,
+            })
+            .collect();
         return Ok(pages::catalog_search(
-            &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
-            "",
-            None,
-            None,
-            None,
+            &cards,
+            query.q.as_deref().unwrap_or(""),
+            query.language.as_deref(),
+            query.genre.as_deref(),
+            page.next_cursor.as_deref(),
+            sort,
         ));
     }
     if query.q.is_some()
         || query.after.is_some()
         || query.language.is_some()
         || query.genre.is_some()
+        || query.sort.is_some()
     {
         return Err(StatusCode::BAD_REQUEST);
     }
