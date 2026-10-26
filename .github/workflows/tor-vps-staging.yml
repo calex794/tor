@@ -89,8 +89,28 @@ jobs:
           echo "SQLx migrator delivered and checksum verified, not executed on the VPS"
           ssh "${opts[@]}" "$destination" "test -x /opt/tor/releases/$TARGET_SHA/tor-web && test -x /opt/tor/releases/$TARGET_SHA/tor-migrate"
           echo "Production release staged; PostgreSQL integration was tested in GitHub Actions"
-      - name: Refuse obsolete main release before switching active binary
+      - name: Check root-verified SQLx schema before auto activation
+        id: schema_guard
         if: env.AUTO_INSTALL == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          required="$(find migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' |
+            sed -n 's/^\([0-9]\{12\}\)_.*/\1/p' | sort -n | tail -1)"
+          [[ "$required" =~ ^[0-9]{12}$ ]]
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          installed="$(ssh "${opts[@]}" "$destination" 'test -r /var/lib/tor-release/schema-version && cat /var/lib/tor-release/schema-version' || true)"
+          if [[ "$installed" != "$required" ]]; then
+            echo "SKIP_AUTO_ACTIVATION: verified schema is ${installed:-unknown}, candidate requires $required"
+            echo "Stage completed; root must run pinned go-live-postgres-vps.sh to apply migrations before activation"
+            echo "can_activate=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Verified SQLx schema $required matches release"
+            echo "can_activate=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Refuse obsolete main release before switching active binary
+        if: env.AUTO_INSTALL == 'true' && steps.schema_guard.outputs.can_activate == 'true'
         run: |
           set -euo pipefail
           current_main="$(git ls-remote origin refs/heads/main | cut -f1)"
@@ -99,7 +119,7 @@ jobs:
             exit 1
           fi
       - name: Activate verified release only when explicitly permitted
-        if: env.AUTO_INSTALL == 'true'
+        if: env.AUTO_INSTALL == 'true' && steps.schema_guard.outputs.can_activate == 'true'
         shell: bash
         run: |
           set -euo pipefail

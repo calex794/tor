@@ -91,3 +91,36 @@ payment providers, ads, RIL and other domains require their own
 shipped implementation and acceptance. Enable real off-server
 backups with a restoration test before important user data.
 The external URL book collector S024/F021 remains frozen.
+
+## Schema-gated automatic releases (October 2026)
+
+The previous automatic stage could activate a new binary without applying its
+new SQLx migrations. In particular, B-06 requires migration
+`202610260007_chapter_working_drafts.sql`; the new binary's `/readyz`
+now fails closed if that migration or its working table is missing.
+
+Staging always transfers the SHA-pinned binary and migrator. Before any
+automatic or workflow-dispatch activation, the CI job compares the latest
+SQLx version in the candidate's `migrations/` directory with the last version
+recorded in `/var/lib/tor-release/schema-version` on the VPS. This marker is
+written atomically by the **root-only**, version-pinned
+`ops/go-live-postgres-vps.sh` after a successful migrator run and full
+SQLx history/role verification. The marker's directory is root-owned and
+not writable by the SSH deployment account.
+
+If the marker is absent or does not exactly match, the candidate can be
+**staged but is never automatically activated**. The operator applies migrations
+through the standard go-live procedure using the same staged Git SHA; its
+normal `/readyz`, HTTP and HTTPS checks still control the switch. A marker
+is evidence of the verified migration version, not evidence that a specific
+binary was activated. Only a logged `Active tor commit: <SHA>` or
+`TOR_PRODUCTION_OK <SHA>` establishes deployment.
+
+Auto-install also rechecks the exact current `main` SHA immediately before
+the service switch. If another PR merged while compilation was running,
+the obsolete candidate is rejected. This prevents a stale staged binary
+from overwriting newer code.
+
+Do not weaken the `tor_app` role to allow migrations, temporary tables, or
+DDL. The migration runner uses `tor_migrator` under the operator's restricted
+VPS procedure; no secrets are stored in GitHub releases or Notion.
