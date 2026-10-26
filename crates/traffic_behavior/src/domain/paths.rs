@@ -104,8 +104,7 @@ impl PathAnalyzer {
         // Anonymous visitors do not form artificial shared "user paths".
         let subject = event.subject?;
         let now = event.at_millis.max(self.clock);
-        self.clock = now;
-        self.expire_idle(now);
+        self.prune_idle(now);
         let old = self.subjects.get(&subject);
         let gap = old.map(|state| GapBucket::from_millis(
             now.saturating_sub(state.last_millis),
@@ -229,6 +228,13 @@ impl PathAnalyzer {
             self.subjects.remove(&key);
             self.report.evicted_subjects = self.report.evicted_subjects.saturating_add(1);
         }
+    }
+
+    /// Background worker can expire idle paths even during a quiet period.
+    pub fn prune_idle(&mut self, now: u64) {
+        let now = now.max(self.clock);
+        self.clock = now;
+        self.expire_idle(now);
     }
 
     fn expire_idle(&mut self, now: u64) {
