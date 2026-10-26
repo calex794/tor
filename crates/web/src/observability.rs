@@ -77,6 +77,17 @@ pub(crate) fn snapshot_traces() -> Vec<RequestTrace> {
     TRACES.get_or_init(TraceBuffer::default).snapshot()
 }
 
+/// Operators only: process-local anonymous counters, never request paths.
+pub(crate) fn http_summary() -> tor_observability::services::HttpSummary {
+    METRICS.get_or_init(HttpMetrics::default).summary()
+}
+
+#[cfg(unix)]
+pub(crate) fn trace_delivery_counts(
+) -> Option<tor_observability::services::publisher::PublisherCounts> {
+    PUBLISHER.get().map(|publisher| publisher.counts())
+}
+
 pub(crate) fn record_http(family: &str, status: u16, elapsed: Duration) {
     METRICS.get_or_init(HttpMetrics::default).observe(
         RouteGroup::from_ril_family(family),
