@@ -66,7 +66,9 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
     })
     .unwrap();
     assert_eq!(
-        author.create_pending_free_chapter(outsider, &saved_input).await,
+        author
+            .create_pending_free_chapter(outsider, &saved_input)
+            .await,
         Err(AuthorError::Missing)
     );
     let saved = author
@@ -75,7 +77,9 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
         .unwrap();
     assert_eq!(saved.revision, 1);
     assert_eq!(
-        author.create_pending_free_chapter(owner, &saved_input).await,
+        author
+            .create_pending_free_chapter(owner, &saved_input)
+            .await,
         Ok(saved.clone()),
         "a replay cannot create a second chapter"
     );
@@ -98,13 +102,12 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
         author.create_pending_free_chapter(owner, &tampered).await,
         Err(AuthorError::Conflict)
     );
-    let publication: Option<i64> = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let publication: Option<i64> =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(saved.chapter_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     assert!(publication.is_none(), "draft never has a reader pointer");
     let accessible: Option<i64> = sqlx::query_scalar(
         "SELECT c.id FROM chapters c JOIN books b ON b.id=c.book_id
@@ -115,7 +118,10 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
     .fetch_optional(&pool)
     .await
     .unwrap();
-    assert!(accessible.is_none(), "not readable even if parent is public");
+    assert!(
+        accessible.is_none(),
+        "not readable even if parent is public"
+    );
     assert!(
         author
             .pending_free_chapter(outsider, book_id, saved.chapter_id)
@@ -159,15 +165,33 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
     );
     assert_eq!(
         author
-            .release_pending_free_chapter(outsider, book_id, saved.chapter_id, 2, updated.version_id)
+            .release_pending_free_chapter(
+                outsider,
+                book_id,
+                saved.chapter_id,
+                2,
+                updated.version_id
+            )
             .await,
         Err(AuthorError::Missing)
     );
 
     // The book row lock serializes both explicit release submissions.
     let (a, b) = tokio::join!(
-        author.release_pending_free_chapter(owner, book_id, saved.chapter_id, 2, updated.version_id),
-        author.release_pending_free_chapter(owner, book_id, saved.chapter_id, 2, updated.version_id)
+        author.release_pending_free_chapter(
+            owner,
+            book_id,
+            saved.chapter_id,
+            2,
+            updated.version_id
+        ),
+        author.release_pending_free_chapter(
+            owner,
+            book_id,
+            saved.chapter_id,
+            2,
+            updated.version_id
+        )
     );
     assert_eq!(a, Ok(()));
     assert_eq!(b, Ok(()));
@@ -183,31 +207,29 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
     .await
     .unwrap();
     assert_eq!(visible.as_deref(), Some("СКРЫТО: проверенный текст"));
-    let event_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(event_count, 1, "only one durable first-release fact");
-    let draft_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM chapter_working_drafts WHERE chapter_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(draft_count, 0, "working pointer is removed on publication");
-    assert!(
-        author
-            .pending_free_chapter(owner, book_id, saved.chapter_id)
+    let event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(saved.chapter_id)
+            .fetch_one(&pool)
             .await
-            .unwrap()
-            .is_none()
-    );
+            .unwrap();
+    assert_eq!(event_count, 1, "only one durable first-release fact");
+    let draft_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_working_drafts WHERE chapter_id=$1")
+            .bind(saved.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(draft_count, 0, "working pointer is removed on publication");
+    assert!(author
+        .pending_free_chapter(owner, book_id, saved.chapter_id)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
-        author.edit_unpublished_free_chapter(owner, &edited_input).await,
+        author
+            .edit_unpublished_free_chapter(owner, &edited_input)
+            .await,
         Err(AuthorError::Conflict),
         "published version cannot be changed through the draft editor"
     );
