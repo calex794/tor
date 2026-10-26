@@ -37,6 +37,13 @@ static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
 
 /// Local privacy barrier. A separate cross-instance invalidation mechanism is
 /// required before identified paths may be enabled on multiple web processes.
+/// Operator-only, lock-free aggregate loss counters. Does not inspect user paths.
+pub(crate) fn dropped_telemetry_counters() -> Option<(u64, u64)> {
+    TRAFFIC.get().map(|recorder| {
+        (recorder.dropped_events(), recorder.dropped_path_events())
+    })
+}
+
 pub(crate) fn path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     TRAFFIC.get()?.path_report_for_diagnostics()
 }
