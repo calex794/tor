@@ -16,6 +16,7 @@ tor-traffic_behavior = { path = "../traffic_behavior" }
 serde.workspace = true
 
 [dev-dependencies]
+sqlx.workspace = true
 tower = { version = "0.5", features = ["util"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }
