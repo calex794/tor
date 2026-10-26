@@ -2,8 +2,8 @@
 //! Only trusted HMAC pseudonyms and finite route/status codes enter this model.
 //! No IP, raw URL, user ID, book ID, cookie or precise wall-clock timestamp.
 use super::{
-    BehaviorEvent, GapBucket, RouteCode, StatusGroup, VerifiedSubjectKey,
-    MAX_SUBJECTS, SUBJECT_TTL_MS,
+    BehaviorEvent, GapBucket, RouteCode, StatusGroup, VerifiedSubjectKey, MAX_SUBJECTS,
+    SUBJECT_TTL_MS,
 };
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
@@ -169,7 +169,10 @@ impl PathAnalyzer {
                     rapid_unknowns = rapid_unknowns.saturating_add(1);
                 }
             }
-            if matches!(point.status, StatusGroup::ClientError | StatusGroup::ServerError) {
+            if matches!(
+                point.status,
+                StatusGroup::ClientError | StatusGroup::ServerError
+            ) {
                 errors = errors.saturating_add(1);
             }
             if last == Some(point.route) {
@@ -188,9 +191,7 @@ impl PathAnalyzer {
         }
         // A long reader pause or repeated chapter navigation alone is normal.
         // Every elevated rating requires several independent weak signals.
-        let hygiene = if points.len() >= 16 && unknown >= 12
-            && rapid_unknowns >= 9 && errors >= 9
-        {
+        let hygiene = if points.len() >= 16 && unknown >= 12 && rapid_unknowns >= 9 && errors >= 9 {
             Hygiene::Reject
         } else if (unknown >= 6 && rapid_unknowns >= 4 && errors >= 4)
             || (backtracks >= 8 && errors >= 5)
