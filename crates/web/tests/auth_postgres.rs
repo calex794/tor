@@ -16,6 +16,8 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 
 #[path = "auth_postgres/b04_cases.rs"]
 mod b04_cases;
+#[path = "auth_postgres/b06_cases.rs"]
+mod b06_cases;
 
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
@@ -459,16 +461,16 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
         StatusCode::NOT_FOUND,
         "published chapter text cannot be edited as a draft"
     );
-    assert_eq!(
-        send(
-            &app,
-            request("GET", &chapter_form_path, "", &author_cookies, ORIGIN)
-        )
-        .await
-        .status(),
-        StatusCode::NOT_FOUND,
-        "no new chapter form on a public book before chapter-release is implemented"
-    );
+    // B-06: after the first release, new chapters stay hidden until an
+    // explicit owner confirmation of the current immutable version.
+    b06_cases::publish_second_chapter(
+        &app,
+        book_id,
+        &book_path,
+        &session,
+        &author_cookies,
+    )
+    .await;
     assert_eq!(
         send(
             &app,
