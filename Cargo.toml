@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/books", "crates/web", "crates/migrations", "crates/reading", "crates/accounts", "crates/ingest", "crates/route_intelligence", "crates/traffic_behavior"]
+members = ["crates/books", "crates/web", "crates/migrations", "crates/reading", "crates/accounts", "crates/ingest", "crates/route_intelligence", "crates/traffic_behavior", "crates/search"]
 resolver = "2"
 
 [workspace.package]

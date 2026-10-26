@@ -33,6 +33,7 @@ struct AppState {
     books: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
+    search: Option<tor_search::PgSearch>,
 }
 
 async fn health() -> &'static str {
@@ -77,7 +78,52 @@ async fn public_cards(
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
-async fn catalog(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
+#[derive(Default, Deserialize)]
+struct CatalogQuery {
+    q: Option<String>,
+    after: Option<String>,
+}
+async fn catalog(
+    State(state): State<AppState>,
+    Query(query): Query<CatalogQuery>,
+) -> Result<Html<String>, StatusCode> {
+    if let Some(search) = state.search.as_ref() {
+        let term = query.q.as_deref().unwrap_or("").trim();
+        if !term.is_empty() {
+            let page = search
+                .search(term, query.after.as_deref(), DEFAULT_PAGE_SIZE)
+                .await
+                .map_err(|error| match error {
+                    tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
+                    tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+                })?;
+            let books: Vec<_> = page
+                .items
+                .into_iter()
+                .map(|item| pages::PublicBookCard {
+                    id: item.id,
+                    title: item.title,
+                    language: item.language,
+                })
+                .collect();
+            return Ok(pages::catalog_search(
+                &books,
+                term,
+                page.next_cursor.as_deref(),
+            ));
+        }
+        if query.after.is_some() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        return Ok(pages::catalog_search(
+            &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
+            "",
+            None,
+        ));
+    }
+    if query.q.is_some() || query.after.is_some() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     Ok(pages::catalog(
         &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
     ))
@@ -299,10 +345,14 @@ fn make_router(
             .route("/login", get(login))
             .route("/register", get(register));
     }
+    let search = postgres
+        .as_ref()
+        .map(|catalog| tor_search::PgSearch::new(catalog.pool()));
     app.with_state(AppState {
         books: repo,
         postgres,
         reader,
+        search,
     })
     .merge(api)
 }
