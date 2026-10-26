@@ -12,7 +12,9 @@ pub use account::{
 mod reader_private;
 pub use reader_private::private_reader;
 mod public_catalog;
-pub use public_catalog::{catalog, catalog_search, home, home_recent, PublicBookCard};
+pub use public_catalog::{
+    catalog, catalog_search, home, home_recent, CatalogPageQuery, PublicBookCard,
+};
 
 pub fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
