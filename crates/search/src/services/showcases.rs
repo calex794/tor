@@ -72,6 +72,8 @@ mod tests {
                     language: "ru".into(),
                     author_name: String::new(),
                     genres: Vec::new(),
+                    tags: Vec::new(),
+                    fandoms: Vec::new(),
                 },
                 SearchBook {
                     id: 2,
@@ -79,6 +81,8 @@ mod tests {
                     language: "ru".into(),
                     author_name: String::new(),
                     genres: Vec::new(),
+                    tags: Vec::new(),
+                    fandoms: Vec::new(),
                 },
             ])
         }

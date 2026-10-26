@@ -116,6 +116,8 @@ struct CatalogQuery {
     q: Option<String>,
     language: Option<String>,
     genre: Option<String>,
+    tag: Option<String>,
+    fandom: Option<String>,
     after: Option<String>,
     sort: Option<String>,
 }
@@ -127,11 +129,16 @@ async fn catalog(
         // Always page the real PG catalog, even without a text filter.
         // Demo mode remains a separate legacy-compatible path.
         let sort = query.sort.as_deref().unwrap_or("oldest");
+        let facets = tor_search::repositories::CatalogFacets {
+            term: query.q.as_deref().unwrap_or(""),
+            language: query.language.as_deref(),
+            genre: query.genre.as_deref(),
+            tag: query.tag.as_deref(),
+            fandom: query.fandom.as_deref(),
+        };
         let page = search
-            .search_faceted_sorted(
-                query.q.as_deref().unwrap_or(""),
-                query.language.as_deref(),
-                query.genre.as_deref(),
+            .search_catalog(
+                facets,
                 query.after.as_deref(),
                 DEFAULT_PAGE_SIZE,
                 Some(sort),
@@ -146,16 +153,22 @@ async fn catalog(
         let total = if query.after.is_none() {
             Some(
                 search
-                    .count_faceted(
-                        query.q.as_deref().unwrap_or(""),
-                        query.language.as_deref(),
-                        query.genre.as_deref(),
-                    )
+                    .count_catalog(facets)
                     .await
                     .map_err(|error| match error {
                         tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
                         tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
                     })?,
+            )
+        } else {
+            None
+        };
+        let options = if query.after.is_none() {
+            Some(
+                search
+                    .taxonomy_options()
+                    .await
+                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
             )
         } else {
             None
@@ -177,18 +190,25 @@ async fn catalog(
             .collect();
         return Ok(pages::catalog_search(
             &cards,
-            query.q.as_deref().unwrap_or(""),
-            query.language.as_deref(),
-            query.genre.as_deref(),
-            page.next_cursor.as_deref(),
-            sort,
-            total,
+            pages::CatalogPageQuery {
+                query: query.q.as_deref().unwrap_or(""),
+                language: query.language.as_deref(),
+                genre: query.genre.as_deref(),
+                tag: query.tag.as_deref(),
+                fandom: query.fandom.as_deref(),
+                cursor: page.next_cursor.as_deref(),
+                sort,
+                total,
+                options: options.as_ref(),
+            },
         ));
     }
     if query.q.is_some()
         || query.after.is_some()
         || query.language.is_some()
         || query.genre.is_some()
+        || query.tag.is_some()
+        || query.fandom.is_some()
         || query.sort.is_some()
     {
         return Err(StatusCode::BAD_REQUEST);

@@ -1,6 +1,7 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod chapter_edit;
 mod chapter_release;
+mod owned_book_hash;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
@@ -158,20 +159,7 @@ impl PgAuthoring {
         if user_id <= 0 {
             return Err(AuthorError::Forbidden);
         }
-        let mut hasher = Sha256::new();
-        for part in [&book.source_identity, &book.target_language, &book.title] {
-            hasher.update((part.len() as u64).to_be_bytes());
-            hasher.update(part.as_bytes());
-        }
-        // Keep old hashes for exact retries created without optional metadata.
-        if !book.author_name.is_empty() || !book.genres.is_empty() {
-            let genres = book.genres.join("\n");
-            for part in [book.author_name.as_str(), genres.as_str()] {
-                hasher.update((part.len() as u64).to_be_bytes());
-                hasher.update(part.as_bytes());
-            }
-        }
-        let digest: [u8; 32] = hasher.finalize().into();
+        let digest = owned_book_hash::payload_hash(book);
         let mut tx = self
             .pool
             .begin()
@@ -214,8 +202,8 @@ impl PgAuthoring {
         }
 
         let book_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres)
-             VALUES ($1, $2, $3, 'draft', $4, $5, $6) RETURNING id",
+            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms)
+             VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8) RETURNING id",
         )
         .bind(&book.source_identity)
         .bind(&book.target_language)
@@ -223,6 +211,8 @@ impl PgAuthoring {
         .bind(user_id)
         .bind(&book.author_name)
         .bind(&book.genres)
+        .bind(&book.tags)
+        .bind(&book.fandoms)
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| match error {

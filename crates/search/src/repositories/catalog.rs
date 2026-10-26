@@ -1,10 +1,11 @@
 //! F-02: PostgreSQL keyset catalog. All predicates precede pagination.
 //! Oldest and newest use fixed SQL, never a client-provided ORDER BY fragment.
+use super::CatalogFacets;
 use crate::domain::{CatalogSort, SearchBook, SearchError, SearchPage};
 use sqlx::{PgPool, Row};
 
 const ASCENDING: &str = "
-SELECT id,title,target_language,author_name,genres FROM books
+SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
@@ -12,10 +13,12 @@ WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND id > $2
   AND ($4::text IS NULL OR target_language = $4)
   AND ($5::text IS NULL OR genres @> ARRAY[$5::text])
+  AND ($6::text IS NULL OR tags @> ARRAY[$6::text])
+  AND ($7::text IS NULL OR fandoms @> ARRAY[$7::text])
 ORDER BY id ASC LIMIT $3";
 
 const DESCENDING: &str = "
-SELECT id,title,target_language,author_name,genres FROM books
+SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
@@ -23,13 +26,13 @@ WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($2::bigint = 0 OR id < $2)
   AND ($4::text IS NULL OR target_language = $4)
   AND ($5::text IS NULL OR genres @> ARRAY[$5::text])
+  AND ($6::text IS NULL OR tags @> ARRAY[$6::text])
+  AND ($7::text IS NULL OR fandoms @> ARRAY[$7::text])
 ORDER BY id DESC LIMIT $3";
 
 pub(super) async fn read_page(
     pool: &PgPool,
-    term: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
+    filters: CatalogFacets<'_>,
     after: i64,
     limit: usize,
     sort: CatalogSort,
@@ -40,11 +43,13 @@ pub(super) async fn read_page(
         _ => return Err(SearchError::Invalid),
     };
     let rows = sqlx::query(sql)
-        .bind(term.trim())
+        .bind(filters.term.trim())
         .bind(after)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
-        .bind(language)
-        .bind(genre)
+        .bind(filters.language)
+        .bind(filters.genre)
+        .bind(filters.tag)
+        .bind(filters.fandom)
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -64,6 +69,10 @@ pub(super) async fn read_page(
                     .map_err(|_| SearchError::Unavailable)?,
                 genres: row
                     .try_get("genres")
+                    .map_err(|_| SearchError::Unavailable)?,
+                tags: row.try_get("tags").map_err(|_| SearchError::Unavailable)?,
+                fandoms: row
+                    .try_get("fandoms")
                     .map_err(|_| SearchError::Unavailable)?,
             })
         })
@@ -86,18 +95,24 @@ WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
        (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
            @@ plainto_tsquery('simple'::regconfig, $1))
   AND ($2::text IS NULL OR target_language = $2)
-  AND ($3::text IS NULL OR genres @> ARRAY[$3::text])";
+  AND ($3::text IS NULL OR genres @> ARRAY[$3::text])
+  AND ($4::text IS NULL OR tags @> ARRAY[$4::text])
+  AND ($5::text IS NULL OR fandoms @> ARRAY[$5::text])";
 
 pub(super) async fn count_filtered(
     pool: &PgPool,
     term: &str,
     language: Option<&str>,
     genre: Option<&str>,
+    tag: Option<&str>,
+    fandom: Option<&str>,
 ) -> Result<u64, SearchError> {
     let total: i64 = sqlx::query_scalar(FILTERED_TOTAL)
         .bind(term.trim())
         .bind(language)
         .bind(genre)
+        .bind(tag)
+        .bind(fandom)
         .fetch_one(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -107,7 +122,7 @@ pub(super) async fn count_filtered(
 // F-02 parity with the NEwBOO catalogue: title/author use composite keysets.
 // The extra id is the stable tie breaker for duplicate names.
 const TITLE_ORDER: &str = "
-SELECT id,title,target_language,author_name,genres,lower(title) AS sort_key FROM books
+SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(title) AS sort_key FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig,title) || to_tsvector('simple'::regconfig,author_name))
@@ -115,10 +130,12 @@ WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($2::text IS NULL OR (lower(title),id) > ($2::text,$3::bigint))
   AND ($5::text IS NULL OR target_language=$5)
   AND ($6::text IS NULL OR genres @> ARRAY[$6::text])
+  AND ($7::text IS NULL OR tags @> ARRAY[$7::text])
+  AND ($8::text IS NULL OR fandoms @> ARRAY[$8::text])
 ORDER BY lower(title) ASC,id ASC LIMIT $4";
 
 const AUTHOR_ORDER: &str = "
-SELECT id,title,target_language,author_name,genres,lower(author_name) AS sort_key FROM books
+SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(author_name) AS sort_key FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
        (to_tsvector('simple'::regconfig,title) || to_tsvector('simple'::regconfig,author_name))
@@ -126,6 +143,8 @@ WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($2::text IS NULL OR (lower(author_name),id) > ($2::text,$3::bigint))
   AND ($5::text IS NULL OR target_language=$5)
   AND ($6::text IS NULL OR genres @> ARRAY[$6::text])
+  AND ($7::text IS NULL OR tags @> ARRAY[$7::text])
+  AND ($8::text IS NULL OR fandoms @> ARRAY[$8::text])
 ORDER BY lower(author_name) ASC,id ASC LIMIT $4";
 
 fn hex_nibble(byte: u8) -> Result<u8, SearchError> {
@@ -189,9 +208,7 @@ fn decode_lexical_cursor(
 
 pub(super) async fn read_lexical_page(
     pool: &PgPool,
-    term: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
+    filters: CatalogFacets<'_>,
     after: Option<&str>,
     limit: usize,
     sort: CatalogSort,
@@ -203,12 +220,14 @@ pub(super) async fn read_lexical_page(
     };
     let (cursor_key, cursor_id) = decode_lexical_cursor(after, sort)?;
     let rows = sqlx::query(query)
-        .bind(term.trim())
+        .bind(filters.term.trim())
         .bind(cursor_key.as_deref())
         .bind(cursor_id)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
-        .bind(language)
-        .bind(genre)
+        .bind(filters.language)
+        .bind(filters.genre)
+        .bind(filters.tag)
+        .bind(filters.fandom)
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -227,6 +246,10 @@ pub(super) async fn read_lexical_page(
                     .map_err(|_| SearchError::Unavailable)?,
                 genres: row
                     .try_get("genres")
+                    .map_err(|_| SearchError::Unavailable)?,
+                tags: row.try_get("tags").map_err(|_| SearchError::Unavailable)?,
+                fandoms: row
+                    .try_get("fandoms")
                     .map_err(|_| SearchError::Unavailable)?,
             };
             let key: String = row
@@ -247,4 +270,51 @@ pub(super) async fn read_lexical_page(
         items: entries.into_iter().map(|(book, _)| book).collect(),
         next_cursor,
     })
+}
+
+/// B-owned taxonomy options available only from published, unblocked books.
+#[derive(Clone, Debug, Default)]
+pub struct TaxonomyOptions {
+    pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub fandoms: Vec<String>,
+}
+
+pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, SearchError> {
+    // Bounded output. Unlike search, this endpoint is intended for first-page
+    // UI discovery and is never invoked for every cursor request.
+    const SQL: &str = "
+        SELECT 'genre' AS kind, name FROM (
+            SELECT DISTINCT unnest(genres) AS name FROM books
+            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            ORDER BY name LIMIT 100
+        ) g
+        UNION ALL
+        SELECT 'tag' AS kind, name FROM (
+            SELECT DISTINCT unnest(tags) AS name FROM books
+            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            ORDER BY name LIMIT 100
+        ) t
+        UNION ALL
+        SELECT 'fandom' AS kind, name FROM (
+            SELECT DISTINCT unnest(fandoms) AS name FROM books
+            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            ORDER BY name LIMIT 100
+        ) f";
+    let rows = sqlx::query(SQL)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
+    let mut result = TaxonomyOptions::default();
+    for row in rows {
+        let kind: String = row.try_get("kind").map_err(|_| SearchError::Unavailable)?;
+        let label: String = row.try_get("name").map_err(|_| SearchError::Unavailable)?;
+        match kind.as_str() {
+            "genre" => result.genres.push(label),
+            "tag" => result.tags.push(label),
+            "fandom" => result.fandoms.push(label),
+            _ => return Err(SearchError::Unavailable),
+        }
+    }
+    Ok(result)
 }
