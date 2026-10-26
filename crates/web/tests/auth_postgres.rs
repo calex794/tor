@@ -458,11 +458,19 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(discovered.status(), StatusCode::OK);
     let found = body_of(discovered).await;
     let name_only = body_of(
-        send(&app, request("GET", "/api/v1/search/books?q=Alice", "", "", ORIGIN)).await,
+        send(
+            &app,
+            request("GET", "/api/v1/search/books?q=Alice", "", "", ORIGIN),
+        )
+        .await,
     )
     .await;
     let genre_only = body_of(
-        send(&app, request("GET", "/api/v1/search/books?genre=fantasy", "", "", ORIGIN)).await,
+        send(
+            &app,
+            request("GET", "/api/v1/search/books?genre=fantasy", "", "", ORIGIN),
+        )
+        .await,
     )
     .await;
     assert!(
