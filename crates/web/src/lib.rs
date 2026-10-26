@@ -129,7 +129,12 @@ pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
     ril::instrument(make_router(repo, None, None, false))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
-    ril::instrument(make_router(Arc::new(catalog.clone()), Some(catalog), None, false))
+    ril::instrument(make_router(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        None,
+        false,
+    ))
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
     ril::instrument(make_router(
@@ -149,12 +154,10 @@ pub fn router_with_postgres_reading_auth(
     public_origin: String,
 ) -> Router {
     let auth_reader = reader.clone();
-    ril::instrument(make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true).merge(auth::router(
-        accounts,
-        auth_reader,
-        secure,
-        public_origin,
-    )))
+    ril::instrument(
+        make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true)
+            .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+    )
 }
 
 fn make_router(
