@@ -50,7 +50,7 @@ pub(crate) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route("/me/books/{id}/chapters/new", get(new_chapter))
         .route("/me/books/{id}/chapters", post(create_chapter))
         .route("/me/books/{id}/publish", post(publish_book))
-        .layer(DefaultBodyLimit::max(256 * 1024))
+        .layer(DefaultBodyLimit::max(768 * 1024))
         .with_state(state)
 }
 
