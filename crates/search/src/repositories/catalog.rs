@@ -76,7 +76,7 @@ pub(super) async fn read_page(
     Ok(SearchPage { items, next_cursor })
 }
 
-\n/// Exact count of the same public, non-held, non-deleted search projection.
+/// Exact count of the same public, non-held, non-deleted search projection.
 /// This query is separate from the hot keyset path and must be opt-in.
 const FILTERED_TOTAL: &str = "
 SELECT COUNT(*) FROM books
