@@ -38,8 +38,8 @@ class LegacyCoverageTests(unittest.TestCase):
         self.assertEqual(stats["source_declarations"], 560)
         self.assertEqual(stats["job_registered"], 57)
         self.assertEqual(stats["job_frozen"], 8)
-        self.assertEqual(stats["semantic_candidate_from_source"], 420)
-        self.assertEqual(stats["semantic_explicit_subfunction"], 45)
+        self.assertEqual(stats["semantic_candidate_from_source"], 417)
+        self.assertEqual(stats["semantic_explicit_subfunction"], 48)
         self.assertEqual(stats["semantic_excluded"], 101)
         self.assertEqual(stats["review_unresolved_mount"], 1)
 
@@ -94,6 +94,20 @@ class LegacyCoverageTests(unittest.TestCase):
         self.edit("route-action-candidates.tsv", "\tFROZEN\t\t\texcluded\t", "\tF018\tB-02\tcandidate_from_source\t")
         issues, _ = audit(self.root)
         self.assertTrue(any("frozen route" in x for x in issues))
+
+    def test_book_comments_cannot_be_merged_into_chapter_comments(self):
+        path = self.root / "docs/roadmap/legacy-inventory/route-action-candidates.tsv"
+        text = path.read_text(encoding="utf-8")
+        original = next(
+            x for x in text.splitlines()
+            if x.endswith("book-level comments, distinct from chapter and collection threads")
+        )
+        replacement = original.replace("X-BOOK-COMMENTS", "F012").replace(
+            "E-02,E-03,G-07,H-08", "E-02,E-04"
+        ).replace("explicit_subfunction", "candidate_from_source")
+        path.write_text(text.replace(original, replacement, 1), encoding="utf-8")
+        issues, _ = audit(self.root)
+        self.assertTrue(any("critical semantic action group" in x for x in issues))
 
     def test_source_pin_failure(self):
         f = "routes-part-000.tsv"
