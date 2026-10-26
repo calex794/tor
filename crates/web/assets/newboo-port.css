@@ -4,6 +4,7 @@
    components/page-header.css,pages/home.css,pages/catalog.css}.
    Keep unsupported storefront/recommendation features hidden, not fabricated. */
 :root {
+  color-scheme: light;
   --bg-main: #f7f7f8;
   --bg-surface: #fff;
   --bg-secondary: #f9fafb;
@@ -767,5 +768,133 @@ body {
   .me-now-item__title,
   .me-now-item__text {
     white-space: normal;
+  }
+}
+
+/* H-web-07: the original NEwBOO dark palette, selected by OS preference.
+   Source: backend/app/web/static/css/00-tokens.css :root[data-theme="dark"].
+   This first no-script slice does not claim to implement a manual theme switch. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg-main: #0b1120;
+    --bg-surface: #111827;
+    --bg-secondary: #172033;
+    --text-main: #f8fafc;
+    --text-secondary: #d1d5db;
+    --text-muted: #9ca3af;
+    --border-color: #263348;
+    --border-dark: #3b485f;
+    --primary-color: #8b9cff;
+    --action-primary-bg: #d8ffb0;
+    --action-primary-bg-hover: #ecffd8;
+    --action-primary-text: #102014;
+    --book-card-bg: var(--bg-surface);
+    --book-card-border: var(--border-color);
+    --book-card-border-hover: var(--primary-color);
+    --book-card-cover-bg: radial-gradient(circle at top, rgba(139, 156, 255, .22), transparent 42%), #263348;
+    --book-card-cover-text: var(--text-muted);
+    --book-card-title: var(--text-main);
+    --book-card-meta: var(--text-muted);
+    --book-card-shadow-hover: 0 12px 30px rgba(0, 0, 0, .24);
+    --focus-ring-color: rgba(139, 156, 255, .38);
+    --neutral-bg: #263348;
+    --success-bg: #102a1c;
+    --success-border: #14532d;
+    --info-bg: #1e2a4a;
+    --info-border: #314585;
+    --warning-bg: #3a2b12;
+    --warning-border: #854d0e;
+    --surface: var(--bg-surface);
+    --paper: var(--bg-main);
+    --ink: var(--text-main);
+    --line: var(--border-color);
+  }
+  .site-logo {
+    background-image: url("/assets/brand/pandaolate-header-dark.png");
+  }
+  .site-footer__inner {
+    background: linear-gradient(180deg, rgba(17, 24, 39, .8), transparent);
+  }
+  /* Legacy site.css still has a few green/white hardcoded components.
+     Scope their overrides to real TOR pages, not unshipped features. */
+  .auth-card,
+  .library-card,
+  .reader-piece,
+  .reader-private__content,
+  .chapter-toc__item,
+  .account-error__card {
+    border-color: var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-main);
+  }
+  .auth-form label,
+  .reader-private__content,
+  .reader-piece__text,
+  .chapter-toc__item {
+    color: var(--text-main);
+  }
+  .auth-form input,
+  .auth-card.author-card .auth-form input,
+  .author-chapter-card .author-form textarea {
+    border-color: var(--border-dark);
+    background: var(--bg-surface);
+    color: var(--text-main);
+  }
+  .auth-card__footer,
+  .auth-card__footer a,
+  .auth-form__help,
+  .account-profile__hint,
+  .library-heading > p:last-child,
+  .library-card p:not(.eyebrow),
+  .library-empty p,
+  .reader-page__subtitle,
+  .author-edit-warning,
+  .book-card__meta {
+    color: var(--text-muted);
+  }
+  .auth-card__footer a,
+  .account-error__catalog,
+  .reader-save-button,
+  .reader-resume__link,
+  .chapter-toc__item a {
+    color: var(--primary-color);
+  }
+  .library-empty,
+  .author-book-link,
+  .author-release-preview,
+  .chapter-toc__item--paid,
+  .reader-markdown pre,
+  .reader-resume,
+  .reader-save-button,
+  .account-profile__state {
+    border-color: var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+  }
+  .author-book-link:hover,
+  .reader-save-button:hover,
+  .reader-piece:target {
+    border-color: var(--primary-color);
+    background: var(--bg-secondary);
+  }
+  .account-error {
+    background: radial-gradient(circle at 12% 10%, rgba(139,156,255,.13), transparent 44%), var(--bg-main);
+  }
+  .account-error__symbol {
+    border-color: var(--warning-border);
+    background: var(--warning-bg);
+    color: #fde68a;
+  }
+  .account-error__message,
+  .account-error__hint {
+    color: var(--text-secondary);
+  }
+  .account-error__hint { border-top-color: var(--border-color); }
+  .auth-form__error {
+    border-color: #7f1d1d;
+    border-left-color: #dc2626;
+    background: #3f121a;
+    color: #fecaca;
   }
 }
