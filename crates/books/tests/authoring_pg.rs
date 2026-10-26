@@ -216,3 +216,192 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
     assert_eq!(public_title.as_deref(), Some("Реальная книга"));
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_04_draft_chapter_cas_preserves_history_and_rejects_public_edits() {
+    use tor_books::services::authoring::{save_chapter, SaveChapterRequest};
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "Never use production");
+    let pool = PgPool::connect(&url).await.expect("PG connect");
+    let author = PgAuthoring::new(pool.clone());
+    let user: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ('b04-owner@tor-ci.example','B04 Owner','$argon2id$test')
+         ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let outsider: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ('b04-other@tor-ci.example','B04 Other','$argon2id$test')
+         ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book = new_book(
+        &format!("tor-ci:b04-draft:{user}"),
+        "ru",
+        "Черновик с версиями",
+        &"q".repeat(43),
+    )
+    .unwrap();
+    let book_id = author.create_owned_book(user, &book).await.unwrap();
+    let first = save_chapter(SaveChapterRequest {
+        book_id: book_id as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Первая глава",
+        body: "Исходный текст",
+        access: "free",
+        price_amount: 0,
+        command_key: &"v".repeat(43),
+    })
+    .unwrap();
+    let initial = author.create_free_chapter(user, &first).await.unwrap();
+    let edit = |body: &str, title: &str, rev: i64, key: &str| {
+        save_chapter(SaveChapterRequest {
+            book_id: book_id as u64,
+            chapter_id: Some(initial.chapter_id as u64),
+            number: 1,
+            expected_revision: rev,
+            title,
+            body,
+            access: "free",
+            price_amount: 0,
+            command_key: key,
+        })
+        .unwrap()
+    };
+    let key_a = "w".repeat(43);
+    let key_b = "x".repeat(43);
+    let a = edit("Редакция А", "Первая глава", 1, &key_a);
+    let stale = edit("Редакция Б", "Первая глава", 1, &key_b);
+    assert_eq!(
+        author.edit_unpublished_free_chapter(outsider, &a).await,
+        Err(AuthorError::Missing)
+    );
+    let saved = author
+        .edit_unpublished_free_chapter(user, &a)
+        .await
+        .unwrap();
+    assert_eq!(saved.revision, 2);
+    assert_ne!(saved.version_id, initial.version_id);
+    assert_eq!(
+        author
+            .edit_unpublished_free_chapter(user, &a)
+            .await
+            .unwrap(),
+        saved,
+        "exact retry must return prior version"
+    );
+    let altered = edit("Подмена", "Первая глава", 1, &key_a);
+    assert_eq!(
+        author.edit_unpublished_free_chapter(user, &altered).await,
+        Err(AuthorError::Conflict),
+        "same key with changed text must conflict"
+    );
+    assert_eq!(
+        author.edit_unpublished_free_chapter(user, &stale).await,
+        Err(AuthorError::Conflict),
+        "stale tab must never overwrite the winner"
+    );
+    let previous_body: String =
+        sqlx::query_scalar("SELECT body_markdown FROM chapter_versions WHERE id=$1")
+            .bind(initial.version_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        previous_body, "Исходный текст",
+        "past versions are immutable"
+    );
+
+    let unchanged_key = "y".repeat(43);
+    let unchanged = edit("Редакция А", "Первая глава", 2, &unchanged_key);
+    assert_eq!(
+        author
+            .edit_unpublished_free_chapter(user, &unchanged)
+            .await
+            .unwrap(),
+        saved,
+        "saving identical text/title does not create a revision"
+    );
+    let title_key = "z".repeat(43);
+    let title_edit = edit("Редакция А", "Новое название", 2, &title_key);
+    let title_saved = author
+        .edit_unpublished_free_chapter(user, &title_edit)
+        .await
+        .unwrap();
+    assert_eq!(title_saved.revision, 3);
+    assert_eq!(title_saved.version_id, saved.version_id);
+
+    let revert_key = "u".repeat(43);
+    let revert = edit("Исходный текст", "Новое название", 3, &revert_key);
+    let reverted = author
+        .edit_unpublished_free_chapter(user, &revert)
+        .await
+        .unwrap();
+    assert_eq!(reverted.revision, 4);
+    assert_eq!(
+        reverted.version_id, initial.version_id,
+        "returning to a historical body reuses its immutable version"
+    );
+    let version_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_versions WHERE chapter_id=$1")
+            .bind(initial.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(version_count, 2);
+
+    // Two simultaneous tabs submit different edits against the same revision.
+    let first_race_key = "j".repeat(43);
+    let second_race_key = "k".repeat(43);
+    let race_a = edit("Параллельная А", "Новое название", 4, &first_race_key);
+    let race_b = edit("Параллельная Б", "Новое название", 4, &second_race_key);
+    let (result_a, result_b) = tokio::join!(
+        author.edit_unpublished_free_chapter(user, &race_a),
+        author.edit_unpublished_free_chapter(user, &race_b)
+    );
+    assert_eq!(
+        usize::from(result_a.is_ok()) + usize::from(result_b.is_ok()),
+        1,
+        "only one contender may update the expected revision"
+    );
+    assert!(result_a == Err(AuthorError::Conflict) || result_b == Err(AuthorError::Conflict));
+    let winner = result_a.or(result_b).unwrap();
+    assert_eq!(winner.revision, 5);
+
+    author.release_book(user, book_id).await.unwrap();
+    let after_key = "l".repeat(43);
+    let post_release = edit("Тихая замена", "Новое название", 5, &after_key);
+    assert_eq!(
+        author
+            .edit_unpublished_free_chapter(user, &post_release)
+            .await,
+        Err(AuthorError::Conflict),
+        "editing published pointer must require an explicit release workflow"
+    );
+    let public_version: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(initial.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(public_version, winner.version_id);
+    let first_release_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(initial.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(first_release_count, 1);
+    pool.close().await;
+}
