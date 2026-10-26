@@ -152,7 +152,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     // links shown to the reader. Never trust user_id from a request.
     let anonymous_read = send(&app, request("GET", "/read/101", "", "", ORIGIN)).await;
     assert_eq!(anonymous_read.status(), StatusCode::SEE_OTHER);
-    let authenticated_read = send(&app, request("GET", "/read/101", "", &session, ORIGIN)).await;
+    let authenticated_read = send(&app, request("GET", "/read/101", "", &format!("{session}; {new_csrf_cookie}"), ORIGIN)).await;
     assert_eq!(authenticated_read.status(), StatusCode::OK);
     let read_html = body_of(authenticated_read).await;
     assert!(read_html.contains("Сохранить место здесь"));
