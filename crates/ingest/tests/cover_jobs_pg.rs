@@ -74,7 +74,6 @@ async fn g_07_claim_fence_recovery_and_forbidden_registration() {
         .await
         .unwrap();
 
-
     let (one, two) = tokio::join!(repo.claim_next(), repo.claim_next());
     let claims: Vec<_> = [one.unwrap(), two.unwrap()].into_iter().flatten().collect();
     assert_eq!(
