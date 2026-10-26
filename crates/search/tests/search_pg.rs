@@ -260,10 +260,7 @@ async fn f_03_revocation_removes_author_genre_and_title_from_public_search() {
 #[tokio::test]
 #[ignore = "requires isolated tor_ci PostgreSQL fixtures"]
 async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
-    use tor_search::{
-        repositories::showcases::PgShowcases,
-        services::showcases::RecentShowcases,
-    };
+    use tor_search::{repositories::showcases::PgShowcases, services::showcases::RecentShowcases};
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     let pool = PgPool::connect(&url).await.unwrap();
     let db: String = sqlx::query_scalar("SELECT current_database()")
@@ -305,7 +302,10 @@ async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
 
     let repository = PgShowcases::new(pool.clone());
     let service = RecentShowcases::new(&repository);
-    let listed = service.latest_added(Some(" F04-TEST-GENRE "), 1).await.unwrap();
+    let listed = service
+        .latest_added(Some(" F04-TEST-GENRE "), 1)
+        .await
+        .unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, visible_id as u64);
     assert_eq!(listed[0].author_name, "Автор F04");
