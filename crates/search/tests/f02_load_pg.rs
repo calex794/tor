@@ -128,6 +128,34 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
         "F02_100K exact_total={total} count_ms={}",
         count_start.elapsed().as_millis()
     );
+    // Test the real opt-in total path, not only a standalone SQL count.
+    let counted_start = Instant::now();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-load"))
+            .await
+            .unwrap(),
+        85_000
+    );
+    assert_eq!(search.count_faceted("", None, None).await.unwrap(), 85_000);
+    assert_eq!(
+        search
+            .count_faceted("F02", Some("ru"), Some("f02-load"))
+            .await
+            .unwrap(),
+        85_000
+    );
+    assert_eq!(
+        search
+            .count_faceted("", Some("en"), Some("f02-load"))
+            .await
+            .unwrap(),
+        0
+    );
+    println!(
+        "F02_100K filtered_count_checks_ms={}",
+        counted_start.elapsed().as_millis()
+    );
 
     // These are the repository's two static query shapes, with representative
     // midpoint cursors. Record real PostgreSQL execution plans as CI evidence.
