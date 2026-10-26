@@ -37,6 +37,7 @@ pub(super) async fn read_page(
     let sql = match sort {
         CatalogSort::Oldest => ASCENDING,
         CatalogSort::Newest => DESCENDING,
+        _ => return Err(SearchError::Invalid),
     };
     let rows = sqlx::query(sql)
         .bind(term.trim())
