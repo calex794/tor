@@ -69,13 +69,12 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
             // response consumption. It is NOT PG server CPU/execution time.
             let elapsed = (seconds * 1_000_000.0).round() as u64;
             let _ = QUERY_COUNTER.try_with(|counter| {
-                let _ =
-                    counter
-                        .completed
-                        .try_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
-                            old.checked_add(1)
-                                .filter(|value| *value <= MAX_US_PER_REQUEST)
-                        });
+                let _ = counter
+                    .completed
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+                        old.checked_add(1)
+                            .filter(|value| *value <= MAX_US_PER_REQUEST)
+                    });
                 let _ =
                     counter
                         .elapsed_us
