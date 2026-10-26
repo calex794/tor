@@ -1,0 +1,28 @@
+# Optional service: DO NOT enable until the operator configures private paths.
+# Requires the same dedicated tor OS account as tor-web for socket access.
+[Unit]
+Description=TOR isolated diagnostic trace SQLite writer
+After=local-fs.target
+
+[Service]
+Type=simple
+User=tor
+Group=tor
+StateDirectory=tor-traces
+RuntimeDirectory=tor-traces
+StateDirectoryMode=0700
+RuntimeDirectoryMode=0700
+ExecStart=/opt/tor/current/tor-trace-store serve /var/lib/tor-traces/traces.sqlite3 /run/tor-traces/traces.sock
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/tor-traces /run/tor-traces
+MemoryMax=128M
+CPUQuota=25%
+
+[Install]
+WantedBy=multi-user.target

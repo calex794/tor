@@ -21,6 +21,17 @@ use tor_observability::{
 static METRICS: OnceLock<HttpMetrics> = OnceLock::new();
 static TRACES: OnceLock<TraceBuffer> = OnceLock::new();
 static TRACE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(unix)]
+static PUBLISHER: OnceLock<tor_observability::services::publisher::TracePublisher> =
+    OnceLock::new();
+
+#[cfg(unix)]
+fn publisher() -> &'static tor_observability::services::publisher::TracePublisher {
+    PUBLISHER.get_or_init(|| {
+        let configured = std::env::var_os("TOR_TRACE_STORE_SOCKET").map(std::path::PathBuf::from);
+        tor_observability::services::publisher::TracePublisher::new(configured)
+    })
+}
 
 /// Server-generated technical correlation only; never derived from client input.
 #[derive(Clone, Copy)]
@@ -49,9 +60,15 @@ pub(crate) fn finish_trace(
         duration_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
         sqlx,
     };
-    TRACES
+    let retained = TRACES
         .get_or_init(TraceBuffer::default)
         .record(trace.clone());
+    #[cfg(unix)]
+    if retained {
+        let _ = publisher().try_publish(&trace);
+    }
+    #[cfg(not(unix))]
+    let _ = retained;
     trace
 }
 
@@ -95,6 +112,36 @@ fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
         .is_some_and(|received| equal_secret(received.as_bytes(), token.as_bytes()))
 }
 
+fn collected_metrics(metrics: &HttpMetrics) -> String {
+    let mut text = metrics.prometheus();
+    #[cfg(unix)]
+    {
+        let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();
+        text.push_str(
+            "# HELP tor_trace_export_sent_total Successfully acknowledged trace frames.\n\
+             # TYPE tor_trace_export_sent_total counter\n",
+        );
+        text.push_str(&format!("tor_trace_export_sent_total {}\n", counts.sent));
+        text.push_str(
+            "# HELP tor_trace_export_failed_total Trace-store socket or database failures.\n\
+             # TYPE tor_trace_export_failed_total counter\n",
+        );
+        text.push_str(&format!(
+            "tor_trace_export_failed_total {}\n",
+            counts.failed
+        ));
+        text.push_str(
+            "# HELP tor_trace_export_dropped_total Queue saturation and invalid frames.\n\
+             # TYPE tor_trace_export_dropped_total counter\n",
+        );
+        text.push_str(&format!(
+            "tor_trace_export_dropped_total {}\n",
+            counts.dropped
+        ));
+    }
+    text
+}
+
 fn endpoint(headers: HeaderMap, token: Option<&str>, metrics: &HttpMetrics) -> Response {
     if !authorized(&headers, token) {
         // Identical response for absent config and wrong credential; no secrets echoed.
@@ -117,7 +164,7 @@ fn endpoint(headers: HeaderMap, token: Option<&str>, metrics: &HttpMetrics) -> R
                 HeaderValue::from_static("nosniff"),
             ),
         ],
-        metrics.prometheus(),
+        collected_metrics(metrics),
     )
         .into_response()
 }

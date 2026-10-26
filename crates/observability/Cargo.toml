@@ -2,3 +2,10 @@
 name = "tor-observability"
 version.workspace = true
 edition.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[[bin]]
+name = "tor-trace-store"
+path = "bin/trace_store.rs"
