@@ -5,6 +5,8 @@ pub struct SearchBook {
     pub language: String,
     pub author_name: String,
     pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub fandoms: Vec<String>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchPage {
