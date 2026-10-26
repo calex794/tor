@@ -14,9 +14,31 @@ pub struct BatchClaim {
     pub epoch: i64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RilQueueCounts {
+    pub pending: i64,
+    pub running: i64,
+    pub dead: i64,
+}
+
 impl PgRilRollups {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Only active and dead RIL flush batches; completed history is excluded.
+    /// No IDs or row payload are returned to the operator dashboard.
+    pub async fn queue_counts(&self) -> Result<RilQueueCounts, sqlx::Error> {
+        let (pending, running, dead): (i64, i64, i64) = sqlx::query_as(
+            "SELECT
+               COUNT(*) FILTER (WHERE status='pending')::bigint,
+               COUNT(*) FILTER (WHERE status='running')::bigint,
+               COUNT(*) FILTER (WHERE status='dead')::bigint
+             FROM ril_flush_batches WHERE status IN ('pending','running','dead')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(RilQueueCounts { pending, running, dead })
     }
 
     /// RIL-10 read-only FinOps evidence, bounded to 30 days of retained hourly data.
