@@ -262,3 +262,105 @@ async fn f_02_catalog_sort_keeps_legacy_json_contract_and_rejects_bad_cursors() 
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_02_exact_total_html_and_opt_in_json_obey_public_visibility() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let db: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(db, "tor_ci", "never write to production");
+    let mut revoked_id = 0_i64;
+    for (source, visibility, held, deleted) in [
+        ("visible-a", "public", false, false),
+        ("visible-b", "public", false, false),
+        ("draft", "draft", false, false),
+        ("held", "public", true, false),
+        ("deleted", "public", false, true),
+    ] {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,
+                                visibility,admin_hold,is_deleted)
+             VALUES ($1,'ru','F02 Http Total','F02 Http Author',
+                     ARRAY['f02-http-total'],$2,$3,$4)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold,is_deleted=EXCLUDED.is_deleted
+             RETURNING id",
+        )
+        .bind(format!("ci:f02:http-total:{source}"))
+        .bind(visibility)
+        .bind(held)
+        .bind(deleted)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if source == "visible-a" {
+            revoked_id = id;
+        }
+    }
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+    let (status, html) = get(app.clone(), "/catalog?genre=f02-http-total&sort=newest").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Найдено книг: 2"));
+    assert!(!html.contains("Найдено книг: 5"));
+    let (status, json) = get(
+        app.clone(),
+        "/api/v1/search/books?genre=f02-http-total&sort=newest&include_total=true&limit=1",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json.contains(r#""total":2"#), "{json}");
+    let cursor = json
+        .split(r#""next_cursor":""#)
+        .nth(1)
+        .expect("page 1 needs a cursor")
+        .split('"')
+        .next()
+        .unwrap();
+    let (status, second) = get(
+        app.clone(),
+        &format!("/api/v1/search/books?genre=f02-http-total&sort=newest&limit=1&after={cursor}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!second.contains(r#""total":"#), "ordinary cursor path stays cheap");
+    assert_eq!(
+        get(
+            app.clone(),
+            &format!("/api/v1/search/books?genre=f02-http-total&sort=newest&limit=1&after={cursor}&include_total=true"),
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST,
+        "never run expensive counts on cursor pages"
+    );
+    let (status, zero) = get(
+        app.clone(),
+        "/api/v1/search/books?genre=f02-http-total&language=en&sort=oldest&include_total=true",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(zero.contains(r#""total":0"#), "{zero}");
+    assert!(zero.contains(r#""items":[]"#), "{zero}");
+    let (_, legacy) = get(app.clone(), "/api/v1/books").await;
+    assert!(legacy.starts_with('['), "legacy books endpoint must remain an array");
+
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(revoked_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, html) = get(app.clone(), "/catalog?genre=f02-http-total").await;
+    assert!(html.contains("Найдено книг: 1"), "{html}");
+    let (_, json) = get(
+        app.clone(),
+        "/api/v1/search/books?genre=f02-http-total&sort=newest&include_total=true",
+    )
+    .await;
+    assert!(json.contains(r#""total":1"#), "{json}");
+}
