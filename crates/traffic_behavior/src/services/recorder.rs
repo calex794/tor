@@ -1,6 +1,7 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
-use crate::domain::{BehaviorEvent, BehaviorSketch, RollupDelta, SketchSnapshot};
+use crate::domain::{BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot};
+use crate::services::paths_worker::PathRecorder;
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -23,6 +24,7 @@ enum Message {
 pub struct TrafficRecorder {
     sender: SyncSender<Message>,
     dropped: Arc<AtomicU64>,
+    paths: PathRecorder,
     started: Instant,
 }
 
@@ -30,6 +32,8 @@ impl TrafficRecorder {
     pub fn start(max_subjects: usize, queue_capacity: usize) -> Self {
         let (sender, receiver) = mpsc::sync_channel(queue_capacity.clamp(1, MAX_QUEUE));
         let dropped = Arc::new(AtomicU64::new(0));
+        let paths = PathRecorder::start(max_subjects, queue_capacity);
+        let path_sink = paths.clone();
         // Thread creation failure only disables best-effort telemetry.
         let _ = thread::Builder::new()
             .name("tor-ril-traffic".to_owned())
@@ -41,6 +45,10 @@ impl TrafficRecorder {
                         Message::Event(event) => {
                             let transition = sketch.record(event);
                             rollup.record(event, transition);
+                            if event.subject.is_some() {
+                                // Independent offline queue: never delays an HTTP request.
+                                let _ = path_sink.try_record(event);
+                            }
                         }
                         Message::Snapshot(reply) => {
                             let _ = reply.send(sketch.snapshot());
@@ -55,6 +63,7 @@ impl TrafficRecorder {
         Self {
             sender,
             dropped,
+            paths,
             started: Instant::now(),
         }
     }
@@ -89,6 +98,17 @@ impl TrafficRecorder {
         let (reply, response) = mpsc::channel();
         self.sender.try_send(Message::Drain(reply)).ok()?;
         response.recv_timeout(Duration::from_secs(2)).ok()
+    }
+
+    /// Serializes against earlier traffic events, then queries the independent
+    /// offline path worker; never called from the HTTP finalizer.
+    pub fn path_report_for_diagnostics(&self) -> Option<PathReport> {
+        self.snapshot_for_diagnostics()?;
+        self.paths.report_for_diagnostics()
+    }
+
+    pub fn dropped_path_events(&self) -> u64 {
+        self.paths.dropped_events()
     }
 
     pub fn dropped_events(&self) -> u64 {
@@ -148,11 +168,33 @@ mod tests {
     }
 
     #[test]
+    fn trusted_events_reach_independent_path_worker_without_http_sql() {
+        use crate::domain::{RouteCode, VerifiedSubjectKey};
+        let recorder = TrafficRecorder::start(8, 64);
+        for i in 0..20 {
+            let mut observed = event();
+            observed.route = RouteCode::Unknown;
+            observed.status = StatusGroup::ClientError;
+            observed.subject = Some(VerifiedSubjectKey::from_hmac_digest([19; 16]));
+            observed.at_millis = i * 100;
+            assert!(recorder.try_record(observed));
+        }
+        let report = recorder
+            .path_report_for_diagnostics()
+            .expect("offline path worker");
+        assert_eq!(report.assessed_events, 20);
+        assert_eq!(report.active_subjects, 1);
+        assert!(report.reject > 0);
+        assert_eq!(recorder.dropped_path_events(), 0);
+    }
+
+    #[test]
     fn full_queue_increments_drop_counter_without_blocking() {
         let (sender, _idle_receiver) = mpsc::sync_channel(1);
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
         assert!(recorder.try_record(event()));
@@ -167,6 +209,7 @@ mod tests {
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
         assert!(!recorder.try_record(event()));
