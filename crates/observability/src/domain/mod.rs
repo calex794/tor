@@ -97,8 +97,14 @@ mod tests {
 
     #[test]
     fn labels_are_finite_and_never_echo_paths() {
-        assert_eq!(RouteGroup::from_ril_family("/catalog/"), RouteGroup::Catalog);
-        assert_eq!(RouteGroup::from_ril_family("/catalog/123?token=SECRET"), RouteGroup::Other);
+        assert_eq!(
+            RouteGroup::from_ril_family("/catalog/"),
+            RouteGroup::Catalog
+        );
+        assert_eq!(
+            RouteGroup::from_ril_family("/catalog/123?token=SECRET"),
+            RouteGroup::Other
+        );
         assert_eq!(RouteGroup::Other.label(), "other");
         assert_eq!(StatusGroup::from_http(503), StatusGroup::ServerError);
     }
