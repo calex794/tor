@@ -4,8 +4,8 @@
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        atomic::{AtomicU64, Ordering},
+        Arc, OnceLock,
     },
 };
 use tracing::{
@@ -18,7 +18,7 @@ use tracing_subscriber::{
     Layer,
 };
 
-static INSTALLED: AtomicBool = AtomicBool::new(false);
+static INSTALLED: OnceLock<bool> = OnceLock::new();
 const MAX_US_PER_REQUEST: u64 = 1_000_000_000;
 tokio::task_local! {
     static QUERY_COUNTER: Arc<QueryCounter>;
@@ -69,20 +69,18 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
             // response consumption. It is NOT PG server CPU/execution time.
             let elapsed = (seconds * 1_000_000.0).round() as u64;
             let _ = QUERY_COUNTER.try_with(|counter| {
-                counter
+                let _ = counter
                     .completed
                     .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
                         old.checked_add(1)
                             .filter(|value| *value <= MAX_US_PER_REQUEST)
-                    })
-                    .ok();
-                counter
+                    });
+                let _ = counter
                     .elapsed_us
                     .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
                         old.checked_add(elapsed)
                             .filter(|value| *value <= MAX_US_PER_REQUEST)
-                    })
-                    .ok();
+                    });
             });
         }
     }
@@ -92,23 +90,16 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
 /// If another subscriber already exists, identified SQL measurement stays OFF.
 /// No log formatting subscriber is installed, so statements never print.
 pub(crate) fn install_for_process() -> bool {
-    if INSTALLED.load(Ordering::Acquire) {
-        return true;
-    }
-    if tracing_subscriber::registry()
-        .with(SqlxCompletionLayer)
-        .try_init()
-        .is_ok()
-    {
-        INSTALLED.store(true, Ordering::Release);
-        true
-    } else {
-        false
-    }
+    *INSTALLED.get_or_init(|| {
+        tracing_subscriber::registry()
+            .with(SqlxCompletionLayer)
+            .try_init()
+            .is_ok()
+    })
 }
 
 pub(crate) async fn observe<F: Future>(future: F) -> (F::Output, Option<SqlxMeasurement>) {
-    if !INSTALLED.load(Ordering::Acquire) {
+    if !INSTALLED.get().copied().unwrap_or(false) {
         return (future.await, None);
     }
     let scope = Arc::new(QueryCounter::default());
