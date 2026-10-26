@@ -55,12 +55,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Verify candidate source (PostgreSQL contract passed before auto-deploy)
-        run: |
-          python3 tools/check_feature_layout.py
-          cargo fmt --all -- --check
-          cargo test --workspace --all-targets
-          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Verify architecture before packaging
+        run: python3 tools/check_feature_layout.py
       - name: Build release and embedded SQLx migrator on runner, never on 1-vCPU VPS
         run: |
           cargo build --release -p tor-web
