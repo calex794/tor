@@ -116,5 +116,6 @@ jobs:
         run: |
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-reading --test postgres_reading -- --ignored
+          cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored

@@ -181,6 +181,88 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
     )
 }
 
+/// Account-only reading: the browser can save a deterministic point in an
+/// immutable, currently published, free chapter without requiring JavaScript.
+pub fn private_reader(
+    chapter_id: u64,
+    chapter: &tor_reading::services::PublicChapterPage,
+    csrf: &str,
+    saved: Option<tor_reading::services::progress::ReadingPlace>,
+) -> Html<String> {
+    use tor_reading::services::progress::{reader_blocks, valid_text_place};
+    let blocks = reader_blocks(&chapter.body_markdown);
+    let mut sections = String::new();
+    for (index, source) in blocks.iter().enumerate() {
+        let block_index = index + 1;
+        let markdown = crate::safe_markdown::render(source);
+        write!(
+            sections,
+            r#"<section class="reader-piece" id="p-{block_index}" aria-label="Фрагмент {block_index}">
+                 <div class="reader-piece__text reader-markdown">{markdown}</div>
+                 <form class="reader-piece__form" method="post" action="/read/{chapter_id}/place">
+                    <input type="hidden" name="csrf_token" value="{csrf}">
+                    <input type="hidden" name="version_id" value="{version_id}">
+                    <input type="hidden" name="block_index" value="{block_index}">
+                    <input type="hidden" name="char_offset" value="0">
+                    <button type="submit" class="reader-save-button" aria-label="Сохранить после фрагмента {block_index}">Сохранить место здесь</button>
+                 </form>
+               </section>"#,
+            csrf = escape_html(csrf),
+            version_id = chapter.version_id
+        ).expect("write reader block");
+    }
+    let valid_saved = saved.filter(|p| valid_text_place(*p, &blocks).is_ok());
+    let saved_link = valid_saved
+        .map(|p| {
+            format!(
+                r##"<a class="reader-resume__link" href="#p-{}">Перейти к сохранённому месту</a>"##,
+                p.block_index
+            )
+        })
+        .unwrap_or_else(|| "Место ещё не сохранено".to_owned());
+    let prev = chapter
+        .previous_chapter_id
+        .map(|id| format!(r#"<a rel="prev" href="/read/{id}">Предыдущая глава</a>"#))
+        .unwrap_or_default();
+    let next = chapter
+        .next_chapter_id
+        .map(|id| format!(r#"<a rel="next" href="/read/{id}">Следующая глава</a>"#))
+        .unwrap_or_default();
+    let navigation = format!(
+        r#"<nav class="chapter-navigation" aria-label="Переход между главами">{prev}{next}</nav>"#
+    );
+    let body = format!(
+        r#"<section class="section reader-page reader-private" aria-labelledby="reader-title">
+            <div class="container reader-width">
+                <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+                    <a href="/me/library">Моя библиотека</a>
+                    <span aria-hidden="true">/</span>
+                    <a href="/books/{book_id}">{book_title}</a>
+                </nav>
+                <p class="eyebrow">Читаю с сохранением · Версия {version_no}</p>
+                <h1 id="reader-title">{chapter_title}</h1>
+                <p class="reader-page__subtitle">После нужного фрагмента нажмите «Сохранить место здесь». 
+                  При следующем входе книга появится в библиотеке.</p>
+                <div class="reader-resume" role="status">{saved_link}</div>
+                {navigation}
+                <article class="chapter-content reader-private__content" aria-label="Текст главы">
+                    {sections}
+                </article>
+                {navigation}
+                <p class="reader-page__return"><a class="text-link" href="/me/library">К моей библиотеке</a></p>
+            </div></section>"#,
+        book_id = chapter.book_id,
+        book_title = escape_html(&chapter.book_title),
+        version_no = chapter.version_no,
+        chapter_title = escape_html(&chapter.chapter_title)
+    );
+    layout(
+        &chapter.chapter_title,
+        "Чтение с сохранением места в личной библиотеке.",
+        &body,
+    )
+}
+
 pub fn registration_form(csrf: &str) -> Html<String> {
     let content = include_str!("../templates/register_active.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
@@ -209,6 +291,37 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
                 "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
                 "",
             ),
+    )
+}
+
+pub fn my_library(items: &[tor_reading::services::progress::ContinueReading]) -> Html<String> {
+    let mut cards = String::new();
+    if items.is_empty() {
+        cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Откройте любую бесплатную главу, затем нажмите «Сохранить место здесь». После этого книга появится в вашей истории чтения.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
+    } else {
+        for item in items {
+            let book = escape_html(&item.book_title);
+            let chapter = escape_html(&item.chapter_title);
+            let bookmark = if item.block_index > 0 {
+                format!("#p-{}", item.block_index)
+            } else {
+                String::new() // published version changed: never resume at an old anchor
+            };
+            let hint = if item.block_index > 0 {
+                format!("Фрагмент {}", item.block_index)
+            } else {
+                "Глава обновлена — проверьте новое содержание".to_owned()
+            };
+            write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">Продолжить чтение</p><h2>{book}</h2><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"/read/{}{bookmark}\">Продолжить</a></article>", item.chapter_no, item.chapter_id).expect("write HTML");
+        }
+    }
+    let html = format!(
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div></div></section>"
+    );
+    layout(
+        "Моя библиотека",
+        "Продолжить чтение в личной библиотеке.",
+        &html,
     )
 }
 

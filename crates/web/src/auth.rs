@@ -7,7 +7,7 @@ use crate::{
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, Form, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     routing::{get, post},
@@ -22,10 +22,20 @@ use tor_accounts::{
     },
     services::validation as rules,
 };
+use tor_reading::repositories::PgReadingProgress;
+use tor_reading::{
+    repositories::PgReader,
+    services::{
+        progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
+        PublicReadingRepository,
+    },
+};
 
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
+    progress: PgReadingProgress,
+    reader: PgReader,
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
 }
@@ -50,9 +60,25 @@ struct LogoutForm {
     csrf_token: Option<String>,
 }
 
-pub(crate) fn router(accounts: PgAccounts, secure: bool, origin: String) -> Router {
+#[derive(Deserialize)]
+struct SavePlaceForm {
+    csrf_token: Option<String>,
+    version_id: u64,
+    block_index: i32,
+    char_offset: i32,
+}
+
+pub(crate) fn router(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+) -> Router {
+    let progress = PgReadingProgress::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
+        progress,
+        reader,
         cookies: CookiePolicy { secure, origin },
         password_jobs: PasswordJobs::new(4),
     };
@@ -60,6 +86,9 @@ pub(crate) fn router(accounts: PgAccounts, secure: bool, origin: String) -> Rout
         .route("/register", get(show_registration).post(register))
         .route("/login", get(show_login).post(login))
         .route("/me", get(me))
+        .route("/me/library", get(my_library))
+        .route("/read/{id}", get(private_reader))
+        .route("/read/{id}/place", post(save_place))
         .route("/logout", post(logout))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
@@ -258,6 +287,125 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf), &cookies)
+}
+
+async fn my_library(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return private_response(Redirect::to("/login"), &[]);
+    };
+    let digest = session_token_digest(&token);
+    let user_id = match state.accounts.active_session_user(&digest).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let books = match state.progress.continue_reading(user_id).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    private_response(pages::my_library(&books), &[])
+}
+
+/// Resolve the authenticated actor exclusively from the database-backed session.
+/// A client-supplied user ID is never accepted.
+async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
+    let Some(token) = state.cookies.session_token(headers) else {
+        return Ok(None);
+    };
+    state
+        .accounts
+        .active_session_user(&session_token_digest(&token))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}
+
+/// Interactive reading is private to a verified account. Public free reading
+/// continues to be served separately at /reader/{id}.
+async fn private_reader(
+    State(state): State<AuthState>,
+    Path(id): Path<u64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let chapter = match state.reader.public_chapter(id).await {
+        Ok(Some(chapter)) => chapter,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(chapter.version_id)) {
+        (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
+        _ => return deny(StatusCode::NOT_FOUND),
+    };
+    let saved = match state
+        .progress
+        .saved_place(actor, chapter_id, version_id)
+        .await
+    {
+        Ok(saved) => saved,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(pages::private_reader(id, &chapter, &csrf, saved), &cookies)
+}
+
+/// Manual, no-JavaScript place saving. Every write verifies session, Origin,
+/// double-submit CSRF, current published version, and free-content visibility.
+async fn save_place(
+    State(state): State<AuthState>,
+    Path(id): Path<u64>,
+    headers: HeaderMap,
+    Form(form): Form<SavePlaceForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let chapter = match state.reader.public_chapter(id).await {
+        Ok(Some(chapter)) => chapter,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if chapter.version_id != form.version_id {
+        return deny(StatusCode::CONFLICT);
+    }
+    let place = ReadingPlace {
+        block_index: form.block_index,
+        char_offset: form.char_offset,
+    };
+    let blocks = reader_blocks(&chapter.body_markdown);
+    if valid_text_place(place, &blocks).is_err() {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(form.version_id)) {
+        (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
+        _ => return deny(StatusCode::NOT_FOUND),
+    };
+    match state
+        .progress
+        .save_position(actor, chapter_id, version_id, place)
+        .await
+    {
+        Ok(()) => private_response(
+            Redirect::to(&format!("/read/{id}#p-{}", place.block_index)),
+            &[],
+        ),
+        Err(ProgressError::Invalid) => deny(StatusCode::BAD_REQUEST),
+        Err(ProgressError::NotFound) => deny(StatusCode::NOT_FOUND),
+        Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
+        Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
 }
 
 async fn logout(

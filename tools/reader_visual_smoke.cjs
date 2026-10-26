@@ -87,6 +87,29 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
       await inspect(page, name, 'me');
+      await page.getByRole('link', { name: 'Моя библиотека' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
+      await inspect(page, name, 'library');
+      // Real browser: server-rendered chapter, CSRF POST, private library resume.
+      await page.goto(base + '/read/101');
+      assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');
+      assert(await page.getByRole('button', { name: 'Сохранить после фрагмента 1' }).isVisible(), name + ': save control missing');
+      await inspect(page, name, 'private-reader');
+      await page.getByRole('button', { name: 'Сохранить после фрагмента 1' }).click();
+      await page.waitForURL('**/read/101#p-1');
+      await page.goto(base + '/me/library');
+      assert(await page.getByRole('link', { name: 'Продолжить' }).isVisible(), name + ': resume card missing');
+      assert(await page.getByText('Фрагмент 1').isVisible(), name + ': saved anchor missing');
+      await inspect(page, name, 'library-saved');
+      await page.getByRole('link', { name: 'Продолжить' }).click();
+      await page.waitForURL('**/read/101#p-1');
+      assert(await page.getByRole('link', { name: 'Перейти к сохранённому месту' }).isVisible(), name + ': resume target missing');
+      for (const denied of ['/read/102', '/read/103', '/read/104', '/read/105']) {
+        const response = await page.goto(base + denied);
+        assert(response && response.status() === 404, name + ': private denied ' + denied);
+      }
+      await page.goto(base + '/me');
       await page.getByRole('button', { name: 'Выйти' }).click();
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');

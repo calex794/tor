@@ -50,3 +50,5 @@ pub trait PublicReadingRepository: Send + Sync {
     async fn public_book(&self, id: u64) -> Result<Option<PublicBookPage>, ReadingError>;
     async fn public_chapter(&self, id: u64) -> Result<Option<PublicChapterPage>, ReadingError>;
 }
+
+pub mod progress;
