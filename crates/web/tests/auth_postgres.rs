@@ -139,6 +139,110 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let new_csrf_cookie = cookie(&private, "tor-dev-csrf=");
     let private_html = body_of(private).await;
     assert!(private_html.contains("href=\"/me/library\""));
+
+    // B-02: a registered reader can become an author, but drafts stay private.
+    let author_cookies = format!("{session}; {new_csrf_cookie}");
+    let anonymous_form = send(&app, request("GET", "/books/new", "", "", ORIGIN)).await;
+    assert_eq!(anonymous_form.status(), StatusCode::SEE_OTHER);
+    let author_form = send(
+        &app,
+        request("GET", "/books/new", "", &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(author_form.status(), StatusCode::OK);
+    assert_eq!(author_form.headers()[header::CACHE_CONTROL], "no-store");
+    let form_html = body_of(author_form).await;
+    let book_csrf = csrf_token(&form_html);
+    let command_key = form_html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .expect("author idempotency key")
+        .split('"')
+        .next()
+        .expect("key content");
+    assert_eq!(command_key.len(), 43);
+    let author_payload = format!(
+        "title=AuthorDraftCI&source_identity=tor-ci%3Aauthor%3Aweb&target_language=ru&command_key={command_key}&csrf_token={book_csrf}"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/books/new", &author_payload, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/books/new",
+                &author_payload,
+                &author_cookies,
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let submitted = send(
+        &app,
+        request("POST", "/books/new", &author_payload, &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(submitted.status(), StatusCode::SEE_OTHER);
+    let author_url = submitted.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(author_url.starts_with("/author/books/"));
+    let author_page = send(
+        &app,
+        request("GET", &author_url, "", &session, ORIGIN),
+    )
+    .await;
+    assert_eq!(author_page.status(), StatusCode::OK);
+    assert_eq!(author_page.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(body_of(author_page).await.contains("AuthorDraftCI"));
+    assert_eq!(
+        send(&app, request("GET", &author_url, "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let new_book_id = author_url.rsplit('/').next().unwrap();
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &format!("/books/{new_book_id}"), "", "", ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let own_list = send(&app, request("GET", "/me/books", "", &session, ORIGIN)).await;
+    assert_eq!(own_list.status(), StatusCode::OK);
+    assert!(body_of(own_list).await.contains("AuthorDraftCI"));
+    let replay = send(
+        &app,
+        request("POST", "/books/new", &author_payload, &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::SEE_OTHER);
+    assert_eq!(replay.headers()[header::LOCATION], author_url);
+    let changed = author_payload.replace("AuthorDraftCI", "ChangedDraftCI");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/books/new", &changed, &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
     let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
     assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");
