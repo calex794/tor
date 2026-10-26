@@ -11,8 +11,8 @@ use axum::{
 use std::sync::OnceLock;
 use std::time::Instant;
 use tor_route_intelligence::{classify, RouteObservation};
-use tor_traffic_behavior::VerifiedSubjectKey;
 use tor_traffic_behavior::SqlCostEvent;
+use tor_traffic_behavior::VerifiedSubjectKey;
 
 mod sqlx_observer;
 use tor_traffic_behavior::{
