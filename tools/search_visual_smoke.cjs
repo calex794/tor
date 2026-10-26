@@ -144,6 +144,13 @@ async function draftBook(page, viewport) {
           'Найдено книг: ' + count.total,
           viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
+        // F-04: the homepage uses the same live public rows, not cached draft metadata.
+        const homeResponse = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+        assert(homeResponse && homeResponse.status() === 200, viewport + ': homepage unavailable');
+        assert(await guest.locator('.home-genre-section').count() > 0,
+          viewport + ': real genre shelves missing');
+        assert(await guest.locator('a[href="/books/' + id + '"]').count() >= 2,
+          viewport + ': newly published book not in latest/genre shelves');
 
         // F-02: lexical sorting is a real catalog control, not just an API flag.
         for (const sort of ['title', 'author']) {
@@ -175,6 +182,13 @@ async function draftBook(page, viewport) {
 
         for (const phase of ['hold', 'draft', 'deleted']) {
           changeBook(id, phase);
+          if (phase === 'hold') {
+            const home = await guest.goto(base + '/', { waitUntil: 'networkidle' });
+            assert(home && home.status() === 200, viewport + ': homepage after hold unavailable');
+            assert(await guest.locator('a[href="/books/' + id + '"]').count() === 0,
+              viewport + ': revoked book leaked into homepage/genre shelves');
+            await guest.goto(base + '/catalog?' + new URLSearchParams(detective));
+          }
           await guest.reload({ waitUntil: 'networkidle' });
           assert(await bookLink(guest, id).count() === 0, viewport + ': ' + phase + ' in HTML');
           assert(!(await apiHas(guest, id, detective)), viewport + ': ' + phase + ' in JSON');

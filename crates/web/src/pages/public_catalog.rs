@@ -14,12 +14,12 @@ pub struct PublicBookCard {
 }
 
 /// NEwBOO BookCard layout, with real PostgreSQL-backed author and genre metadata.
-fn book_cards(books: &[PublicBookCard], shelf: bool) -> String {
+fn book_cards(books: &[PublicBookCard], shelf: bool, shelf_label: &str) -> String {
     if books.is_empty() {
         return "<div class=\"ui-empty-state\"><h3 class=\"ui-empty-state__title\">Каталог пока наполняется</h3><p class=\"ui-empty-state__text\">В каталоге пока нет опубликованных книг.</p></div>".to_owned();
     }
     let mut html = if shelf {
-        String::from("<div class=\"home-shelf__track\" aria-label=\"Недавно добавленные книги\">")
+        format!("<div class=\"home-shelf__track\" aria-label=\"{}\">", escape_html(shelf_label))
     } else {
         String::from("<div class=\"catalog-grid\">")
     };
@@ -84,6 +84,56 @@ fn spotlight(book: &PublicBookCard) -> String {
     )
 }
 
+/// Group the already authorized latest-book rows without extra SQL queries.
+/// These are shelves of recent books, never a popularity/rating recommendation.
+fn recent_genre_shelves(books: &[PublicBookCard]) -> String {
+    let mut genres = Vec::<&str>::new();
+    for book in books {
+        for genre in &book.genres {
+            let value = genre.trim();
+            if !value.is_empty() && !genres.contains(&value) {
+                genres.push(value);
+                if genres.len() == 3 {
+                    break;
+                }
+            }
+        }
+        if genres.len() == 3 {
+            break;
+        }
+    }
+
+    let mut html = String::new();
+    for (index, genre) in genres.into_iter().enumerate() {
+        let matches: Vec<_> = books
+            .iter()
+            .filter(|book| book.genres.iter().any(|value| value.trim() == genre))
+            .take(4)
+            .cloned()
+            .collect();
+        let genre_html = escape_html(genre);
+        let genre_url = encode_search_term(genre);
+        let label = format!("Недавно добавленные книги жанра {genre}");
+        write!(
+            html,
+            r#"<section class="section home-genre-section" aria-labelledby="home-genre-{index}">
+  <div class="container">
+    <div class="home-section-header-row">
+      <header class="ui-section-header">
+        <h2 class="ui-section-header__title" id="home-genre-{index}">Новинки: {genre_html}</h2>
+      </header>
+      <a class="ui-button ui-button--ghost ui-button--small" href="/catalog?genre={genre_url}&amp;sort=newest">Все книги жанра</a>
+    </div>
+    {}
+  </div>
+</section>"#,
+            book_cards(&matches, true, &label)
+        )
+        .expect("write genre shelf");
+    }
+    html
+}
+
 fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
     let fallback = r#"<div class="home-showcase">
         <div><p class="ui-page-header__kicker">Библиотека платформы</p>
@@ -108,7 +158,15 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
                 "Опубликованные книги"
             },
         )
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, latest));
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, latest, "Недавно добавленные книги"))
+        .replace(
+            "<!--GENRE_SHELVES-->",
+            &if latest {
+                recent_genre_shelves(books)
+            } else {
+                String::new()
+            },
+        );
     layout(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
@@ -129,7 +187,7 @@ pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false, ""))
         .replace("<!--SEARCH_FORM-->", "");
     layout(
         "Каталог",
@@ -263,7 +321,7 @@ pub fn catalog_search(books: &[PublicBookCard], request: CatalogPageQuery<'_>) -
             {
                 "<div class=\"ui-empty-state\"><h3>Книги не найдены</h3><p>Попробуйте изменить условия поиска.</p></div>".to_owned()
             } else {
-                book_cards(books, false)
+                book_cards(books, false, "")
             },
         )
         .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
@@ -314,6 +372,45 @@ mod home_tests {
         assert!(!html.contains("<img>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("&quot; onclick=&quot;evil"));
+    }
+
+    #[test]
+    fn f_04_recent_genres_are_from_real_rows_without_untrusted_html_or_fake_popularity() {
+        let mut latest = book(12, "Новейшая");
+        latest.genres = vec!["Научная фантастика".into(), "Фэнтези".into()];
+        let mut older = book(10, "Другая");
+        older.genres = vec!["Фэнтези".into(), "<img onerror=x>".into()];
+        let mut last = book(9, "Третья");
+        last.genres = vec!["Детектив".into()];
+        let html = home_recent(&[latest, older, last]).0;
+        assert!(html.contains("Новинки: Научная фантастика"));
+        assert!(html.contains("Новинки: Фэнтези"));
+        assert!(!html.contains("Новинки: Детектив"), "show at most three genres");
+        assert!(html.contains("/catalog?genre=%D0%9D%D0%B0%D1%83%D1%87%D0%BD%D0%B0%D1%8F%20%D1%84%D0%B0%D0%BD%D1%82%D0%B0%D1%81%D1%82%D0%B8%D0%BA%D0%B0&amp;sort=newest"));
+        assert!(html.contains("&lt;img onerror=x&gt;"));
+        assert!(!html.contains("<img onerror=x>"));
+        assert!(!html.contains("Популярные книги"));
+        assert!(!html.contains("Рекомендуем для вас"));
+
+        let demo = home(&[book(1, "Не новая")]).0;
+        assert!(!demo.contains("home-genre-section"));
+        assert!(!home_recent(&[]).0.contains("home-genre-section"));
+    }
+
+    #[test]
+    fn f_04_genre_shelves_respect_four_card_limit_and_latest_order() {
+        let books = (1..=7)
+            .rev()
+            .map(|id| {
+                let mut book = book(id, &format!("Книга {id}"));
+                book.genres = vec!["фэнтези".into()];
+                book
+            })
+            .collect::<Vec<_>>();
+        let shelves = recent_genre_shelves(&books);
+        assert_eq!(shelves.matches("class=\"book-mini-card book-mini-card--shelf\"").count(), 4);
+        assert!(shelves.contains("href=\"/books/7\""));
+        assert!(!shelves.contains("href=\"/books/3\""));
     }
 
     #[test]
