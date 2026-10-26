@@ -111,22 +111,6 @@ if [[ -e $dropin ]]; then
   cp -a "$dropin" "$backup_dropin"
 fi
 
-# One-time systemd override: same loopback port, but *real* database and auth.
-# PID 1 loads root-only EnvironmentFile before dropping privileges to tor-deploy.
-cat > "$dropin" <<'SYSTEMD'
-[Unit]
-Description=TOR Rust + PostgreSQL website
-After=postgresql@18-main.service
-Wants=postgresql@18-main.service
-
-[Service]
-Environment=TOR_DEMO_MODE=0
-Environment=TOR_AUTH_ENABLED=1
-Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru
-EnvironmentFile=/etc/tor/tor-app.env
-SYSTEMD
-chmod 0644 "$dropin"
-
 switched=0
 undo() {
   trap - ERR
@@ -146,6 +130,23 @@ undo() {
   echo "Restored previous TOR service settings; PostgreSQL migrations are preserved." >&2
 }
 trap undo ERR
+
+# One-time systemd override: same loopback port, but *real* database and auth.
+# PID 1 loads root-only EnvironmentFile before dropping privileges to tor-deploy.
+cat > "$dropin" <<'SYSTEMD'
+[Unit]
+Description=TOR Rust + PostgreSQL website
+After=postgresql@18-main.service
+Wants=postgresql@18-main.service
+
+[Service]
+Environment=TOR_DEMO_MODE=0
+Environment=TOR_AUTH_ENABLED=1
+Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru
+EnvironmentFile=/etc/tor/tor-app.env
+SYSTEMD
+chmod 0644 "$dropin"
+
 
 tmp="/opt/tor/.go-live-$$"
 ln -s "$release" "$tmp"
