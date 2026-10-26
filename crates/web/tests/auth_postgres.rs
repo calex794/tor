@@ -515,9 +515,12 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert!(published_html.contains("Опубликована"));
     assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
     assert_eq!(
-        send(&app, request("GET", &edit_path, "", &author_cookies, ORIGIN))
-            .await
-            .status(),
+        send(
+            &app,
+            request("GET", &edit_path, "", &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
         "published chapter text cannot be edited as a draft"
     );
