@@ -46,6 +46,16 @@ async function inspect(page, name, where) {
       await page.goto(base + '/books/1');
       await page.getByRole('link', { name: /Глава 1\. Начало истории/ }).click();
       await page.waitForURL('**/reader/101');
+      assert(await page.locator('.reader-public .reader-topbar__back[href="/books/1"]').isVisible(),
+        name + ': NEwBOO reader back link missing');
+      assert(await page.locator('.reader-public .reader-topbar__title').isVisible(),
+        name + ': reader topbar missing');
+      assert(await page.locator('.reader-public .reader-page__title').isVisible(),
+        name + ': original chapter heading missing');
+      assert(await page.locator('.reader-public .reader-page__meta').getByText('Бесплатная глава', { exact: false }).isVisible(),
+        name + ': published free chapter label missing');
+      assert(!(await page.content()).includes('data-reader-theme-cycle'),
+        name + ': unimplemented reader settings displayed');
       assert(await page.getByText('Первая строка').count() > 0, name + ': no actual text');
       const html = await page.content();
       assert(!html.includes('<script>alert(1)</script>'), name + ': unsafe author HTML');
