@@ -6,7 +6,8 @@ pub mod repositories;
 pub mod services;
 
 pub use domain::{
-    BehaviorEvent, BehaviorSketch, GapBucket, LatencyGroup, RollupDelta, RouteCode, SketchSnapshot,
-    StatusGroup, Transition, VerifiedSubjectKey, MAX_SUBJECTS,
+    BehaviorEvent, BehaviorSketch, GapBucket, Hygiene, LatencyGroup, PathAssessment, PathReport,
+    RollupDelta, RouteCode, SketchSnapshot, StatusGroup, Transition, VerifiedSubjectKey,
+    MAX_SUBJECTS, PATH_VERSION, PATH_WINDOW,
 };
 pub use services::TrafficRecorder;

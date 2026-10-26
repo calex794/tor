@@ -135,5 +135,6 @@ jobs:
           cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test progress_postgres -- --ignored
+          cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored

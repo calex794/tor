@@ -7,7 +7,7 @@ use crate::{
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, Form, Path, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     routing::{get, post},
@@ -26,7 +26,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book, AuthorError},
 };
-use tor_reading::repositories::PgReadingProgress;
+use tor_reading::repositories::{PgLibrary, PgReadingProgress};
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -35,11 +35,14 @@ use tor_reading::{
     },
 };
 
+mod library_actions;
+
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
     authoring: PgAuthoring,
     progress: PgReadingProgress,
+    bookmarks: PgLibrary,
     reader: PgReader,
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
@@ -73,6 +76,12 @@ struct SavePlaceForm {
     char_offset: i32,
 }
 
+#[derive(Default, Deserialize)]
+struct LibraryQuery {
+    after: Option<i64>,
+    limit: Option<u16>,
+}
+
 #[derive(Deserialize)]
 struct NewBookForm {
     title: String,
@@ -95,11 +104,13 @@ pub(crate) fn router(
         },
     );
     let progress = PgReadingProgress::new(accounts.pool().clone());
+    let bookmarks = PgLibrary::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
         authoring,
         progress,
+        bookmarks,
         reader,
         cookies: CookiePolicy { secure, origin },
         password_jobs: PasswordJobs::new(4),
@@ -109,6 +120,17 @@ pub(crate) fn router(
         .route("/login", get(show_login).post(login))
         .route("/me", get(me))
         .route("/me/library", get(my_library))
+        .route("/me/library/add/{id}", get(library_actions::show_add))
+        .route("/me/library/{id}/save", post(library_actions::browser_add))
+        .route(
+            "/me/library/{id}/remove",
+            post(library_actions::browser_remove),
+        )
+        .route("/api/v1/me/library", get(library_actions::api_list))
+        .route(
+            "/api/v1/me/library/{id}",
+            post(library_actions::api_add).delete(library_actions::api_delete),
+        )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
@@ -315,7 +337,11 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     private_response(pages::my_account(&name, &csrf), &cookies)
 }
 
-async fn my_library(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+async fn my_library(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<LibraryQuery>,
+) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
     };
@@ -329,7 +355,19 @@ async fn my_library(State(state): State<AuthState>, headers: HeaderMap) -> Respo
         Ok(books) => books,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    private_response(pages::my_library(&books), &[])
+    let saved = match state
+        .bookmarks
+        .list_books(user_id, query.limit.unwrap_or(30), query.after)
+        .await
+    {
+        Ok(saved) => saved,
+        Err(tor_reading::services::library::LibraryError::Invalid) => {
+            return deny(StatusCode::BAD_REQUEST);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(pages::my_library(&books, &saved, &csrf), &cookies)
 }
 
 /// Resolve the authenticated actor exclusively from the database-backed session.
