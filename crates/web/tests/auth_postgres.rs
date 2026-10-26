@@ -951,6 +951,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     c11_cases::resume_after_login(&app, &logged).await;
     let second_session = cookie(&logged, "tor-dev-session=");
     c11_cases::second_session_reads_saved_progress(&app, &second_session).await;
+    c11_cases::stale_second_session_cannot_overwrite(&app, &second_session).await;
 
     let logout_csrf = csrf_token(&private_html);
     let combined_cookies = format!("{session}; {new_csrf_cookie}");
