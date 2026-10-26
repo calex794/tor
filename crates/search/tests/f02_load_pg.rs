@@ -258,12 +258,21 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
     // F-03: fullwidth Unicode search reaches the same canonical token index.
     let unicode = search
         .search_faceted_sorted(
-            "９９９９９", Some("ru"), Some("f02-load"), None, 5, Some("newest")
-        ).await.unwrap();
+            "９９９９９",
+            Some("ru"),
+            Some("f02-load"),
+            None,
+            5,
+            Some("newest"),
+        )
+        .await
+        .unwrap();
     assert_eq!(unicode.items.len(), 1, "NFKC search must match book 99999");
     assert!(unicode.items[0].title.ends_with("99999"));
     assert_eq!(
-        search.count_faceted("９９９９９", Some("ru"), Some("f02-load")).await,
+        search
+            .count_faceted("９９９９９", Some("ru"), Some("f02-load"))
+            .await,
         Ok(1)
     );
     println!("F03_100K nfkc_fullwidth_search=PASS");
