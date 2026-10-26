@@ -33,3 +33,123 @@ async fn public_chapters_hide_drafts_embargoes_admin_holds_paid_and_private_book
     }
     assert!(reader.probe().await.is_ok());
 }
+
+/// C-03 / S005: 501 real PostgreSQL chapters; no OFFSET, gap, duplication or hidden rows.
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL and disposable tor_ci database"]
+async fn toc_501_chapters_keyset_pages_without_gaps() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let pool = sqlx::PgPool::connect(&url).await.expect("tor_app pool");
+    let reader = PgReader::new(pool.clone());
+    let book_id = 9_000_501_i64;
+    sqlx::query(
+        "INSERT INTO books (id, source_identity, target_language, title, visibility) \
+         VALUES ($1, 'ci:toc:501', 'ru', 'Длинная книга', 'public')",
+    )
+    .bind(book_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapters (id, book_id, chapter_no, title, visibility, access_level, price_amount) \
+         SELECT 8000000 + n, $1, n, 'Глава ' || n, 'public', \
+                CASE WHEN n = 250 THEN 'paid' ELSE 'free' END, \
+                CASE WHEN n = 250 THEN 100 ELSE 0 END \
+         FROM generate_series(1, 501) AS series(n)",
+    )
+    .bind(book_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions (id, chapter_id, version_no, body_markdown) \
+         SELECT 9000000 + n, 8000000 + n, 1, \
+                CASE WHEN n = 250 THEN 'PRIVATE-PAID-TEXT' ELSE 'free text' END \
+         FROM generate_series(1, 501) AS series(n)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications (chapter_id, version_id) \
+         SELECT 8000000 + n, 9000000 + n \
+         FROM generate_series(1, 501) AS series(n)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapters (id, book_id, chapter_no, title, visibility, access_level, price_amount) \
+         VALUES (8000502, $1, 502, 'HIDDEN-SENTINEL', 'draft', 'free', 0)",
+    )
+    .bind(book_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions (id, chapter_id, version_no, body_markdown) \
+         VALUES (9000502, 8000502, 1, 'PRIVATE-DRAFT-TEXT')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_publications (chapter_id, version_id) VALUES (8000502, 9000502)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut cursor = None;
+    let mut numbers = Vec::new();
+    let mut page_count = 0;
+    loop {
+        let page = reader
+            .public_book_page(book_id as u64, 100, cursor.as_deref())
+            .await
+            .unwrap()
+            .unwrap();
+        page_count += 1;
+        assert!(page.chapters.len() <= 100);
+        numbers.extend(page.chapters.iter().map(|chapter| chapter.number));
+        assert!(!page
+            .chapters
+            .iter()
+            .any(|chapter| chapter.title == "HIDDEN-SENTINEL"));
+        if let Some(next) = page.next_cursor {
+            assert_ne!(cursor.as_deref(), Some(next.as_str()));
+            cursor = Some(next);
+        } else {
+            break;
+        }
+        assert!(page_count <= 6, "cursor failed to advance");
+    }
+    assert_eq!(page_count, 6);
+    assert_eq!(numbers, (1..=501).collect::<Vec<i32>>());
+    assert!(reader
+        .public_book_page(2, 100, None)
+        .await
+        .unwrap()
+        .is_none());
+    for invalid in [Some("0.1"), Some("1.0"), Some("1.2.3"), Some("-5.8")] {
+        assert_eq!(
+            reader
+                .public_book_page(book_id as u64, 100, invalid)
+                .await
+                .err(),
+            Some(tor_reading::services::ReadingError::InvalidPage)
+        );
+    }
+    assert_eq!(
+        reader
+            .public_book_page(book_id as u64, 101, None)
+            .await
+            .err(),
+        Some(tor_reading::services::ReadingError::InvalidPage)
+    );
+    sqlx::query("DELETE FROM books WHERE id = $1")
+        .bind(book_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+}

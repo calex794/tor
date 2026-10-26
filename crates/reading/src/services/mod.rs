@@ -5,6 +5,7 @@ use std::{error::Error, fmt};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReadingError {
     Unavailable,
+    InvalidPage,
 }
 
 impl fmt::Display for ReadingError {
@@ -29,6 +30,7 @@ pub struct PublicBookPage {
     pub title: String,
     pub language: String,
     pub chapters: Vec<PublicChapterLink>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,3 +54,5 @@ pub trait PublicReadingRepository: Send + Sync {
 }
 
 pub mod progress;
+
+pub mod toc;

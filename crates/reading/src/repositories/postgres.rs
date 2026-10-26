@@ -1,5 +1,6 @@
 //! SQL-level public book and chapter visibility; raw versions are never returned by ID.
 use crate::services::{
+    toc::{TocCursor, MAX_PAGE_SIZE},
     PublicBookPage, PublicChapterLink, PublicChapterPage, PublicReadingRepository, ReadingError,
 };
 use async_trait::async_trait;
@@ -63,9 +64,23 @@ fn positive_id(value: i64) -> Result<u64, ReadingError> {
         .ok_or(ReadingError::Unavailable)
 }
 
-#[async_trait]
-impl PublicReadingRepository for PgReader {
-    async fn public_book(&self, id: u64) -> Result<Option<PublicBookPage>, ReadingError> {
+impl PgReader {
+    pub async fn public_book_page(
+        &self,
+        id: u64,
+        limit: u16,
+        after: Option<&str>,
+    ) -> Result<Option<PublicBookPage>, ReadingError> {
+        if limit == 0 || limit > MAX_PAGE_SIZE {
+            return Err(ReadingError::InvalidPage);
+        }
+        let cursor = match after {
+            Some(raw) => TocCursor::parse(raw).ok_or(ReadingError::InvalidPage)?,
+            None => TocCursor {
+                chapter_no: 0,
+                chapter_id: 0,
+            },
+        };
         let Ok(id) = i64::try_from(id) else {
             return Ok(None);
         };
@@ -93,13 +108,17 @@ impl PublicReadingRepository for PgReader {
                AND NOT b.is_deleted AND c.visibility = 'public' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
-             ORDER BY c.chapter_no, c.id LIMIT 200",
+               AND (c.chapter_no, c.id) > ($2, $3) \
+             ORDER BY c.chapter_no, c.id LIMIT $4",
         )
         .bind(id)
+        .bind(cursor.chapter_no)
+        .bind(cursor.chapter_id)
+        .bind(i64::from(limit) + 1)
         .fetch_all(&self.pool)
         .await
         .map_err(map_db)?;
-        let chapters = rows
+        let mut chapters = rows
             .into_iter()
             .map(|row| {
                 Ok(PublicChapterLink {
@@ -111,12 +130,29 @@ impl PublicReadingRepository for PgReader {
                 })
             })
             .collect::<Result<Vec<_>, ReadingError>>()?;
+        let has_more = chapters.len() > usize::from(limit);
+        chapters.truncate(usize::from(limit));
+        let next_cursor = if has_more {
+            chapters
+                .last()
+                .map(|chapter| TocCursor::encode(chapter.number, chapter.id))
+        } else {
+            None
+        };
         Ok(Some(PublicBookPage {
             id: positive_id(book.try_get("id").map_err(map_db)?)?,
             title: book.try_get("title").map_err(map_db)?,
             language: book.try_get("target_language").map_err(map_db)?,
             chapters,
+            next_cursor,
         }))
+    }
+}
+
+#[async_trait]
+impl PublicReadingRepository for PgReader {
+    async fn public_book(&self, id: u64) -> Result<Option<PublicBookPage>, ReadingError> {
+        self.public_book_page(id, 100, None).await
     }
 
     async fn public_chapter(&self, id: u64) -> Result<Option<PublicChapterPage>, ReadingError> {

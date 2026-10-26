@@ -77,7 +77,10 @@ pub fn book_detail(book: &PublicBookCard) -> Html<String> {
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
-pub fn book_detail_with_chapters(book: &tor_reading::services::PublicBookPage) -> Html<String> {
+pub fn book_detail_with_chapters(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+) -> Html<String> {
     let card = PublicBookCard {
         id: book.id,
         title: book.title.clone(),
@@ -105,6 +108,14 @@ pub fn book_detail_with_chapters(book: &tor_reading::services::PublicBookPage) -
             }
         }
         items.push_str("</ol>");
+    }
+    if let Some(cursor) = &book.next_cursor {
+        write!(
+            items,
+            "<nav class=\"chapter-toc__more\" aria-label=\"Страницы оглавления\"><a class=\"button button--small\" href=\"/books/{}?limit={}&amp;after={}#chapters\">Следующие главы</a></nav>",
+            book.id, limit, cursor
+        )
+        .expect("writing String");
     }
     let section = format!(
         "<section class=\"section chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><div class=\"container\"><p class=\"eyebrow\">Оглавление</p><h2 id=\"toc-title\">Главы книги</h2>{items}</div></section>"
