@@ -122,9 +122,7 @@ pub fn catalog_search(
     }
     let count_markup = total
         .map(|number| {
-            format!(
-                "<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>"
-            )
+            format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
         })
         .unwrap_or_default();
     let content = include_str!("../../templates/catalog.html")
