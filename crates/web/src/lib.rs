@@ -371,7 +371,7 @@ fn make_router(
     let search_api = search
         .clone()
         .map(tor_search::api::router)
-        .unwrap_or_else(Router::new);
+        .unwrap_or_default();
     app.with_state(AppState {
         books: repo,
         postgres,
