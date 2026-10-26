@@ -235,6 +235,30 @@ mod tests {
     }
 
     #[test]
+    fn privacy_barrier_erases_subject_and_blocks_inflight_stale_events() {
+        use crate::domain::{RouteCode, VerifiedSubjectKey};
+        let recorder = TrafficRecorder::start(8, 64);
+        let old = VerifiedSubjectKey::from_hmac_digest([41; 16]);
+        let new_epoch = VerifiedSubjectKey::from_hmac_digest([42; 16]);
+        let mut v = event();
+        v.route = RouteCode::Books;
+        v.subject = Some(old);
+        assert!(recorder.try_record(v));
+        assert_eq!(recorder.path_report_for_diagnostics().unwrap().active_subjects, 1);
+        assert_eq!(recorder.forget_subject_for_privacy(old), Some(true));
+        assert_eq!(recorder.path_report_for_diagnostics().unwrap().active_subjects, 0);
+        // A request which started before opt-out cannot recreate the old path.
+        assert!(recorder.try_record(v));
+        let report = recorder.path_report_for_diagnostics().unwrap();
+        assert_eq!(report.active_subjects, 0);
+        assert_eq!(report.assessed_events, 1);
+        // Re-enabling consent uses a different epoch-derived pseudonym.
+        v.subject = Some(new_epoch);
+        assert!(recorder.try_record(v));
+        assert_eq!(recorder.path_report_for_diagnostics().unwrap().active_subjects, 1);
+    }
+
+    #[test]
     fn full_queue_increments_drop_counter_without_blocking() {
         let (sender, _idle_receiver) = mpsc::sync_channel(1);
         let recorder = TrafficRecorder {
