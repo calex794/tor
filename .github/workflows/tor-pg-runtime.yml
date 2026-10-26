@@ -123,11 +123,15 @@ jobs:
           VALUES (101,201),(102,202),(103,203),(104,204),
                  (105,205),(106,206),(107,207),(108,208);
           SQL
+      - name: Advance explicit-ID book fixture sequence as schema owner
+        run: |
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
       - name: Database and HTTP integration
         run: |
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
+          cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-web --test postgres_http -- --ignored
