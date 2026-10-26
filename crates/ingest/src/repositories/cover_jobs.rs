@@ -27,8 +27,15 @@ impl PgCoverJobs {
 
     /// Bounded output for operators. A 'running' row is NOT proof of a live worker.
     pub async fn queue_counts(&self) -> Result<CoverQueueCounts, CoverError> {
-        let (pending, running, ready, dead, overdue_pending, expired_lease, repeated_attempts):
-            (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        let (pending, running, ready, dead, overdue_pending, expired_lease, repeated_attempts): (
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = sqlx::query_as(
             "SELECT COUNT(*) FILTER (WHERE status='pending')::bigint,
                     COUNT(*) FILTER (WHERE status='running')::bigint,
                     COUNT(*) FILTER (WHERE status='ready')::bigint,
