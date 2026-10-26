@@ -82,9 +82,8 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
     if let Some(catalog) = state.postgres {
         // The F-04 repository filters draft/held/deleted rows before LIMIT.
         // Do not label the original ascending demo catalogue as "newest".
-        let showcase = tor_search::services::showcases::RecentShowcases::new(
-            &tor_search::repositories::showcases::PgShowcases::new(catalog.pool()),
-        );
+        let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
+        let showcase = tor_search::services::showcases::RecentShowcases::new(&repository);
         let rows = showcase
             .latest_added(None, 12)
             .await
