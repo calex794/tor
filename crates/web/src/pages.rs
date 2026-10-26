@@ -10,7 +10,7 @@ pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
 mod public_catalog;
-pub use public_catalog::{catalog, catalog_search, home, PublicBookCard};
+pub use public_catalog::{catalog, catalog_search, home, home_recent, PublicBookCard};
 
 pub fn escape_html(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
