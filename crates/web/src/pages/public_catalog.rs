@@ -2,6 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
+use tor_search::repositories::catalog::TaxonomyOptions;
 
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
@@ -154,24 +155,50 @@ pub fn catalog_search(
     query: &str,
     language: Option<&str>,
     genre: Option<&str>,
+    tag: Option<&str>,
+    fandom: Option<&str>,
     cursor: Option<&str>,
     sort: &str,
     total: Option<u64>,
+    options: Option<&TaxonomyOptions>,
 ) -> Html<String> {
     let oldest = if sort == "oldest" { " selected" } else { "" };
     let newest = if sort == "newest" { " selected" } else { "" };
     let title = if sort == "title" { " selected" } else { "" };
     let author = if sort == "author" { " selected" } else { "" };
     let mut controls = format!(
-        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option><option value="title"{}>По названию</option><option value="author"{}>По автору</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
+        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" list="catalog-genres" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input" id="book-tag" type="text" name="tag" list="catalog-tags" maxlength="40" value="{}" placeholder="Тег" aria-label="Тег"><input class="ui-input" id="book-fandom" type="text" name="fandom" list="catalog-fandoms" maxlength="40" value="{}" placeholder="Фэндом" aria-label="Фэндом"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option><option value="title"{}>По названию</option><option value="author"{}>По автору</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
         escape_html(query),
         escape_html(genre.unwrap_or("")),
+        escape_html(tag.unwrap_or("")),
+        escape_html(fandom.unwrap_or("")),
         escape_html(language.unwrap_or("")),
         oldest,
         newest,
         title,
         author,
     );
+    if !query.trim().is_empty() || language.is_some() || genre.is_some() || tag.is_some() || fandom.is_some() {
+        controls = controls.replacen(
+            "</form>",
+            "<a class=\"ui-button ui-button--ghost\" href=\"/catalog\">Сбросить</a></form>",
+            1,
+        );
+    }
+    if let Some(options) = options {
+        for (id, values) in [
+            ("catalog-genres", &options.genres),
+            ("catalog-tags", &options.tags),
+            ("catalog-fandoms", &options.fandoms),
+        ] {
+            write!(controls, "<datalist id=\"{id}\">").expect("String write");
+            for value in values {
+                write!(controls, "<option value=\"{}\">", escape_html(value))
+                    .expect("String write");
+            }
+            controls.push_str("</datalist>");
+        }
+    }
     if let Some(cursor) = cursor {
         let language_param = language
             .filter(|value| !value.is_empty())
@@ -181,12 +208,22 @@ pub fn catalog_search(
             .filter(|value| !value.is_empty())
             .map(|value| format!("&amp;genre={}", encode_search_term(value)))
             .unwrap_or_default();
+        let tag_param = tag
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("&amp;tag={}", encode_search_term(value)))
+            .unwrap_or_default();
+        let fandom_param = fandom
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("&amp;fandom={}", encode_search_term(value)))
+            .unwrap_or_default();
         write!(
             controls,
-            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
+            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
             encode_search_term(query),
             language_param,
             genre_param,
+            tag_param,
+            fandom_param,
             escape_html(sort),
             escape_html(cursor),
         ).expect("string write");
@@ -197,7 +234,20 @@ pub fn catalog_search(
         })
         .unwrap_or_default();
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
+        .replace(
+            "<!--PUBLIC_BOOKS-->",
+            &if books.is_empty()
+                && (!query.trim().is_empty()
+                    || language.is_some()
+                    || genre.is_some()
+                    || tag.is_some()
+                    || fandom.is_some())
+            {
+                "<div class=\"ui-empty-state\"><h3>Книги не найдены</h3><p>Попробуйте изменить условия поиска.</p></div>".to_owned()
+            } else {
+                book_cards(books, false)
+            },
+        )
         .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
     layout(
         "Каталог",

@@ -434,8 +434,11 @@ mod tests {
             None,
             Some("фэнтези"),
             None,
+            None,
+            None,
             "oldest",
             Some(1),
+            None,
         )
         .0;
         assert!(html.contains("Найдено книг: 1"));
