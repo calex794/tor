@@ -366,6 +366,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         let mut css = String::from(include_str!("../assets/newboo-port.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-reader.css"));
         css
     });
     (
@@ -579,5 +581,17 @@ mod tests {
         assert!(html.contains("href=\"/me/library/add/7\""));
         assert!(!html.contains("href=\"/reader/"));
         assert!(!html.contains("<!--CHAPTERS-->"));
+    }
+
+    #[test]
+    fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
+        let template = include_str!("../templates/reader.html");
+        assert!(template.contains("reader-topbar"));
+        assert!(template.contains("reader-page__title"));
+        assert!(template.contains("<!--CHAPTER_CONTENT-->"));
+        assert!(template.contains("href=\"/books/<!--BOOK_ID-->\""));
+        assert!(!template.contains("data-reader-theme-cycle"));
+        assert!(!template.contains("Сохранение прогресса появится"));
+        assert!(include_str!("../assets/newboo-reader.css").contains(".reader-topbar__back"));
     }
 }
