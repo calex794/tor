@@ -141,5 +141,4 @@ mod tests {
         assert!(page.0.contains("&lt;/textarea&gt;"));
         assert!(!page.0.contains("<script>evil()"));
     }
-
 }
