@@ -24,6 +24,7 @@ mod author_chapter_http;
 mod author_chapter_pages;
 mod author_pages;
 pub mod cover_worker;
+mod observability;
 mod pages;
 mod password_jobs;
 mod ril;
@@ -319,6 +320,12 @@ pub async fn ril_cost_map_for_diagnostics(
     Some(ranked)
 }
 
+/// Bounded process-local diagnostic traces, without user IDs or raw SQL.
+/// This is an internal Rust API, not an unauthenticated HTTP endpoint.
+pub fn trace_snapshots_for_diagnostics() -> Vec<tor_observability::services::trace::RequestTrace> {
+    observability::snapshot_traces()
+}
+
 /// Activates numeric-only SQLx route metrics; must run once before opening PG.
 /// If the process already uses another subscriber, RIL SQL metrics stay OFF.
 pub fn activate_ril_sqlx_observation() -> bool {
@@ -391,7 +398,8 @@ fn make_router(
             get(pages::brand_logo_dark),
         )
         .route("/healthz", get(health))
-        .route("/readyz", get(ready));
+        .route("/readyz", get(ready))
+        .route("/metrics", get(observability::metrics_endpoint));
     if !active_auth {
         app = app
             .route("/login", get(login))

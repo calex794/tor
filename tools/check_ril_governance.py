@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"public", "deny", "entry", "csrf_only", "session", "scoped", "owner"}
+POLICIES = {"public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
@@ -180,6 +180,24 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing distributed authentication rate limit")
     if policy == "csrf_only" and (entry["method"], entry["template"]) != ("POST", "/logout"):
         errors.append(f"{label}: CSRF-only exception only allowed for logout")
+    if policy == "token":
+        # The exception is reserved for this one protected service route.
+        # Inspect actual handler and helper wiring, not a descriptive comment.
+        endpoint = functions.get("endpoint", "")
+        authorized = functions.get("authorized", "")
+        if (entry["method"], entry["template"], entry["handler"]) != (
+            "GET", "/metrics", "observability::metrics_endpoint"
+        ):
+            errors.append(f"{label}: token exception is not allowed here")
+        if not (
+            "TOR_METRICS_TOKEN" in body
+            and re.search(r"\bendpoint\s*\(", body)
+            and re.search(r"\bauthorized\s*\(", endpoint)
+            and "StatusCode::NOT_FOUND" in endpoint
+            and re.search(r"\bequal_secret\s*\(", authorized)
+        ):
+            errors.append(f"{label}: missing fail-closed token guard")
+
     if policy == "deny" and "StatusCode::NOT_FOUND" not in evidence:
         errors.append(f"{label}: disabled endpoint no longer denies")
     return errors

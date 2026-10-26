@@ -11,9 +11,9 @@
     },
     {
       "method": "GET",
-      "template": "/api/v1/books/{id}/toc",
+      "template": "/",
       "source": "crates/web/src/lib.rs",
-      "handler": "book_toc",
+      "handler": "homepage",
       "policy": "public"
     },
     {
@@ -21,6 +21,13 @@
       "template": "/api/v1/books",
       "source": "crates/books/src/api/mod.rs",
       "handler": "list_books",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/books/{id}/toc",
+      "source": "crates/web/src/lib.rs",
+      "handler": "book_toc",
       "policy": "public"
     },
     {
@@ -102,13 +109,6 @@
     },
     {
       "method": "GET",
-      "template": "/",
-      "source": "crates/web/src/lib.rs",
-      "handler": "homepage",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
       "template": "/healthz",
       "source": "crates/web/src/lib.rs",
       "handler": "health",
@@ -127,6 +127,27 @@
       "source": "crates/web/src/lib.rs",
       "handler": "login",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me",
+      "source": "crates/web/src/auth.rs",
+      "handler": "me",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_books",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_book",
+      "policy": "owner"
     },
     {
       "method": "GET",
@@ -151,30 +172,9 @@
     },
     {
       "method": "GET",
-      "template": "/me/books/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "author_book",
-      "policy": "owner"
-    },
-    {
-      "method": "GET",
       "template": "/me/books/new",
       "source": "crates/web/src/auth.rs",
       "handler": "new_author_book",
-      "policy": "session"
-    },
-    {
-      "method": "GET",
-      "template": "/me/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "author_books",
-      "policy": "owner"
-    },
-    {
-      "method": "GET",
-      "template": "/me/library/add/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "library_actions::show_add",
       "policy": "session"
     },
     {
@@ -186,10 +186,17 @@
     },
     {
       "method": "GET",
-      "template": "/me",
+      "template": "/me/library/add/{id}",
       "source": "crates/web/src/auth.rs",
-      "handler": "me",
+      "handler": "library_actions::show_add",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/metrics",
+      "source": "crates/web/src/lib.rs",
+      "handler": "observability::metrics_endpoint",
+      "policy": "token"
     },
     {
       "method": "GET",
@@ -256,6 +263,20 @@
     },
     {
       "method": "POST",
+      "template": "/me/books",
+      "source": "crates/web/src/auth.rs",
+      "handler": "create_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "create_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/chapters/{chapter_id}/edit",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "update_chapter",
@@ -270,23 +291,9 @@
     },
     {
       "method": "POST",
-      "template": "/me/books/{id}/chapters",
-      "source": "crates/web/src/author_chapter_http.rs",
-      "handler": "create_chapter",
-      "policy": "owner"
-    },
-    {
-      "method": "POST",
       "template": "/me/books/{id}/publish",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "publish_book",
-      "policy": "owner"
-    },
-    {
-      "method": "POST",
-      "template": "/me/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "create_book",
       "policy": "owner"
     },
     {
