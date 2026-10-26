@@ -12,8 +12,8 @@ CREATE TABLE cover_upload_objects (
     content_type TEXT NOT NULL CHECK (content_type IN
         ('image/jpeg','image/png','image/webp')),
     size_bytes BIGINT NOT NULL CHECK (size_bytes BETWEEN 1 AND 8388608),
-    status TEXT NOT NULL DEFAULT 'verified'
-        CHECK (status IN ('verified','quarantined')),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','verified','quarantined')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX cover_upload_by_book ON cover_upload_objects(book_id, id DESC);
