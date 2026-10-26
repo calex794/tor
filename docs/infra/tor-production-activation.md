@@ -108,6 +108,15 @@ written atomically by the **root-only**, version-pinned
 SQLx history/role verification. The marker's directory is root-owned and
 not writable by the SSH deployment account.
 
+The database marker alone is insufficient: it is written before the
+application is switched and therefore could survive a failed first cutover.
+The operator script now also writes the root-owned
+`/var/lib/tor-release/pg-activated` marker **only after** the real
+PostgreSQL application passes /readyz, login/registration and HTTPS checks.
+Before auto-activation, CI verifies this marker, the non-demo systemd
+override and a healthy local /readyz. This prevents a successful schema
+migration from accidentally authorizing a demo-mode deployment.
+
 If the marker is absent or does not exactly match, the candidate can be
 **staged but is never automatically activated**. The operator applies migrations
 through the standard go-live procedure using the same staged Git SHA; its
