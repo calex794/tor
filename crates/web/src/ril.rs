@@ -21,12 +21,16 @@ pub(crate) fn instrument(router: Router) -> Router {
 
 async fn observe(mut request: Request<Body>, next: Next) -> Response {
     // MatchedPath comes from Axum's route registry, NOT URI.path(), query or headers.
-    let template = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+    let template = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
     request.extensions_mut().insert(passport);
     let started = Instant::now();
     let mut response = next.run(request).await;
-    let observation = RouteObservation::new(passport, response.status().as_u16(), started.elapsed());
+    let observation =
+        RouteObservation::new(passport, response.status().as_u16(), started.elapsed());
     // Future bounded metrics can inspect this value. Nothing is logged or persisted.
     response.extensions_mut().insert(observation);
     response
@@ -46,12 +50,20 @@ mod tests {
     #[tokio::test]
     async fn matched_path_injects_bounded_passport_and_observation() {
         let app = instrument(Router::new().route("/books/{id}", get(family)));
-        let response = app.oneshot(
-            Request::builder().uri("/books/18446744073709551615?token=SECRET")
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/books/18446744073709551615?token=SECRET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let observed = *response.extensions().get::<RouteObservation>().expect("observation");
+        let observed = *response
+            .extensions()
+            .get::<RouteObservation>()
+            .expect("observation");
         assert!(observed.passport.route_known);
         assert_eq!(observed.passport.route_family, "/books/");
         assert_eq!(observed.status_bucket, StatusBucket::Success);
@@ -63,11 +75,19 @@ mod tests {
     #[tokio::test]
     async fn unregistered_route_is_diagnostics_only_and_not_authorized_by_ril() {
         let app = instrument(Router::new().route("/new/{id}", get(family)));
-        let response = app.oneshot(
-            Request::builder().uri("/new/42?secret=DO-NOT-LOG")
-                .body(Body::empty()).unwrap()
-        ).await.unwrap();
-        let observed = response.extensions().get::<RouteObservation>().expect("observation");
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/new/42?secret=DO-NOT-LOG")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let observed = response
+            .extensions()
+            .get::<RouteObservation>()
+            .expect("observation");
         assert!(!observed.passport.route_known);
         assert_eq!(observed.passport.route_family, "/unknown/");
         assert_eq!(response.status(), StatusCode::OK); // RIL must not become an ACL.
@@ -76,28 +96,63 @@ mod tests {
     #[tokio::test]
     async fn method_overrides_are_observable_without_changing_http_methods() {
         let app = instrument(Router::new().route("/login", get(family).post(family)));
-        let get_response = app.clone().oneshot(
-            Request::builder().uri("/login").body(Body::empty()).unwrap()
-        ).await.unwrap();
-        let post_response = app.oneshot(
-            Request::builder().method(Method::POST).uri("/login")
-                .body(Body::empty()).unwrap()
-        ).await.unwrap();
-        assert_eq!(get_response.extensions().get::<RouteObservation>().unwrap().passport.cost_class,
-                   CostClass::CheapRead);
-        assert_eq!(post_response.extensions().get::<RouteObservation>().unwrap().passport.cost_class,
-                   CostClass::Write);
+        let get_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/login")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let post_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/login")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            get_response
+                .extensions()
+                .get::<RouteObservation>()
+                .unwrap()
+                .passport
+                .cost_class,
+            CostClass::CheapRead
+        );
+        assert_eq!(
+            post_response
+                .extensions()
+                .get::<RouteObservation>()
+                .unwrap()
+                .passport
+                .cost_class,
+            CostClass::Write
+        );
     }
 
     #[tokio::test]
     async fn unmatched_path_preserves_404_and_no_raw_url_labels() {
         let app = instrument(Router::new().route("/catalog", get(family)));
-        let response = app.oneshot(
-            Request::builder().uri("/secret/path/ABC?signature=SECRET")
-                .body(Body::empty()).unwrap()
-        ).await.unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/secret/path/ABC?signature=SECRET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let obs = response.extensions().get::<RouteObservation>().expect("fallback observation");
+        let obs = response
+            .extensions()
+            .get::<RouteObservation>()
+            .expect("fallback observation");
         assert_eq!(obs.passport.route_family, "/unknown/");
         assert_eq!(obs.status_bucket, StatusBucket::ClientError);
         let debug = format!("{obs:?}");
