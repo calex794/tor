@@ -2,9 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_reading::services::progress::{
-    reader_blocks, valid_text_place, SavedPlaceState,
-};
+use tor_reading::services::progress::{reader_blocks, valid_text_place, SavedPlaceState};
 
 /// Account-only reading: the browser can save a deterministic point in an
 /// immutable, currently published, free chapter without requiring JavaScript.
