@@ -1,4 +1,5 @@
 //! F-03: fail-closed title search of public books only.
+pub mod api;
 pub mod domain;
 pub mod repositories;
 pub mod services;

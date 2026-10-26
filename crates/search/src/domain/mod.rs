@@ -39,6 +39,25 @@ pub fn validate(term: &str, after: Option<&str>, limit: usize) -> Result<i64, Se
     Ok(after)
 }
 
+/// Language identifiers use the same bound as the canonical books table.
+pub fn normalize_language(raw: Option<&str>) -> Result<Option<String>, SearchError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let value = raw.trim().to_ascii_lowercase();
+    if value.is_empty()
+        || value.len() > 32
+        || value.starts_with('-')
+        || value.ends_with('-')
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(SearchError::Invalid);
+    }
+    Ok(Some(value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,5 +68,16 @@ mod tests {
         assert_eq!(validate("x", Some("01"), 20), Err(SearchError::Invalid));
         assert_eq!(validate("x", Some("-2"), 20), Err(SearchError::Invalid));
         assert_eq!(validate("<script>", None, 20), Ok(0));
+    }
+
+    #[test]
+    fn f_03_normalizes_language_and_rejects_malformed_filters() {
+        assert_eq!(normalize_language(Some(" RU ")), Ok(Some("ru".to_owned())));
+        assert_eq!(normalize_language(Some("en-us")), Ok(Some("en-us".to_owned())));
+        assert_eq!(normalize_language(None), Ok(None));
+        for value in ["", "ru/../../", "-ru", "ru-", "en us", "a@example"] {
+            assert_eq!(normalize_language(Some(value)), Err(SearchError::Invalid));
+        }
+        assert_eq!(normalize_language(Some(&"x".repeat(33))), Err(SearchError::Invalid));
     }
 }
