@@ -157,6 +157,7 @@ pub struct OwnedChapterSummary {
     pub number: i32,
     pub title: String,
     pub access: ChapterAccess,
+    pub published: bool,
 }
 
 pub struct OwnedChapter {
