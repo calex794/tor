@@ -29,15 +29,6 @@ async fn b_01_owner_draft_is_private_and_idempotent() {
     .fetch_one(&pool)
     .await
     .expect("fixture");
-    // Explicit fixture book IDs do not advance PostgreSQL's identity sequence.
-    // Correct only the disposable tor_ci test database, not application logic.
-    sqlx::query(
-        "SELECT setval(pg_get_serial_sequence('books','id'),
-             GREATEST((SELECT COALESCE(MAX(id), 1) FROM books), 1), true)",
-    )
-    .execute(&pool)
-    .await
-    .expect("advance book ID sequence past CI fixture");
     let author = PgAuthoring::new(pool.clone());
     let key = "b".repeat(43);
     let identity = format!("tor-ci:b01:{user}");
