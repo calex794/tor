@@ -24,9 +24,10 @@ pub fn validate(term: &str, after: Option<&str>, limit: usize) -> Result<i64, Se
     }
     let after = match after {
         None => 0,
-        Some(value) if !value.is_empty()
-            && !value.starts_with('0')
-            && value.bytes().all(|c| c.is_ascii_digit()) =>
+        Some(value)
+            if !value.is_empty()
+                && !value.starts_with('0')
+                && value.bytes().all(|c| c.is_ascii_digit()) =>
         {
             value.parse::<i64>().map_err(|_| SearchError::Invalid)?
         }

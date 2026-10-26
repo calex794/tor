@@ -100,7 +100,11 @@ pub fn catalog_search(books: &[PublicBookCard], query: &str, cursor: Option<&str
     let content = include_str!("../templates/catalog.html")
         .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
         .replace("<!--SEARCH_FORM-->", &controls);
-    layout("Каталог", "Поиск опубликованных книг на Пандаолейт.", &content)
+    layout(
+        "Каталог",
+        "Поиск опубликованных книг на Пандаолейт.",
+        &content,
+    )
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.

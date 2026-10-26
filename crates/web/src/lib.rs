@@ -97,18 +97,28 @@ async fn catalog(
                     tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
                     tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
                 })?;
-            let books: Vec<_> = page.items.into_iter().map(|item| pages::PublicBookCard {
-                id: item.id,
-                title: item.title,
-                language: item.language,
-            }).collect();
-            return Ok(pages::catalog_search(&books, term, page.next_cursor.as_deref()));
+            let books: Vec<_> = page
+                .items
+                .into_iter()
+                .map(|item| pages::PublicBookCard {
+                    id: item.id,
+                    title: item.title,
+                    language: item.language,
+                })
+                .collect();
+            return Ok(pages::catalog_search(
+                &books,
+                term,
+                page.next_cursor.as_deref(),
+            ));
         }
         if query.after.is_some() {
             return Err(StatusCode::BAD_REQUEST);
         }
         return Ok(pages::catalog_search(
-            &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?, "", None,
+            &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
+            "",
+            None,
         ));
     }
     if query.q.is_some() || query.after.is_some() {
@@ -335,7 +345,9 @@ fn make_router(
             .route("/login", get(login))
             .route("/register", get(register));
     }
-    let search = postgres.as_ref().map(|catalog| tor_search::PgSearch::new(catalog.pool()));
+    let search = postgres
+        .as_ref()
+        .map(|catalog| tor_search::PgSearch::new(catalog.pool()));
     app.with_state(AppState {
         books: repo,
         postgres,

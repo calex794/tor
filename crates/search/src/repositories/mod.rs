@@ -38,7 +38,9 @@ impl PgSearch {
                 Ok(SearchBook {
                     id: u64::try_from(id).map_err(|_| SearchError::Unavailable)?,
                     title: row.try_get("title").map_err(|_| SearchError::Unavailable)?,
-                    language: row.try_get("target_language").map_err(|_| SearchError::Unavailable)?,
+                    language: row
+                        .try_get("target_language")
+                        .map_err(|_| SearchError::Unavailable)?,
                 })
             })
             .collect::<Result<_, _>>()?;
