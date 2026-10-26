@@ -14,7 +14,10 @@ pub(crate) fn ril_pump(pump: Option<PgPumpSnapshot>, queue: Option<RilQueueCount
         return Diagnostic {
             text: "В этом процессе сборщик RIL не запускался; другие процессы не проверены.",
             warning: queue.is_some_and(|q| {
-                q.overdue_pending > 0 || q.expired_lease > 0 || q.dead > 0 || q.repeated_attempts > 0
+                q.overdue_pending > 0
+                    || q.expired_lease > 0
+                    || q.dead > 0
+                    || q.repeated_attempts > 0
             }),
         };
     };
