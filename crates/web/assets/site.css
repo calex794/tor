@@ -353,3 +353,30 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .reader-save-button { width: 100%; font-size: 14px; }
   .reader-piece:target { padding-left: 9px; }
 }
+
+
+/* B-02: author workspace, no client-side script required. */
+.author-page { min-height: 68vh; background: #f7f9f5; }
+.author-shell { max-width: 860px; }
+.author-heading { display: flex; justify-content: space-between; align-items: center; gap: 22px; flex-wrap: wrap; margin-bottom: 26px; }
+.author-heading h1, .author-detail h1 { margin: 0 0 12px; font-size: clamp(30px, 4vw, 44px); letter-spacing: -.04em; overflow-wrap: anywhere; }
+.author-heading p:not(.eyebrow), .author-detail p:not(.eyebrow) { color: #5b7060; line-height: 1.7; }
+.author-form, .author-detail { padding: clamp(22px, 4vw, 42px); background: #fff; border: 1px solid #e0e8de; border-radius: 17px; box-shadow: 0 14px 40px rgba(34,66,43,.05); }
+.author-form { display: grid; gap: 21px; }
+.author-form__field { display: grid; gap: 9px; }
+.author-form__field label { color: #284231; font-size: 15px; font-weight: 700; }
+.author-form__field input { width: 100%; min-height: 48px; border: 1px solid #becfc1; border-radius: 10px; padding: 11px 14px; background: #fff; color: #213829; font: inherit; }
+.author-form__hint { margin: 0; color: #657769; font-size: 13px; line-height: 1.55; }
+.author-form__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding-top: 4px; }
+.author-books { display: grid; gap: 14px; }
+.author-book { padding: 22px 26px; background: #fff; border: 1px solid #dde9de; border-radius: 14px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.author-book h2 { margin: 0 0 9px; font-size: clamp(19px, 2.5vw, 25px); overflow-wrap: anywhere; }
+.author-book p:not(.eyebrow) { color: #5f7362; margin: 0; }
+.author-detail .button { margin-top: 14px; }
+@media (max-width: 680px) {
+  .author-page { padding-block: 34px; }
+  .author-heading { align-items: stretch; }
+  .author-book { padding: 20px; flex-direction: column; align-items: stretch; }
+  .author-form__actions { align-items: stretch; flex-direction: column; }
+  .author-form__actions .button { width: 100%; }
+}
