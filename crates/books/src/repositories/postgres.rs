@@ -295,7 +295,11 @@ impl PgAuthoring {
         }
         let digest: [u8; 32] = hasher.finalize().into();
         let content_sha256: [u8; 32] = Sha256::digest(request.body.as_bytes()).into();
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
 
         // Row lock serializes publication against deletion, owner changes and
         // concurrent chapter creation. Unowned and missing books are identical.
@@ -333,18 +337,23 @@ impl PgAuthoring {
             .fetch_one(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-            let prior: Vec<u8> = row.try_get("payload_hash").map_err(|_| AuthorError::Unavailable)?;
+            let prior: Vec<u8> = row
+                .try_get("payload_hash")
+                .map_err(|_| AuthorError::Unavailable)?;
             if prior.as_slice() != digest.as_slice() {
                 return Err(AuthorError::Conflict);
             }
             return Ok(SavedChapter {
-                chapter_id: row.try_get::<Option<i64>, _>("chapter_id")
+                chapter_id: row
+                    .try_get::<Option<i64>, _>("chapter_id")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
-                version_id: row.try_get::<Option<i64>, _>("version_id")
+                version_id: row
+                    .try_get::<Option<i64>, _>("version_id")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
-                revision: row.try_get::<Option<i64>, _>("saved_revision")
+                revision: row
+                    .try_get::<Option<i64>, _>("saved_revision")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
             });
@@ -420,7 +429,11 @@ impl PgAuthoring {
         if actor <= 0 || book_id <= 0 {
             return Err(AuthorError::Missing);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let book_id: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM books WHERE id=$1 AND owner_user_id=$2
              AND NOT admin_hold AND NOT is_deleted FOR UPDATE",
