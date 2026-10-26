@@ -22,15 +22,21 @@ mod unix_store {
     };
 
     fn unix_now() -> Result<i64, Box<dyn Error>> {
-        Ok(i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())?)
+        Ok(i64::try_from(
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+        )?)
     }
 
     fn private_directory(dir: &Path) -> Result<(), Box<dyn Error>> {
         if !dir.exists() {
-            fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)?;
         }
         let metadata = fs::symlink_metadata(dir)?;
-        if !metadata.is_dir() || metadata.file_type().is_symlink()
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
             || metadata.permissions().mode() & 0o077 != 0
         {
             return Err("trace-store directory is not private".into());
