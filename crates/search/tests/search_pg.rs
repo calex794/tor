@@ -211,32 +211,48 @@ async fn f_03_revocation_removes_author_genre_and_title_from_public_search() {
     }
 
     sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
-        .bind(id).execute(&pool).await.unwrap();
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let published = search
         .search_faceted("", Some("ru"), Some("уникальныйжанр"), None, 100)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(published.items.iter().any(|book| book.id == id as u64));
 
     // A hold must revoke existing search results immediately, with no stale
     // index-only result leaking author metadata or even the book identity.
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
-        .bind(id).execute(&pool).await.unwrap();
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let held = search
         .search_faceted("Уникальныйавтор", None, None, None, 100)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(!held.items.iter().any(|book| book.id == id as u64));
 
     sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1")
-        .bind(id).execute(&pool).await.unwrap();
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let withdrawn = search
         .search_faceted("Отзывная", None, None, None, 100)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(!withdrawn.items.iter().any(|book| book.id == id as u64));
 
     sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1")
-        .bind(id).execute(&pool).await.unwrap();
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let deleted = search
         .search_faceted("", None, Some("уникальныйжанр"), None, 100)
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(!deleted.items.iter().any(|book| book.id == id as u64));
 }
