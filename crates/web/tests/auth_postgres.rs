@@ -389,6 +389,29 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(public_book.status(), StatusCode::OK);
     let public_html = body_of(public_book).await;
     assert!(public_html.contains("Глава"));
+    let public_chapter_id = public_html
+        .split("href=\"/reader/")
+        .nth(1)
+        .expect("public chapter reader URL")
+        .split('"')
+        .next()
+        .expect("chapter ID");
+    let new_reader = send(
+        &app,
+        request(
+            "GET",
+            &format!("/reader/{public_chapter_id}"),
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(new_reader.status(), StatusCode::OK);
+    assert!(
+        body_of(new_reader).await.contains("Real chapter"),
+        "Published Markdown is readable through real PostgreSQL"
+    );
     let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
     let published_html = body_of(published_detail).await;
     assert!(published_html.contains("Опубликована"));
