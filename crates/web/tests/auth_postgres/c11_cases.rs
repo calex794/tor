@@ -42,14 +42,12 @@ pub(super) async fn oversized_chapter_is_denied_across_reader_and_progress(
     .execute(pool)
     .await
     .expect("isolated version");
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2)",
-    )
-    .bind(CHAPTER_ID)
-    .bind(VERSION_ID)
-    .execute(pool)
-    .await
-    .expect("published fixture");
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2)")
+        .bind(CHAPTER_ID)
+        .bind(VERSION_ID)
+        .execute(pool)
+        .await
+        .expect("published fixture");
 
     // A public chapter still works for guests and authenticated readers.
     assert_eq!(
@@ -61,7 +59,13 @@ pub(super) async fn oversized_chapter_is_denied_across_reader_and_progress(
     assert_eq!(
         send(
             app,
-            request("GET", "/api/v1/me/progress/free?chapter_id=101", "", session, ORIGIN),
+            request(
+                "GET",
+                "/api/v1/me/progress/free?chapter_id=101",
+                "",
+                session,
+                ORIGIN
+            ),
         )
         .await
         .status(),
@@ -78,7 +82,10 @@ pub(super) async fn oversized_chapter_is_denied_across_reader_and_progress(
         assert_eq!(reply.status(), StatusCode::PAYLOAD_TOO_LARGE, "{path}");
         assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store", "{path}");
         let text = body_of(reply).await;
-        assert!(text.is_empty(), "reader errors must not contain chapter text: {path}");
+        assert!(
+            text.is_empty(),
+            "reader errors must not contain chapter text: {path}"
+        );
     }
 
     let json = format!(
@@ -100,9 +107,7 @@ pub(super) async fn oversized_chapter_is_denied_across_reader_and_progress(
     assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
     assert!(body_of(reply).await.is_empty());
 
-    let form = format!(
-        "csrf_token={csrf}&version_id={VERSION_ID}&block_index=1&char_offset=0"
-    );
+    let form = format!("csrf_token={csrf}&version_id={VERSION_ID}&block_index=1&char_offset=0");
     let reply = send(
         app,
         request("POST", "/read/98111/place", &form, csrf_cookies, ORIGIN),
