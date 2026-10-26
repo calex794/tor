@@ -432,3 +432,125 @@ async fn f_02_both_keyset_orders_skip_private_rows_without_gaps_or_duplicates() 
         Err(SearchError::Invalid),
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_02_exact_total_matches_filters_and_immediate_revocation() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never modify production");
+
+    let mut public_ru_id = 0_i64;
+    for (source, language, title, visibility, held, deleted) in [
+        ("ru-a", "ru", "F02CountAlpha", "public", false, false),
+        ("ru-b", "ru", "F02CountBeta", "public", false, false),
+        ("en-a", "en", "F02CountAlpha", "public", false, false),
+        ("ru-d", "ru", "F02CountAlpha", "draft", false, false),
+        ("ru-h", "ru", "F02CountAlpha", "public", true, false),
+        ("ru-x", "ru", "F02CountAlpha", "public", false, true),
+    ] {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,
+                                visibility,admin_hold,is_deleted)
+             VALUES ($1,$2,$3,'F02 Count Author',ARRAY['f02-count-total'],$4,$5,$6)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold,is_deleted=EXCLUDED.is_deleted
+             RETURNING id",
+        )
+        .bind(format!("ci:f02:count:{source}"))
+        .bind(language)
+        .bind(title)
+        .bind(visibility)
+        .bind(held)
+        .bind(deleted)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if source == "ru-a" {
+            public_ru_id = id;
+        }
+    }
+    let search = PgSearch::new(pool.clone());
+    assert_eq!(
+        search
+            .count_faceted("", None, Some("f02-count-total"))
+            .await,
+        Ok(3)
+    );
+    assert_eq!(
+        search
+            .count_faceted("", Some(" RU "), Some(" F02-COUNT-TOTAL "))
+            .await,
+        Ok(2)
+    );
+    assert_eq!(
+        search
+            .count_faceted("F02CountAlpha", None, Some("f02-count-total"))
+            .await,
+        Ok(2)
+    );
+    assert_eq!(
+        search
+            .count_faceted("F02CountAlpha", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1)
+    );
+    assert_eq!(
+        search
+            .count_faceted("", Some("de"), Some("f02-count-total"))
+            .await,
+        Ok(0)
+    );
+    assert_eq!(
+        search.count_faceted("", None, Some("f02-count-total%"))
+            .await,
+        Ok(0)
+    );
+    assert_eq!(
+        search.count_faceted("", None, Some("bad\ngenre")).await,
+        Err(SearchError::Invalid)
+    );
+
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(public_ru_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1),
+        "hold must immediately change total"
+    );
+    sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1")
+        .bind(public_ru_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1),
+        "draft must not reappear in total"
+    );
+    sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1")
+        .bind(public_ru_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1),
+        "deleted must not reappear in total"
+    );
+}
