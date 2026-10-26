@@ -28,12 +28,10 @@ static PUBLISHER: OnceLock<tor_observability::services::publisher::TracePublishe
 #[cfg(unix)]
 fn publisher() -> &'static tor_observability::services::publisher::TracePublisher {
     PUBLISHER.get_or_init(|| {
-        let configured = std::env::var_os("TOR_TRACE_STORE_SOCKET")
-            .map(std::path::PathBuf::from);
+        let configured = std::env::var_os("TOR_TRACE_STORE_SOCKET").map(std::path::PathBuf::from);
         tor_observability::services::publisher::TracePublisher::new(configured)
     })
 }
-
 
 /// Server-generated technical correlation only; never derived from client input.
 #[derive(Clone, Copy)]
@@ -128,12 +126,18 @@ fn collected_metrics(metrics: &HttpMetrics) -> String {
             "# HELP tor_trace_export_failed_total Trace-store socket or database failures.\n\
              # TYPE tor_trace_export_failed_total counter\n",
         );
-        text.push_str(&format!("tor_trace_export_failed_total {}\n", counts.failed));
+        text.push_str(&format!(
+            "tor_trace_export_failed_total {}\n",
+            counts.failed
+        ));
         text.push_str(
             "# HELP tor_trace_export_dropped_total Queue saturation and invalid frames.\n\
              # TYPE tor_trace_export_dropped_total counter\n",
         );
-        text.push_str(&format!("tor_trace_export_dropped_total {}\n", counts.dropped));
+        text.push_str(&format!(
+            "tor_trace_export_dropped_total {}\n",
+            counts.dropped
+        ));
     }
     text
 }
