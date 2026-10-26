@@ -68,7 +68,9 @@ fn check_png(bytes: &[u8]) -> Result<(), Error> {
             return Err(Error::InvalidContainer);
         }
         let size = u32::from_be_bytes(
-            bytes[offset..offset + 4].try_into().map_err(|_| Error::InvalidContainer)?,
+            bytes[offset..offset + 4]
+                .try_into()
+                .map_err(|_| Error::InvalidContainer)?,
         ) as usize;
         let kind = &bytes[offset + 4..offset + 8];
         let end = offset
@@ -98,8 +100,16 @@ fn check_png(bytes: &[u8]) -> Result<(), Error> {
         }
         if !matches!(
             kind,
-            b"IHDR" | b"PLTE" | b"IDAT" | b"IEND" | b"tRNS"
-                | b"gAMA" | b"cHRM" | b"sRGB" | b"pHYs" | b"bKGD"
+            b"IHDR"
+                | b"PLTE"
+                | b"IDAT"
+                | b"IEND"
+                | b"tRNS"
+                | b"gAMA"
+                | b"cHRM"
+                | b"sRGB"
+                | b"pHYs"
+                | b"bKGD"
         ) {
             return Err(Error::MetadataForbidden);
         }
@@ -151,10 +161,12 @@ fn check_webp(bytes: &[u8]) -> Result<(), Error> {
                 if bytes[body] & 0b0000_0010 != 0 {
                     return Err(Error::AnimationForbidden);
                 }
-                let width = 1 + u32::from(bytes[body + 4])
+                let width = 1
+                    + u32::from(bytes[body + 4])
                     + (u32::from(bytes[body + 5]) << 8)
                     + (u32::from(bytes[body + 6]) << 16);
-                let height = 1 + u32::from(bytes[body + 7])
+                let height = 1
+                    + u32::from(bytes[body + 7])
                     + (u32::from(bytes[body + 8]) << 8)
                     + (u32::from(bytes[body + 9]) << 16);
                 dimensions(width, height)?;
@@ -174,8 +186,7 @@ fn check_webp(bytes: &[u8]) -> Result<(), Error> {
                 if size < 5 || bytes[body] != 0x2f {
                     return Err(Error::InvalidContainer);
                 }
-                let bits =
-                    u32::from_le_bytes(bytes[body + 1..body + 5].try_into().unwrap());
+                let bits = u32::from_le_bytes(bytes[body + 1..body + 5].try_into().unwrap());
                 dimensions((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1)?;
                 seen_image = true;
                 size_known = true;
@@ -233,7 +244,9 @@ fn check_jpeg(bytes: &[u8]) -> Result<(), Error> {
             return Err(Error::InvalidContainer);
         }
         let segment_length = u16::from_be_bytes([bytes[pos], bytes[pos + 1]]) as usize;
-        let end = pos.checked_add(segment_length).ok_or(Error::InvalidContainer)?;
+        let end = pos
+            .checked_add(segment_length)
+            .ok_or(Error::InvalidContainer)?;
         if segment_length < 2 || end > bytes.len() {
             return Err(Error::InvalidContainer);
         }

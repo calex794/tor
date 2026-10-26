@@ -38,8 +38,14 @@ fn real_png_generates_both_decodable_lossless_webp_variants() {
         assert_eq!(variant.content_type, "image/webp");
         let decoded = image::load_from_memory_with_format(&variant.bytes, ImageFormat::WebP)
             .expect("read real encoded WebP");
-        assert_eq!((decoded.width(), decoded.height()), (expected.1, expected.2));
-        let center = decoded.to_rgba8().get_pixel(expected.1 / 2, expected.2 / 2).0;
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (expected.1, expected.2)
+        );
+        let center = decoded
+            .to_rgba8()
+            .get_pixel(expected.1 / 2, expected.2 / 2)
+            .0;
         assert_eq!(center, [0, 255, 0, 255]); // center of crop
     }
 }
@@ -71,7 +77,10 @@ fn transparent_input_keeps_alpha_and_is_lossless() {
 
 #[test]
 fn rejects_unsupported_mismatched_and_oversized_sources() {
-    assert_eq!(process_cover(&[], "image/png").unwrap_err(), Error::EmptySource);
+    assert_eq!(
+        process_cover(&[], "image/png").unwrap_err(),
+        Error::EmptySource
+    );
     assert_eq!(
         process_cover(&vec![0; MAX_SOURCE_BYTES + 1], "image/png").unwrap_err(),
         Error::SourceTooLarge

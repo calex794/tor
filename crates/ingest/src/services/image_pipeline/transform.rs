@@ -29,11 +29,14 @@ pub(crate) fn resize_to_fill(
         .crop_imm((src_w - crop_w) / 2, (src_h - crop_h) / 2, crop_w, crop_h)
         .to_rgba8();
     let width = NonZeroU32::new(crop_w).ok_or_else(|| Error::Transform("invalid width".into()))?;
-    let height = NonZeroU32::new(crop_h).ok_or_else(|| Error::Transform("invalid height".into()))?;
+    let height =
+        NonZeroU32::new(crop_h).ok_or_else(|| Error::Transform("invalid height".into()))?;
     let source = fr::Image::from_vec_u8(width, height, cropped.into_raw(), fr::PixelType::U8x4)
         .map_err(|e| Error::Transform(e.to_string()))?;
-    let dest_w = NonZeroU32::new(target_w).ok_or_else(|| Error::Transform("invalid width".into()))?;
-    let dest_h = NonZeroU32::new(target_h).ok_or_else(|| Error::Transform("invalid height".into()))?;
+    let dest_w =
+        NonZeroU32::new(target_w).ok_or_else(|| Error::Transform("invalid width".into()))?;
+    let dest_h =
+        NonZeroU32::new(target_h).ok_or_else(|| Error::Transform("invalid height".into()))?;
     let mut dest = fr::Image::new(dest_w, dest_h, fr::PixelType::U8x4);
     let mut resizer = fr::Resizer::new(fr::ResizeAlg::Convolution(fr::FilterType::Lanczos3));
     resizer

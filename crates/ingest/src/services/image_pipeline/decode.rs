@@ -17,10 +17,7 @@ pub(crate) fn decode_image(bytes: &[u8]) -> Result<DynamicImage, Error> {
         .set_limits(limits)
         .map_err(|_| Error::DimensionsExceeded)?;
     let (width, height) = decoder.dimensions();
-    if width == 0
-        || height == 0
-        || u64::from(width) * u64::from(height) > MAX_SOURCE_PIXELS
-    {
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > MAX_SOURCE_PIXELS {
         return Err(Error::DimensionsExceeded);
     }
     DynamicImage::from_decoder(decoder).map_err(|e| Error::Decode(e.to_string()))
