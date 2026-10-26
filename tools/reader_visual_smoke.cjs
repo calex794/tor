@@ -87,6 +87,26 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/me', { timeout: 10000 });
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': profile missing');
       await inspect(page, name, 'me');
+      // B-02: browser-visible author draft creation, listing and public denial.
+      await page.getByRole('link', { name: 'Создать книгу' }).click();
+      await page.waitForURL('**/books/new');
+      await inspect(page, name, 'author-new');
+      await page.getByLabel('Название книги').fill('Книга автора ' + name);
+      await page.getByLabel('Идентификатор оригинала').fill('ci:visual:author:' + name);
+      await page.getByRole('button', { name: 'Создать книгу' }).click();
+      await page.waitForURL(/\/author\/books\/\d+$/);
+      const authorUrl = page.url();
+      assert(await page.getByRole('heading', { name: 'Книга автора ' + name }).isVisible(),
+        name + ': saved draft title missing');
+      await inspect(page, name, 'author-draft');
+      await page.goto(base + '/me/books');
+      assert(await page.getByRole('link', { name: 'Открыть черновик' }).isVisible(),
+        name + ': private draft listing missing');
+      await inspect(page, name, 'author-list');
+      const createdId = authorUrl.split('/').pop();
+      const hidden = await page.goto(base + '/books/' + createdId);
+      assert(hidden && hidden.status() === 404, name + ': draft exposed publicly');
+      await page.goto(base + '/me');
       await page.getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
@@ -120,7 +140,7 @@ async function inspect(page, name, where) {
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': login did not restore session');
       await page.close();
     }
-    console.log('TOR PG reader+auth browser PASS: 2 viewports, 10 screenshots, no overflow and real DB');
+    console.log('TOR PG reader+auth+author browser PASS: 2 viewports, 22 screenshots, no overflow and real DB');
   } finally {
     await browser.close();
   }
