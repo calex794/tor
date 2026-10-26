@@ -19,6 +19,7 @@ use tor_traffic_behavior::VerifiedSubjectKey;
 
 // Trusted-only response marker. Auth supplies it after a live DB session lookup
 // and explicit opt-in; no client-controlled header is ever parsed as identity.
+#[derive(Clone)]
 pub(crate) struct VerifiedRilSubject(pub(crate) VerifiedSubjectKey);
 
 // One bounded worker per process, shared across all router variants and clones.
