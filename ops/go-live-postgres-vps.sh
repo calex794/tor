@@ -91,6 +91,28 @@ if [[ $roles_ok != true,false,false,false ]]; then
   exit 1
 fi
 
+# Root-owned release marker records verified database schema, not code state.
+# The restricted tor-deploy SSH user can READ it but cannot forge a version.
+latest_schema=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
+  "SELECT max(version) FROM _sqlx_migrations WHERE success=TRUE")
+if [[ ! $latest_schema =~ ^[0-9]{12}$ ]]; then
+  echo "Refusing: could not verify last successful SQLx schema version" >&2
+  exit 1
+fi
+schema_dir=/var/lib/tor-release
+schema_marker=$schema_dir/schema-version
+if [[ -L $schema_dir || -L $schema_marker ]]; then
+  echo "Refusing symlink at schema marker location" >&2
+  exit 1
+fi
+install -d -o root -g root -m 0755 "$schema_dir"
+schema_tmp=$(mktemp "$schema_dir/.schema-version.XXXXXXXX")
+printf '%s\n' "$latest_schema" > "$schema_tmp"
+chown root:root "$schema_tmp"
+chmod 0644 "$schema_tmp"
+mv -fT "$schema_tmp" "$schema_marker"
+echo "TOR_SCHEMA_MARKED $latest_schema"
+
 dropin_dir=/etc/systemd/system/tor-web.service.d
 dropin="$dropin_dir/20-postgres.conf"
 install -d -m 0755 -o root -g root "$dropin_dir"
