@@ -49,7 +49,9 @@ pub(crate) fn finish_trace(
         duration_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
         sqlx,
     };
-    TRACES.get_or_init(TraceBuffer::default).record(trace.clone());
+    TRACES
+        .get_or_init(TraceBuffer::default)
+        .record(trace.clone());
     trace
 }
 
