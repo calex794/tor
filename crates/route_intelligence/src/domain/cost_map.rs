@@ -201,8 +201,8 @@ pub fn attach_sql_evidence(
     }
     let mut seen = [false; COST_ROUTE_COUNT];
     for record in evidence {
-        let route = usize::try_from(record.route_code)
-            .map_err(|_| CostMapError::InvalidSqlEvidence)?;
+        let route =
+            usize::try_from(record.route_code).map_err(|_| CostMapError::InvalidSqlEvidence)?;
         if route >= COST_ROUTE_COUNT
             || record.observed_requests <= 0
             || record.observed_queries < 0
@@ -214,7 +214,10 @@ pub fn attach_sql_evidence(
             return Err(CostMapError::DuplicateSqlEvidence);
         }
         seen[route] = true;
-        if let Some(row) = rankings.iter_mut().find(|row| row.route_code == record.route_code) {
+        if let Some(row) = rankings
+            .iter_mut()
+            .find(|row| row.route_code == record.route_code)
+        {
             if record.observed_requests as u64 > row.requests {
                 return Err(CostMapError::InvalidSqlEvidence);
             }
@@ -384,7 +387,13 @@ mod tests {
             Err(CostMapError::DuplicateSqlEvidence),
         );
         assert_eq!(
-            attach_sql_evidence(&mut rows, &[RouteSqlEvidence { observed_requests: 3, ..zero }]),
+            attach_sql_evidence(
+                &mut rows,
+                &[RouteSqlEvidence {
+                    observed_requests: 3,
+                    ..zero
+                }]
+            ),
             Err(CostMapError::InvalidSqlEvidence),
         );
     }
