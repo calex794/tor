@@ -10,8 +10,10 @@ ALTER TABLE books
             AND array_position(genres, '') IS NULL
         );
 
+-- Tokenize title and author separately: malformed literal HTML in a title must
+-- never swallow all following author lexemes.
 CREATE INDEX books_public_discovery_terms_idx
-    ON books USING GIN (to_tsvector('simple'::regconfig, title || ' ' || author_name))
+    ON books USING GIN ((to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name)))
     WHERE visibility = 'public' AND NOT admin_hold AND NOT is_deleted;
 
 CREATE INDEX books_public_discovery_genres_idx

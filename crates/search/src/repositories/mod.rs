@@ -39,13 +39,15 @@ impl PgSearch {
         limit: usize,
     ) -> Result<SearchPage, SearchError> {
         let (after, language, genre) = validate_facets(term, language, genre, after, limit)?;
+        // Title and author are tokenized separately: an unclosed HTML tag in
+        // a user-provided title must not hide the author's searchable tokens.
         // Exclude private, held and deleted rows BEFORE applying the page limit.
         // Query parameters are bound, never interpolated into SQL or HTML.
         let rows = sqlx::query(
             "SELECT id,title,target_language,author_name,genres FROM books
              WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
                AND ($1::text = '' OR
-                   to_tsvector('simple'::regconfig, title || ' ' || author_name)
+                   (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
                        @@ plainto_tsquery('simple'::regconfig,$1))
                AND id > $2
                AND ($4::text IS NULL OR target_language = $4)
