@@ -156,16 +156,21 @@ pub fn catalog_search(
     genre: Option<&str>,
     cursor: Option<&str>,
     sort: &str,
+    total: Option<u64>,
 ) -> Html<String> {
     let oldest = if sort == "oldest" { " selected" } else { "" };
     let newest = if sort == "newest" { " selected" } else { "" };
+    let title = if sort == "title" { " selected" } else { "" };
+    let author = if sort == "author" { " selected" } else { "" };
     let mut controls = format!(
-        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
+        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option><option value="title"{}>По названию</option><option value="author"{}>По автору</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
         escape_html(query),
         escape_html(genre.unwrap_or("")),
         escape_html(language.unwrap_or("")),
         oldest,
         newest,
+        title,
+        author,
     );
     if let Some(cursor) = cursor {
         let language_param = language
@@ -186,9 +191,14 @@ pub fn catalog_search(
             escape_html(cursor),
         ).expect("string write");
     }
+    let count_markup = total
+        .map(|number| {
+            format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
+        })
+        .unwrap_or_default();
     let content = include_str!("../../templates/catalog.html")
         .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
-        .replace("<!--SEARCH_FORM-->", &controls);
+        .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
     layout(
         "Каталог",
         "Поиск опубликованных книг на Пандаолейт.",

@@ -432,3 +432,260 @@ async fn f_02_both_keyset_orders_skip_private_rows_without_gaps_or_duplicates() 
         Err(SearchError::Invalid),
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_02_exact_total_matches_filters_and_immediate_revocation() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never modify production");
+
+    let mut public_ru_id = 0_i64;
+    for (source, language, title, visibility, held, deleted) in [
+        ("ru-a", "ru", "F02CountAlpha", "public", false, false),
+        ("ru-b", "ru", "F02CountBeta", "public", false, false),
+        ("en-a", "en", "F02CountAlpha", "public", false, false),
+        ("ru-d", "ru", "F02CountAlpha", "draft", false, false),
+        ("ru-h", "ru", "F02CountAlpha", "public", true, false),
+        ("ru-x", "ru", "F02CountAlpha", "public", false, true),
+    ] {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,
+                                visibility,admin_hold,is_deleted)
+             VALUES ($1,$2,$3,'F02 Count Author',ARRAY['f02-count-total'],$4,$5,$6)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold,is_deleted=EXCLUDED.is_deleted
+             RETURNING id",
+        )
+        .bind(format!("ci:f02:count:{source}"))
+        .bind(language)
+        .bind(title)
+        .bind(visibility)
+        .bind(held)
+        .bind(deleted)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if source == "ru-a" {
+            public_ru_id = id;
+        }
+    }
+    let search = PgSearch::new(pool.clone());
+    assert_eq!(
+        search
+            .count_faceted("", None, Some("f02-count-total"))
+            .await,
+        Ok(3)
+    );
+    assert_eq!(
+        search
+            .count_faceted("", Some(" RU "), Some(" F02-COUNT-TOTAL "))
+            .await,
+        Ok(2)
+    );
+    assert_eq!(
+        search
+            .count_faceted("F02CountAlpha", None, Some("f02-count-total"))
+            .await,
+        Ok(2)
+    );
+    assert_eq!(
+        search
+            .count_faceted("F02CountAlpha", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1)
+    );
+    assert_eq!(
+        search
+            .count_faceted("", Some("de"), Some("f02-count-total"))
+            .await,
+        Ok(0)
+    );
+    assert_eq!(
+        search
+            .count_faceted("", None, Some("f02-count-total%"))
+            .await,
+        Ok(0)
+    );
+    assert_eq!(
+        search.count_faceted("", None, Some("bad\ngenre")).await,
+        Err(SearchError::Invalid)
+    );
+
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(public_ru_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1),
+        "hold must immediately change total"
+    );
+    sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1")
+        .bind(public_ru_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1),
+        "draft must not reappear in total"
+    );
+    sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1")
+        .bind(public_ru_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        search
+            .count_faceted("", Some("ru"), Some("f02-count-total"))
+            .await,
+        Ok(1),
+        "deleted must not reappear in total"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_02_lexical_keysets_match_postgres_order_and_hide_private_rows() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never write to production");
+    for (key, title, author, visibility, held, deleted) in [
+        ("a", "Море", "Иван", "public", false, false),
+        ("b", "Яблоко", "Анна", "public", false, false),
+        ("c", "море", "Анна", "public", false, false),
+        ("d", "яблоко", "Борис", "public", false, false),
+        ("e", "Apple", "", "public", false, false),
+        ("f", "Apple", "", "public", false, false),
+        ("draft", "A-hidden", "A-hidden", "draft", false, false),
+        ("held", "A-held", "A-held", "public", true, false),
+        ("deleted", "A-deleted", "A-deleted", "public", false, true),
+    ] {
+        sqlx::query(
+            "INSERT INTO books (source_identity,target_language,title,author_name,genres,
+                                visibility,admin_hold,is_deleted)
+             VALUES ($1,'ru',$2,$3,ARRAY['f02-lexical'],$4,$5,$6)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold,is_deleted=EXCLUDED.is_deleted",
+        )
+        .bind(format!("ci:f02:lexical:{key}"))
+        .bind(title)
+        .bind(author)
+        .bind(visibility)
+        .bind(held)
+        .bind(deleted)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let search = PgSearch::new(pool.clone());
+    for (sort, oracle) in [
+        (
+            "title",
+            "SELECT id FROM books WHERE visibility='public'
+               AND NOT admin_hold AND NOT is_deleted
+               AND genres @> ARRAY['f02-lexical']
+               ORDER BY lower(title) ASC,id ASC",
+        ),
+        (
+            "author",
+            "SELECT id FROM books WHERE visibility='public'
+               AND NOT admin_hold AND NOT is_deleted
+               AND genres @> ARRAY['f02-lexical']
+               ORDER BY lower(author_name) ASC,id ASC",
+        ),
+    ] {
+        let expected: Vec<i64> = sqlx::query_scalar(oracle).fetch_all(&pool).await.unwrap();
+        assert_eq!(expected.len(), 6);
+        let mut actual = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut pages = 0;
+        loop {
+            let page = search
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-lexical"),
+                    cursor.as_deref(),
+                    2,
+                    Some(sort),
+                )
+                .await
+                .unwrap();
+            assert!(!page.items.is_empty());
+            assert!(page.items.len() <= 2);
+            actual.extend(
+                page.items
+                    .into_iter()
+                    .map(|book| i64::try_from(book.id).unwrap()),
+            );
+            pages += 1;
+            assert!(pages <= 5, "cursor loop for {sort}");
+            match page.next_cursor {
+                Some(next) => {
+                    assert!(next.starts_with(&format!("{sort}.")));
+                    assert_ne!(cursor.as_deref(), Some(next.as_str()));
+                    cursor = Some(next);
+                }
+                None => break,
+            }
+        }
+        assert_eq!(pages, 3);
+        assert_eq!(actual, expected, "{sort}: unstable order or private row");
+    }
+    for (sort, cursor) in [
+        ("title", "1"),
+        ("author", "title.6162.1"),
+        ("title", "title.gg.1"),
+        ("title", "title.0.1"),
+        ("title", "title.00.0"),
+        ("author", "author.00.01"),
+    ] {
+        assert_eq!(
+            search
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-lexical"),
+                    Some(cursor),
+                    2,
+                    Some(sort),
+                )
+                .await,
+            Err(SearchError::Invalid),
+            "bad {sort} cursor {cursor}"
+        );
+    }
+    let excessive = format!("title.{}.1", "a".repeat(2049));
+    assert_eq!(
+        search
+            .search_faceted_sorted(
+                "",
+                Some("ru"),
+                Some("f02-lexical"),
+                Some(&excessive),
+                2,
+                Some("title"),
+            )
+            .await,
+        Err(SearchError::Invalid),
+    );
+}

@@ -91,6 +91,15 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing actor-bound scoped repository call")
 
+    def test_reader_saved_state_remains_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth.rs",
+            "saved_state(actor, chapter_id, version_id)",
+            "saved_state(chapter_id, version_id)",
+            start="async fn private_reader(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
     def test_csrf_rejection_removal_fails(self):
         self.mutate(
             "crates/web/src/auth.rs",

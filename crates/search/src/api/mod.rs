@@ -22,6 +22,8 @@ struct SearchQuery {
     after: Option<String>,
     limit: Option<usize>,
     sort: Option<String>,
+    #[serde(default)]
+    include_total: bool,
 }
 
 #[derive(Serialize)]
@@ -37,6 +39,8 @@ struct SearchItem {
 struct SearchResponse {
     items: Vec<SearchItem>,
     next_cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +85,11 @@ async fn search_books(
     State(state): State<SearchApiState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    // Exact counts are requested only on the first page, never on every
+    // cursor step. Existing clients retain their old response shape.
+    if query.include_total && query.after.is_some() {
+        return Err(search_error(SearchError::Invalid));
+    }
     let page = state
         .search
         .search_faceted_sorted(
@@ -93,6 +102,21 @@ async fn search_books(
         )
         .await
         .map_err(search_error)?;
+    let total = if query.include_total {
+        Some(
+            state
+                .search
+                .count_faceted(
+                    query.q.as_deref().unwrap_or(""),
+                    query.language.as_deref(),
+                    query.genre.as_deref(),
+                )
+                .await
+                .map_err(search_error)?,
+        )
+    } else {
+        None
+    };
     Ok(Json(SearchResponse {
         items: page
             .items
@@ -106,6 +130,7 @@ async fn search_books(
             })
             .collect(),
         next_cursor: page.next_cursor,
+        total,
     }))
 }
 

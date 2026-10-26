@@ -33,6 +33,18 @@ impl PgSearch {
             .await
     }
 
+    /// F-02: an exact count is requested separately from the fast page query.
+    /// It has the same validation and visibility predicates as the catalog.
+    pub async fn count_faceted(
+        &self,
+        term: &str,
+        language: Option<&str>,
+        genre: Option<&str>,
+    ) -> Result<u64, SearchError> {
+        let (_, language, genre) = validate_browse(term, language, genre, None, 1)?;
+        catalog::count_filtered(&self.pool, term, language.as_deref(), genre.as_deref()).await
+    }
+
     /// Legacy search stays strict: without a filter, callers must explicitly
     /// request a catalog order (the older API returned 400 for empty search).
     pub async fn search_faceted(
@@ -59,6 +71,21 @@ impl PgSearch {
         sort: Option<&str>,
     ) -> Result<SearchPage, SearchError> {
         let direction = CatalogSort::parse(sort)?;
+        // Lexical sorts have a compound (lower(value), id) cursor. Validate
+        // ordinary search facets separately from that opaque URL value.
+        if matches!(direction, CatalogSort::Title | CatalogSort::Author) {
+            let (_, language, genre) = validate_browse(term, language, genre, None, limit)?;
+            return catalog::read_lexical_page(
+                &self.pool,
+                term,
+                language.as_deref(),
+                genre.as_deref(),
+                after,
+                limit,
+                direction,
+            )
+            .await;
+        }
         let (after, language, genre) = if sort.is_some() {
             validate_browse(term, language, genre, after, limit)?
         } else {

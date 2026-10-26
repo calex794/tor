@@ -115,7 +115,30 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
+        // F-02: real HTML total must agree with the explicitly requested API total.
+        const countRes = await guest.request.get(
+          base + '/api/v1/search/books?' +
+          new URLSearchParams({ ...filters, sort: 'newest', include_total: 'true' })
+        );
+        assert(countRes.status() === 200, 'F02 count HTTP failed');
+        const count = await countRes.json();
+        assert(Number.isSafeInteger(count.total) && count.total >= 1,
+          viewport + ': F02 count missing');
+        assert((await guest.locator('.catalog-result-count').innerText()) ===
+          'Найдено книг: ' + count.total,
+          viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
+
+        // F-02: lexical sorting is a real catalog control, not just an API flag.
+        for (const sort of ['title', 'author']) {
+          await guest.getByLabel('Сортировка').selectOption(sort);
+          await guest.getByRole('button', { name: 'Найти' }).click();
+          await guest.waitForLoadState('networkidle');
+          assert(new URL(guest.url()).searchParams.get('sort') === sort,
+            viewport + ': lexical sort not applied');
+          assert(await bookLink(guest, id).isVisible(),
+            viewport + ': matching book vanished after ' + sort + ' sort');
+        }
 
         // Switch language in the search FORM; the canonical translation language is immutable.
         await search(guest, { ...filters, language: 'en' });

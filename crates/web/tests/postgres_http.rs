@@ -270,3 +270,128 @@ async fn f_02_catalog_sort_keeps_legacy_json_contract_and_rejects_bad_cursors() 
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci with standard public/hidden/held fixtures"]
+async fn f_02_exact_total_html_and_opt_in_json_obey_public_visibility() {
+    // The web crate deliberately does not own SQLx: use the same immutable
+    // public fixture via HTTP that the repository integration tests use.
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+
+    let (status, html) = get(app.clone(), "/catalog?q=TOR%20CI%20public&sort=oldest").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("Найдено книг: 1"), "{html}");
+    assert!(html.contains("TOR CI public"));
+    assert!(!html.contains("TOR CI hidden"));
+    assert!(!html.contains("TOR CI held"));
+
+    let (status, json) = get(
+        app.clone(),
+        "/api/v1/search/books?q=TOR%20CI%20public&sort=newest&include_total=true",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json.contains(r#""total":1"#), "{json}");
+    assert!(json.contains("TOR CI public"));
+
+    let (status, zero) = get(
+        app.clone(),
+        "/api/v1/search/books?q=TOR%20CI%20public&language=en&sort=oldest&include_total=true",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(zero.contains(r#""total":0"#), "{zero}");
+    assert!(zero.contains(r#""items":[]"#), "{zero}");
+
+    // The public catalog has multiple records in this PG fixture; a cursor
+    // page must not add the expensive opt-in total unless explicitly requested.
+    let (status, first) = get(
+        app.clone(),
+        "/api/v1/search/books?sort=newest&limit=1&include_total=true",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(first.contains(r#""total":"#), "{first}");
+    let cursor = first
+        .split(r#""next_cursor":""#)
+        .nth(1)
+        .expect("fixture must contain multiple public books")
+        .split('"')
+        .next()
+        .unwrap();
+    let (status, second) = get(
+        app.clone(),
+        &format!("/api/v1/search/books?sort=newest&limit=1&after={cursor}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !second.contains(r#""total":"#),
+        "cursor request must stay cheap"
+    );
+    assert_eq!(
+        get(
+            app.clone(),
+            &format!("/api/v1/search/books?sort=newest&limit=1&after={cursor}&include_total=true"),
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST,
+    );
+    let (status, legacy) = get(app, "/api/v1/books").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        legacy.starts_with('['),
+        "original endpoint must be a JSON array"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci public books"]
+async fn f_02_lexical_sort_is_bounded_and_uses_sort_specific_cursors_in_http() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+    for sort in ["title", "author"] {
+        let (status, html) = get(app.clone(), &format!("/catalog?sort={sort}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains(&format!("value=\"{sort}\" selected")),
+            "{sort}: sort option not selected"
+        );
+        let (status, json) = get(
+            app.clone(),
+            &format!("/api/v1/search/books?sort={sort}&limit=1"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let cursor = json
+            .split(r#""next_cursor":""#)
+            .nth(1)
+            .expect("multiple public books are seeded")
+            .split('"')
+            .next()
+            .unwrap();
+        assert!(cursor.starts_with(&format!("{sort}.")));
+        let (status, page_two) = get(
+            app.clone(),
+            &format!("/api/v1/search/books?sort={sort}&limit=1&after={cursor}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!page_two.contains(r#""items":[]"#));
+    }
+    for path in [
+        "/catalog?sort=title&after=1",
+        "/catalog?sort=author&after=title.6162.1",
+        "/api/v1/search/books?sort=title&after=title.gg.1",
+        "/api/v1/search/books?sort=title&after=title.00.0",
+        "/api/v1/search/books?sort=author&after=author.00.01",
+    ] {
+        assert_eq!(
+            get(app.clone(), path).await.0,
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
+    }
+}

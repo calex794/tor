@@ -21,7 +21,7 @@ PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
-    "saved_place", "save_position", "add_book", "remove_book",
+    "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "set_ril_behavior_consent",
 }
 OWNER_CALLS = {
