@@ -218,6 +218,19 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
         for t in row["tor_tasks"].split(","):
             if not (t in tasks_by_id or (t.startswith("ADM-") and t[4:].isdigit() and 1 <= int(t[4:]) <= 12)):
                 problems.append(f"{identity}: nonexistent task {t}")
+    # These independent user actions must not be silently collapsed into a
+    # broader feature merely because their endpoints live in the same module.
+    critical_groups = {
+        "X-BOOK-COMMENTS": 3,
+        "X-AUTHOR-STATS": 8,
+        "X-PROJECT-MANAGER": 2,
+        "X-REVENUE-HTML": 1,
+    }
+    groups = Counter(x["action_group"] for x in actions)
+    for name, expected in critical_groups.items():
+        if groups[name] != expected:
+            problems.append(f"critical semantic action group {name} lost: {groups[name]} instead of {expected}")
+
     names = [x["job_name"] for x in jobs]
     if len(set(names)) != len(names):
         problems.append("duplicate registered job name")
