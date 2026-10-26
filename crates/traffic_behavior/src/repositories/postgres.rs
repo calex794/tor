@@ -60,9 +60,14 @@ impl PgRilRollups {
     /// These are application-side observed query completions, NOT server CPU
     /// time or money. The two counters are not necessarily complete for
     /// spawned background tasks; observed_requests states coverage explicitly.
-    pub async fn read_sql_costs(&self, days: u16) -> Result<Vec<crate::domain::SqlCostCount>, sqlx::Error> {
+    pub async fn read_sql_costs(
+        &self,
+        days: u16,
+    ) -> Result<Vec<crate::domain::SqlCostCount>, sqlx::Error> {
         if !(1..=30).contains(&days) {
-            return Err(sqlx::Error::Protocol("RIL SQLx window must be 1..=30 days".into()));
+            return Err(sqlx::Error::Protocol(
+                "RIL SQLx window must be 1..=30 days".into(),
+            ));
         }
         let rows = sqlx::query(
             "SELECT route_code,
@@ -78,12 +83,14 @@ impl PgRilRollups {
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter()
-            .map(|row| Ok(crate::domain::SqlCostCount {
-                route: row.try_get("route_code")?,
-                observed_requests: row.try_get("observed_requests")?,
-                observed_queries: row.try_get("observed_queries")?,
-                sqlx_elapsed_us: row.try_get("sqlx_elapsed_us")?,
-            }))
+            .map(|row| {
+                Ok(crate::domain::SqlCostCount {
+                    route: row.try_get("route_code")?,
+                    observed_requests: row.try_get("observed_requests")?,
+                    observed_queries: row.try_get("observed_queries")?,
+                    sqlx_elapsed_us: row.try_get("sqlx_elapsed_us")?,
+                })
+            })
             .collect()
     }
 
