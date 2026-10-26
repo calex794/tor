@@ -52,8 +52,8 @@ impl Default for RollupDelta {
 
 impl RollupDelta {
     pub fn record(&mut self, event: BehaviorEvent, transition: Option<Transition>) {
-        let cell = &mut self.routes[event.route as usize][event.status as usize]
-            [event.latency as usize];
+        let cell =
+            &mut self.routes[event.route as usize][event.status as usize][event.latency as usize];
         if *cell < MAX_CELL {
             *cell += 1;
         } else {
@@ -168,11 +168,14 @@ mod tests {
                 gap: GapBucket::Fast,
             }),
         );
-        assert_eq!(delta.transition_rows(), vec![TransitionCount {
-            from: RouteCode::Catalog as i16,
-            to: RouteCode::Books as i16,
-            gap: GapBucket::Fast as i16,
-            count: 1,
-        }]);
+        assert_eq!(
+            delta.transition_rows(),
+            vec![TransitionCount {
+                from: RouteCode::Catalog as i16,
+                to: RouteCode::Books as i16,
+                gap: GapBucket::Fast as i16,
+                count: 1,
+            }]
+        );
     }
 }
