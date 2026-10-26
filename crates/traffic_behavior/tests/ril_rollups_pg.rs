@@ -2,7 +2,7 @@
 use sqlx::{postgres::PgPoolOptions, Row};
 use std::time::Duration;
 use tor_traffic_behavior::{
-    domain::{RouteCount, RollupDelta},
+    domain::RollupDelta,
     repositories::PgRilRollups,
     services::PgRollupPump,
     BehaviorEvent, GapBucket, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder, Transition,
