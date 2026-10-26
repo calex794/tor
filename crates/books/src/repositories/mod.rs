@@ -1,3 +1,4 @@
+pub mod cover_slots;
 pub mod postgres;
 pub use postgres::PgCatalog;
 

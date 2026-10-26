@@ -48,5 +48,5 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-      - name: Verify nine pinned donor SQL blobs, fresh and upgrade migrations
+      - name: Verify donor SQL blobs plus TOR cover schema, fresh and upgrade migrations
         run: bash tests/postgres/verify-migrations.sh

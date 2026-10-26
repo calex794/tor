@@ -19,8 +19,14 @@ for line in MANIFEST.read_text(encoding="utf-8").splitlines():
         raise SystemExit("Invalid migration filename")
     entries.append((parts[0], parts[1]))
 names = [name for _, name in entries]
-if len(names) != 9 or sorted(names) != sorted(p.name for p in MIGRATIONS.glob("*.sql")):
-    raise SystemExit("Pinned source list does not match exactly nine SQL migrations")
+all_migrations = sorted(p.name for p in MIGRATIONS.glob("*.sql"))
+# First nine files are immutable donor blobs; new TOR migrations are additive.
+if len(names) != 9 or names != all_migrations[:9] or len(all_migrations) != 10:
+    raise SystemExit("Expected nine pinned donor migrations plus one TOR extension")
+if any(not re.fullmatch(r"\d{12}_[a-z0-9_]+\.sql", name) for name in all_migrations[9:]):
+    raise SystemExit("Invalid TOR extension filename")
+if len(set(n[:12] for n in all_migrations)) != len(all_migrations):
+    raise SystemExit("Migration versions must remain unique")
 if len(set(name[:12] for name in names)) != 9 or names != sorted(names):
     raise SystemExit("Migrations must have unique, monotonically ordered SQLx versions")
 for expected, name in entries:

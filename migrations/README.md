@@ -23,3 +23,7 @@ HTTP → PG → browser path. The VPS \`tor-web\` is still RAM-demo.
 The app \`tor_app\` has only DML access and lacks schema CREATE. Never use
 the PostgreSQL superuser for the running site; passwords remain exclusively
 on the VPS in \`/etc/tor/tor-app.env\` and \`/etc/tor/tor-migrator.env\`.
+
+## G-07/G-09 cover extension (2026-10-26)
+
+An additional migration `202610260001_cover_image_jobs.sql` creates G-owned verified upload objects, leased cover jobs, immutable WebP variant pointers, and a **B-owned** book cover slot updated by revision CAS. The nine historical donor blobs and their hashes remain **unchanged**; source checker verifies the original 9 plus this explicit extension. The official `tor-migrate` runner applies the tenth migration as `tor_migrator` (not `tor_app`). Real CI PostgreSQL tests prove actor ownership, exclusive claim, lease fencing, retry, atomic B slot update and old generation retention with a simulated S3 port. Production S3 authorization and the browser upload endpoint require separate deployment evidence.

@@ -10,10 +10,14 @@ DECLARE
 BEGIN
     SELECT count(*) INTO actual_count
       FROM pg_catalog.pg_tables WHERE schemaname='public';
-    IF actual_count <> 17 THEN
-        RAISE EXCEPTION 'Expected 17 domain tables, got %', actual_count;
+    IF actual_count <> 21 THEN
+        RAISE EXCEPTION 'Expected 21 domain tables, got %', actual_count;
     END IF;
-    IF to_regclass('public.reader_book_positions') IS NULL
+    IF to_regclass('public.cover_variant_jobs') IS NULL
+       OR to_regclass('public.cover_variants') IS NULL
+       OR to_regclass('public.book_cover_slots') IS NULL
+       OR to_regclass('public.cover_upload_objects') IS NULL
+       OR to_regclass('public.reader_book_positions') IS NULL
        OR to_regclass('public.chapter_purchase_facts') IS NULL
        OR to_regclass('public.chapter_purchase_commands') IS NULL THEN
         RAISE EXCEPTION 'Missing contract tables';
