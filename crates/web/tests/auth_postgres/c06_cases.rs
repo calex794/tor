@@ -36,7 +36,10 @@ async fn owned_get(app: &Router, cookies: &str, uri: &str, status: StatusCode) -
     assert_eq!(reply.status(), status, "{uri}");
     assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
     let body = body_of(reply).await;
-    assert!(!body.contains(SECRET), "paid plaintext leaked into progress API");
+    assert!(
+        !body.contains(SECRET),
+        "paid plaintext leaked into progress API"
+    );
     if status != StatusCode::OK {
         assert!(body.is_empty(), "denial must not reveal paid metadata");
     }
@@ -87,7 +90,8 @@ pub(super) async fn purchased_version_http_journey(
     );
     let anonymous = owned_get(app, "", GET_V1, StatusCode::UNAUTHORIZED).await;
     assert!(anonymous.is_empty());
-    let other_purchase = "/api/v1/me/progress/purchased?purchase_id=95841&chapter_id=95820&version_id=95831";
+    let other_purchase =
+        "/api/v1/me/progress/purchased?purchase_id=95841&chapter_id=95820&version_id=95831";
     owned_get(app, first_session, other_purchase, StatusCode::NOT_FOUND).await;
     let first = owned_get(app, first_session, GET_V1, StatusCode::OK).await;
     assert!(first.contains(r#""revision":0"#));
@@ -148,13 +152,22 @@ pub(super) async fn purchased_version_http_journey(
     let left = purchase_request(1, 2, 1);
     let right = purchase_request(2, 2, 1);
     let (one, two) = tokio::join!(
-        send(app, json_request("PUT", SAVE, &left, &cookies_a, ORIGIN, &csrf_a)),
-        send(app, json_request("PUT", SAVE, &right, &cookies_b, ORIGIN, &csrf_b)),
+        send(
+            app,
+            json_request("PUT", SAVE, &left, &cookies_a, ORIGIN, &csrf_a)
+        ),
+        send(
+            app,
+            json_request("PUT", SAVE, &right, &cookies_b, ORIGIN, &csrf_b)
+        ),
     );
     let statuses = [one.status(), two.status()];
     assert_eq!(statuses.iter().filter(|&&s| s == StatusCode::OK).count(), 1);
     assert_eq!(
-        statuses.iter().filter(|&&s| s == StatusCode::CONFLICT).count(),
+        statuses
+            .iter()
+            .filter(|&&s| s == StatusCode::CONFLICT)
+            .count(),
         1
     );
     let current = owned_get(app, second_session, GET_V1, StatusCode::OK).await;
@@ -171,7 +184,13 @@ pub(super) async fn purchased_version_http_journey(
     assert_eq!(
         send(
             app,
-            request("GET", &format!("/read/{CHAPTER}"), "", first_session, ORIGIN)
+            request(
+                "GET",
+                &format!("/read/{CHAPTER}"),
+                "",
+                first_session,
+                ORIGIN
+            )
         )
         .await
         .status(),
