@@ -40,11 +40,11 @@ pub fn private_reader(
             r##"<a class="reader-resume__link" href="#p-{}">Перейти к сохранённому месту</a>"##,
             p.block_index
         ),
-        SavedPlaceState::PreviousVersion => (
-            "Глава обновлена. Сохранённое место относится к предыдущей версии. \
-             Прочитайте новую версию и сохраните место заново."
+        SavedPlaceState::PreviousVersion => concat!(
+            "Глава обновлена. Сохранённое место относится к предыдущей версии. ",
+            "Прочитайте новую версию и сохраните место заново."
         )
-            .to_owned(),
+        .to_owned(),
         _ => "Место ещё не сохранено".to_owned(),
     };
     let prev = chapter
