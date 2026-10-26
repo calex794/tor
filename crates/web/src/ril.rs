@@ -18,8 +18,8 @@ use tor_traffic_behavior::VerifiedSubjectKey;
 mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups,
-    services::{PgPumpMonitor, PgPumpSnapshot, PgRollupPump}, BehaviorEvent, LatencyGroup, RouteCode,
-    StatusGroup, TrafficRecorder,
+    services::{PgPumpMonitor, PgPumpSnapshot, PgRollupPump},
+    BehaviorEvent, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder,
 };
 
 /// Install the numerical-only SQLx subscriber during startup (before any DB work).
@@ -41,7 +41,6 @@ static RIL_PUMP_MONITOR: OnceLock<PgPumpMonitor> = OnceLock::new();
 pub(crate) fn pump_health_snapshot() -> Option<PgPumpSnapshot> {
     RIL_PUMP_MONITOR.get().map(PgPumpMonitor::snapshot)
 }
-
 
 /// Local privacy barrier. A separate cross-instance invalidation mechanism is
 /// required before identified paths may be enabled on multiple web processes.
