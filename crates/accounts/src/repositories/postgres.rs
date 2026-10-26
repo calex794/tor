@@ -209,6 +209,58 @@ impl PgAccounts {
     }
 
     /// Safe to retry; session lookup must reject the same token immediately.
+    /// Consent defaults OFF when no row is present; no assumed agreement.
+    pub async fn ril_behavior_consent(&self, user_id: i64) -> Result<(bool, i64), sqlx::Error> {
+        let row = sqlx::query_as::<_, (bool, i64)>(
+            "SELECT enabled, epoch FROM ril_behavior_consents WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.unwrap_or((false, 0)))
+    }
+
+    /// Single DB-backed verification for the optional private GET observer.
+    /// A caller cannot supply a user ID or convert an arbitrary cookie into identity.
+    pub async fn ril_verified_opted_in_session(
+        &self,
+        token_digest: &[u8; 32],
+    ) -> Result<Option<(i64, i64)>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT s.user_id, c.epoch FROM sessions s
+                JOIN ril_behavior_consents c ON c.user_id = s.user_id
+             WHERE s.token_hash = $1 AND s.revoked_at IS NULL
+               AND s.expires_at > now() AND c.enabled = TRUE",
+        )
+        .bind(token_digest.as_slice())
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Monotonic epoch rotates the HMAC pseudonym on EVERY consent transition.
+    /// A repeated disable leaves the epoch unchanged so memory erasure can retry.
+    pub async fn set_ril_behavior_consent(
+        &self,
+        verified_user_id: i64,
+        enabled: bool,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar(
+            "INSERT INTO ril_behavior_consents(user_id,enabled,epoch)
+             VALUES ($1,$2,1)
+             ON CONFLICT (user_id) DO UPDATE
+                SET enabled = EXCLUDED.enabled,
+                    epoch = CASE WHEN ril_behavior_consents.enabled = EXCLUDED.enabled
+                                 THEN ril_behavior_consents.epoch
+                                 ELSE ril_behavior_consents.epoch + 1 END,
+                    updated_at = now()
+             RETURNING epoch",
+        )
+        .bind(verified_user_id)
+        .bind(enabled)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn revoke_session(&self, digest: &[u8; 32]) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE sessions SET revoked_at = now() \
