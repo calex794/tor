@@ -8,8 +8,8 @@ const ASCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
-       (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
-           @@ plainto_tsquery('simple'::regconfig, $1))
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
   AND id > $2
   AND ($4::text IS NULL OR target_language = $4)
   AND ($5::text IS NULL OR genres @> ARRAY[$5::text])
@@ -21,8 +21,8 @@ const DESCENDING: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
-       (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
-           @@ plainto_tsquery('simple'::regconfig, $1))
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
   AND ($2::bigint = 0 OR id < $2)
   AND ($4::text IS NULL OR target_language = $4)
   AND ($5::text IS NULL OR genres @> ARRAY[$5::text])
@@ -92,8 +92,8 @@ const FILTERED_TOTAL: &str = "
 SELECT COUNT(*) FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
-       (to_tsvector('simple'::regconfig, title) || to_tsvector('simple'::regconfig, author_name))
-           @@ plainto_tsquery('simple'::regconfig, $1))
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
   AND ($2::text IS NULL OR target_language = $2)
   AND ($3::text IS NULL OR genres @> ARRAY[$3::text])
   AND ($4::text IS NULL OR tags @> ARRAY[$4::text])
@@ -125,8 +125,8 @@ const TITLE_ORDER: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(title) AS sort_key FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
-       (to_tsvector('simple'::regconfig,title) || to_tsvector('simple'::regconfig,author_name))
-           @@ plainto_tsquery('simple'::regconfig,$1))
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
   AND ($2::text IS NULL OR (lower(title),id) > ($2::text,$3::bigint))
   AND ($5::text IS NULL OR target_language=$5)
   AND ($6::text IS NULL OR genres @> ARRAY[$6::text])
@@ -138,8 +138,8 @@ const AUTHOR_ORDER: &str = "
 SELECT id,title,target_language,author_name,genres,tags,fandoms,lower(author_name) AS sort_key FROM books
 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
   AND ($1::text = '' OR
-       (to_tsvector('simple'::regconfig,title) || to_tsvector('simple'::regconfig,author_name))
-           @@ plainto_tsquery('simple'::regconfig,$1))
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е')) || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
   AND ($2::text IS NULL OR (lower(author_name),id) > ($2::text,$3::bigint))
   AND ($5::text IS NULL OR target_language=$5)
   AND ($6::text IS NULL OR genres @> ARRAY[$6::text])
