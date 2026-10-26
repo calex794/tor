@@ -115,6 +115,18 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
+        // F-02: real HTML total must agree with the explicitly requested API total.
+        const countRes = await guest.request.get(
+          base + '/api/v1/search/books?' +
+          new URLSearchParams({ ...filters, sort: 'newest', include_total: 'true' })
+        );
+        assert(countRes.status() === 200, 'F02 count HTTP failed');
+        const count = await countRes.json();
+        assert(Number.isSafeInteger(count.total) && count.total >= 1,
+          viewport + ': F02 count missing');
+        assert((await guest.locator('.catalog-result-count').innerText()) ===
+          'Найдено книг: ' + count.total,
+          viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
 
         // Switch language in the search FORM; the canonical translation language is immutable.
