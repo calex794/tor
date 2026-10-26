@@ -18,7 +18,8 @@ use sqlx::{
     PgPool, Row,
 };
 use std::time::Duration;
-const REQUIRED_MIGRATION: i64 = 202610130003;
+mod readiness;
+use readiness::{require_latest_migration, REQUIRED_MIGRATION};
 
 #[derive(Clone)]
 pub struct PgCatalog {
@@ -62,11 +63,7 @@ impl PgCatalog {
         .bind(REQUIRED_MIGRATION)
         .fetch_optional(&self.pool)
         .await?;
-        if applied.is_none() {
-            return Err(sqlx::Error::Protocol(
-                "TOR schema must have all nine historical SQLx migrations".into(),
-            ));
-        }
+        require_latest_migration(applied)?;
         sqlx::query(
             "SELECT id, source_identity, target_language, title, visibility \
              FROM books WHERE visibility='public' AND NOT admin_hold \
@@ -74,6 +71,12 @@ impl PgCatalog {
         )
         .execute(&self.pool)
         .await?;
+        // A stale schema can still serve catalog pages while B-06 chapter
+        // writes fail. Do not report readiness until its working table is
+        // present and readable by the restricted application role.
+        sqlx::query("SELECT chapter_id, version_id FROM chapter_working_drafts LIMIT 0")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
