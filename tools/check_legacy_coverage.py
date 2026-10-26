@@ -247,11 +247,15 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
     if strict:
         if unresolved:
             problems.extend(["UNMOUNTED/UNVERIFIED " + x for x in unresolved[:15]])
-        pending = [x for x in covered if x["comparison"] in ("semantic_review", "mount_review")]
+        pending = [
+            x for x in actions
+            if x["mapping_status"] in ("candidate_from_source", "explicit_subfunction", "legacy_mount_unconfirmed")
+            and x["verification"] != "runtime_verified"
+        ]
         if pending:
-            problems.append(f"{len(pending)} routes still require semantic mapping (lexical match cannot prove parity)")
+            problems.append(f"{len(pending)} routes still require semantic mapping and runtime evidence; lexical path match is not proof")
             for row in pending[:10]:
-                problems.append(f'REVIEW {row["method"]} {row["path"]}')
+                problems.append(f'REVIEW {row["legacy_method"]} {row["legacy_path"]}')
     return problems, stats
 
 
