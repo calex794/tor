@@ -81,17 +81,17 @@ class LegacyCoverageTests(unittest.TestCase):
         self.assertTrue(any("semantic rows" in x or "semantic action keys mismatch" in x for x in issues))
 
     def test_invalid_feature_group_detected(self):
-        self.edit("route-action-candidates.tsv", "\\tF015\\t", "\\tF999\\t")
+        self.edit("route-action-candidates.tsv", "\tF015\t", "\tF999\t")
         issues, _ = audit(self.root)
         self.assertTrue(any("unknown canonical feature" in x for x in issues))
 
     def test_false_behavior_verification_detected(self):
-        self.edit("route-action-candidates.tsv", "\\tnot_behavior_verified\\t", "\\truntime_verified\\t")
+        self.edit("route-action-candidates.tsv", "\tnot_behavior_verified\t", "\truntime_verified\t")
         issues, _ = audit(self.root)
         self.assertTrue(any("falsely marked behavior-verified" in x for x in issues))
 
     def test_frozen_action_must_remain_frozen(self):
-        self.edit("route-action-candidates.tsv", "\\tFROZEN\\t\\t\\texcluded\\t", "\\tF018\\tB-02\\tcandidate_from_source\\t")
+        self.edit("route-action-candidates.tsv", "\tFROZEN\t\t\texcluded\t", "\tF018\tB-02\tcandidate_from_source\t")
         issues, _ = audit(self.root)
         self.assertTrue(any("frozen route" in x for x in issues))
 
