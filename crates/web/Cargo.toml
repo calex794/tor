@@ -9,6 +9,7 @@ tokio.workspace = true
 tor-books = { path = "../books" }
 tor-reading = { path = "../reading" }
 tor-accounts = { path = "../accounts" }
+tor-route_intelligence = { path = "../route_intelligence" }
 serde.workspace = true
 
 [dev-dependencies]
