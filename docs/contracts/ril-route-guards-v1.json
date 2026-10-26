@@ -1,0 +1,307 @@
+{
+  "schema": "tor_ril08_route_policies_v1",
+  "note": "Policy rows bind each registered Axum method+template+handler+source. A duplicate route may have different handlers in demo vs PG-backed mode.",
+  "routes": [
+    {
+      "method": "DELETE",
+      "template": "/api/v1/me/library/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::api_delete",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/books/{id}/toc",
+      "source": "crates/web/src/lib.rs",
+      "handler": "book_toc",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/books",
+      "source": "crates/books/src/api/mod.rs",
+      "handler": "list_books",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/chapters/{id}/read",
+      "source": "crates/web/src/lib.rs",
+      "handler": "denied_reader_api",
+      "policy": "deny"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/library",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::api_list",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/progress/free",
+      "source": "crates/web/src/auth.rs",
+      "handler": "sync_actions::get_free",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/progress/purchased",
+      "source": "crates/web/src/auth.rs",
+      "handler": "sync_actions::get_purchased",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/site.css",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::stylesheet",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}",
+      "source": "crates/web/src/lib.rs",
+      "handler": "book_detail",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/catalog",
+      "source": "crates/web/src/lib.rs",
+      "handler": "catalog",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/",
+      "source": "crates/web/src/lib.rs",
+      "handler": "homepage",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/healthz",
+      "source": "crates/web/src/lib.rs",
+      "handler": "health",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/login",
+      "source": "crates/web/src/auth.rs",
+      "handler": "show_login",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/login",
+      "source": "crates/web/src/lib.rs",
+      "handler": "login",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/{chapter_id}/edit",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "edit_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/{chapter_id}/release",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "confirm_release",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/new",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "new_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_book",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/new",
+      "source": "crates/web/src/auth.rs",
+      "handler": "new_author_book",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_books",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/add/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::show_add",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library",
+      "source": "crates/web/src/auth.rs",
+      "handler": "my_library",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me",
+      "source": "crates/web/src/auth.rs",
+      "handler": "me",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/read/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "private_reader",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/reader/{id}",
+      "source": "crates/web/src/lib.rs",
+      "handler": "reader_page",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/readyz",
+      "source": "crates/web/src/lib.rs",
+      "handler": "ready",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/register",
+      "source": "crates/web/src/auth.rs",
+      "handler": "show_registration",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/register",
+      "source": "crates/web/src/lib.rs",
+      "handler": "register",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/library/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::api_add",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/login",
+      "source": "crates/web/src/auth.rs",
+      "handler": "login",
+      "policy": "entry"
+    },
+    {
+      "method": "POST",
+      "template": "/logout",
+      "source": "crates/web/src/auth.rs",
+      "handler": "logout",
+      "policy": "csrf_only"
+    },
+    {
+      "method": "POST",
+      "template": "/me/behavior",
+      "source": "crates/web/src/auth.rs",
+      "handler": "behavior_consent::set_behavior_consent",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/{chapter_id}/edit",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "update_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/{chapter_id}/release",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "publish_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "create_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/publish",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "publish_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books",
+      "source": "crates/web/src/auth.rs",
+      "handler": "create_book",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/library/{id}/remove",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::browser_remove",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/library/{id}/save",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_actions::browser_add",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/read/{id}/place",
+      "source": "crates/web/src/auth.rs",
+      "handler": "save_place",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/register",
+      "source": "crates/web/src/auth.rs",
+      "handler": "register",
+      "policy": "entry"
+    },
+    {
+      "method": "PUT",
+      "template": "/api/v1/me/progress/free",
+      "source": "crates/web/src/auth.rs",
+      "handler": "sync_actions::put_free",
+      "policy": "scoped"
+    },
+    {
+      "method": "PUT",
+      "template": "/api/v1/me/progress/purchased",
+      "source": "crates/web/src/auth.rs",
+      "handler": "sync_actions::put_purchased",
+      "policy": "scoped"
+    }
+  ]
+}
