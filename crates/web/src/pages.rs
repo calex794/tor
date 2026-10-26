@@ -438,6 +438,7 @@ mod tests {
             Some(1),
         )
         .0;
+        assert!(html.contains("Найдено книг: 1"));
         assert!(html.contains("&lt;img"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<img src"));
