@@ -2,6 +2,7 @@
 //! No per-request records or user-associated data are retained.
 #[cfg(unix)]
 pub mod lookup;
+pub mod process;
 #[cfg(unix)]
 pub mod publisher;
 pub mod trace;
@@ -17,6 +18,15 @@ struct Observation {
     count: u64,
     sum_ns: u128,
     buckets: [u64; BOUNDS.len()],
+}
+
+/// Anonymous cumulative process-local HTTP counts, reset on every restart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HttpSummary {
+    pub requests: u64,
+    pub client_errors: u64,
+    pub server_errors: u64,
+    pub slower_than_one_second: u64,
 }
 
 #[derive(Default)]
@@ -40,6 +50,32 @@ impl HttpMetrics {
                 record.buckets[index] = record.buckets[index].saturating_add(1);
             }
         }
+    }
+
+    /// A stable operator snapshot; never parses strings from /metrics.
+    pub fn summary(&self) -> HttpSummary {
+        let snapshot = *self
+            .observations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut total = HttpSummary::default();
+        for groups in snapshot {
+            for (status, counters) in groups.into_iter().enumerate() {
+                total.requests = total.requests.saturating_add(counters.count);
+                if status == StatusGroup::ClientError as usize {
+                    total.client_errors = total.client_errors.saturating_add(counters.count);
+                }
+                if status == StatusGroup::ServerError as usize {
+                    total.server_errors = total.server_errors.saturating_add(counters.count);
+                }
+                total.slower_than_one_second = total.slower_than_one_second.saturating_add(
+                    counters
+                        .count
+                        .saturating_sub(counters.buckets[BOUNDS.len() - 1]),
+                );
+            }
+        }
+        total
     }
 
     /// This is not a distributed or persistent series. Process restarts reset it.
@@ -118,6 +154,33 @@ mod tests {
         assert!(text.contains(
             "tor_http_request_duration_seconds_bucket{route_family=\"catalog\",status_group=\"2xx\",le=\"+Inf\"} 200"
         ));
+    }
+
+    #[test]
+    fn operator_snapshot_counts_errors_and_slow_without_identifiers() {
+        let metrics = HttpMetrics::default();
+        assert_eq!(metrics.summary(), HttpSummary::default());
+        metrics.observe(
+            RouteGroup::Home,
+            StatusGroup::Success,
+            Duration::from_millis(80),
+        );
+        metrics.observe(
+            RouteGroup::Reader,
+            StatusGroup::ClientError,
+            Duration::from_secs(2),
+        );
+        metrics.observe(
+            RouteGroup::Other,
+            StatusGroup::ServerError,
+            Duration::from_secs(4),
+        );
+        let view = metrics.summary();
+        assert_eq!(view.requests, 3);
+        assert_eq!(view.client_errors, 1);
+        assert_eq!(view.server_errors, 1);
+        assert_eq!(view.slower_than_one_second, 2);
+        assert!(!format!("{view:?}").contains("user_id"));
     }
 
     #[test]

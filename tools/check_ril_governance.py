@@ -207,21 +207,30 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         operator = functions.get("authorized", "")
         gate = functions.get("respond", "")
         rejected = functions.get("denied", "")
-        if (entry["method"], entry["template"], entry["handler"]) != (
-            "GET", "/ops/traces", "operator_traces::page"
-        ):
-            errors.append(f"{label}: operator privilege allowed only for reviewed trace page")
-        if not (
-            "TOR_OBS_OPERATOR_PASSWORD" in body
-            and "respond(" in body
-            and "if !authorized(&headers, secret)" in gate
-            and "return denied()" in gate
-            and "StatusCode::UNAUTHORIZED" in rejected
-            and "get_all(header::AUTHORIZATION)" in operator
-            and "Basic " in operator
-            and "equal_secret(" in operator
-        ):
-            errors.append(f"{label}: operator password boundary missing or unverified")
+        key = (entry["method"], entry["template"], entry["handler"])
+        if key == ("GET", "/ops/traces", "operator_traces::page"):
+            if not (
+                "TOR_OBS_OPERATOR_PASSWORD" in body
+                and "respond(" in body
+                and "if !authorized(&headers, secret)" in gate
+                and "return denied()" in gate
+                and "StatusCode::UNAUTHORIZED" in rejected
+                and "get_all(header::AUTHORIZATION)" in operator
+                and "Basic " in operator
+                and "equal_secret(" in operator
+            ):
+                errors.append(f"{label}: trace operator password boundary missing")
+        elif key == ("GET", "/ops/overview", "operator_overview::page"):
+            if not (
+                "TOR_OBS_OPERATOR_PASSWORD" in body
+                and "respond(headers, secret.as_deref(), state.postgres).await" in body
+                and "if !operator_traces::authorized(&headers, secret)" in gate
+                and "return operator_traces::denied()" in gate
+                and "operator_traces::secure(render(&summary))" in gate
+            ):
+                errors.append(f"{label}: overview must re-use exact operator gate before database access")
+        else:
+            errors.append(f"{label}: operator privilege reserved for two reviewed read-only pages")
 
     if policy == "deny" and "StatusCode::NOT_FOUND" not in evidence:
         errors.append(f"{label}: disabled endpoint no longer denies")

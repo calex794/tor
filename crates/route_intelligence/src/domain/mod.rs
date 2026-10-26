@@ -99,7 +99,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 47] = [
+const ROUTES: [RouteRegistration; 48] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -397,6 +397,15 @@ const ROUTES: [RouteRegistration; 47] = [
         ProductArea::Admin,
         Read,
     ), // 46
+    RouteRegistration::new(
+        "/ops/overview",
+        "GET",
+        "/ops/",
+        Exact,
+        TrafficSurface::Admin,
+        ProductArea::Admin,
+        Read,
+    ), // 47
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -507,6 +516,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/brand/pandaolate-header-dark.png"), "GET") => Some(44),
         (Some("/metrics"), "GET") => Some(45),
         (Some("/ops/traces"), "GET") => Some(46),
+        (Some("/ops/overview"), "GET") => Some(47),
         _ => None,
     };
     index

@@ -73,6 +73,11 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .unwrap();
 
     assert!(repo.enqueue(&id, &batch).await.unwrap());
+    // Read-only operator count uses the real tor_app PostgreSQL role.
+    let queued = repo.queue_counts().await.unwrap();
+    assert!(queued.pending >= 1);
+    assert!(queued.running >= 0 && queued.dead >= 0);
+
     assert!(
         !repo.enqueue(&id, &batch).await.unwrap(),
         "same batch must dedupe"

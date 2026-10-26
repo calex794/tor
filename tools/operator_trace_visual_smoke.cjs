@@ -15,10 +15,16 @@ if (!password || password.length < 32) throw new Error('missing test-only operat
     const stranger = await browser.newContext();
     const denied = await stranger.request.get(origin + '/ops/traces');
     if (denied.status() !== 401) throw new Error('operator page opened to anonymous user');
+    const anonymousSummary = await stranger.request.get(origin + '/ops/overview');
+    if (anonymousSummary.status() !== 401) throw new Error('overview opened to anonymous user');
     const wrong = await stranger.request.get(origin + '/ops/traces', {
       headers: { authorization: 'Basic ' + Buffer.from('operator:wrong').toString('base64') },
     });
     if (wrong.status() !== 401) throw new Error('wrong operator credential accepted');
+    const wrongSummary = await stranger.request.get(origin + '/ops/overview', {
+      headers: { authorization: 'Basic ' + Buffer.from('operator:wrong').toString('base64') },
+    });
+    if (wrongSummary.status() !== 401) throw new Error('overview allowed wrong operator password');
     await stranger.close();
 
     const context = await browser.newContext({
@@ -30,6 +36,30 @@ if (!password || password.length < 32) throw new Error('missing test-only operat
     if (!response || response.status() !== 200) throw new Error('protected form inaccessible');
     if (!(await page.getByRole('heading', { name: 'Диагностика HTTP-запроса' }).isVisible()))
       throw new Error('operator page heading is not visible');
+    response = await page.goto(origin + '/ops/overview');
+    if (!response || response.status() !== 200) throw new Error('protected overview inaccessible');
+    if (!(await page.getByRole('heading', { name: 'Состояние сайта TOR' }).isVisible()))
+      throw new Error('overview heading not visible');
+    const overviewText = await page.locator('main').innerText();
+    for (const required of [
+      'PostgreSQL', 'Не подключена (демонстрационный режим)', 'Ресурсы процесса TOR',
+      'HTTP с запуска процесса', 'RIL: маршруты и потери', 'Очередь аналитики RIL',
+      'Очередь обработки обложек', 'Доставка трасс', 'Нет измерения',
+    ]) {
+      if (!overviewText.includes(required)) throw new Error('missing measured overview section: ' + required);
+    }
+    if (overviewText.includes(password) || overviewText.includes('SELECT *'))
+      throw new Error('operator secrets or SQL leaked');
+    for (const [label, width, height] of [['desktop', 1280, 900], ['mobile', 390, 844]]) {
+      await page.setViewportSize({ width, height });
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+      if (overflow) throw new Error(label + ': overview horizontally overflows');
+      await page.screenshot({ path: path.join(output, label + '-operator-overview.png'), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    response = await page.goto(origin + '/ops/traces');
+    if (!response || response.status() !== 200) throw new Error('trace page no longer reachable');
 
     const malformed = await page.goto(origin + '/ops/traces?id=%3Cscript%3E');
     if (!malformed || malformed.status() !== 400) throw new Error('invalid trace ID accepted');
@@ -83,7 +113,7 @@ if (!password || password.length < 32) throw new Error('missing test-only operat
       throw new Error('missing trace explanation not visible');
 
     await context.close();
-    console.log('OBS-04 browser PASS: independent auth, real socket SQLite persistence, 404, mobile and desktop');
+    console.log('OBS-04/05 browser PASS: protected overview and traces, isolated SQLite, 404 and responsive layout');
   } finally {
     await browser.close();
   }

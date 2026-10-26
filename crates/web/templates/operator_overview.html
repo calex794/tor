@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>TOR — состояние сайта</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,-apple-system,sans-serif}
+body{margin:0;background:#f3f5f7;color:#18222c}
+main{max-width:970px;margin:2.5rem auto;padding:0 1.25rem}
+header{margin-bottom:1.5rem}
+h1{font-size:1.75rem;margin-bottom:.35rem}
+h2{font-size:1.2rem}
+p{line-height:1.45;overflow-wrap:anywhere}
+nav{display:flex;gap:1.25rem;flex-wrap:wrap;margin:.9rem 0}
+nav a{color:#1b5780}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.card{background:#fff;border:1px solid #d5dfe5;border-radius:10px;padding:1.1rem 1.35rem;min-width:0}
+dl{display:grid;grid-template-columns:minmax(9rem,1fr) minmax(0,1fr);gap:.7rem .8rem;overflow-wrap:anywhere}
+dt{color:#556978}
+dd{margin:0;font-weight:550;overflow-wrap:anywhere}
+small,.muted{color:#596b78}
+.bad{font-weight:700}
+footer{margin:1.5rem 0}
+@media(max-width:650px){.grid{grid-template-columns:1fr}dl{grid-template-columns:minmax(7rem,1fr) minmax(0,1fr)}}
+@media(prefers-color-scheme:dark){
+body{background:#151d24;color:#e7eff4}
+.card{background:#202b34;border-color:#4b5c68}
+small,.muted,dt{color:#b5c5d2}
+nav a{color:#8fc8f2}
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Состояние сайта TOR</h1>
+<p class="muted">Техническая сводка текущего процесса и доступных очередей. Данные обновляются при открытии страницы.</p>
+<nav aria-label="Навигация диагностики">
+<a href="/ops/overview" aria-current="page">Общая сводка</a>
+<a href="/ops/traces">Поиск трассы запроса</a>
+</nav>
+</header>
+<!--SUMMARY-->
+<footer class="muted"><small>Счётчики HTTP обнуляются при перезапуске сайта. Состояние очереди не подтверждает наличие работающего исполнителя. Нет данных — не равно нулю.</small></footer>
+</main>
+</body>
+</html>

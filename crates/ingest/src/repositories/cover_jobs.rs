@@ -4,6 +4,14 @@ use crate::services::cover_jobs::CoverJobs;
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CoverQueueCounts {
+    pub pending: i64,
+    pub running: i64,
+    pub ready: i64,
+    pub dead: i64,
+}
+
 #[derive(Clone)]
 pub struct PgCoverJobs {
     pool: PgPool,
@@ -12,6 +20,27 @@ pub struct PgCoverJobs {
 impl PgCoverJobs {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Bounded output for operators. A 'running' row is NOT proof of a live worker.
+    pub async fn queue_counts(&self) -> Result<CoverQueueCounts, CoverError> {
+        let (pending, running, ready, dead): (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*) FILTER (WHERE status='pending')::bigint,
+                    COUNT(*) FILTER (WHERE status='running')::bigint,
+                    COUNT(*) FILTER (WHERE status='ready')::bigint,
+                    COUNT(*) FILTER (WHERE status='dead')::bigint
+               FROM cover_variant_jobs
+              WHERE status IN ('pending','running','ready','dead')",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| CoverError::Unavailable)?;
+        Ok(CoverQueueCounts {
+            pending,
+            running,
+            ready,
+            dead,
+        })
     }
 
     /// INTERNAL ONLY. Caller must have verified S3 HEAD+bounded GET and digest.
