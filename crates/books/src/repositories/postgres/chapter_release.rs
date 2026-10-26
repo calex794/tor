@@ -45,7 +45,11 @@ impl PgAuthoring {
         }
         let digest: [u8; 32] = hasher.finalize().into();
         let body_hash: [u8; 32] = Sha256::digest(input.body.as_bytes()).into();
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books WHERE id=$1 AND owner_user_id=$2
              AND NOT admin_hold AND NOT is_deleted FOR UPDATE",
@@ -83,19 +87,23 @@ impl PgAuthoring {
             .fetch_one(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-            let previous: Vec<u8> = row.try_get("payload_hash")
+            let previous: Vec<u8> = row
+                .try_get("payload_hash")
                 .map_err(|_| AuthorError::Unavailable)?;
             if previous.as_slice() != digest.as_slice() {
                 return Err(AuthorError::Conflict);
             }
             return Ok(SavedChapter {
-                chapter_id: row.try_get::<Option<i64>, _>("chapter_id")
+                chapter_id: row
+                    .try_get::<Option<i64>, _>("chapter_id")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
-                version_id: row.try_get::<Option<i64>, _>("version_id")
+                version_id: row
+                    .try_get::<Option<i64>, _>("version_id")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
-                revision: row.try_get::<Option<i64>, _>("saved_revision")
+                revision: row
+                    .try_get::<Option<i64>, _>("saved_revision")
                     .map_err(|_| AuthorError::Unavailable)?
                     .ok_or(AuthorError::Unavailable)?,
             });
@@ -111,8 +119,9 @@ impl PgAuthoring {
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| match error {
-            sqlx::Error::Database(ref db) if db.code().as_deref() == Some("23505") =>
-                AuthorError::Conflict,
+            sqlx::Error::Database(ref db) if db.code().as_deref() == Some("23505") => {
+                AuthorError::Conflict
+            }
             _ => AuthorError::Unavailable,
         })?;
         let version_id: i64 = sqlx::query_scalar(
@@ -125,14 +134,12 @@ impl PgAuthoring {
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        sqlx::query(
-            "INSERT INTO chapter_working_drafts(chapter_id,version_id) VALUES ($1,$2)",
-        )
-        .bind(chapter_id)
-        .bind(version_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
+        sqlx::query("INSERT INTO chapter_working_drafts(chapter_id,version_id) VALUES ($1,$2)")
+            .bind(chapter_id)
+            .bind(version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query(
             "UPDATE chapter_save_commands SET chapter_id=$3,version_id=$4,saved_revision=1
              WHERE user_id=$1 AND command_key=$2",
@@ -145,7 +152,11 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
-        Ok(SavedChapter { chapter_id, version_id, revision: 1 })
+        Ok(SavedChapter {
+            chapter_id,
+            version_id,
+            revision: 1,
+        })
     }
 
     /// Owner-only preview of the EXACT working version offered for release.
@@ -177,13 +188,22 @@ impl PgAuthoring {
         .map_err(|_| AuthorError::Unavailable)?;
         row.map(|row| {
             Ok(PendingChapter {
-                number: row.try_get("chapter_no").map_err(|_| AuthorError::Unavailable)?,
+                number: row
+                    .try_get("chapter_no")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
-                body: row.try_get("body_markdown").map_err(|_| AuthorError::Unavailable)?,
-                version_id: row.try_get("version_id").map_err(|_| AuthorError::Unavailable)?,
-                revision: row.try_get("edit_revision").map_err(|_| AuthorError::Unavailable)?,
+                body: row
+                    .try_get("body_markdown")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                version_id: row
+                    .try_get("version_id")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                revision: row
+                    .try_get("edit_revision")
+                    .map_err(|_| AuthorError::Unavailable)?,
             })
-        }).transpose()
+        })
+        .transpose()
     }
 
     /// Publish only the revision/version explicitly confirmed by the author.
@@ -202,7 +222,11 @@ impl PgAuthoring {
         if expected_revision <= 0 || expected_version_id <= 0 {
             return Err(AuthorError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
              WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
@@ -231,9 +255,11 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Missing)?;
-        let chapter_visibility: String = row.try_get("visibility")
+        let chapter_visibility: String = row
+            .try_get("visibility")
             .map_err(|_| AuthorError::Unavailable)?;
-        let revision: i64 = row.try_get("edit_revision")
+        let revision: i64 = row
+            .try_get("edit_revision")
             .map_err(|_| AuthorError::Unavailable)?;
         if revision != expected_revision {
             return Err(AuthorError::Conflict);
@@ -256,13 +282,12 @@ impl PgAuthoring {
         if chapter_visibility != "draft" {
             return Err(AuthorError::Conflict);
         }
-        let version: Option<i64> = sqlx::query_scalar(
-            "SELECT version_id FROM chapter_working_drafts WHERE chapter_id=$1",
-        )
-        .bind(chapter_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT version_id FROM chapter_working_drafts WHERE chapter_id=$1")
+                .bind(chapter_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| AuthorError::Unavailable)?;
         if version != Some(expected_version_id) {
             return Err(AuthorError::Conflict);
         }
