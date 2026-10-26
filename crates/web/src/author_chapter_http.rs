@@ -9,16 +9,14 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
-use tor_accounts::services::security::generate_session_token;
 
-use crate::{
-    auth_cookies::{private_response, CookiePolicy},
-};
+use crate::auth_cookies::{private_response, CookiePolicy};
 
 #[derive(Clone)]
 struct AuthorChapterState {
@@ -49,10 +47,7 @@ pub(crate) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         cookies,
     };
     Router::new()
-        .route(
-            "/me/books/{id}/chapters/new",
-            get(new_chapter),
-        )
+        .route("/me/books/{id}/chapters/new", get(new_chapter))
         .route("/me/books/{id}/chapters", post(create_chapter))
         .route("/me/books/{id}/publish", post(publish_book))
         .layer(DefaultBodyLimit::max(256 * 1024))
@@ -94,7 +89,10 @@ async fn new_chapter(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
-    private_response(crate::author_chapter_pages::new_chapter(id, &csrf, &key), &cookies)
+    private_response(
+        crate::author_chapter_pages::new_chapter(id, &csrf, &key),
+        &cookies,
+    )
 }
 
 async fn create_chapter(

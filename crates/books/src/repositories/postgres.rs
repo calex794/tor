@@ -304,8 +304,9 @@ impl PgAuthoring {
         .map_err(|_| AuthorError::Unavailable)?;
         rows.into_iter()
             .map(|row| {
-                let access: String =
-                    row.try_get("access_level").map_err(|_| AuthorError::Unavailable)?;
+                let access: String = row
+                    .try_get("access_level")
+                    .map_err(|_| AuthorError::Unavailable)?;
                 let access = match access.as_str() {
                     "free" => ChapterAccess::Free,
                     "paid" => ChapterAccess::Paid,
@@ -313,7 +314,9 @@ impl PgAuthoring {
                 };
                 Ok(OwnedChapterSummary {
                     id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
-                    number: row.try_get("chapter_no").map_err(|_| AuthorError::Unavailable)?,
+                    number: row
+                        .try_get("chapter_no")
+                        .map_err(|_| AuthorError::Unavailable)?,
                     title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                     access,
                 })

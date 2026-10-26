@@ -299,7 +299,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     );
     let chapter_created = send(
         &app,
-        request("POST", &chapter_path, &chapter_payload, &author_cookies, ORIGIN),
+        request(
+            "POST",
+            &chapter_path,
+            &chapter_payload,
+            &author_cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(chapter_created.status(), StatusCode::SEE_OTHER);
@@ -308,7 +314,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(
         send(
             &app,
-            request("POST", &chapter_path, &chapter_payload, &author_cookies, ORIGIN)
+            request(
+                "POST",
+                &chapter_path,
+                &chapter_payload,
+                &author_cookies,
+                ORIGIN
+            )
         )
         .await
         .status(),
@@ -316,12 +328,19 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     );
     let altered = chapter_payload.replace("number=1", "number=2");
     assert_eq!(
-        send(&app, request("POST", &chapter_path, &altered, &author_cookies, ORIGIN))
-            .await
-            .status(),
+        send(
+            &app,
+            request("POST", &chapter_path, &altered, &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
-    let private_book = send(&app, request("GET", &book_path, "", &author_cookies, ORIGIN)).await;
+    let private_book = send(
+        &app,
+        request("GET", &book_path, "", &author_cookies, ORIGIN),
+    )
+    .await;
     assert_eq!(private_book.status(), StatusCode::OK);
     let private_html = body_of(private_book).await;
     assert!(private_html.contains("Опубликовать книгу"));
@@ -348,7 +367,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     );
     let released = send(
         &app,
-        request("POST", &publish_path, &publish_payload, &author_cookies, ORIGIN),
+        request(
+            "POST",
+            &publish_path,
+            &publish_payload,
+            &author_cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(released.status(), StatusCode::SEE_OTHER);
@@ -364,15 +389,20 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(public_book.status(), StatusCode::OK);
     let public_html = body_of(public_book).await;
     assert!(public_html.contains("Глава"));
-    let published_detail =
-        send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
+    let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
     let published_html = body_of(published_detail).await;
     assert!(published_html.contains("Опубликована"));
     assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
     assert_eq!(
         send(
             &app,
-            request("POST", &publish_path, &publish_payload, &author_cookies, ORIGIN)
+            request(
+                "POST",
+                &publish_path,
+                &publish_payload,
+                &author_cookies,
+                ORIGIN
+            )
         )
         .await
         .status(),
