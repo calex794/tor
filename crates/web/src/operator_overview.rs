@@ -49,7 +49,10 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
         return state;
     };
     let timeout = Duration::from_millis(950);
-    if !matches!(tokio::time::timeout(timeout, catalog.probe()).await, Ok(Ok(()))) {
+    if !matches!(
+        tokio::time::timeout(timeout, catalog.probe()).await,
+        Ok(Ok(()))
+    ) {
         state.pg = PgHealth::Unavailable;
         return state;
     }
@@ -75,13 +78,19 @@ fn render(snapshot: &Overview) -> Html<String> {
         PgHealth::Ready => "Проверка готовности прошла",
         PgHealth::Unavailable => "Недоступна или проверка превысила лимит времени",
     };
-    let resident = snapshot.process.resident_kib
+    let resident = snapshot
+        .process
+        .resident_kib
         .map(|kb| format!("{:.1} МиБ", kb as f64 / 1024.0))
         .unwrap_or_else(|| unmeasured().to_owned());
-    let cpu = snapshot.process.cpu_seconds
+    let cpu = snapshot
+        .process
+        .cpu_seconds
         .map(|value| format!("{value:.2} с"))
         .unwrap_or_else(|| unmeasured().to_owned());
-    let cpu_share = snapshot.process.cpu_core_percent
+    let cpu_share = snapshot
+        .process
+        .cpu_core_percent
         .map(|value| format!("{value:.1}% от одного ядра"))
         .unwrap_or_else(|| "Нет измерения (нужен повторный просмотр)".to_owned());
 
@@ -164,7 +173,10 @@ pub(crate) async fn page(State(state): State<AppState>, headers: HeaderMap) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::to_bytes, http::{header, HeaderValue}};
+    use axum::{
+        body::to_bytes,
+        http::{header, HeaderValue},
+    };
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     fn credentials(password: &str) -> HeaderMap {
@@ -174,7 +186,8 @@ mod tests {
             HeaderValue::from_str(&format!(
                 "Basic {}",
                 STANDARD.encode(format!("operator:{password}"))
-            )).unwrap(),
+            ))
+            .unwrap(),
         );
         headers
     }
@@ -212,13 +225,23 @@ mod tests {
     fn combined_view_distinguishes_known_zero_and_unknown() {
         let data = Overview {
             pg: PgHealth::Unavailable,
-            http: HttpSummary { requests: 13, server_errors: 2, client_errors: 1, slower_than_one_second: 3 },
+            http: HttpSummary {
+                requests: 13,
+                server_errors: 2,
+                client_errors: 1,
+                slower_than_one_second: 3,
+            },
             process: ProcessSnapshot::default(),
             ril_dropped: Some((0, 0)),
             trace_store_configured: false,
             trace_delivery: None,
             ril_queue: None,
-            cover_queue: Some(CoverQueueCounts {pending: 1, running: 2, ready: 0, dead: 1}),
+            cover_queue: Some(CoverQueueCounts {
+                pending: 1,
+                running: 2,
+                ready: 0,
+                dead: 1,
+            }),
         };
         let text = render(&data).0;
         assert!(text.contains("Недоступна или проверка"));
