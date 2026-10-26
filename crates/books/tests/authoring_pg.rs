@@ -449,10 +449,8 @@ async fn b_01_author_genres_are_owner_written_and_retry_safe() {
     .unwrap();
     let key = "z".repeat(43);
     let identity = format!("ci:b01:metadata:{user}");
-    let book = new_book_with_discovery(
-        &identity, "ru", "Проза", &key, "Авторка", "Фэнтези, Роман",
-    )
-    .unwrap();
+    let book = new_book_with_discovery(&identity, "ru", "Проза", &key, "Авторка", "Фэнтези, Роман")
+        .unwrap();
     let author = PgAuthoring::new(pool.clone());
     let id = author.create_owned_book(user, &book).await.unwrap();
     assert_eq!(author.create_owned_book(user, &book).await, Ok(id));
@@ -465,12 +463,13 @@ async fn b_01_author_genres_are_owner_written_and_retry_safe() {
     .await
     .unwrap();
     assert_eq!(row.get::<String, _>("author_name"), "Авторка");
-    assert_eq!(row.get::<Vec<String>, _>("genres"), vec!["фэнтези", "роман"]);
+    assert_eq!(
+        row.get::<Vec<String>, _>("genres"),
+        vec!["фэнтези", "роман"]
+    );
     assert_eq!(row.get::<String, _>("visibility"), "draft");
-    let changed = new_book_with_discovery(
-        &identity, "ru", "Проза", &key, "Подмена", "Фэнтези",
-    )
-    .unwrap();
+    let changed =
+        new_book_with_discovery(&identity, "ru", "Проза", &key, "Подмена", "Фэнтези").unwrap();
     assert_eq!(
         author.create_owned_book(user, &changed).await,
         Err(AuthorError::Conflict)

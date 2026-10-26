@@ -26,7 +26,8 @@ impl PgSearch {
         after: Option<&str>,
         limit: usize,
     ) -> Result<SearchPage, SearchError> {
-        self.search_faceted(term, language, None, after, limit).await
+        self.search_faceted(term, language, None, after, limit)
+            .await
     }
 
     pub async fn search_faceted(
@@ -72,7 +73,9 @@ impl PgSearch {
                     author_name: row
                         .try_get("author_name")
                         .map_err(|_| SearchError::Unavailable)?,
-                    genres: row.try_get("genres").map_err(|_| SearchError::Unavailable)?,
+                    genres: row
+                        .try_get("genres")
+                        .map_err(|_| SearchError::Unavailable)?,
                 })
             })
             .collect::<Result<_, _>>()?;

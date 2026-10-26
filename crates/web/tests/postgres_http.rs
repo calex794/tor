@@ -190,16 +190,28 @@ async fn f_03_search_api_is_bounded_and_never_exposes_drafts() {
 async fn f_03_http_author_and_genre_facets_do_not_leak() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test database");
     let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
-    let (status, response) = get(app.clone(), "/api/v1/search/books?genre=%D1%84%D1%8D%D0%BD%D1%82%D0%B5%D0%B7%D0%B8").await;
+    let (status, response) = get(
+        app.clone(),
+        "/api/v1/search/books?genre=%D1%84%D1%8D%D0%BD%D1%82%D0%B5%D0%B7%D0%B8",
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(response.contains("TOR CI public"));
     assert!(!response.contains("TOR CI hidden"));
     assert!(!response.contains("TOR CI held"));
-    let (status, author) = get(app.clone(), "/api/v1/search/books?q=%D0%96%D1%8E%D0%BB%D1%8C").await;
+    let (status, author) = get(
+        app.clone(),
+        "/api/v1/search/books?q=%D0%96%D1%8E%D0%BB%D1%8C",
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(author.contains("TOR CI public"));
     assert!(!author.contains("TOR CI hidden"));
-    let (status, html) = get(app, "/catalog?genre=%D1%84%D1%8D%D0%BD%D1%82%D0%B5%D0%B7%D0%B8").await;
+    let (status, html) = get(
+        app,
+        "/catalog?genre=%D1%84%D1%8D%D0%BD%D1%82%D0%B5%D0%B7%D0%B8",
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("TOR CI public"));
     assert!(html.contains("Жюль"));

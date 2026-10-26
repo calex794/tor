@@ -396,11 +396,19 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     // The owner draft has metadata, but anonymous discovery must not see it.
     let before = send(
         &app,
-        request("GET", "/api/v1/search/books?q=Alice&genre=fantasy", "", "", ORIGIN),
+        request(
+            "GET",
+            "/api/v1/search/books?q=Alice&genre=fantasy",
+            "",
+            "",
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(before.status(), StatusCode::OK);
-    assert!(!body_of(before).await.contains(&format!(r#""id":"{book_id}""#)));
+    assert!(!body_of(before)
+        .await
+        .contains(&format!(r#""id":"{book_id}""#)));
     let publish_path = format!("/me/books/{book_id}/publish");
     let publish_payload = format!("csrf_token={chapter_csrf}");
     assert_eq!(
@@ -438,7 +446,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert!(public_html.contains("Глава"));
     let discovered = send(
         &app,
-        request("GET", "/api/v1/search/books?q=Alice&genre=fantasy", "", "", ORIGIN),
+        request(
+            "GET",
+            "/api/v1/search/books?q=Alice&genre=fantasy",
+            "",
+            "",
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(discovered.status(), StatusCode::OK);

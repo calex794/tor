@@ -85,11 +85,25 @@ async fn f_03_facet_search_masks_hidden_author_and_genre() {
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     let pool = PgPool::connect(&url).await.unwrap();
     let database: String = sqlx::query_scalar("SELECT current_database()")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(database, "tor_ci", "never modify production");
     let rows = [
-        ("ci:f03-meta:visible", "Фэнтези рассвет", "Жюль", "public", false),
-        ("ci:f03-meta:hidden", "Фэнтези закрыто", "Жюль", "draft", false),
+        (
+            "ci:f03-meta:visible",
+            "Фэнтези рассвет",
+            "Жюль",
+            "public",
+            false,
+        ),
+        (
+            "ci:f03-meta:hidden",
+            "Фэнтези закрыто",
+            "Жюль",
+            "draft",
+            false,
+        ),
         ("ci:f03-meta:held", "Фэнтези блок", "Жюль", "public", true),
     ];
     for (identity, title, author, visibility, held) in rows {
@@ -111,18 +125,46 @@ async fn f_03_facet_search_masks_hidden_author_and_genre() {
         .unwrap();
     }
     let search = PgSearch::new(pool);
-    let by_author = search.search_faceted("Жюль", Some("ru"), None, None, 30).await.unwrap();
-    assert!(by_author.items.iter().any(|item| item.title == "Фэнтези рассвет"));
-    assert!(!by_author.items.iter().any(|item| item.title.contains("закрыто") || item.title.contains("блок")));
-    let by_genre = search.search_faceted("", None, Some(" ФЭНТЕЗИ "), None, 30).await.unwrap();
-    assert!(by_genre.items.iter().any(|item| item.title == "Фэнтези рассвет"));
-    assert!(!by_genre.items.iter().any(|item| item.title.contains("закрыто") || item.title.contains("блок")));
+    let by_author = search
+        .search_faceted("Жюль", Some("ru"), None, None, 30)
+        .await
+        .unwrap();
+    assert!(by_author
+        .items
+        .iter()
+        .any(|item| item.title == "Фэнтези рассвет"));
+    assert!(!by_author
+        .items
+        .iter()
+        .any(|item| item.title.contains("закрыто") || item.title.contains("блок")));
+    let by_genre = search
+        .search_faceted("", None, Some(" ФЭНТЕЗИ "), None, 30)
+        .await
+        .unwrap();
+    assert!(by_genre
+        .items
+        .iter()
+        .any(|item| item.title == "Фэнтези рассвет"));
+    assert!(!by_genre
+        .items
+        .iter()
+        .any(|item| item.title.contains("закрыто") || item.title.contains("блок")));
     assert_eq!(
-        search.search_faceted("", None, Some("неизвестный жанр"), None, 30).await.unwrap().items.len(),
+        search
+            .search_faceted("", None, Some("неизвестный жанр"), None, 30)
+            .await
+            .unwrap()
+            .items
+            .len(),
         0
     );
     assert_eq!(
-        search.search_faceted("Жюль", None, Some("неизвестный жанр"), None, 30).await.unwrap().items.len(),
+        search
+            .search_faceted("Жюль", None, Some("неизвестный жанр"), None, 30)
+            .await
+            .unwrap()
+            .items
+            .len(),
         0
     );
 }

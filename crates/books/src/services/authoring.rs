@@ -85,10 +85,12 @@ pub fn new_book_with_discovery(
             if item.chars().any(char::is_control) {
                 return Err(AuthorError::Invalid);
             }
-            let clean = item.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-            if clean.is_empty()
-                || clean.chars().count() > 40
-                || clean.chars().any(char::is_control)
+            let clean = item
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase();
+            if clean.is_empty() || clean.chars().count() > 40 || clean.chars().any(char::is_control)
             {
                 return Err(AuthorError::Invalid);
             }
@@ -241,23 +243,26 @@ mod tests {
     #[test]
     fn b_01_discovery_metadata_is_bounded_and_canonical() {
         let book = new_book_with_discovery(
-            "source:1", "ru", "Роман", KEY, "  Автор ", " Фантастика, Фэнтези,фантастика",
+            "source:1",
+            "ru",
+            "Роман",
+            KEY,
+            "  Автор ",
+            " Фантастика, Фэнтези,фантастика",
         )
         .unwrap();
         assert_eq!(book.author_name, "Автор");
         assert_eq!(book.genres, vec!["фантастика", "фэнтези"]);
-        assert!(new_book_with_discovery(
-            "source:1", "ru", "Роман", KEY, "Автор", "Фэнтези,",
-        )
-        .is_err());
-        assert!(new_book_with_discovery(
-            "source:1", "ru", "Роман", KEY, &"x".repeat(161), "",
-        )
-        .is_err());
-        assert!(new_book_with_discovery(
-            "source:1", "ru", "Роман", KEY, "", &"genre,".repeat(9),
-        )
-        .is_err());
+        assert!(
+            new_book_with_discovery("source:1", "ru", "Роман", KEY, "Автор", "Фэнтези,",).is_err()
+        );
+        assert!(
+            new_book_with_discovery("source:1", "ru", "Роман", KEY, &"x".repeat(161), "",).is_err()
+        );
+        assert!(
+            new_book_with_discovery("source:1", "ru", "Роман", KEY, "", &"genre,".repeat(9),)
+                .is_err()
+        );
         let legacy = new_book("source:1", "ru", "Роман", KEY).unwrap();
         assert!(legacy.author_name.is_empty());
         assert!(legacy.genres.is_empty());

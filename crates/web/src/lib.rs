@@ -94,7 +94,10 @@ async fn catalog(
     if let Some(search) = state.search.as_ref() {
         let term = query.q.as_deref().unwrap_or("").trim();
         let filtered = !term.is_empty()
-            || query.language.as_ref().is_some_and(|x| !x.trim().is_empty())
+            || query
+                .language
+                .as_ref()
+                .is_some_and(|x| !x.trim().is_empty())
             || query.genre.as_ref().is_some_and(|x| !x.trim().is_empty());
         if filtered {
             let page = search

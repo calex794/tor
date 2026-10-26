@@ -48,8 +48,12 @@ fn book_cards(books: &[PublicBookCard]) -> String {
         let language = escape_html(&book.language);
         let mut details = String::new();
         if let Some(author) = &book.author_name {
-            write!(details, "<p class=\"book-card__meta\">Автор: {}</p>", escape_html(author))
-                .expect("format String");
+            write!(
+                details,
+                "<p class=\"book-card__meta\">Автор: {}</p>",
+                escape_html(author)
+            )
+            .expect("format String");
         }
         if !book.genres.is_empty() {
             write!(

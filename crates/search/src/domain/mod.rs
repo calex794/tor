@@ -54,7 +54,11 @@ pub fn normalize_genre(raw: Option<&str>) -> Result<Option<String>, SearchError>
     if raw.chars().any(char::is_control) {
         return Err(SearchError::Invalid);
     }
-    let genre = raw.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let genre = raw
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
     if genre.is_empty() {
         return Ok(None);
     }
@@ -123,10 +127,24 @@ mod tests {
         );
         assert_eq!(normalize_genre(Some("  ")), Ok(None));
         assert_eq!(normalize_genre(Some("a,b")), Err(SearchError::Invalid));
-        assert_eq!(normalize_genre(Some("bad\nnews")), Err(SearchError::Invalid));
-        assert_eq!(validate_facets("", None, None, None, 20), Err(SearchError::Invalid));
-        assert_eq!(validate_facets("", None, Some("Фэнтези"), None, 20).unwrap().0, 0);
-        assert_eq!(validate_facets("", Some("ru"), None, Some("01"), 20), Err(SearchError::Invalid));
+        assert_eq!(
+            normalize_genre(Some("bad\nnews")),
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            validate_facets("", None, None, None, 20),
+            Err(SearchError::Invalid)
+        );
+        assert_eq!(
+            validate_facets("", None, Some("Фэнтези"), None, 20)
+                .unwrap()
+                .0,
+            0
+        );
+        assert_eq!(
+            validate_facets("", Some("ru"), None, Some("01"), 20),
+            Err(SearchError::Invalid)
+        );
     }
 
     #[test]
