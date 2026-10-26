@@ -38,7 +38,7 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None)
+    book_detail_body(book, None, None)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
@@ -65,13 +65,15 @@ pub fn book_detail_with_chapters(
                     items,
                     "<li class=\"chapter-toc__item chapter-toc__item--paid\"><span>Глава {}. {title}</span><span class=\"chapter-toc__badge\">Платная · пока недоступна</span></li>",
                     chapter.number
-                ).expect("writing String");
+                )
+                .expect("writing String");
             } else {
                 write!(
                     items,
                     "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
                     chapter.id, chapter.number
-                ).expect("writing String");
+                )
+                .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -84,17 +86,24 @@ pub fn book_detail_with_chapters(
         )
         .expect("writing String");
     }
-    items.push_str(&format!(
-        "<p><a class=\"button button--small\" href=\"/me/library/add/{}\">Добавить в библиотеку</a></p>",
-        book.id
-    ));
     let section = format!(
-        "<section class=\"section chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><div class=\"container\"><p class=\"eyebrow\">Оглавление</p><h2 id=\"toc-title\">Главы книги</h2>{items}</div></section>"
+        "<section class=\"book-section-card chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><p class=\"book-section-card__kicker\">Оглавление</p><h2 class=\"book-section-card__title\" id=\"toc-title\">Главы книги</h2>{items}</section>"
     );
-    book_detail_body(&card, Some(&section))
+    // The CTA is only a chapter already verified as public and free by PgReader.
+    // We never produce a paid chapter link or invent rights from bookmarks.
+    let first_free = book
+        .chapters
+        .iter()
+        .find(|chapter| !chapter.is_paid)
+        .map(|chapter| chapter.id);
+    book_detail_body(&card, Some(&section), first_free)
 }
 
-fn book_detail_body(book: &PublicBookCard, toc: Option<&str>) -> Html<String> {
+fn book_detail_body(
+    book: &PublicBookCard,
+    toc: Option<&str>,
+    first_free: Option<u64>,
+) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
     let description = if toc.is_some() {
@@ -102,34 +111,58 @@ fn book_detail_body(book: &PublicBookCard, toc: Option<&str>) -> Html<String> {
     } else {
         "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
     };
-    let body = format!(
-        "<section class=\"section book-detail-page\"><div class=\"container\">\
-         <nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\">\
-         <a href=\"/\">Главная</a><span aria-hidden=\"true\">/</span>\
-         <a href=\"/catalog\">Каталог</a><span aria-hidden=\"true\">/</span>\
-         <span aria-current=\"page\">{title}</span></nav>\
-         <div class=\"book-detail__layout\">\
-         <div class=\"book-detail__art\" aria-hidden=\"true\"><span>П</span></div>\
-         <div class=\"book-detail__info\">\
-         <p class=\"eyebrow\">Книга · {language}</p><h1>{title}</h1>\
-         <p class=\"book-detail__description\">{description}</p>\
-         <div class=\"book-detail__actions\">\
-         <a class=\"button\" href=\"{action}\" >{label}</a>\
-         <span class=\"book-detail__note\">Вход для просмотра каталога не требуется</span>\
-         </div></div></div></div></section>{toc}",
-        action = if toc.is_some() {
-            "#chapters"
-        } else {
-            "/catalog"
-        },
-        label = if toc.is_some() {
-            "К оглавлению"
-        } else {
-            "Вернуться к книгам"
-        },
-        toc = toc.unwrap_or("")
-    );
-    layout(&book.title, "Карточка книги в каталоге Пандаолейт.", &body)
+    let action = if let Some(id) = first_free {
+        format!("<a class=\"ui-button ui-button--primary\" href=\"/reader/{id}\">Читать доступную главу</a>")
+    } else if toc.is_some() {
+        "<a class=\"ui-button ui-button--primary\" href=\"#chapters\">Посмотреть главы</a>"
+            .to_owned()
+    } else {
+        "<a class=\"ui-button ui-button--ghost\" href=\"/catalog\">Вернуться к книгам</a>"
+            .to_owned()
+    };
+    let library_action = if toc.is_some() {
+        format!(
+            "<a class=\"ui-button ui-button--ghost book-hero-actions__library\" href=\"/me/library/add/{}\">Добавить в библиотеку</a>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
+    let mut credits = String::new();
+    if let Some(author) = &book.author_name {
+        write!(
+            credits,
+            "<span class=\"book-hero-card__credit\"><span class=\"book-hero-card__credit-label\">Автор</span>{}</span>",
+            escape_html(author)
+        )
+        .expect("write author");
+    }
+    if !book.genres.is_empty() {
+        write!(
+            credits,
+            "<span class=\"book-hero-card__credit\"><span class=\"book-hero-card__credit-label\">Жанры</span>{}</span>",
+            escape_html(&book.genres.join(", "))
+        )
+        .expect("write genres");
+    }
+    let credits = if credits.is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"book-hero-card__credits\">{credits}</div>")
+    };
+    let content = include_str!("../templates/book_detail.html")
+        .replace("<!--BOOK_TITLE-->", &title)
+        .replace("<!--BOOK_LANGUAGE-->", &language)
+        .replace("<!--BOOK_DESCRIPTION-->", description)
+        .replace("<!--BOOK_CREDITS-->", &credits)
+        .replace("<!--PRIMARY_ACTION-->", &action)
+        .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace("<!--CHAPTERS-->", toc.unwrap_or(""));
+    layout(
+        &book.title,
+        "Карточка книги в каталоге Пандаолейт.",
+        &content,
+    )
 }
 
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
@@ -329,12 +362,18 @@ pub async fn stylesheet() -> impl IntoResponse {
 /// NEwBOO public design tokens, components and layout, kept separate from
 /// the functioning reader/author styles until their port is independently tested.
 pub async fn newboo_stylesheet() -> impl IntoResponse {
+    static CSS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        let mut css = String::from(include_str!("../assets/newboo-port.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-book-detail.css"));
+        css
+    });
     (
         [
             (header::CONTENT_TYPE, "text/css; charset=utf-8"),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        include_str!("../assets/newboo-port.css"),
+        CSS.as_str(),
     )
 }
 
@@ -498,5 +537,47 @@ mod tests {
     #[test]
     fn source_brand_is_exactly_a_png() {
         assert!(include_bytes!("../assets/brand/pandaolate-header.png").starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn ne_wboo_book_detail_uses_original_hero_without_fake_cover_or_leaked_html() {
+        let page = book_detail(&PublicBookCard {
+            id: 15,
+            title: "<script>Книга</script>".into(),
+            language: "ru".into(),
+            author_name: Some("<Автор>".into()),
+            genres: vec!["Фэнтези".into()],
+        })
+        .0;
+        assert!(page.contains("book-hero-card"));
+        assert!(page.contains("book-cover-xl"));
+        assert!(page.contains("Нет обложки"));
+        assert!(page.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+        assert!(!page.contains("<script>Книга</script>"));
+        assert!(page.contains("&lt;Автор&gt;"));
+        assert!(page.contains("Фэнтези"));
+        assert!(page.contains("href=\"/catalog\""));
+        assert!(!page.contains("href=\"/reader/"));
+        assert!(!page.contains("href=\"/me/library/add/15\""));
+        assert!(!page.contains("<!--BOOK_CREDITS-->"));
+        assert!(include_str!("../assets/newboo-book-detail.css").contains(".book-hero-card"));
+    }
+
+    #[test]
+    fn book_detail_toc_keeps_approved_library_action_and_free_only_policy() {
+        let book = tor_reading::services::PublicBookPage {
+            id: 7,
+            title: "Публичная".into(),
+            language: "ru".into(),
+            chapters: vec![],
+            next_cursor: None,
+        };
+        let html = book_detail_with_chapters(&book, 20).0;
+        assert!(html.contains("book-section-card chapter-toc"));
+        assert!(html.contains("id=\"chapters\""));
+        assert!(html.contains("href=\"#chapters\""));
+        assert!(html.contains("href=\"/me/library/add/7\""));
+        assert!(!html.contains("href=\"/reader/"));
+        assert!(!html.contains("<!--CHAPTERS-->"));
     }
 }
