@@ -19,6 +19,12 @@ pub struct RilQueueCounts {
     pub pending: i64,
     pub running: i64,
     pub dead: i64,
+    /// Runnable pending batches created more than five minutes ago.
+    pub overdue_pending: i64,
+    /// Running leases already expired or missing.
+    pub expired_lease: i64,
+    /// Attempt count is evidence of retries, not proof of failed SQL.
+    pub repeated_attempts: i64,
 }
 
 impl PgRilRollups {
@@ -29,11 +35,21 @@ impl PgRilRollups {
     /// Only active and dead RIL flush batches; completed history is excluded.
     /// No IDs or row payload are returned to the operator dashboard.
     pub async fn queue_counts(&self) -> Result<RilQueueCounts, sqlx::Error> {
-        let (pending, running, dead): (i64, i64, i64) = sqlx::query_as(
+        let (pending, running, dead, overdue_pending, expired_lease, repeated_attempts):
+            (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT
                COUNT(*) FILTER (WHERE status='pending')::bigint,
                COUNT(*) FILTER (WHERE status='running')::bigint,
-               COUNT(*) FILTER (WHERE status='dead')::bigint
+               COUNT(*) FILTER (WHERE status='dead')::bigint,
+               COUNT(*) FILTER (
+                   WHERE status='pending' AND run_after<=now()
+                     AND enqueued_at<=now()-INTERVAL '5 minutes'
+               )::bigint,
+               COUNT(*) FILTER (
+                   WHERE status='running' AND
+                     (leased_until IS NULL OR leased_until<=now())
+               )::bigint,
+               COUNT(*) FILTER (WHERE attempts>=3)::bigint
              FROM ril_flush_batches WHERE status IN ('pending','running','dead')",
         )
         .fetch_one(&self.pool)
@@ -42,6 +58,9 @@ impl PgRilRollups {
             pending,
             running,
             dead,
+            overdue_pending,
+            expired_lease,
+            repeated_attempts,
         })
     }
 
