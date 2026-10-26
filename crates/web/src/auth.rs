@@ -26,7 +26,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book, AuthorError},
 };
-use tor_reading::repositories::{PgLibrary, PgReadingProgress};
+use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -36,12 +36,14 @@ use tor_reading::{
 };
 
 mod library_actions;
+mod sync_actions;
 
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
     authoring: PgAuthoring,
     progress: PgReadingProgress,
+    sync: PgReadingSync,
     bookmarks: PgLibrary,
     reader: PgReader,
     cookies: CookiePolicy,
@@ -104,12 +106,14 @@ pub(crate) fn router(
         },
     );
     let progress = PgReadingProgress::new(accounts.pool().clone());
+    let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
         authoring,
         progress,
+        sync,
         bookmarks,
         reader,
         cookies: CookiePolicy { secure, origin },
@@ -120,6 +124,14 @@ pub(crate) fn router(
         .route("/login", get(show_login).post(login))
         .route("/me", get(me))
         .route("/me/library", get(my_library))
+        .route(
+            "/api/v1/me/progress/free",
+            get(sync_actions::get_free).put(sync_actions::put_free),
+        )
+        .route(
+            "/api/v1/me/progress/purchased",
+            get(sync_actions::get_purchased).put(sync_actions::put_purchased),
+        )
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/library/{id}/save", post(library_actions::browser_add))
         .route(

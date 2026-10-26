@@ -27,6 +27,27 @@ fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> 
         .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40001))));
     req
 }
+fn json_request(
+    method: &str,
+    uri: &str,
+    body: &str,
+    cookies: &str,
+    origin: &str,
+    csrf: &str,
+) -> Request<Body> {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, cookies)
+        .header(header::ORIGIN, origin)
+        .header("x-csrf-token", csrf)
+        .body(Body::from(body.to_owned()))
+        .expect("JSON HTTP");
+    req.extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40001))));
+    req
+}
 async fn send(app: &Router, req: Request<Body>) -> Response {
     app.clone().oneshot(req).await.expect("router response")
 }
@@ -608,6 +629,153 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     .await;
     assert_eq!(saved.status(), StatusCode::SEE_OTHER);
     assert_eq!(saved.headers()[header::LOCATION], "/read/101#p-1");
+    // C-09: JSON progress persists across independent client sessions, while
+    // stale and concurrent requests cannot move the cursor backwards.
+    let csrf_cookies = format!("{session}; {new_csrf_cookie}");
+    let read_free = send(
+        &app,
+        json_request(
+            "GET",
+            "/api/v1/me/progress/free?chapter_id=101",
+            "",
+            &session,
+            ORIGIN,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(read_free.status(), StatusCode::OK);
+    assert_eq!(read_free.headers()[header::CACHE_CONTROL], "no-store");
+    let free_state = body_of(read_free).await;
+    assert!(free_state.contains("\"version_id\":\"201\""));
+    assert!(free_state.contains("\"revision\":1"));
+
+    let fresh_place = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":1,"expected_revision":1}"#;
+    assert_eq!(
+        send(
+            &app,
+            json_request("PUT", "/api/v1/me/progress/free", fresh_place, &session, ORIGIN, csrf),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "JSON write requires the matching CSRF cookie"
+    );
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/free",
+                fresh_place,
+                &csrf_cookies,
+                "https://evil.example",
+                csrf,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "cross-site JSON write rejected"
+    );
+    let sync_saved = send(
+        &app,
+        json_request(
+            "PUT",
+            "/api/v1/me/progress/free",
+            fresh_place,
+            &csrf_cookies,
+            ORIGIN,
+            csrf,
+        ),
+    )
+    .await;
+    assert_eq!(sync_saved.status(), StatusCode::OK);
+    let receipt = body_of(sync_saved).await;
+    assert!(receipt.contains("\"revision\":2"));
+    assert!(receipt.contains("\"char_offset\":1"));
+    assert!(!receipt.contains("Первая строка"));
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/free",
+                fresh_place,
+                &csrf_cookies,
+                ORIGIN,
+                csrf,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let restored = body_of(
+        send(
+            &app,
+            json_request(
+                "GET",
+                "/api/v1/me/progress/free?chapter_id=101",
+                "",
+                &session,
+                ORIGIN,
+                "",
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(restored.contains("\"revision\":2"));
+    assert!(restored.contains("\"char_offset\":1"));
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "GET",
+                "/api/v1/me/progress/free?chapter_id=103",
+                "",
+                &session,
+                ORIGIN,
+                "",
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "paid text is invisible through the free progress endpoint"
+    );
+
+    // A logged-in user cannot claim an invented purchase or see paid text.
+    let paid_query =
+        "/api/v1/me/progress/purchased?purchase_id=93840&chapter_id=93820&version_id=93831";
+    assert_eq!(
+        send(
+            &app,
+            json_request("GET", paid_query, "", &session, ORIGIN, ""),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let false_purchase = r#"{"purchase_id":"93840","chapter_id":"93820","version_id":"93831","block_id":1,"char_offset":2,"expected_revision":0}"#;
+    assert_eq!(
+        send(
+            &app,
+            json_request(
+                "PUT",
+                "/api/v1/me/progress/purchased",
+                false_purchase,
+                &csrf_cookies,
+                ORIGIN,
+                csrf,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+
     let library_after = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
     let after = body_of(library_after).await;
     assert!(after.contains("href=\"/read/101#p-1\""));

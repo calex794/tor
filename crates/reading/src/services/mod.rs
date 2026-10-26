@@ -58,3 +58,5 @@ pub mod progress;
 pub mod toc;
 
 pub mod library;
+
+pub mod sync;
