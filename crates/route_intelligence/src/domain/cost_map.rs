@@ -8,15 +8,26 @@ const STATUS_COUNT: usize = 6;
 const LATENCY_COUNT: usize = 4;
 const MAX_BUCKETS: usize = COST_ROUTE_COUNT * STATUS_COUNT * LATENCY_COUNT;
 const LOWER_MS: [u64; LATENCY_COUNT] = [0, 10, 100, 1000];
-const UPPER_MS_EXCLUSIVE: [Option<u64>; LATENCY_COUNT] =
-    [Some(10), Some(100), Some(1000), None];
+const UPPER_MS_EXCLUSIVE: [Option<u64>; LATENCY_COUNT] = [Some(10), Some(100), Some(1000), None];
 
 // The code order is a contract with G's fixed RouteCode and RIL-06 migration.
 // Change together and update the cross-feature bridge tests.
 const FAMILIES: [&str; COST_ROUTE_COUNT] = [
-    "/", "/catalog/", "/books/", "/reader/", "/assets/", "/healthz/",
-    "/readyz/", "/login/", "/register/", "/api/v1/books/", "/me/",
-    "/me/library/", "/read/", "/logout/", "/unknown/",
+    "/",
+    "/catalog/",
+    "/books/",
+    "/reader/",
+    "/assets/",
+    "/healthz/",
+    "/readyz/",
+    "/login/",
+    "/register/",
+    "/api/v1/books/",
+    "/me/",
+    "/me/library/",
+    "/read/",
+    "/logout/",
+    "/unknown/",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,7 +114,8 @@ pub fn rank_route_costs(
         let value = &mut totals[route];
         value.requests = value.requests.saturating_add(count);
         value.histogram[latency] = value.histogram[latency].saturating_add(count);
-        value.response_time_floor_ms = value.response_time_floor_ms
+        value.response_time_floor_ms = value
+            .response_time_floor_ms
             .saturating_add(count.saturating_mul(LOWER_MS[latency]));
         if status == 3 {
             value.client_errors = value.client_errors.saturating_add(count);
@@ -173,11 +185,18 @@ mod tests {
     #[test]
     fn orders_by_observed_response_time_floor_not_raw_request_volume() {
         let costs = rank_route_costs(
-            &[bucket(1, 1, 0, 20_000), bucket(2, 4, 3, 100), bucket(3, 1, 2, 300)],
+            &[
+                bucket(1, 1, 0, 20_000),
+                bucket(2, 4, 3, 100),
+                bucket(3, 1, 2, 300),
+            ],
             10,
         )
         .unwrap();
-        assert_eq!(costs.iter().map(|r| r.route_code).collect::<Vec<_>>(), vec![2, 3, 1]);
+        assert_eq!(
+            costs.iter().map(|r| r.route_code).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
         assert_eq!(costs[0].response_time_floor_ms, 100_000);
         assert_eq!(costs[0].server_errors, 100);
         assert_eq!(costs[0].p95_lower_ms, 1000);
@@ -203,11 +222,7 @@ mod tests {
     #[test]
     fn all_status_groups_and_exact_route_labels_are_bounded() {
         let result = rank_route_costs(
-            &[
-                bucket(14, 3, 3, 5),
-                bucket(14, 4, 3, 2),
-                bucket(0, 1, 0, 6),
-            ],
+            &[bucket(14, 3, 3, 5), bucket(14, 4, 3, 2), bucket(0, 1, 0, 6)],
             2,
         )
         .unwrap();
@@ -230,7 +245,10 @@ mod tests {
             bucket(0, 1, 1, 0),
             bucket(0, 1, 1, -2),
         ] {
-            assert_eq!(rank_route_costs(&[bad], 4), Err(CostMapError::InvalidBucket));
+            assert_eq!(
+                rank_route_costs(&[bad], 4),
+                Err(CostMapError::InvalidBucket)
+            );
         }
         assert_eq!(
             rank_route_costs(&[bucket(1, 1, 1, 3), bucket(1, 1, 1, 2)], 2),
@@ -241,11 +259,11 @@ mod tests {
     #[test]
     fn bounded_output_stable_ties_and_empty_input() {
         assert_eq!(rank_route_costs(&[], 10).unwrap().len(), 0);
-        assert!(rank_route_costs(&[bucket(9, 1, 1, 3)], 0).unwrap().is_empty());
-        let a = rank_route_costs(&[bucket(2, 1, 1, 10), bucket(1, 1, 1, 10)], 15)
-            .unwrap();
-        let b = rank_route_costs(&[bucket(1, 1, 1, 10), bucket(2, 1, 1, 10)], 15)
-            .unwrap();
+        assert!(rank_route_costs(&[bucket(9, 1, 1, 3)], 0)
+            .unwrap()
+            .is_empty());
+        let a = rank_route_costs(&[bucket(2, 1, 1, 10), bucket(1, 1, 1, 10)], 15).unwrap();
+        let b = rank_route_costs(&[bucket(1, 1, 1, 10), bucket(2, 1, 1, 10)], 15).unwrap();
         assert_eq!(a, b);
         assert_eq!(a[0].route_code, 1);
     }

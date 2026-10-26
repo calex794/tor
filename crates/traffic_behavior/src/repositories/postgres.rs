@@ -23,7 +23,10 @@ impl PgRilRollups {
     /// Returns at most 15 routes x 6 statuses x 4 latency buckets (360 rows).
     /// This is a histogram of observed HTTP response times, NOT measured DB calls,
     /// CPU time, monetary charges, or per-request diagnostic information.
-    pub async fn read_cost_buckets(&self, days: u16) -> Result<Vec<crate::domain::RouteCount>, sqlx::Error> {
+    pub async fn read_cost_buckets(
+        &self,
+        days: u16,
+    ) -> Result<Vec<crate::domain::RouteCount>, sqlx::Error> {
         if !(1..=30).contains(&days) {
             return Err(sqlx::Error::Protocol(
                 "RIL cost history window must be between 1 and 30 days".into(),

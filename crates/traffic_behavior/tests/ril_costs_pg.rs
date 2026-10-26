@@ -21,7 +21,10 @@ fn selected(rows: &[tor_traffic_behavior::domain::RouteCount]) -> i64 {
 #[ignore = "requires isolated PostgreSQL 18 with official TOR migrations"]
 async fn ril_10_rank_input_is_retained_and_read_only_across_repo_restart() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated CI PG URL");
-    assert!(url.ends_with("/tor_ci"), "never inspect production DB in CI");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "never inspect production DB in CI"
+    );
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(5))
