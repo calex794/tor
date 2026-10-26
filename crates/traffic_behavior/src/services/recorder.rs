@@ -1,7 +1,11 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
-use crate::domain::{BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot};
+use crate::domain::{
+    BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot, VerifiedSubjectKey,
+    MAX_SUBJECTS,
+};
 use crate::services::paths_worker::PathRecorder;
+use std::collections::{HashSet, VecDeque};
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -17,6 +21,7 @@ enum Message {
     Event(BehaviorEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
+    Forget(VerifiedSubjectKey, mpsc::Sender<bool>),
 }
 
 /// Cloneable, request-safe telemetry sender. No raw path or identity fields.
@@ -40,13 +45,30 @@ impl TrafficRecorder {
             .spawn(move || {
                 let mut sketch = BehaviorSketch::new(max_subjects);
                 let mut rollup = RollupDelta::default();
+                let mut revoked = HashSet::<VerifiedSubjectKey>::new();
+                let mut expirations = VecDeque::<(Instant, VerifiedSubjectKey)>::new();
+                let mut fail_closed = false;
                 while let Ok(message) = receiver.recv() {
                     match message {
-                        Message::Event(event) => {
+                        Message::Event(mut event) => {
+                            // An in-flight request may arrive after consent has
+                            // been revoked. It cannot recreate the old path.
+                            while let Some((time, key)) = expirations.front().copied() {
+                                if time.elapsed() < Duration::from_secs(30 * 60) {
+                                    break;
+                                }
+                                expirations.pop_front();
+                                revoked.remove(&key);
+                            }
+                            if event
+                                .subject
+                                .is_some_and(|key| fail_closed || revoked.contains(&key))
+                            {
+                                event.subject = None;
+                            }
                             let transition = sketch.record(event);
                             rollup.record(event, transition);
                             if event.subject.is_some() {
-                                // Independent offline queue: never delays an HTTP request.
                                 let _ = path_sink.try_record(event);
                             }
                         }
@@ -56,6 +78,24 @@ impl TrafficRecorder {
                         Message::Drain(reply) => {
                             let batch = std::mem::take(&mut rollup);
                             let _ = reply.send(batch);
+                        }
+                        Message::Forget(key, reply) => {
+                            if revoked.insert(key) {
+                                if revoked.len() > MAX_SUBJECTS {
+                                    // Never sacrifice privacy to reduce memory.
+                                    // Disable identified collection until restart.
+                                    fail_closed = true;
+                                    revoked.clear();
+                                    expirations.clear();
+                                } else {
+                                    expirations.push_back((Instant::now(), key));
+                                }
+                            }
+                            sketch.forget_subject(key);
+                            // This sends behind all previously submitted path
+                            // events; the reply confirms their deletion.
+                            let deleted = path_sink.forget_for_privacy(key).is_some();
+                            let _ = reply.send(deleted);
                         }
                     }
                 }
@@ -105,6 +145,15 @@ impl TrafficRecorder {
     pub fn path_report_for_diagnostics(&self) -> Option<PathReport> {
         self.snapshot_for_diagnostics()?;
         self.paths.report_for_diagnostics()
+    }
+
+    /// Call only from an authenticated, CSRF-protected privacy action and a
+    /// blocking executor. The result confirms both worker barriers, not an HTTP
+    /// authorization or a global multi-instance database erasure.
+    pub fn forget_subject_for_privacy(&self, key: VerifiedSubjectKey) -> Option<bool> {
+        let (reply, answer) = mpsc::channel();
+        self.sender.try_send(Message::Forget(key, reply)).ok()?;
+        answer.recv_timeout(Duration::from_secs(2)).ok()
     }
 
     pub fn dropped_path_events(&self) -> u64 {
@@ -186,6 +235,48 @@ mod tests {
         assert_eq!(report.active_subjects, 1);
         assert!(report.reject > 0);
         assert_eq!(recorder.dropped_path_events(), 0);
+    }
+
+    #[test]
+    fn privacy_barrier_erases_subject_and_blocks_inflight_stale_events() {
+        use crate::domain::{RouteCode, VerifiedSubjectKey};
+        let recorder = TrafficRecorder::start(8, 64);
+        let old = VerifiedSubjectKey::from_hmac_digest([41; 16]);
+        let new_epoch = VerifiedSubjectKey::from_hmac_digest([42; 16]);
+        let mut v = event();
+        v.route = RouteCode::Books;
+        v.subject = Some(old);
+        assert!(recorder.try_record(v));
+        assert_eq!(
+            recorder
+                .path_report_for_diagnostics()
+                .unwrap()
+                .active_subjects,
+            1
+        );
+        assert_eq!(recorder.forget_subject_for_privacy(old), Some(true));
+        assert_eq!(
+            recorder
+                .path_report_for_diagnostics()
+                .unwrap()
+                .active_subjects,
+            0
+        );
+        // A request which started before opt-out cannot recreate the old path.
+        assert!(recorder.try_record(v));
+        let report = recorder.path_report_for_diagnostics().unwrap();
+        assert_eq!(report.active_subjects, 0);
+        assert_eq!(report.assessed_events, 1);
+        // Re-enabling consent uses a different epoch-derived pseudonym.
+        v.subject = Some(new_epoch);
+        assert!(recorder.try_record(v));
+        assert_eq!(
+            recorder
+                .path_report_for_diagnostics()
+                .unwrap()
+                .active_subjects,
+            1
+        );
     }
 
     #[test]

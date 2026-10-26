@@ -9,6 +9,7 @@ use crate::{
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
+    middleware,
     response::{Redirect, Response},
     routing::{get, post},
     Router,
@@ -17,6 +18,7 @@ use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     repositories::PgAccounts,
+    services::ril_pseudonym::RilSubjectSigner,
     services::security::{
         generate_session_token, hash_password, session_token_digest, verify_password,
     },
@@ -35,7 +37,9 @@ use tor_reading::{
     },
 };
 
+mod behavior_consent;
 mod library_actions;
+mod login_limiter;
 mod sync_actions;
 
 #[derive(Clone)]
@@ -48,6 +52,7 @@ struct AuthState {
     reader: PgReader,
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
+    ril_signer: Option<RilSubjectSigner>,
 }
 
 #[derive(Deserialize)]
@@ -118,7 +123,9 @@ pub(crate) fn router(
         reader,
         cookies: CookiePolicy { secure, origin },
         password_jobs: PasswordJobs::new(4),
+        ril_signer: behavior_consent::configured_ril_signer(),
     };
+    let observation_state = state.clone();
     Router::new()
         .route("/register", get(show_registration).post(register))
         .route("/login", get(show_login).post(login))
@@ -149,8 +156,13 @@ pub(crate) fn router(
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/logout", post(logout))
+        .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
+        .layer(middleware::from_fn_with_state(
+            observation_state,
+            behavior_consent::annotate_verified_ril,
+        ))
         .merge(chapter_routes)
 }
 
@@ -175,36 +187,6 @@ fn invalid_credentials() -> Response {
     )
 }
 
-/// Bound Argon2 work by verified TCP peer IP, never forwarding headers.
-async fn limit(
-    state: &AuthState,
-    action: &str,
-    email: &str,
-    peer: ConnectInfo<SocketAddr>,
-) -> Result<[u8; 32], StatusCode> {
-    let identity_key = session_token_digest(&format!("auth:{action}:identity:{email}"));
-    let ip = peer.0.ip().to_string();
-    let address_key = session_token_digest(&format!("auth:{action}:peer:{ip}"));
-    // No in-process counters: these limits apply across all server processes.
-    let address_ok = state
-        .accounts
-        .permit_auth_attempt(&address_key, 60, 600)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !address_ok {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-    let identity_ok = state
-        .accounts
-        .permit_auth_attempt(&identity_key, 8, 600)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !identity_ok {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-    Ok(identity_key)
-}
-
 async fn register(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -222,7 +204,7 @@ async fn register(
         Ok(account) => account,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    if let Err(status) = limit(&state, "register", &account.email, peer).await {
+    if let Err(status) = login_limiter::limit(&state, "register", &account.email, peer).await {
         return deny(status);
     }
 
@@ -274,7 +256,7 @@ async fn login(
         Ok(email) => email,
         Err(_) => return invalid_credentials(),
     };
-    let identity_key = match limit(&state, "login", &email, peer).await {
+    let identity_key = match login_limiter::limit(&state, "login", &email, peer).await {
         Ok(key) => key,
         Err(status) => return deny(status),
     };
@@ -344,8 +326,16 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let (enabled, _) = state
+        .accounts
+        .ril_behavior_consent(user_id)
+        .await
+        .unwrap_or((false, 0));
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_account(&name, &csrf), &cookies)
+    private_response(
+        pages::my_account(&name, &csrf, enabled, state.ril_signer.is_some()),
+        &cookies,
+    )
 }
 
 async fn my_library(

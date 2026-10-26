@@ -290,10 +290,29 @@ pub fn login_form(csrf: &str) -> Html<String> {
     layout("Вход", "Войти в личный кабинет.", &content)
 }
 
-pub fn my_account(name: &str, csrf: &str) -> Html<String> {
+pub fn my_account(name: &str, csrf: &str, behavior_opt_in: bool, configured: bool) -> Html<String> {
+    let state = if behavior_opt_in {
+        "Анализ переходов включён по вашему согласию."
+    } else {
+        "Анализ ваших переходов отключён."
+    };
+    let controls = if configured || behavior_opt_in {
+        let (choice, button) = if behavior_opt_in {
+            ("disable", "Отключить и удалить мою последовательность")
+        } else {
+            ("enable", "Включить анализ моих переходов")
+        };
+        format!(
+            "<section aria-label=\"Настройки приватности\"><h2>Приватность</h2><p>{state}</p><p>Технические общие счётчики не содержат личной истории. Персональные последовательности хранятся только в памяти этого сервера до 30 минут бездействия.</p><form method=\"post\" action=\"/me/behavior\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"choice\" value=\"{choice}\"><button class=\"button button--quiet\" type=\"submit\">{button}</button></form></section>",
+            escape_html(csrf),
+        )
+    } else {
+        "<section aria-label=\"Настройки приватности\"><h2>Приватность</h2><p>Анализ ваших переходов отключён. Сервер не настроен для персонального анализа.</p></section>".to_owned()
+    };
     let content = include_str!("../templates/me.html")
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
-        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--RIL_BEHAVIOR_CONTROLS-->", &controls);
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
     Html(
