@@ -23,6 +23,14 @@ EXPECTED_EXTRA = 8  # five app decorators + three mail.add_api_route declaration
 EXPECTED_JOBS = 65
 EXPECTED_JOB_FREEZES = 8
 EXPECTED_STARTUP_SCHEDULERS = 8
+EXPECTED_SEMANTIC_ROWS = EXPECTED_DECLARATIONS + EXPECTED_EXTRA
+VALID_SEMANTIC_STATUSES = {"excluded", "legacy_disabled", "legacy_mount_unconfirmed", "candidate_from_source", "explicit_subfunction"}
+KNOWN_SUPPLEMENTAL_GROUPS = {
+    "X-NEWS", "X-AUTHOR-STATS", "X-PRO-LEVEL", "X-PROJECT-MANAGER",
+    "X-ADMIN-TEAMS", "X-ADMIN-MAIL", "X-ADMIN-BOOK-INTEGRITY",
+    "X-ADMIN-LAYERS", "X-LAYER-COMMENTS", "X-TAXONOMY",
+    "X-REVENUE-HTML", "X-ACCOUNT-DASHBOARD",
+}
 
 VALID_MOUNTS = {"mounted", "conditional", "frozen", "unconfirmed_mount"}
 VALID_COMPARISONS = {"path_mentioned", "semantic_review", "frozen", "mount_review"}
@@ -77,6 +85,9 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
         if len(source_declarations) != EXPECTED_DECLARATIONS:
             problems.append(f"source decorators {len(source_declarations)}, expected {EXPECTED_DECLARATIONS}")
         covered = read_tsv(base / "http-route-coverage.tsv")
+        actions = read_tsv(base / "route-action-candidates.tsv")
+        features = read_tsv(root / "docs/roadmap/functions-coverage-audit.tsv")
+        tasks = read_tsv(root / "docs/roadmap/tasks.tsv")
         jobs = read_tsv(base / "deferred-jobs.tsv")
         schedulers = read_tsv(base / "startup-schedulers.tsv")
         mount = (base / "mount-context.json").read_text(encoding="utf-8")
@@ -95,6 +106,8 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
         problems.append(f"invalid mount context: {exc}")
     if len(covered) != EXPECTED_DECLARATIONS + EXPECTED_EXTRA:
         problems.append(f"covered rows {len(covered)}, expected {EXPECTED_DECLARATIONS + EXPECTED_EXTRA}")
+    if len(actions) != EXPECTED_SEMANTIC_ROWS:
+        problems.append(f"semantic rows {len(actions)}, expected {EXPECTED_SEMANTIC_ROWS}")
     if len(jobs) != EXPECTED_JOBS:
         problems.append(f"registered deferred names {len(jobs)}, expected {EXPECTED_JOBS}")
     if len(schedulers) != EXPECTED_STARTUP_SCHEDULERS:
@@ -148,6 +161,63 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
             if lane.strip() and lane.strip() not in "ABCDEFGHI-":
                 problems.append(f"{label}: invalid lane {lane}")
 
+    # Every old handler must have one explicitly qualified semantic candidate.
+    # Candidate maps are NOT implementation or runtime-verified parity.
+    features_by_id = {x["code"]: x for x in features}
+    tasks_by_id = {x["id"] for x in tasks}
+    mounted_by_key = {"|".join(key(x, source=False)): x for x in covered}
+    action_keys = Counter(x["source_key"] for x in actions)
+    expected_action_keys = Counter(mounted_by_key.keys())
+    if expected_action_keys != action_keys:
+        missing = expected_action_keys - action_keys
+        extra = action_keys - expected_action_keys
+        problems.append(f"semantic action keys mismatch: missing={sum(missing.values())}, unexpected={sum(extra.values())}")
+    if len(mounted_by_key) != len(covered):
+        problems.append("duplicate HTTP route identity in baseline")
+    semantic_statuses = Counter()
+    for row in actions:
+        identity = row["source_key"]
+        base = mounted_by_key.get(identity)
+        if base is None:
+            continue
+        status = row["mapping_status"]
+        sem = row["action_group"]
+        semantic_statuses[status] += 1
+        if status not in VALID_SEMANTIC_STATUSES:
+            problems.append(f"{identity}: invalid semantic status {status}")
+        if base["mount_state"] != row["mount_state"] or base["method"] != row["legacy_method"] or base["path"] != row["legacy_path"]:
+            problems.append(f"{identity}: semantic route source and mount differ")
+        if row["verification"] != "not_behavior_verified":
+            problems.append(f"{identity}: candidate falsely marked behavior-verified without independent evidence")
+        if base["mount_state"] == "frozen":
+            if status != "excluded" or sem != "FROZEN" or row["tor_tasks"]:
+                problems.append(f"{identity}: frozen route wrongly turned into an active task")
+            continue
+        if base["mount_state"] == "unconfirmed_mount":
+            if status != "legacy_mount_unconfirmed" or sem != "X-REVENUE-HTML":
+                problems.append(f"{identity}: unmounted route cannot be claimed working")
+        elif sem == "DISABLED":
+            if status != "legacy_disabled" or "reader-boost" not in base["path"] or base["mount_state"] != "conditional":
+                problems.append(f"{identity}: invalid disabled route decision")
+            continue
+        elif status == "candidate_from_source":
+            feature = features_by_id.get(sem)
+            if not feature:
+                problems.append(f"{identity}: unknown canonical feature {sem}")
+            elif feature["roadmap_depth"] in ("excluded", "frozen") or feature["lane"] == "-":
+                problems.append(f"{identity}: excluded feature mapped to active route")
+            elif feature["scenarios"] != row["historical_scenarios"] or feature["tor_tasks"] != row["tor_tasks"]:
+                problems.append(f"{identity}: canonical task/scenario mismatch for {sem}")
+        elif status in ("explicit_subfunction", "legacy_mount_unconfirmed"):
+            if sem not in KNOWN_SUPPLEMENTAL_GROUPS:
+                problems.append(f"{identity}: unregistered supplemental group {sem}")
+        else:
+            problems.append(f"{identity}: unsupported mapping {status}/{sem}")
+        if not row["tor_tasks"]:
+            problems.append(f"{identity}: no concrete TOR owner tasks")
+        for t in row["tor_tasks"].split(","):
+            if not (t in tasks_by_id or (t.startswith("ADM-") and t[4:].isdigit() and 1 <= int(t[4:]) <= 12)):
+                problems.append(f"{identity}: nonexistent task {t}")
     names = [x["job_name"] for x in jobs]
     if len(set(names)) != len(names):
         problems.append("duplicate registered job name")
@@ -165,6 +235,7 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
     if job_freezes != EXPECTED_JOB_FREEZES:
         problems.append(f"frozen deferred jobs {job_freezes}, expected {EXPECTED_JOB_FREEZES}")
 
+    stats.update({f"semantic_{k}": v for k, v in semantic_statuses.items()})
     stats.update({f"route_{k}": v for k, v in states.items()})
     stats.update({f"comparison_{k}": v for k, v in comparisons.items()})
     stats["source_declarations"] = len(source_declarations)
@@ -176,11 +247,15 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
     if strict:
         if unresolved:
             problems.extend(["UNMOUNTED/UNVERIFIED " + x for x in unresolved[:15]])
-        pending = [x for x in covered if x["comparison"] in ("semantic_review", "mount_review")]
+        pending = [
+            x for x in actions
+            if x["mapping_status"] in ("candidate_from_source", "explicit_subfunction", "legacy_mount_unconfirmed")
+            and x["verification"] != "runtime_verified"
+        ]
         if pending:
-            problems.append(f"{len(pending)} routes still require semantic mapping (lexical match cannot prove parity)")
+            problems.append(f"{len(pending)} routes still require semantic mapping and runtime evidence; lexical path match is not proof")
             for row in pending[:10]:
-                problems.append(f'REVIEW {row["method"]} {row["path"]}')
+                problems.append(f'REVIEW {row["legacy_method"]} {row["legacy_path"]}')
     return problems, stats
 
 
