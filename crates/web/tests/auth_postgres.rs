@@ -953,7 +953,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     c11_cases::second_session_reads_saved_progress(&app, &second_session).await;
     c11_cases::stale_second_session_cannot_overwrite(&app, &second_session).await;
     c11_cases::concurrent_sessions_one_progress_winner(&app, &second_session).await;
-    c11_cases::reader_v2_html_flow(&app, &pool, &second_session, public_chapter_id).await;
+    c11_cases::reader_v2_html_flow(&app, &second_session, public_chapter_id).await;
 
     let logout_csrf = csrf_token(&private_html);
     let combined_cookies = format!("{session}; {new_csrf_cookie}");
