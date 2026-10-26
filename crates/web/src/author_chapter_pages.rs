@@ -65,19 +65,26 @@ pub fn detail(
             escape_html(csrf)
         )
     };
+    let add_action = if published {
+        "<p>Новые главы для опубликованной книги требуют отдельного выпуска.</p>".to_owned()
+    } else {
+        format!(
+            "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
+            book.id
+        )
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
         <h2>Главы</h2>{items}
-        <p><a class="button button--quiet" href="/me/books/{}/chapters/new">Добавить главу</a></p>
+        {add_action}
         {action}
         <p><a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
         book.id,
-        escape_html(&book.title),
-        book.id
+        escape_html(&book.title)
     );
     layout(&book.title, "Управление своей книгой", &body)
 }
