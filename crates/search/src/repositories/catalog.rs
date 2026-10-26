@@ -37,6 +37,7 @@ pub(super) async fn read_page(
     let sql = match sort {
         CatalogSort::Oldest => ASCENDING,
         CatalogSort::Newest => DESCENDING,
+        _ => return Err(SearchError::Invalid),
     };
     let rows = sqlx::query(sql)
         .bind(term.trim())
@@ -101,4 +102,149 @@ pub(super) async fn count_filtered(
         .await
         .map_err(|_| SearchError::Unavailable)?;
     u64::try_from(total).map_err(|_| SearchError::Unavailable)
+}
+
+// F-02 parity with the NEwBOO catalogue: title/author use composite keysets.
+// The extra id is the stable tie breaker for duplicate names.
+const TITLE_ORDER: &str = "
+SELECT id,title,target_language,author_name,genres,lower(title) AS sort_key FROM books
+WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+  AND ($1::text = '' OR
+       (to_tsvector('simple'::regconfig,title) || to_tsvector('simple'::regconfig,author_name))
+           @@ plainto_tsquery('simple'::regconfig,$1))
+  AND ($2::text IS NULL OR (lower(title),id) > ($2::text,$3::bigint))
+  AND ($5::text IS NULL OR target_language=$5)
+  AND ($6::text IS NULL OR genres @> ARRAY[$6::text])
+ORDER BY lower(title) ASC,id ASC LIMIT $4";
+
+const AUTHOR_ORDER: &str = "
+SELECT id,title,target_language,author_name,genres,lower(author_name) AS sort_key FROM books
+WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+  AND ($1::text = '' OR
+       (to_tsvector('simple'::regconfig,title) || to_tsvector('simple'::regconfig,author_name))
+           @@ plainto_tsquery('simple'::regconfig,$1))
+  AND ($2::text IS NULL OR (lower(author_name),id) > ($2::text,$3::bigint))
+  AND ($5::text IS NULL OR target_language=$5)
+  AND ($6::text IS NULL OR genres @> ARRAY[$6::text])
+ORDER BY lower(author_name) ASC,id ASC LIMIT $4";
+
+fn hex_nibble(byte: u8) -> Result<u8, SearchError> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        _ => Err(SearchError::Invalid),
+    }
+}
+
+/// The key is taken from PostgreSQL lower(...), not Rust Unicode lowercasing.
+/// This keeps the cursor's collation consistent with ORDER BY in PostgreSQL.
+fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
+    let mut encoded = String::with_capacity(key.len() * 2 + 40);
+    encoded.push_str(sort.as_str());
+    encoded.push('.');
+    for byte in key.bytes() {
+        encoded.push(char::from(b"0123456789abcdef"[(byte >> 4) as usize]));
+        encoded.push(char::from(b"0123456789abcdef"[(byte & 15) as usize]));
+    }
+    encoded.push('.');
+    encoded.push_str(&id.to_string());
+    encoded
+}
+
+fn decode_lexical_cursor(
+    raw: Option<&str>,
+    sort: CatalogSort,
+) -> Result<(Option<String>, i64), SearchError> {
+    let Some(raw) = raw else {
+        return Ok((None, 0));
+    };
+    if raw.len() > 2048 {
+        return Err(SearchError::Invalid);
+    }
+    let mut parts = raw.split('.');
+    let (Some(prefix), Some(hex), Some(id), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(SearchError::Invalid);
+    };
+    if prefix != sort.as_str()
+        || hex.len() % 2 != 0
+        || id.is_empty()
+        || id.starts_with('0')
+        || !id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(SearchError::Invalid);
+    }
+    let id: i64 = id.parse().map_err(|_| SearchError::Invalid)?;
+    if id <= 0 {
+        return Err(SearchError::Invalid);
+    }
+    let mut decoded = Vec::with_capacity(hex.len() / 2);
+    for digits in hex.as_bytes().as_chunks::<2>().0 {
+        decoded.push((hex_nibble(digits[0])? << 4) | hex_nibble(digits[1])?);
+    }
+    let key = String::from_utf8(decoded).map_err(|_| SearchError::Invalid)?;
+    Ok((Some(key), id))
+}
+
+pub(super) async fn read_lexical_page(
+    pool: &PgPool,
+    term: &str,
+    language: Option<&str>,
+    genre: Option<&str>,
+    after: Option<&str>,
+    limit: usize,
+    sort: CatalogSort,
+) -> Result<SearchPage, SearchError> {
+    let query = match sort {
+        CatalogSort::Title => TITLE_ORDER,
+        CatalogSort::Author => AUTHOR_ORDER,
+        _ => return Err(SearchError::Invalid),
+    };
+    let (cursor_key, cursor_id) = decode_lexical_cursor(after, sort)?;
+    let rows = sqlx::query(query)
+        .bind(term.trim())
+        .bind(cursor_key.as_deref())
+        .bind(cursor_id)
+        .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
+        .bind(language)
+        .bind(genre)
+        .fetch_all(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
+    let mut entries = rows
+        .into_iter()
+        .map(|row| {
+            let id: i64 = row.try_get("id").map_err(|_| SearchError::Unavailable)?;
+            let book = SearchBook {
+                id: u64::try_from(id).map_err(|_| SearchError::Unavailable)?,
+                title: row.try_get("title").map_err(|_| SearchError::Unavailable)?,
+                language: row
+                    .try_get("target_language")
+                    .map_err(|_| SearchError::Unavailable)?,
+                author_name: row
+                    .try_get("author_name")
+                    .map_err(|_| SearchError::Unavailable)?,
+                genres: row
+                    .try_get("genres")
+                    .map_err(|_| SearchError::Unavailable)?,
+            };
+            let key: String = row
+                .try_get("sort_key")
+                .map_err(|_| SearchError::Unavailable)?;
+            Ok((book, key))
+        })
+        .collect::<Result<Vec<_>, SearchError>>()?;
+    let next_cursor = if entries.len() > limit {
+        entries.truncate(limit);
+        entries
+            .last()
+            .map(|(book, key)| encode_lexical_cursor(sort, key, book.id))
+    } else {
+        None
+    };
+    Ok(SearchPage {
+        items: entries.into_iter().map(|(book, _)| book).collect(),
+        next_cursor,
+    })
 }

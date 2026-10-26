@@ -129,6 +129,17 @@ async function draftBook(page, viewport) {
           viewport + ': F02 HTML and JSON totals differ');
         await snapshot(guest, viewport + '-published');
 
+        // F-02: lexical sorting is a real catalog control, not just an API flag.
+        for (const sort of ['title', 'author']) {
+          await guest.getByLabel('Сортировка').selectOption(sort);
+          await guest.getByRole('button', { name: 'Найти' }).click();
+          await guest.waitForLoadState('networkidle');
+          assert(new URL(guest.url()).searchParams.get('sort') === sort,
+            viewport + ': lexical sort not applied');
+          assert(await bookLink(guest, id).isVisible(),
+            viewport + ': matching book vanished after ' + sort + ' sort');
+        }
+
         // Switch language in the search FORM; the canonical translation language is immutable.
         await search(guest, { ...filters, language: 'en' });
         assert(await bookLink(guest, id).count() === 0, viewport + ': wrong language match');

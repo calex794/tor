@@ -17,6 +17,8 @@ pub struct SearchPage {
 pub enum CatalogSort {
     Oldest,
     Newest,
+    Title,
+    Author,
 }
 
 impl CatalogSort {
@@ -24,6 +26,8 @@ impl CatalogSort {
         match raw {
             None | Some("oldest") => Ok(Self::Oldest),
             Some("newest") => Ok(Self::Newest),
+            Some("title") => Ok(Self::Title),
+            Some("author") => Ok(Self::Author),
             _ => Err(SearchError::Invalid),
         }
     }
@@ -31,6 +35,8 @@ impl CatalogSort {
         match self {
             Self::Oldest => "oldest",
             Self::Newest => "newest",
+            Self::Title => "title",
+            Self::Author => "author",
         }
     }
 }
@@ -189,6 +195,8 @@ mod tests {
         assert_eq!(CatalogSort::parse(None), Ok(CatalogSort::Oldest));
         assert_eq!(CatalogSort::parse(Some("oldest")), Ok(CatalogSort::Oldest));
         assert_eq!(CatalogSort::parse(Some("newest")), Ok(CatalogSort::Newest));
+        assert_eq!(CatalogSort::parse(Some("title")), Ok(CatalogSort::Title));
+        assert_eq!(CatalogSort::parse(Some("author")), Ok(CatalogSort::Author));
         for invalid in ["", "latest", "newest;drop", "NEWEST"] {
             assert_eq!(CatalogSort::parse(Some(invalid)), Err(SearchError::Invalid));
         }

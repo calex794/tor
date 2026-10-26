@@ -71,6 +71,21 @@ impl PgSearch {
         sort: Option<&str>,
     ) -> Result<SearchPage, SearchError> {
         let direction = CatalogSort::parse(sort)?;
+        // Lexical sorts have a compound (lower(value), id) cursor. Validate
+        // ordinary search facets separately from that opaque URL value.
+        if matches!(direction, CatalogSort::Title | CatalogSort::Author) {
+            let (_, language, genre) = validate_browse(term, language, genre, None, limit)?;
+            return catalog::read_lexical_page(
+                &self.pool,
+                term,
+                language.as_deref(),
+                genre.as_deref(),
+                after,
+                limit,
+                direction,
+            )
+            .await;
+        }
         let (after, language, genre) = if sort.is_some() {
             validate_browse(term, language, genre, after, limit)?
         } else {
