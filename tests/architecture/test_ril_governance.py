@@ -51,8 +51,8 @@ class RilGovernanceTests(unittest.TestCase):
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",
-            '.route("/catalog", get(catalog))',
-            '.route("/catalog", get(catalog)).route("/internal/export", get(health))',
+            '.route("/catalog", get(catalog_http::catalog))',
+            '.route("/catalog", get(catalog_http::catalog)).route("/internal/export", get(health))',
         )
         self.assert_detected("route without reviewed security policy")
 
