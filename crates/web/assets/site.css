@@ -387,3 +387,10 @@ button:disabled, input:disabled { cursor: not-allowed; }
 
 /* B-04: make stale-revision guidance legible on small screens. */
 .author-edit-warning { font-size: 13px; color: #536755; line-height: 1.6; }
+
+/* An author preview may contain 50k Unicode characters; never overflow mobile. */
+.author-release-preview {
+  max-width: 100%; max-height: 45vh; overflow: auto; overflow-wrap: anywhere;
+  white-space: pre-wrap; padding: 16px; border-radius: 10px;
+  border: 1px solid #dce7dd; background: #f8fbf7; color: #263a2c;
+}
