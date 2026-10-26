@@ -40,7 +40,11 @@ pub fn detail(
             } else {
                 String::new()
             };
-            let state = if pending { " — Черновик (не виден читателям)" } else { "" };
+            let state = if pending {
+                " — Черновик (не виден читателям)"
+            } else {
+                ""
+            };
             write!(
                 &mut items,
                 "<li>№{} — {} ({access}){state}{edit_action}{release_action}</li>",
@@ -157,7 +161,11 @@ pub fn release_chapter(
         chapter.revision,
         chapter.version_id,
     );
-    layout("Выпустить главу", "Подтверждение публикации выбранной версии.", &content)
+    layout(
+        "Выпустить главу",
+        "Подтверждение публикации выбранной версии.",
+        &content,
+    )
 }
 
 #[cfg(test)]
