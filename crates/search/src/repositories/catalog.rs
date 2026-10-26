@@ -1,6 +1,7 @@
 //! F-02: PostgreSQL keyset catalog. All predicates precede pagination.
 //! Oldest and newest use fixed SQL, never a client-provided ORDER BY fragment.
 use crate::domain::{CatalogSort, SearchBook, SearchError, SearchPage};
+use super::CatalogFacets;
 use sqlx::{PgPool, Row};
 
 const ASCENDING: &str = "
@@ -31,11 +32,7 @@ ORDER BY id DESC LIMIT $3";
 
 pub(super) async fn read_page(
     pool: &PgPool,
-    term: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
-    tag: Option<&str>,
-    fandom: Option<&str>,
+    filters: CatalogFacets<'_>,
     after: i64,
     limit: usize,
     sort: CatalogSort,
@@ -46,13 +43,13 @@ pub(super) async fn read_page(
         _ => return Err(SearchError::Invalid),
     };
     let rows = sqlx::query(sql)
-        .bind(term.trim())
+        .bind(filters.term.trim())
         .bind(after)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
-        .bind(language)
-        .bind(genre)
-        .bind(tag)
-        .bind(fandom)
+        .bind(filters.language)
+        .bind(filters.genre)
+        .bind(filters.tag)
+        .bind(filters.fandom)
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
@@ -211,11 +208,7 @@ fn decode_lexical_cursor(
 
 pub(super) async fn read_lexical_page(
     pool: &PgPool,
-    term: &str,
-    language: Option<&str>,
-    genre: Option<&str>,
-    tag: Option<&str>,
-    fandom: Option<&str>,
+    filters: CatalogFacets<'_>,
     after: Option<&str>,
     limit: usize,
     sort: CatalogSort,
@@ -227,14 +220,14 @@ pub(super) async fn read_lexical_page(
     };
     let (cursor_key, cursor_id) = decode_lexical_cursor(after, sort)?;
     let rows = sqlx::query(query)
-        .bind(term.trim())
+        .bind(filters.term.trim())
         .bind(cursor_key.as_deref())
         .bind(cursor_id)
         .bind(i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?)
-        .bind(language)
-        .bind(genre)
-        .bind(tag)
-        .bind(fandom)
+        .bind(filters.language)
+        .bind(filters.genre)
+        .bind(filters.tag)
+        .bind(filters.fandom)
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;

@@ -22,7 +22,7 @@ use tor_accounts::{
 };
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{new_book_with_taxonomy, AuthorError},
+    services::authoring::{new_book_with_taxonomy, AuthorError, TaxonomyFields},
 };
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
@@ -279,8 +279,10 @@ async fn create_book(
         &form.command_key,
         form.author_name.as_deref().unwrap_or(""),
         form.genres.as_deref().unwrap_or(""),
-        form.tags.as_deref().unwrap_or(""),
-        form.fandoms.as_deref().unwrap_or(""),
+        TaxonomyFields {
+            tags: form.tags.as_deref().unwrap_or(""),
+            fandoms: form.fandoms.as_deref().unwrap_or(""),
+        },
     ) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),

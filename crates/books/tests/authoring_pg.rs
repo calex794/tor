@@ -479,7 +479,7 @@ async fn b_01_author_genres_are_owner_written_and_retry_safe() {
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_change() {
-    use tor_books::services::authoring::new_book_with_taxonomy;
+    use tor_books::services::authoring::{new_book_with_taxonomy, TaxonomyFields};
     let url = std::env::var("TEST_DATABASE_URL").expect("test URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
     let pool = PgPool::connect(&url).await.unwrap();
@@ -502,8 +502,10 @@ async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_ch
         &key,
         "Автор",
         "Фэнтези",
-        " Магия, магия, Научная фантастика ",
-        "Звёздные войны",
+        TaxonomyFields {
+            tags: " Магия, магия, Научная фантастика ",
+            fandoms: "Звёздные войны",
+        },
     )
     .unwrap();
     let id = repo.create_owned_book(owner, &request).await.unwrap();
@@ -524,8 +526,10 @@ async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_ch
         &key,
         "Автор",
         "Фэнтези",
-        "Другой тег",
-        "Звёздные войны",
+        TaxonomyFields {
+            tags: "Другой тег",
+            fandoms: "Звёздные войны",
+        },
     )
     .unwrap();
     assert_eq!(

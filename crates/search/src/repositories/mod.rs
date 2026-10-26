@@ -148,31 +148,20 @@ impl PgSearch {
         {
             return Err(SearchError::Invalid);
         }
+        let normalized = CatalogFacets {
+            term: filters.term,
+            language: language.as_deref(),
+            genre: genre.as_deref(),
+            tag: tag.as_deref(),
+            fandom: fandom.as_deref(),
+        };
         if lexical {
             return catalog::read_lexical_page(
-                &self.pool,
-                filters.term,
-                language.as_deref(),
-                genre.as_deref(),
-                tag.as_deref(),
-                fandom.as_deref(),
-                after,
-                limit,
-                direction,
-            )
-            .await;
+                &self.pool, normalized, after, limit, direction,
+            ).await;
         }
         catalog::read_page(
-            &self.pool,
-            filters.term,
-            language.as_deref(),
-            genre.as_deref(),
-            tag.as_deref(),
-            fandom.as_deref(),
-            after_id,
-            limit,
-            direction,
-        )
-        .await
+            &self.pool, normalized, after_id, limit, direction,
+        ).await
     }
 }
