@@ -26,6 +26,7 @@ mod author_pages;
 pub mod cover_worker;
 mod observability;
 mod operator_traces;
+mod operator_overview;
 mod pages;
 mod password_jobs;
 mod ril;
@@ -429,7 +430,8 @@ fn make_router(
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .route("/metrics", get(observability::metrics_endpoint))
-        .route("/ops/traces", get(operator_traces::page));
+        .route("/ops/traces", get(operator_traces::page))
+        .route("/ops/overview", get(operator_overview::page));
     if !active_auth {
         app = app
             .route("/login", get(login))
@@ -499,6 +501,11 @@ mod tests {
     async fn demo_must_not_advertise_unimplemented_reader() {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
     }
+    #[tokio::test]
+    async fn operator_summary_must_reject_site_account_cookie_without_staff_secret() {
+        assert_eq!(get("/ops/overview").await.0, StatusCode::UNAUTHORIZED);
+    }
+
     #[tokio::test]
     async fn operator_diagnostics_never_open_without_independent_credentials() {
         for path in [
