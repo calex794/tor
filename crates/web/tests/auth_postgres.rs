@@ -661,7 +661,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     // C-09: JSON progress persists across independent client sessions, while
     // stale and concurrent requests cannot move the cursor backwards.
     let csrf_cookies = format!("{session}; {new_csrf_cookie}");
-    c11_cases::oversized_chapter_is_denied_across_reader_and_progress(
+    c11_cases::reader_and_progress_share_access_policy(
         &app,
         &session,
         &csrf_cookies,
