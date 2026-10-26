@@ -42,7 +42,11 @@ fn book_cards(books: &[PublicBookCard], shelf: bool) -> String {
             )
             .expect("format String");
         }
-        let variant = if shelf { "book-mini-card--shelf" } else { "book-mini-card--compact" };
+        let variant = if shelf {
+            "book-mini-card--shelf"
+        } else {
+            "book-mini-card--compact"
+        };
         write!(
             html,
             "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\"><span>Нет обложки</span></div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
@@ -86,13 +90,23 @@ fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
         <a class="ui-button ui-button--ghost" href="/catalog">Открыть каталог</a>
     </div>"#;
     let hero = if latest {
-        books.first().map(spotlight).unwrap_or_else(|| fallback.to_owned())
+        books
+            .first()
+            .map(spotlight)
+            .unwrap_or_else(|| fallback.to_owned())
     } else {
         fallback.to_owned()
     };
     let content = include_str!("../../templates/home.html")
         .replace("<!--HOME_SPOTLIGHT-->", &hero)
-        .replace("<!--BOOKS_HEADING-->", if latest { "Недавно добавленные" } else { "Опубликованные книги" })
+        .replace(
+            "<!--BOOKS_HEADING-->",
+            if latest {
+                "Недавно добавленные"
+            } else {
+                "Опубликованные книги"
+            },
+        )
         .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, latest));
     layout(
         "Главная",
@@ -188,8 +202,11 @@ mod home_tests {
 
     fn book(id: u64, title: &str) -> PublicBookCard {
         PublicBookCard {
-            id, title: title.to_owned(), language: "ru".to_owned(),
-            author_name: None, genres: Vec::new(),
+            id,
+            title: title.to_owned(),
+            language: "ru".to_owned(),
+            author_name: None,
+            genres: Vec::new(),
         }
     }
 
@@ -207,10 +224,13 @@ mod home_tests {
     #[test]
     fn recent_home_escapes_untrusted_metadata_everywhere() {
         let html = home_recent(&[PublicBookCard {
-            id: 17, title: "<script>x</script>".into(), language: "ru".into(),
+            id: 17,
+            title: "<script>x</script>".into(),
+            language: "ru".into(),
             author_name: Some("\" onclick=\"evil".into()),
             genres: vec!["<img>".into()],
-        }]).0;
+        }])
+        .0;
         assert!(!html.contains("<script>"));
         assert!(!html.contains("onclick=\"evil"));
         assert!(!html.contains("<img>"));
