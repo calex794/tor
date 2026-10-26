@@ -27,6 +27,7 @@ pub mod cover_worker;
 mod pages;
 mod password_jobs;
 mod ril;
+mod observability;
 
 #[derive(Clone)]
 struct AppState {
@@ -394,7 +395,8 @@ fn make_router(
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
-        .route("/readyz", get(ready));
+        .route("/readyz", get(ready))
+        .route("/metrics", get(observability::metrics_endpoint));
     if !active_auth {
         app = app
             .route("/login", get(login))
