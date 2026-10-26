@@ -395,3 +395,34 @@ async fn f_02_lexical_sort_is_bounded_and_uses_sort_specific_cursors_in_http() {
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci database"]
+async fn f_02_http_taxonomy_filters_validate_and_never_change_legacy_api() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+    let (status, html) = get(app.clone(), "/catalog?tag=f02-absent&fandom=f02-absent").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("name=\"tag\""), "{html}");
+    assert!(html.contains("name=\"fandom\""), "{html}");
+    assert!(html.contains("Найдено книг: 0"), "{html}");
+    assert!(html.contains("Книги не найдены"), "{html}");
+    let (status, json) = get(
+        app.clone(),
+        "/api/v1/search/books?tag=f02-absent&fandom=f02-absent&sort=newest&include_total=true",
+    ).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json.contains(r#""total":0"#), "{json}");
+    assert!(json.contains(r#""items":[]"#), "{json}");
+    for path in [
+        "/catalog?tag=bad%0Atag",
+        "/catalog?fandom=bad%2Cfandom",
+        "/api/v1/search/books?tag=bad%0Atag",
+        "/api/v1/search/books?fandom=bad%2Cfandom",
+    ] {
+        assert_eq!(get(app.clone(), path).await.0, StatusCode::BAD_REQUEST, "{path}");
+    }
+    let (status, legacy) = get(app, "/api/v1/books").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(legacy.starts_with('['));
+}
