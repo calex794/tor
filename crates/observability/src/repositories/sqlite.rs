@@ -6,7 +6,7 @@ use crate::{
         wire,
     },
 };
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use std::{fmt, fs, path::Path};
 
 #[derive(Debug)]
