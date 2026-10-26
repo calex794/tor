@@ -172,10 +172,7 @@ pub(super) async fn second_session_reads_saved_progress(app: &Router, session: &
     assert!(json.contains(r#""char_offset":1"#));
 }
 
-pub(super) async fn stale_second_session_cannot_overwrite(
-    app: &Router,
-    session: &str,
-) {
+pub(super) async fn stale_second_session_cannot_overwrite(app: &Router, session: &str) {
     let page = send(app, request("GET", "/read/101", "", session, ORIGIN)).await;
     assert_eq!(page.status(), StatusCode::OK);
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
