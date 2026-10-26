@@ -185,8 +185,10 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
         .next()
         .expect("valid key");
     assert_eq!(command_key.len(), 43);
+    assert!(new_html.contains("name=\"author_name\""));
+    assert!(new_html.contains("name=\"genres\""));
     let create_form = format!(
-        "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&command_key={command_key}&csrf_token={author_csrf}"
+        "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&author_name=Alice+Voyager&genres=fantasy%2Cadventure&command_key={command_key}&csrf_token={author_csrf}"
     );
     let author_cookies = format!("{session}; {author_csrf_cookie}");
     assert_eq!(
@@ -391,6 +393,22 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
         .status(),
         StatusCode::NOT_FOUND
     );
+    // The owner draft has metadata, but anonymous discovery must not see it.
+    let before = send(
+        &app,
+        request(
+            "GET",
+            "/api/v1/search/books?q=Alice&genre=fantasy",
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(before.status(), StatusCode::OK);
+    assert!(!body_of(before)
+        .await
+        .contains(&format!(r#""id":"{book_id}""#)));
     let publish_path = format!("/me/books/{book_id}/publish");
     let publish_payload = format!("csrf_token={chapter_csrf}");
     assert_eq!(
@@ -426,6 +444,47 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(public_book.status(), StatusCode::OK);
     let public_html = body_of(public_book).await;
     assert!(public_html.contains("Глава"));
+    let discovered = send(
+        &app,
+        request(
+            "GET",
+            "/api/v1/search/books?q=Alice&genre=fantasy",
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(discovered.status(), StatusCode::OK);
+    let found = body_of(discovered).await;
+    let name_only = body_of(
+        send(
+            &app,
+            request("GET", "/api/v1/search/books?q=Alice", "", "", ORIGIN),
+        )
+        .await,
+    )
+    .await;
+    let genre_only = body_of(
+        send(
+            &app,
+            request("GET", "/api/v1/search/books?genre=fantasy", "", "", ORIGIN),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        found.contains(&format!(r#""id":"{book_id}""#)),
+        "book_id={book_id}; combined={found}; name_only={name_only}; genre_only={genre_only}"
+    );
+    assert!(found.contains("Alice Voyager"));
+    let gallery = send(
+        &app,
+        request("GET", "/catalog?genre=fantasy", "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(gallery.status(), StatusCode::OK);
+    assert!(body_of(gallery).await.contains("Alice Voyager"));
     let public_chapter_id = public_html
         .split("href=\"/reader/")
         .nth(1)

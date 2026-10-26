@@ -78,3 +78,93 @@ async fn f_03_language_filter_and_param_binding() {
         Err(SearchError::Invalid)
     );
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL with public/hidden/held fixtures"]
+async fn f_03_facet_search_masks_hidden_author_and_genre() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never modify production");
+    let rows = [
+        (
+            "ci:f03-meta:visible",
+            "Фэнтези рассвет",
+            "Жюль",
+            "public",
+            false,
+        ),
+        (
+            "ci:f03-meta:hidden",
+            "Фэнтези закрыто",
+            "Жюль",
+            "draft",
+            false,
+        ),
+        ("ci:f03-meta:held", "Фэнтези блок", "Жюль", "public", true),
+    ];
+    for (identity, title, author, visibility, held) in rows {
+        sqlx::query(
+            "INSERT INTO books(source_identity,target_language,title,author_name,genres,visibility,admin_hold)
+             VALUES ($1,'ru',$2,$3,ARRAY['фэнтези','приключения'],$4,$5)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,author_name=EXCLUDED.author_name,
+                           genres=EXCLUDED.genres,visibility=EXCLUDED.visibility,
+                           admin_hold=EXCLUDED.admin_hold",
+        )
+        .bind(identity)
+        .bind(title)
+        .bind(author)
+        .bind(visibility)
+        .bind(held)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let search = PgSearch::new(pool);
+    let by_author = search
+        .search_faceted("Жюль", Some("ru"), None, None, 30)
+        .await
+        .unwrap();
+    assert!(by_author
+        .items
+        .iter()
+        .any(|item| item.title == "Фэнтези рассвет"));
+    assert!(!by_author
+        .items
+        .iter()
+        .any(|item| item.title.contains("закрыто") || item.title.contains("блок")));
+    let by_genre = search
+        .search_faceted("", None, Some(" ФЭНТЕЗИ "), None, 30)
+        .await
+        .unwrap();
+    assert!(by_genre
+        .items
+        .iter()
+        .any(|item| item.title == "Фэнтези рассвет"));
+    assert!(!by_genre
+        .items
+        .iter()
+        .any(|item| item.title.contains("закрыто") || item.title.contains("блок")));
+    assert_eq!(
+        search
+            .search_faceted("", None, Some("неизвестный жанр"), None, 30)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        0
+    );
+    assert_eq!(
+        search
+            .search_faceted("Жюль", None, Some("неизвестный жанр"), None, 30)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        0
+    );
+}

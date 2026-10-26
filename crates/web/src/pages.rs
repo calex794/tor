@@ -10,6 +10,8 @@ pub struct PublicBookCard {
     pub id: u64,
     pub title: String,
     pub language: String,
+    pub author_name: Option<String>,
+    pub genres: Vec<String>,
 }
 
 pub fn escape_html(value: &str) -> String {
@@ -44,9 +46,28 @@ fn book_cards(books: &[PublicBookCard]) -> String {
     for book in books {
         let title = escape_html(&book.title);
         let language = escape_html(&book.language);
-        write!(html,
-            "<article class=\"book-card\"><div class=\"book-card__cover\" aria-hidden=\"true\">К</div><div class=\"book-card__body\"><span class=\"book-card__label\">Книга · {language}</span><h3 class=\"book-card__title\"><a href=\"/books/{}\">{title}</a></h3></div></article>",
-            book.id).expect("format String");
+        let mut details = String::new();
+        if let Some(author) = &book.author_name {
+            write!(
+                details,
+                "<p class=\"book-card__meta\">Автор: {}</p>",
+                escape_html(author)
+            )
+            .expect("format String");
+        }
+        if !book.genres.is_empty() {
+            write!(
+                details,
+                "<p class=\"book-card__meta\">Жанры: {}</p>",
+                escape_html(&book.genres.join(", "))
+            )
+            .expect("format String");
+        }
+        write!(
+            html,
+            "<article class=\"book-card\"><div class=\"book-card__cover\" aria-hidden=\"true\">К</div><div class=\"book-card__body\"><span class=\"book-card__label\">Книга · {language}</span><h3 class=\"book-card__title\"><a href=\"/books/{}\">{title}</a></h3>{details}</div></article>",
+            book.id
+        ).expect("format String");
     }
     html
 }
@@ -88,11 +109,13 @@ pub fn catalog_search(
     books: &[PublicBookCard],
     query: &str,
     language: Option<&str>,
+    genre: Option<&str>,
     cursor: Option<&str>,
 ) -> Html<String> {
     let mut controls = format!(
-        r#"<form action="/catalog" method="get" role="search" class="catalog-search"><label for="book-query">Название книги</label><input id="book-query" type="search" name="q" maxlength="80" value="{}" required><label for="book-language">Язык перевода</label><input id="book-language" type="text" name="language" maxlength="32" placeholder="ru" value="{}"><button class="button button--small" type="submit">Найти</button></form>"#,
+        r#"<form action="/catalog" method="get" role="search" class="catalog-search"><label for="book-query">Название или автор</label><input id="book-query" type="search" name="q" maxlength="80" value="{}"><label for="book-genre">Жанр</label><input id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="фэнтези"><label for="book-language">Язык перевода</label><input id="book-language" type="text" name="language" maxlength="32" placeholder="ru" value="{}"><button class="button button--small" type="submit">Найти</button></form>"#,
         escape_html(query),
+        escape_html(genre.unwrap_or("")),
         escape_html(language.unwrap_or("")),
     );
     if let Some(cursor) = cursor {
@@ -100,11 +123,16 @@ pub fn catalog_search(
             .filter(|value| !value.is_empty())
             .map(|value| format!("&amp;language={}", encode_search_term(value)))
             .unwrap_or_default();
+        let genre_param = genre
+            .filter(|value| !value.is_empty())
+            .map(|value| format!("&amp;genre={}", encode_search_term(value)))
+            .unwrap_or_default();
         write!(
             controls,
-            r#"<nav aria-label="Следующая страница поиска"><a href="/catalog?q={}{}&amp;after={}">Следующие книги</a></nav>"#,
+            r#"<nav aria-label="Следующая страница поиска"><a href="/catalog?q={}{}{}&amp;after={}">Следующие книги</a></nav>"#,
             encode_search_term(query),
             language_param,
+            genre_param,
             escape_html(cursor),
         ).expect("string write");
     }
@@ -132,6 +160,8 @@ pub fn book_detail_with_chapters(
         id: book.id,
         title: book.title.clone(),
         language: book.language.clone(),
+        author_name: None,
+        genres: Vec::new(),
     };
     let mut items = String::new();
     if book.chapters.is_empty() {
@@ -470,11 +500,35 @@ mod tests {
             id: 9,
             title: "<script>alert('x')</script> &".to_owned(),
             language: "ru".into(),
+            author_name: None,
+            genres: Vec::new(),
         }]);
         assert!(page.0.contains("&lt;script&gt;"));
         assert!(!page.0.contains("<script>"));
         assert!(page.0.contains("href=\"/books/9\""));
     }
+    #[test]
+    fn catalog_metadata_must_be_escaped_in_cards() {
+        let html = catalog_search(
+            &[PublicBookCard {
+                id: 17,
+                title: "Visible".to_owned(),
+                language: "ru".to_owned(),
+                author_name: Some("<img src=x onerror=alert(1)>".to_owned()),
+                genres: vec!["фэнтези<script>".to_owned()],
+            }],
+            "",
+            None,
+            Some("фэнтези"),
+            None,
+        )
+        .0;
+        assert!(html.contains("&lt;img"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<img src"));
+        assert!(!html.contains("<script>"));
+    }
+
     #[test]
     fn toc_cursor_is_escaped_in_html_attribute() {
         let book = tor_reading::services::PublicBookPage {

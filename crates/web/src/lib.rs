@@ -71,6 +71,8 @@ async fn public_cards(
             id: book.id(),
             title: book.title().to_owned(),
             language: book.key().target_language().to_owned(),
+            author_name: None,
+            genres: Vec::new(),
         })
         .collect())
 }
@@ -90,19 +92,19 @@ async fn catalog(
     Query(query): Query<CatalogQuery>,
 ) -> Result<Html<String>, StatusCode> {
     if let Some(search) = state.search.as_ref() {
-        if query
-            .genre
-            .as_ref()
-            .is_some_and(|genre| !genre.trim().is_empty())
-        {
-            return Err(StatusCode::BAD_REQUEST);
-        }
         let term = query.q.as_deref().unwrap_or("").trim();
-        if !term.is_empty() {
+        let filtered = !term.is_empty()
+            || query
+                .language
+                .as_ref()
+                .is_some_and(|x| !x.trim().is_empty())
+            || query.genre.as_ref().is_some_and(|x| !x.trim().is_empty());
+        if filtered {
             let page = search
-                .search_filtered(
+                .search_faceted(
                     term,
                     query.language.as_deref(),
+                    query.genre.as_deref(),
                     query.after.as_deref(),
                     DEFAULT_PAGE_SIZE,
                 )
@@ -118,21 +120,29 @@ async fn catalog(
                     id: item.id,
                     title: item.title,
                     language: item.language,
+                    author_name: if item.author_name.is_empty() {
+                        None
+                    } else {
+                        Some(item.author_name)
+                    },
+                    genres: item.genres,
                 })
                 .collect();
             return Ok(pages::catalog_search(
                 &books,
                 term,
                 query.language.as_deref(),
+                query.genre.as_deref(),
                 page.next_cursor.as_deref(),
             ));
         }
-        if query.after.is_some() || query.language.is_some() {
+        if query.after.is_some() {
             return Err(StatusCode::BAD_REQUEST);
         }
         return Ok(pages::catalog_search(
             &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
             "",
+            None,
             None,
             None,
         ));
@@ -236,6 +246,8 @@ async fn book_detail(
         id: book.id(),
         title: book.title().into(),
         language: book.key().target_language().into(),
+        author_name: None,
+        genres: Vec::new(),
     })
     .into_response()
 }

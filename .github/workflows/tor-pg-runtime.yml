@@ -83,6 +83,9 @@ jobs:
                  (2,'ci:2','ru','TOR CI hidden','draft'),
                  (3,'ci:3','ru','TOR CI held','public');
           UPDATE books SET admin_hold=true WHERE id=3;
+          -- Author/genre fixtures cover public, hidden and held rows with identical metadata.
+          UPDATE books SET author_name='Жюль', genres=ARRAY['фэнтези','приключения']
+          WHERE id IN (1,2,3);
           SQL
       - name: Seed G-07/G-09 owned cover job fixtures
         run: |
