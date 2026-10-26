@@ -18,7 +18,7 @@ use sqlx::{
     PgPool, Row,
 };
 use std::time::Duration;
-const REQUIRED_MIGRATION: i64 = 202610130003;
+const REQUIRED_MIGRATION: i64 = 202610260007;
 
 #[derive(Clone)]
 pub struct PgCatalog {
@@ -64,7 +64,7 @@ impl PgCatalog {
         .await?;
         if applied.is_none() {
             return Err(sqlx::Error::Protocol(
-                "TOR schema must have all nine historical SQLx migrations".into(),
+                "TOR schema missing required B-06 working-drafts migration 202610260007".into(),
             ));
         }
         sqlx::query(
@@ -74,6 +74,12 @@ impl PgCatalog {
         )
         .execute(&self.pool)
         .await?;
+        // A stale schema can still serve catalog pages while B-06 chapter
+        // writes fail. Do not report readiness until its working table is
+        // present and readable by the restricted application role.
+        sqlx::query("SELECT chapter_id, version_id FROM chapter_working_drafts LIMIT 0")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
