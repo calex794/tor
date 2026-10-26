@@ -115,6 +115,7 @@ fi
 # PID 1 loads root-only EnvironmentFile before dropping privileges to tor-deploy.
 cat > "$dropin" <<'SYSTEMD'
 [Unit]
+Description=TOR Rust + PostgreSQL website
 After=postgresql@18-main.service
 Wants=postgresql@18-main.service
 
@@ -163,10 +164,10 @@ for attempt in $(seq 1 30); do
 done
 [[ $ok == 1 ]] || { echo "Database-backed /readyz failed" >&2; false; }
 curl -fsS --max-time 6 http://127.0.0.1:3000/catalog >/dev/null
-curl -fsS --max-time 6 http://127.0.0.1:3000/register \
-  | grep -q 'Регистрац'
-curl -fsS --max-time 6 http://127.0.0.1:3000/login \
-  | grep -q 'Вход'
+register_html=$(curl -fsS --max-time 6 http://127.0.0.1:3000/register)
+login_html=$(curl -fsS --max-time 6 http://127.0.0.1:3000/login)
+[[ $register_html == *"Регистрац"* && $register_html == *'name="csrf_token"'* ]]
+[[ $login_html == *"Вход"* && $login_html == *'name="csrf_token"'* ]]
 books_payload=$(curl -fsS --max-time 6 http://127.0.0.1:3000/api/v1/books)
 if [[ $books_payload == *"Первое знакомство"* ]]; then
   echo "Refusing: old hard-coded demo book appears in real runtime API" >&2
