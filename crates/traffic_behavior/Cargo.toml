@@ -1,0 +1,6 @@
+[package]
+name = "tor-traffic_behavior"
+version.workspace = true
+edition.workspace = true
+
+# Domain/service-only: no direct RIL, Axum, SQLx or authentication dependency.
