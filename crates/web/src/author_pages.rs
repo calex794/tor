@@ -26,7 +26,7 @@ pub fn index(books: &[OwnedBook]) -> Html<String> {
         }
     }
     let content = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card">
+        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-card">
         <p class="eyebrow">Кабинет автора</p><h1>Мои книги</h1>
         <p><a class="button" href="/me/books/new">Создать книгу</a></p>
         {list}
@@ -45,7 +45,7 @@ pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
 
 pub fn detail(book: &OwnedBook) -> Html<String> {
     let content = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card">
+        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p>Книга сохранена в PostgreSQL и доступна только вам до публикации.</p>
