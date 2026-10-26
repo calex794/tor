@@ -78,6 +78,26 @@ echo "Backup archive readable; applying nine original SQLx migrations"
 # On SQLx failure do not touch the currently running tor-web demo service.
 "$migrator"
 
+# The app needs to READ migration readiness, but must never edit SQLx history.
+# Default app DML grants made by the bootstrap otherwise apply to this table.
+runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q -d tor <<'SQL'
+REVOKE INSERT, UPDATE, DELETE ON TABLE public._sqlx_migrations FROM tor_app;
+GRANT SELECT ON TABLE public._sqlx_migrations TO tor_app;
+SQL
+role_privileges=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
+  "SELECT has_table_privilege('tor_app','public._sqlx_migrations','SELECT')::text
+          || ',' ||
+          has_table_privilege('tor_app','public._sqlx_migrations','INSERT')::text
+          || ',' ||
+          has_table_privilege('tor_app','public._sqlx_migrations','UPDATE')::text
+          || ',' ||
+          has_table_privilege('tor_app','public._sqlx_migrations','DELETE')::text")
+if [[ $role_privileges != true,false,false,false ]]; then
+  echo "Refusing: tor_app can modify SQLx migration history" >&2
+  exit 1
+fi
+echo "MIGRATION_HISTORY_ACCESS_OK: tor_app can SELECT but cannot modify migration history"
+
 versions=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
   "SELECT count(*) FROM _sqlx_migrations WHERE success = TRUE")
 all_versions=$(runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d tor -Atqc \
