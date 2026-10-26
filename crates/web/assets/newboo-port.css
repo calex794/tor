@@ -937,3 +937,17 @@ body {
   .home-spotlight-card__cover { width: 100px; }
   .home-shelf__track .book-mini-card--shelf { flex-basis: 148px; width: 148px; min-width: 148px; }
 }
+
+/* H-web-09: NEwBOO source book-card.css uses fill-and-crop WebP covers. */
+.book-mini-card__cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+img.home-spotlight-card__cover {
+  display: block;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}

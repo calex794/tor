@@ -104,7 +104,14 @@
       "method": "GET",
       "template": "/catalog",
       "source": "crates/web/src/lib.rs",
-      "handler": "catalog",
+      "handler": "catalog_http::catalog",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/covers/{id}/{variant}",
+      "source": "crates/web/src/lib.rs",
+      "handler": "cover_http::cover_image",
       "policy": "public"
     },
     {

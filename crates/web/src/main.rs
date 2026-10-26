@@ -19,6 +19,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if !demo && env::var("DATABASE_URL").is_ok() && !tor_web::activate_ril_sqlx_observation() {
         eprintln!("RIL SQLx completion telemetry disabled (subscriber unavailable)");
     }
+    // Private cover S3 is an explicit operator-owned opt-in. A deployment
+    // without S3 continues serving books, but never invents image URLs.
+    #[cfg(feature = "s3-covers")]
+    let cover_store: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>> =
+        match env::var("TOR_COVER_S3_BUCKET") {
+            Ok(bucket) => {
+                let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+                let client = aws_sdk_s3::Client::new(&config);
+                let store = tor_ingest::repositories::s3::S3CoverStore::new(client, bucket)?;
+                Some(Arc::new(store))
+            }
+            Err(env::VarError::NotPresent) => None,
+            Err(error) => return Err(error.into()),
+        };
+    #[cfg(not(feature = "s3-covers"))]
+    let cover_store: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>> = {
+        if env::var_os("TOR_COVER_S3_BUCKET").is_some() {
+            return Err("TOR_COVER_S3_BUCKET requires a build with --features s3-covers".into());
+        }
+        None
+    };
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -52,11 +73,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool);
                 accounts.probe().await?;
-                tor_web::router_with_postgres_reading_auth(
-                    catalog, reader, accounts, secure, origin,
-                )
+                if let Some(store) = cover_store {
+                    tor_web::router_with_postgres_reading_auth_covers(
+                        catalog, reader, accounts, secure, origin, store,
+                    )
+                } else {
+                    tor_web::router_with_postgres_reading_auth(
+                        catalog, reader, accounts, secure, origin,
+                    )
+                }
             } else {
-                tor_web::router_with_postgres_reading(catalog, reader)
+                if let Some(store) = cover_store {
+                    tor_web::router_with_postgres_reading_covers(catalog, reader, store)
+                } else {
+                    tor_web::router_with_postgres_reading(catalog, reader)
+                }
             }
         }
         Ok(_) => return Err("Use either DATABASE_URL or TOR_DEMO_MODE=1".into()),
