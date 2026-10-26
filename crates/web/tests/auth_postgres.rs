@@ -883,15 +883,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let library_after = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
     let after = body_of(library_after).await;
     assert!(after.contains("href=\"/read/101#p-1\""));
-    // C-09: opening the reader again must expose the saved position in HTML,
-    // not just in the JSON progress endpoint or library card.
-    let resumed = send(&app, request("GET", "/read/101", "", &session, ORIGIN)).await;
-    assert_eq!(resumed.status(), StatusCode::OK);
-    assert_eq!(resumed.headers()[header::CACHE_CONTROL], "no-store");
-    let resumed_html = body_of(resumed).await;
-    assert!(resumed_html.contains("href=\"#p-1\""));
-    assert!(resumed_html.contains("id=\"p-1\""));
-    assert!(!resumed_html.contains("Место ещё не сохранено"));
+    c11_cases::reopened_reader_has_saved_anchor(&app, &session).await;
     assert!(!after.contains("PRIVATE-PAID-MARKER"));
     let bad_version = format!("csrf_token={csrf}&version_id=999&block_index=1&char_offset=0");
     assert_eq!(
@@ -956,6 +948,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     )
     .await;
     assert_eq!(logged.status(), StatusCode::SEE_OTHER);
+    c11_cases::resume_after_login(&app, &logged).await;
 
     let logout_csrf = csrf_token(&private_html);
     let combined_cookies = format!("{session}; {new_csrf_cookie}");
