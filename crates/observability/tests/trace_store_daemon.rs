@@ -31,10 +31,7 @@ fn actual_separate_process_rejects_bad_frames_and_persists_numeric_traces() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "tor-trace-daemon-{}-{stamp}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("tor-trace-daemon-{}-{stamp}", std::process::id()));
     fs::create_dir(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
     let db = dir.join("traces.sqlite3");
@@ -82,7 +79,9 @@ fn actual_separate_process_rejects_bad_frames_and_persists_numeric_traces() {
     };
     let bytes = wire::encode(&trace).unwrap();
     let mut stream = UnixStream::connect(&socket).unwrap();
-    stream.write_all(&(bytes.len() as u32).to_be_bytes()).unwrap();
+    stream
+        .write_all(&(bytes.len() as u32).to_be_bytes())
+        .unwrap();
     stream.write_all(&bytes).unwrap();
     stream.read_exact(&mut ack).unwrap();
     assert_eq!(ack, [1]);
