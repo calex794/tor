@@ -1,12 +1,20 @@
-<section class="section reader-page" aria-labelledby="reader-title">
+<!-- NEwBOO reader/detail.html: public free chapter, without unavailable JS settings. -->
+<section class="section reader-page reader-public" aria-labelledby="reader-title">
   <div class="container reader-width">
-    <nav class="breadcrumbs" aria-label="Навигационная цепочка">
-      <a href="/">Главная</a><span aria-hidden="true">/</span>
-      <a href="/books/<!--BOOK_ID-->"><!--BOOK_TITLE--></a>
-    </nav>
-    <p class="eyebrow">Опубликованная бесплатная глава · Версия <!--CHAPTER_VERSION--></p>
-    <h1 id="reader-title"><!--CHAPTER_TITLE--></h1>
-    <p class="reader-page__subtitle">Читайте без регистрации. Сохранение прогресса появится после подключения личной библиотеки.</p>
+    <header class="reader-topbar" aria-label="Панель чтения">
+      <a class="reader-topbar__back" href="/books/<!--BOOK_ID-->">
+        <span aria-hidden="true">←</span> К книге
+      </a>
+      <div class="reader-topbar__title">
+        <span class="reader-topbar__book"><!--BOOK_TITLE--></span>
+        <span class="reader-topbar__chapter"><!--CHAPTER_TITLE--></span>
+      </div>
+    </header>
+    <div class="reader-page__header">
+      <p class="reader-page__meta">Бесплатная глава · Версия <!--CHAPTER_VERSION--></p>
+      <h1 class="reader-page__title" id="reader-title"><!--CHAPTER_TITLE--></h1>
+      <p class="reader-page__subtitle">Читайте без регистрации. Чтобы сохранять место чтения, войдите в личный кабинет.</p>
+    </div>
     <!--CHAPTER_NAVIGATION-->
     <article class="chapter-content reader-markdown" aria-label="Текст главы"><!--CHAPTER_CONTENT--></article>
     <!--CHAPTER_NAVIGATION-->
