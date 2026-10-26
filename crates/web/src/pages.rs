@@ -220,10 +220,12 @@ pub fn private_reader(
             )
         })
         .unwrap_or_else(|| "Место ещё не сохранено".to_owned());
-    let prev = chapter.previous_chapter_id
+    let prev = chapter
+        .previous_chapter_id
         .map(|id| format!(r#"<a rel="prev" href="/read/{id}">Предыдущая глава</a>"#))
         .unwrap_or_default();
-    let next = chapter.next_chapter_id
+    let next = chapter
+        .next_chapter_id
         .map(|id| format!(r#"<a rel="next" href="/read/{id}">Следующая глава</a>"#))
         .unwrap_or_default();
     let navigation = format!(
@@ -254,7 +256,11 @@ pub fn private_reader(
         version_no = chapter.version_no,
         chapter_title = escape_html(&chapter.chapter_title)
     );
-    layout(&chapter.chapter_title, "Чтение с сохранением места в личной библиотеке.", &body)
+    layout(
+        &chapter.chapter_title,
+        "Чтение с сохранением места в личной библиотеке.",
+        &body,
+    )
 }
 
 pub fn registration_form(csrf: &str) -> Html<String> {

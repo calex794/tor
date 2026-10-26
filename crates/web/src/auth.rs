@@ -14,10 +14,6 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use tor_reading::{
-    repositories::PgReader,
-    services::{PublicReadingRepository, progress::{ProgressError, ReadingPlace, reader_blocks, valid_text_place}},
-};
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     repositories::PgAccounts,
@@ -27,6 +23,13 @@ use tor_accounts::{
     services::validation as rules,
 };
 use tor_reading::repositories::PgReadingProgress;
+use tor_reading::{
+    repositories::PgReader,
+    services::{
+        progress::{reader_blocks, valid_text_place, ProgressError, ReadingPlace},
+        PublicReadingRepository,
+    },
+};
 
 #[derive(Clone)]
 struct AuthState {
@@ -65,7 +68,12 @@ struct SavePlaceForm {
     char_offset: i32,
 }
 
-pub(crate) fn router(accounts: PgAccounts, reader: PgReader, secure: bool, origin: String) -> Router {
+pub(crate) fn router(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+) -> Router {
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
@@ -332,7 +340,11 @@ async fn private_reader(
         (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
         _ => return deny(StatusCode::NOT_FOUND),
     };
-    let saved = match state.progress.saved_place(actor, chapter_id, version_id).await {
+    let saved = match state
+        .progress
+        .saved_place(actor, chapter_id, version_id)
+        .await
+    {
         Ok(saved) => saved,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
@@ -349,7 +361,9 @@ async fn save_place(
     Form(form): Form<SavePlaceForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -378,7 +392,11 @@ async fn save_place(
         (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
         _ => return deny(StatusCode::NOT_FOUND),
     };
-    match state.progress.save_position(actor, chapter_id, version_id, place).await {
+    match state
+        .progress
+        .save_position(actor, chapter_id, version_id, place)
+        .await
+    {
         Ok(()) => private_response(
             Redirect::to(&format!("/read/{id}#p-{}", place.block_index)),
             &[],
