@@ -43,6 +43,12 @@ impl PgCoverJobs {
         .ok_or(CoverError::Forbidden)
     }
 
+    pub async fn job_status(&self, job_id: i64) -> Result<Option<String>, CoverError> {
+        sqlx::query_scalar("SELECT status FROM cover_variant_jobs WHERE id=$1")
+            .bind(job_id)
+            .fetch_optional(&self.pool).await.map_err(|_| CoverError::Unavailable)
+    }
+
     pub async fn enqueue(
         &self, source_id: i64, book_id: i64, actor_id: i64,
         expected_revision: i64, recipe: &str,
