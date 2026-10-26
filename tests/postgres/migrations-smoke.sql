@@ -10,8 +10,8 @@ DECLARE
 BEGIN
     SELECT count(*) INTO actual_count
       FROM pg_catalog.pg_tables WHERE schemaname='public';
-    IF actual_count <> 21 THEN
-        RAISE EXCEPTION 'Expected 21 domain tables, got %', actual_count;
+    IF actual_count < 21 THEN
+        RAISE EXCEPTION 'Expected at least 21 domain tables, got %', actual_count;
     END IF;
     IF to_regclass('public.cover_variant_jobs') IS NULL
        OR to_regclass('public.cover_variants') IS NULL

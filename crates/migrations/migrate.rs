@@ -24,7 +24,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("Refusing to migrate an unapproved database".into());
     }
     MIGRATOR.run(&pool).await?;
-    println!("TOR SQLx migrations applied and verified");
+    // Keep this production migration runner compatible with additive versions.
+    // Do not hardcode a nine- or ten-version ceiling.
+    let expected = i64::try_from(MIGRATOR.migrations.len())?;
+    let applied: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE success = TRUE")
+            .fetch_one(&pool)
+            .await?;
+    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+        .fetch_one(&pool)
+        .await?;
+    if expected < 9 || applied != expected || total != expected {
+        return Err(format!(
+            "SQLx version history mismatch: expected {expected}, applied {applied}, total {total}"
+        )
+        .into());
+    }
+    println!("TOR_SQLX_APPLIED_OK {applied}/{expected}");
     pool.close().await;
     Ok(())
 }
