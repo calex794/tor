@@ -5,7 +5,6 @@ use super::*;
 const PURCHASE: &str = "95840";
 const CHAPTER: &str = "95820";
 const V1: &str = "95831";
-const V2: &str = "95832";
 const GET_V1: &str =
     "/api/v1/me/progress/purchased?purchase_id=95840&chapter_id=95820&version_id=95831";
 const SAVE: &str = "/api/v1/me/progress/purchased";
