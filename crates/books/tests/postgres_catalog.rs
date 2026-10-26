@@ -114,22 +114,38 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
         .expect("public main");
     assert_eq!(main.sha256, [0x33; 32]);
     assert_eq!(main.size_bytes, 202);
-    assert!(covers.public_variant(906, PublicCoverKind::Card).await.unwrap().is_none());
+    assert!(covers
+        .public_variant(906, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
 
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=905")
         .execute(&pool)
         .await
         .unwrap();
-    assert!(covers.public_variant(905, PublicCoverKind::Card).await.unwrap().is_none());
+    assert!(covers
+        .public_variant(905, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=905")
         .execute(&pool)
         .await
         .unwrap();
-    assert!(covers.public_variant(905, PublicCoverKind::Main).await.unwrap().is_none());
+    assert!(covers
+        .public_variant(905, PublicCoverKind::Main)
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=905")
         .execute(&pool)
         .await
         .unwrap();
-    assert!(covers.public_variant(905, PublicCoverKind::Card).await.unwrap().is_none());
+    assert!(covers
+        .public_variant(905, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
     pool.close().await;
 }
