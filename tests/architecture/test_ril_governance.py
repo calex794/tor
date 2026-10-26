@@ -1,0 +1,138 @@
+"""RIL-08 CI-negative tests: guard removal must break a check, not just docs."""
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools"))
+from check_ril_governance import check  # noqa: E402
+
+INVENTORY = "docs/contracts/ril-route-guards-v1.json"
+
+
+class RilGovernanceTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        for src in (ROOT / "crates").glob("*/src/**/*.rs"):
+            self.copy(src)
+        self.copy(ROOT / INVENTORY)
+
+    def copy(self, src: Path):
+        target = self.root / src.relative_to(ROOT)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+
+    def mutate(self, path: str, before: str, after: str, start: str = ""):
+        target = self.root / path
+        source = target.read_text(encoding="utf-8")
+        if start:
+            begin = source.index(start)
+            prefix = source[:begin]
+            source = source[begin:]
+        else:
+            prefix = ""
+        self.assertIn(before, source)
+        target.write_text(prefix + source.replace(before, after, 1), encoding="utf-8")
+
+    def assert_detected(self, fragment: str):
+        findings = check(self.root)
+        self.assertTrue(any(fragment in finding for finding in findings), findings)
+
+    def test_current_registration_and_guards_are_consistent(self):
+        self.assertEqual([], check(self.root))
+
+    def test_unknown_route_requires_explicit_security_review(self):
+        self.mutate(
+            "crates/web/src/lib.rs",
+            '.route("/catalog", get(catalog))',
+            '.route("/catalog", get(catalog)).route("/internal/export", get(health))',
+        )
+        self.assert_detected("route without reviewed security policy")
+
+    def test_swapped_handler_is_not_authorized_by_old_policy(self):
+        self.mutate(
+            "crates/web/src/auth.rs",
+            '.route("/me/books/{id}", get(author_book))',
+            '.route("/me/books/{id}", get(new_author_book))',
+        )
+        self.assert_detected("route without reviewed security policy")
+
+    def test_session_guard_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth.rs",
+            "session_user(&state, &headers)",
+            "unverified_user(&state, &headers)",
+            start="async fn author_book(",
+        )
+        self.assert_detected("missing verified PG session guard")
+
+    def test_owner_guard_removal_fails(self):
+        self.mutate(
+            "crates/web/src/author_chapter_http.rs",
+            "release_book(actor, id)",
+            "release_global(id)",
+            start="async fn publish_book(",
+        )
+        self.assert_detected("missing actor-bound owner repository call")
+
+    def test_scope_bound_repository_guard_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth/sync_actions.rs",
+            "purchased_state(actor, purchase_id, chapter_id, version_id)",
+            "purchased_state_global(purchase_id, chapter_id, version_id)",
+            start="pub(super) async fn get_purchased(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_csrf_rejection_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.same_origin_bypass(&headers)",
+            start="async fn save_place(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_shared_library_helper_csrf_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth/library_actions.rs",
+            "state.cookies.same_origin(headers)",
+            "state.cookies.same_origin_bypass(headers)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_distributed_rate_limiter_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth/login_limiter.rs",
+            "permit_auth_attempt(",
+            "unlimited_auth_attempt(",
+        )
+        self.assert_detected("missing distributed authentication rate limit")
+
+    def test_policy_cannot_downgrade_private_route_to_public(self):
+        path = self.root / INVENTORY
+        data = json.loads(path.read_text(encoding="utf-8"))
+        item = next(x for x in data["routes"]
+                    if x["template"] == "/me" and x["method"] == "GET")
+        item["policy"] = "public"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_detected("protected route downgraded to public/entry")
+
+    def test_duplicate_reviewed_binding_fails(self):
+        path = self.root / INVENTORY
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["routes"].append(dict(data["routes"][0]))
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_detected("duplicate route-policy binding")
+
+
+if __name__ == "__main__":
+    unittest.main()
