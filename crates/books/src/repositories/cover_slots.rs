@@ -9,6 +9,14 @@ pub struct PgCoverSlots {
 impl PgCoverSlots {
     pub fn new(pool: PgPool) -> Self { Self { pool } }
 
+    pub async fn current_slot(&self, book_id: i64) -> Result<Option<(i64, i64)>, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT job_id,revision FROM book_cover_slots WHERE book_id=$1"
+        ).bind(book_id).fetch_optional(&self.pool).await?;
+        row.map(|row| Ok((row.try_get("job_id")?, row.try_get("revision")?)))
+           .transpose()
+    }
+
     /// Returns false if the actor changed, a later cover won, or B has a hold.
     /// Same job/current slot is an idempotent success after a worker crash.
     pub async fn attach_ready_job(
