@@ -167,9 +167,10 @@ def audit(root: Path = ROOT, *, strict: bool = False) -> tuple[list[str], dict[s
     tasks_by_id = {x["id"] for x in tasks}
     mounted_by_key = {"|".join(key(x, source=False)): x for x in covered}
     action_keys = Counter(x["source_key"] for x in actions)
-    if Counter(mounted_by_key) != action_keys:
-        missing = Counter(mounted_by_key) - action_keys
-        extra = action_keys - Counter(mounted_by_key)
+    expected_action_keys = Counter(mounted_by_key.keys())
+    if expected_action_keys != action_keys:
+        missing = expected_action_keys - action_keys
+        extra = action_keys - expected_action_keys
         problems.append(f"semantic action keys mismatch: missing={sum(missing.values())}, unexpected={sum(extra.values())}")
     if len(mounted_by_key) != len(covered):
         problems.append("duplicate HTTP route identity in baseline")
