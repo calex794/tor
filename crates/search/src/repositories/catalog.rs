@@ -180,7 +180,7 @@ fn decode_lexical_cursor(
         return Err(SearchError::Invalid);
     }
     let mut decoded = Vec::with_capacity(hex.len() / 2);
-    for digits in hex.as_bytes().chunks_exact(2) {
+    for digits in hex.as_bytes().as_chunks::<2>().0 {
         decoded.push((hex_nibble(digits[0])? << 4) | hex_nibble(digits[1])?);
     }
     let key = String::from_utf8(decoded).map_err(|_| SearchError::Invalid)?;
