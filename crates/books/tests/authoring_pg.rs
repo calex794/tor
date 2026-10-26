@@ -218,13 +218,12 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
         Err(AuthorError::Conflict),
         "saving a chapter after book release must not publish without confirmation"
     );
-    let unexpected: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=2",
-    )
-    .bind(book_id)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let unexpected: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=2")
+            .bind(book_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     assert!(unexpected.is_none(), "no partially created public chapter");
     let public_title: Option<String> = sqlx::query_scalar(
         "SELECT b.title FROM books b
