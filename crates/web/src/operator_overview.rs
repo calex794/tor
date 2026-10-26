@@ -122,7 +122,8 @@ fn render(snapshot: &Overview) -> Html<String> {
     let pump_metrics = match snapshot.ril_pump {
         None => format!("<p>{}</p>", unmeasured()),
         Some(pump) => {
-            let last_cycle = pump.age_since_last_completion_s
+            let last_cycle = pump
+                .age_since_last_completion_s
                 .map(|age| format!("{age} с назад"))
                 .unwrap_or_else(|| "Не было завершённых циклов".to_owned());
             format!(
@@ -131,8 +132,16 @@ fn render(snapshot: &Overview) -> Html<String> {
             )
         }
     };
-    let pump_role = if pump_status.warning { "alert" } else { "status" };
-    let cover_role = if cover_status.warning { "alert" } else { "status" };
+    let pump_role = if pump_status.warning {
+        "alert"
+    } else {
+        "status"
+    };
+    let cover_role = if cover_status.warning {
+        "alert"
+    } else {
+        "status"
+    };
     let ril_telemetry = snapshot.ril_dropped
         .map(|(ordinary, path)| format!(
             "<dl><dt>Потеряно технических событий</dt><dd>{ordinary}</dd><dt>Потеряно событий путей</dt><dd>{path}</dd></dl>"
