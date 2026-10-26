@@ -38,7 +38,11 @@ impl PgRilRollups {
         )
         .fetch_one(&self.pool)
         .await?;
-        Ok(RilQueueCounts { pending, running, dead })
+        Ok(RilQueueCounts {
+            pending,
+            running,
+            dead,
+        })
     }
 
     /// RIL-10 read-only FinOps evidence, bounded to 30 days of retained hourly data.
