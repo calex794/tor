@@ -435,11 +435,11 @@ mod tests {
             title: "Test".into(),
             language: "ru".into(),
             chapters: vec![],
-            next_cursor: Some("\\\" onclick=\\\"alert(1)".into()),
+            next_cursor: Some("\" onclick=\"alert(1)".into()),
         };
         let html = book_detail_with_chapters(&book, 20).0;
         assert!(html.contains("after=&quot; onclick=&quot;alert(1)"));
-        assert!(!html.contains("after=\\\" onclick=\\\""));
+        assert!(!html.contains("after=\" onclick=\""));
     }
     #[test]
     fn empty_catalog_is_explicit() {
