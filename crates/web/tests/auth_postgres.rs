@@ -230,6 +230,209 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_detail.headers()[header::LOCATION], "/login");
 
+    // B-03/B-04: real browser writer journey with CSRF, immutable chapter and
+    // deliberate release. The anonymous catalog does not leak the draft.
+    let book_id = book_path
+        .trim_start_matches("/me/books/")
+        .parse::<i64>()
+        .expect("book ID");
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &format!("/books/{book_id}"), "", "", ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let chapter_form_path = format!("/me/books/{book_id}/chapters/new");
+    assert_eq!(
+        send(&app, request("GET", &chapter_form_path, "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let chapter_page = send(
+        &app,
+        request("GET", &chapter_form_path, "", &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(chapter_page.status(), StatusCode::OK);
+    let chapter_html = body_of(chapter_page).await;
+    let chapter_csrf = csrf_token(&chapter_html);
+    let chapter_key = chapter_html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .expect("chapter idempotency key")
+        .split('"')
+        .next()
+        .unwrap();
+    let chapter_payload = format!(
+        "number=1&title=%D0%93%D0%BB%D0%B0%D0%B2%D0%B0&body=%23%20Real%20chapter&command_key={chapter_key}&csrf_token={chapter_csrf}"
+    );
+    let chapter_path = format!("/me/books/{book_id}/chapters");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", &chapter_path, &chapter_payload, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Chapter creation requires CSRF cookie"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                &chapter_path,
+                &chapter_payload,
+                &author_cookies,
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "Chapter writes reject other origins"
+    );
+    let chapter_created = send(
+        &app,
+        request(
+            "POST",
+            &chapter_path,
+            &chapter_payload,
+            &author_cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(chapter_created.status(), StatusCode::SEE_OTHER);
+    assert_eq!(chapter_created.headers()[header::LOCATION], book_path);
+    // Retrying the exact command returns the same chapter, not a duplicate.
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                &chapter_path,
+                &chapter_payload,
+                &author_cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let altered = chapter_payload.replace("number=1", "number=2");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", &chapter_path, &altered, &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let private_book = send(
+        &app,
+        request("GET", &book_path, "", &author_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(private_book.status(), StatusCode::OK);
+    let author_book_html = body_of(private_book).await;
+    assert!(author_book_html.contains("Опубликовать книгу"));
+    assert!(author_book_html.contains("Глава"));
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &format!("/books/{book_id}"), "", "", ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let publish_path = format!("/me/books/{book_id}/publish");
+    let publish_payload = format!("csrf_token={chapter_csrf}");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", &publish_path, &publish_payload, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let released = send(
+        &app,
+        request(
+            "POST",
+            &publish_path,
+            &publish_payload,
+            &author_cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(released.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        released.headers()[header::LOCATION],
+        format!("/books/{book_id}")
+    );
+    let public_book = send(
+        &app,
+        request("GET", &format!("/books/{book_id}"), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(public_book.status(), StatusCode::OK);
+    let public_html = body_of(public_book).await;
+    assert!(public_html.contains("Глава"));
+    let public_chapter_id = public_html
+        .split("href=\"/reader/")
+        .nth(1)
+        .expect("public chapter reader URL")
+        .split('"')
+        .next()
+        .expect("chapter ID");
+    let new_reader = send(
+        &app,
+        request(
+            "GET",
+            &format!("/reader/{public_chapter_id}"),
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(new_reader.status(), StatusCode::OK);
+    assert!(
+        body_of(new_reader).await.contains("Real chapter"),
+        "Published Markdown is readable through real PostgreSQL"
+    );
+    let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
+    let published_html = body_of(published_detail).await;
+    assert!(published_html.contains("Опубликована"));
+    assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                &publish_path,
+                &publish_payload,
+                &author_cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER,
+        "Publishing the same book twice is safe"
+    );
+
     let anonymous_library = send(&app, request("GET", "/me/library", "", "", ORIGIN)).await;
     assert_eq!(anonymous_library.status(), StatusCode::SEE_OTHER);
     assert_eq!(anonymous_library.headers()[header::LOCATION], "/login");

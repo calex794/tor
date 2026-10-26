@@ -3,7 +3,7 @@
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
-    author_pages, pages,
+    author_chapter_http, author_chapter_pages, author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
@@ -96,6 +96,13 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
+    let chapter_routes = author_chapter_http::router(
+        accounts.clone(),
+        CookiePolicy {
+            secure,
+            origin: origin.clone(),
+        },
+    );
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
@@ -132,6 +139,7 @@ pub(crate) fn router(
         .route("/logout", post(logout))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
+        .merge(chapter_routes)
 }
 
 async fn show_registration(State(state): State<AuthState>) -> Response {
@@ -449,11 +457,25 @@ async fn author_book(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match state.authoring.owned_book(actor, id).await {
-        Ok(Some(book)) => private_response(author_pages::detail(&book), &[]),
-        Ok(None) => deny(StatusCode::NOT_FOUND),
-        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
+    let book = match state.authoring.owned_book(actor, id).await {
+        Ok(Some(book)) => book,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let published = match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(published) => published,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let chapters = match state.authoring.list_owned_chapters(actor, id).await {
+        Ok(chapters) => chapters,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(
+        author_chapter_pages::detail(&book, published, &chapters, &csrf),
+        &cookies,
+    )
 }
 
 /// Interactive reading is private to a verified account. Public free reading

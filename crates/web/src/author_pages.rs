@@ -42,31 +42,3 @@ pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
     layout("Создать книгу", "Новая книга в вашем кабинете.", &content)
 }
-
-pub fn detail(book: &OwnedBook) -> Html<String> {
-    let content = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card">
-        <p class="eyebrow">Кабинет автора · книга №{}</p>
-        <h1>{}</h1>
-        <p>Книга сохранена в PostgreSQL и доступна только вам до публикации.</p>
-        <p><a class="button button--quiet" href="/me/books">Мои книги</a></p>
-        </div></div></section>"#,
-        book.id,
-        escape_html(&book.title)
-    );
-    layout(&book.title, "Частная страница книги автора.", &content)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn private_book_title_is_html_escaped() {
-        let page = detail(&OwnedBook {
-            id: 37,
-            title: "<script>alert(1)</script>".to_owned(),
-        });
-        assert!(page.0.contains("&lt;script&gt;"));
-        assert!(!page.0.contains("<script>"));
-    }
-}
