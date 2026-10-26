@@ -13,7 +13,7 @@ use tor_accounts::services::{ril_pseudonym::RilSubjectSigner, security::session_
 use tor_traffic_behavior::VerifiedSubjectKey;
 
 #[derive(Deserialize)]
-struct BehaviorConsentForm {
+pub(super) struct BehaviorConsentForm {
     csrf_token: Option<String>,
     choice: String,
 }
