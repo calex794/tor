@@ -380,6 +380,10 @@ async fn f_02_lexical_sort_is_bounded_and_uses_sort_specific_cursors_in_http() {
         "/api/v1/search/books?sort=title&after=title.00.0",
         "/api/v1/search/books?sort=author&after=author.00.01",
     ] {
-        assert_eq!(get(app.clone(), path).await.0, StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(
+            get(app.clone(), path).await.0,
+            StatusCode::BAD_REQUEST,
+            "{path}"
+        );
     }
 }
