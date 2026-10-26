@@ -215,7 +215,7 @@ pub fn private_reader(
     let saved_link = valid_saved
         .map(|p| {
             format!(
-                r#"<a class="reader-resume__link" href="#p-{}">Перейти к сохранённому месту</a>"#,
+                r##"<a class="reader-resume__link" href="#p-{}">Перейти к сохранённому месту</a>"##,
                 p.block_index
             )
         })
