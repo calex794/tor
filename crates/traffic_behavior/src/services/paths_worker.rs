@@ -4,11 +4,11 @@ use crate::domain::{BehaviorEvent, PathAnalyzer, PathReport, VerifiedSubjectKey}
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc::{self, SyncSender, TrySendError},
+        mpsc::{self, RecvTimeoutError, SyncSender, TrySendError},
         Arc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_PATH_QUEUE: usize = 4_096;
@@ -29,12 +29,19 @@ impl PathRecorder {
     pub fn start(max_subjects: usize, queue_capacity: usize) -> Self {
         let (sender, receiver) = mpsc::sync_channel(queue_capacity.clamp(1, MAX_PATH_QUEUE));
         let dropped = Arc::new(AtomicU64::new(0));
+        let origin = Instant::now();
         let _ = thread::Builder::new()
             .name("tor-ril-paths".to_owned())
             .spawn(move || {
                 let mut analyzer = PathAnalyzer::new(max_subjects);
-                while let Ok(message) = receiver.recv() {
-                    match message {
+                loop {
+                    match receiver.recv_timeout(Duration::from_secs(60)) {
+                        Err(RecvTimeoutError::Timeout) => {
+                            let now = origin.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                            analyzer.prune_idle(now);
+                        }
+                        Err(RecvTimeoutError::Disconnected) => break,
+                        Ok(message) => match message {
                         Message::Event(event) => {
                             let _ = analyzer.record(event);
                         }
@@ -43,7 +50,7 @@ impl PathRecorder {
                         }
                         Message::Forget(key, reply) => {
                             let _ = reply.send(analyzer.forget_subject(key));
-                        }
+                        },
                     }
                 }
             });
