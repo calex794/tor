@@ -21,6 +21,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
+            // Optional RIL telemetry uses the same restricted connection pool.
+            // PG outage or unapplied RIL migration never blocks core HTTP routes.
+            tor_web::start_ril_pg_background(&catalog);
             let reader = PgReader::new(pool.clone());
             reader.probe().await?;
             println!("TOR PostgreSQL catalogue and public reading on {address}");

@@ -84,8 +84,17 @@ jobs:
                  (3,'ci:3','ru','TOR CI held','public');
           UPDATE books SET admin_hold=true WHERE id=3;
           SQL
-          # Only the migration role may advance a sequence; tor_app stays least-privilege.
-          psql -X -v ON_ERROR_STOP=1 "$MIGRATOR_URL" -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), TRUE)"
+      - name: Seed G-07/G-09 owned cover job fixtures
+        run: |
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO users(id,email_normalized,display_name,password_hash)
+          OVERRIDING SYSTEM VALUE
+          SELECT id,'cover-'||id||'@example.invalid','CI Cover Owner','$argon2id$test'
+            FROM generate_series(901,905) AS id;
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
+          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id
+            FROM generate_series(901,905) AS id;
+          SQL
       - name: Seed published free and protected chapters
         run: |
           PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
@@ -114,8 +123,14 @@ jobs:
           VALUES (101,201),(102,202),(103,203),(104,204),
                  (105,205),(106,206),(107,207),(108,208);
           SQL
+      - name: Advance explicit-ID book fixture sequence as schema owner
+        run: |
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
       - name: Database and HTTP integration
         run: |
+          cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
+          cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
+          cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-reading --test postgres_reading -- --ignored

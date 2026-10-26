@@ -17,8 +17,10 @@ use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 mod auth;
 mod auth_cookies;
 mod author_pages;
+pub mod cover_worker;
 mod pages;
 mod password_jobs;
+mod ril;
 mod safe_markdown;
 
 #[derive(Clone)]
@@ -125,19 +127,32 @@ async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
 
+/// Optional, non-blocking persistence of anonymous technical RIL aggregates.
+/// Uses the already bounded PostgreSQL pool and never changes readiness/ACL.
+pub fn start_ril_pg_background(catalog: &PgCatalog) {
+    ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
+        catalog.pool(),
+    ));
+}
+
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    make_router(repo, None, None, false)
+    ril::instrument(make_router(repo, None, None, false))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
-    make_router(Arc::new(catalog.clone()), Some(catalog), None, false)
+    ril::instrument(make_router(
+        Arc::new(catalog.clone()),
+        Some(catalog),
+        None,
+        false,
+    ))
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
-    make_router(
+    ril::instrument(make_router(
         Arc::new(catalog.clone()),
         Some(catalog),
         Some(reader),
         false,
-    )
+    ))
 }
 
 /// Account forms are gated until their database, CSRF and rate-limit tests pass.
@@ -149,12 +164,10 @@ pub fn router_with_postgres_reading_auth(
     public_origin: String,
 ) -> Router {
     let auth_reader = reader.clone();
-    make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true).merge(auth::router(
-        accounts,
-        auth_reader,
-        secure,
-        public_origin,
-    ))
+    ril::instrument(
+        make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true)
+            .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+    )
 }
 
 fn make_router(

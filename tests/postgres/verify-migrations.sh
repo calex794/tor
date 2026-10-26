@@ -12,8 +12,8 @@ psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_migrations_fresh'
 psql -X -v ON_ERROR_STOP=1 -d postgres -c 'CREATE DATABASE tor_migrations_upgrade'
 
 mapfile -t migrations < <(find migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | LC_ALL=C sort)
-if (( ${#migrations[@]} != 9 )); then
-  echo 'Expected exactly nine pinned SQL migration files' >&2
+if (( ${#migrations[@]} < 10 )); then
+  echo 'Expected nine pinned SQL migrations and additive TOR migrations' >&2
   exit 1
 fi
 
@@ -37,7 +37,7 @@ psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade <<'SQL'
 INSERT INTO books(source_identity,target_language,title,visibility)
   VALUES ('ci-preexisting', 'ru', 'Existing book', 'public');
 SQL
-apply tor_migrations_upgrade "${migrations[@]:6:3}"
+apply tor_migrations_upgrade "${migrations[@]:6}"
 psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -Atqc \
   "SELECT count(*) FROM books WHERE source_identity='ci-preexisting'" | grep -qx '1'
 psql -X -v ON_ERROR_STOP=1 -d tor_migrations_upgrade -f tests/postgres/migrations-smoke.sql

@@ -1,0 +1,11 @@
+[package]
+name = "tor-traffic_behavior"
+version.workspace = true
+edition.workspace = true
+
+# SQLx is confined to repositories; pure domain and service do not issue SQL.
+[dependencies]
+sqlx.workspace = true
+tokio = { workspace = true, features = ["time"] }
+uuid = { version = "1", features = ["v4"] }
+
