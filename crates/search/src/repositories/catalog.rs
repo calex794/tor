@@ -225,9 +225,13 @@ pub(super) async fn read_lexical_page(
                 author_name: row
                     .try_get("author_name")
                     .map_err(|_| SearchError::Unavailable)?,
-                genres: row.try_get("genres").map_err(|_| SearchError::Unavailable)?,
+                genres: row
+                    .try_get("genres")
+                    .map_err(|_| SearchError::Unavailable)?,
             };
-            let key: String = row.try_get("sort_key").map_err(|_| SearchError::Unavailable)?;
+            let key: String = row
+                .try_get("sort_key")
+                .map_err(|_| SearchError::Unavailable)?;
             Ok((book, key))
         })
         .collect::<Result<Vec<_>, SearchError>>()?;
