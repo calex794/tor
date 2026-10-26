@@ -35,8 +35,14 @@ impl PgRilRollups {
     /// Only active and dead RIL flush batches; completed history is excluded.
     /// No IDs or row payload are returned to the operator dashboard.
     pub async fn queue_counts(&self) -> Result<RilQueueCounts, sqlx::Error> {
-        let (pending, running, dead, overdue_pending, expired_lease, repeated_attempts):
-            (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        let (pending, running, dead, overdue_pending, expired_lease, repeated_attempts): (
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = sqlx::query_as(
             "SELECT
                COUNT(*) FILTER (WHERE status='pending')::bigint,
                COUNT(*) FILTER (WHERE status='running')::bigint,
