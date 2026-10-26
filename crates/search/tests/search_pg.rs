@@ -632,7 +632,11 @@ async fn f_02_lexical_keysets_match_postgres_order_and_hide_private_rows() {
                 .unwrap();
             assert!(!page.items.is_empty());
             assert!(page.items.len() <= 2);
-            actual.extend(page.items.into_iter().map(|book| i64::try_from(book.id).unwrap()));
+            actual.extend(
+                page.items
+                    .into_iter()
+                    .map(|book| i64::try_from(book.id).unwrap()),
+            );
             pages += 1;
             assert!(pages <= 5, "cursor loop for {sort}");
             match page.next_cursor {
