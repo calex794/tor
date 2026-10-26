@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>TOR — диагностика запроса</title>
+<style>
+:root{color-scheme:light dark;font-family:system-ui,-apple-system,sans-serif}
+body{margin:0;background:#f3f5f7;color:#18222c}
+main{max-width:840px;margin:3rem auto;padding:0 1.4rem}
+h1{font-size:1.65rem;margin-bottom:.5rem}
+p{line-height:1.5}
+.card{background:white;padding:1.25rem 1.5rem;border:1px solid #d5dfe5;border-radius:10px;margin:1.1rem 0}
+small,.muted{color:#596b78}
+label{display:block;margin-bottom:.6rem;font-weight:600}
+input{font:inherit;box-sizing:border-box;padding:.7rem;border:1px solid #adbcc8;border-radius:5px;width:min(100%,36rem)}
+button{font:inherit;padding:.7rem 1.2rem;background:#194e75;color:white;border:0;border-radius:5px;cursor:pointer;margin-top:.8rem}
+dl{display:grid;grid-template-columns:minmax(9rem,14rem) auto;gap:.7rem 1rem;overflow-wrap:anywhere}
+dt{color:#536575}dd{margin:0;font-weight:550}li{margin:.55rem 0}
+pre{white-space:pre-wrap}
+@media(prefers-color-scheme:dark){
+body{background:#151d24;color:#e7eff4}
+.card{background:#202b34;border-color:#4b5c68}
+small,.muted,dt{color:#b5c5d2}
+input{background:#151d24;border-color:#667785;color:#fff}
+button{background:#347ba7}
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Диагностика HTTP-запроса</h1>
+<p class="muted">Служебные технические сведения без текста SQL и личных данных.</p>
+</header>
+<section class="card">
+<form method="get" action="/ops/traces">
+<label for="id">Идентификатор запроса (32 шестнадцатеричных знака)</label>
+<input id="id" name="id" type="text" minlength="32" maxlength="32" pattern="[0-9a-fA-F]{32}" autocomplete="off" spellcheck="false" placeholder="Например: 00000000000000000000000000000001" value="<!--TRACE_ID-->">
+<div><button type="submit">Найти запрос</button></div>
+</form>
+</section>
+<!--DETAILS-->
+<footer class="muted"><small>Срок хранения: до трёх дней. Отсутствие записи не доказывает, что запроса не было: обычные запросы сохраняются выборочно, а архив имеет ограничения по объёму.</small></footer>
+</main>
+</body>
+</html>
