@@ -1,0 +1,214 @@
+/* H-web-06: First public-reader visual slice from NEwBOO
+   backend/app/web/static/css/pages/reader.css (main@17125ef7).
+   No unsupported payments, JavaScript settings, or fabricated TOC. */
+.reader-public {
+  padding-block: 0 56px;
+}
+.reader-public .reader-width,
+.reader-private .reader-width {
+  width: min(100% - 28px, 860px);
+  max-width: 860px;
+  min-width: 0;
+}
+.reader-public .reader-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  display: grid;
+  grid-template-columns: minmax(108px, auto) minmax(0, 1fr) minmax(108px, auto);
+  gap: 12px;
+  align-items: center;
+  min-height: 66px;
+  margin: 0 0 30px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 95%, transparent);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--text-main) 6%, transparent);
+  backdrop-filter: blur(12px);
+}
+.reader-topbar__back {
+  display: inline-flex;
+  min-height: 44px;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 850;
+  text-decoration: none;
+}
+.reader-topbar__back:hover,
+.reader-topbar__back:focus-visible {
+  border-color: var(--primary-color);
+  outline-offset: 3px;
+}
+.reader-topbar__title {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  justify-items: center;
+  text-align: center;
+  line-height: 1.2;
+}
+.reader-topbar__book,
+.reader-topbar__chapter {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-topbar__book {
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 900;
+}
+.reader-topbar__chapter {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.reader-public .reader-page__header {
+  display: grid;
+  gap: 9px;
+  margin: 0 0 30px;
+  text-align: center;
+}
+.reader-public .reader-page__meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.reader-public .reader-page__title {
+  margin: 0;
+  color: var(--text-main);
+  font-size: clamp(27px, 4vw, 38px);
+  line-height: 1.18;
+  letter-spacing: -.035em;
+  overflow-wrap: anywhere;
+}
+.reader-public .reader-page__subtitle {
+  margin: 7px auto 0;
+  max-width: 610px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.reader-public .chapter-content {
+  padding: clamp(18px, 5vw, 38px);
+  margin: 16px 0 24px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+.reader-public .reader-markdown,
+.reader-private .reader-piece__text {
+  color: var(--text-main);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(17px, 2.3vw, 20px);
+  line-height: 1.85;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.reader-page .reader-markdown p,
+.reader-page .reader-piece__text p {
+  line-height: 1.85;
+}
+.reader-page .reader-markdown a {
+  color: var(--primary-color);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.reader-page .reader-markdown blockquote {
+  border-left-color: var(--border-dark);
+}
+.reader-page .reader-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--bg-secondary);
+}
+.reader-page .chapter-navigation {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0;
+}
+.reader-page .chapter-navigation a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 8px 15px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 750;
+  text-decoration: none;
+}
+.reader-page .chapter-navigation a:hover,
+.reader-page .chapter-navigation a:focus-visible {
+  border-color: var(--primary-color);
+}
+.reader-page .reader-page__return {
+  margin-top: 28px;
+  text-align: center;
+}
+.reader-page .reader-page__return a,
+.reader-private .reader-resume__link {
+  color: var(--primary-color);
+}
+.reader-private .reader-save-button {
+  border-color: var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+}
+.reader-private .reader-save-button:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-surface);
+}
+.reader-private .reader-resume {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.reader-private .reader-piece:target {
+  border-color: var(--primary-color);
+  background: var(--bg-secondary);
+}
+@media (max-width: 640px) {
+  .reader-public .reader-topbar {
+    grid-template-columns: auto minmax(0, 1fr);
+    min-height: 58px;
+    gap: 8px;
+    padding: 8px;
+    margin-bottom: 22px;
+  }
+  .reader-public .reader-topbar__back {
+    min-height: 42px;
+    padding-inline: 10px;
+  }
+  .reader-public .reader-topbar__title {
+    text-align: left;
+    justify-items: start;
+  }
+  .reader-public .reader-page__header {
+    margin-bottom: 20px;
+  }
+  .reader-public .chapter-content {
+    padding: 18px 14px;
+  }
+  .reader-page .chapter-navigation a {
+    flex: 1 1 135px;
+    justify-content: center;
+  }
+}
