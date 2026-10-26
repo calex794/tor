@@ -7,7 +7,9 @@ mod rollup;
 pub use paths::{
     Hygiene, PathAnalyzer, PathAssessment, PathReasons, PathReport, PATH_VERSION, PATH_WINDOW,
 };
-pub use rollup::{RollupDelta, RouteCount, Transition, TransitionCount};
+pub use rollup::{
+    RollupDelta, RouteCount, SqlCostCount, SqlCostEvent, Transition, TransitionCount,
+};
 
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;

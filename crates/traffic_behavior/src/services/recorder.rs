@@ -1,8 +1,8 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
 use crate::domain::{
-    BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot, VerifiedSubjectKey,
-    MAX_SUBJECTS,
+    BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot, SqlCostEvent,
+    VerifiedSubjectKey, MAX_SUBJECTS,
 };
 use crate::services::paths_worker::PathRecorder;
 use std::collections::{HashSet, VecDeque};
@@ -19,6 +19,7 @@ use std::{
 const MAX_QUEUE: usize = 4_096;
 enum Message {
     Event(BehaviorEvent),
+    Sql(SqlCostEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
     Drain(mpsc::Sender<RollupDelta>),
     Forget(VerifiedSubjectKey, mpsc::Sender<bool>),
@@ -72,6 +73,7 @@ impl TrafficRecorder {
                                 let _ = path_sink.try_record(event);
                             }
                         }
+                        Message::Sql(event) => rollup.record_sql(event),
                         Message::Snapshot(reply) => {
                             let _ = reply.send(sketch.snapshot());
                         }
@@ -114,6 +116,18 @@ impl TrafficRecorder {
 
     pub fn try_record(&self, event: BehaviorEvent) -> bool {
         match self.sender.try_send(Message::Event(event)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
+    /// Best effort, nonblocking finite per-route SQLx completion telemetry.
+    /// Does not accept SQL text, request IDs, URLs or user identifiers.
+    pub fn try_record_sql(&self, event: SqlCostEvent) -> bool {
+        match self.sender.try_send(Message::Sql(event)) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
@@ -305,5 +319,20 @@ mod tests {
         };
         assert!(!recorder.try_record(event()));
         assert_eq!(recorder.dropped_events(), 1);
+    }
+
+    #[test]
+    fn sql_samples_are_drained_with_the_same_retryable_rollup_barrier() {
+        let recorder = TrafficRecorder::start(8, 16);
+        assert!(recorder.try_record_sql(SqlCostEvent {
+            route: RouteCode::Books,
+            observed_queries: 2,
+            sqlx_elapsed_us: 900,
+        }));
+        let delta = recorder.drain_for_persistence().unwrap();
+        assert_eq!(delta.sql_rows().len(), 1);
+        assert_eq!(delta.sql_rows()[0].observed_queries, 2);
+        assert_eq!(delta.sql_rows()[0].sqlx_elapsed_us, 900);
+        assert!(recorder.drain_for_persistence().unwrap().is_empty());
     }
 }

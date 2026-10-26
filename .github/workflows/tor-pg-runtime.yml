@@ -130,6 +130,8 @@ jobs:
         run: |
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
+          cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored

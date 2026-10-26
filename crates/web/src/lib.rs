@@ -279,7 +279,30 @@ pub async fn ril_cost_map_for_diagnostics(
             request_count: row.count,
         })
         .collect();
-    rank_route_costs(&buckets, limit).ok()
+    // Read SQLx evidence independently; if missing, keep the latency map
+    // but leave query fields explicitly unmeasured.
+    let mut ranked = rank_route_costs(&buckets, limit).ok()?;
+    if let Ok(measured) = PgRilRollups::new(catalog.pool()).read_sql_costs(days).await {
+        let evidence: Vec<tor_route_intelligence::RouteSqlEvidence> = measured
+            .into_iter()
+            .map(|row| tor_route_intelligence::RouteSqlEvidence {
+                route_code: row.route,
+                observed_requests: row.observed_requests,
+                observed_queries: row.observed_queries,
+                sqlx_elapsed_us: row.sqlx_elapsed_us,
+            })
+            .collect();
+        if tor_route_intelligence::attach_sql_evidence(&mut ranked, &evidence).is_err() {
+            return None; // Inconsistent PG evidence: no misleading report.
+        }
+    }
+    Some(ranked)
+}
+
+/// Activates numeric-only SQLx route metrics; must run once before opening PG.
+/// If the process already uses another subscriber, RIL SQL metrics stay OFF.
+pub fn activate_ril_sqlx_observation() -> bool {
+    ril::activate_sqlx_observation()
 }
 
 pub fn start_ril_pg_background(catalog: &PgCatalog) {

@@ -43,6 +43,8 @@ pub enum CostMapError {
     InvalidBucket,
     DuplicateBucket,
     TooManyBuckets,
+    InvalidSqlEvidence,
+    DuplicateSqlEvidence,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,7 +60,14 @@ pub struct RouteCostRanking {
     /// Observed histogram interval, not an exact p95.
     pub p95_lower_ms: u64,
     pub p95_upper_exclusive_ms: Option<u64>,
-    /// Unknown until instrumented by the DB adapter; never invented.
+    /// Requests with observed in-task SQLx completion events (even 0 queries).
+    /// Some(0) means measured zero; None means no measurement at all.
+    pub sqlx_observed_requests: Option<u64>,
+    /// Client-observed SQLx query completions, only for the measured requests.
+    pub sqlx_observed_queries: Option<u64>,
+    /// SQLx client-side elapsed microseconds, not PostgreSQL server CPU time.
+    pub sqlx_elapsed_us: Option<u64>,
+    /// Total actual PG query count remains unknown without full-coverage proof.
     pub db_queries: Option<u64>,
     pub db_time_ms: Option<u64>,
     /// No measured CPU, resource pricing or billing rate is available.
@@ -151,6 +160,9 @@ pub fn rank_route_costs(
                 response_time_floor_ms: total.response_time_floor_ms,
                 p95_lower_ms: LOWER_MS[p95],
                 p95_upper_exclusive_ms: UPPER_MS_EXCLUSIVE[p95],
+                sqlx_observed_requests: None,
+                sqlx_observed_queries: None,
+                sqlx_elapsed_us: None,
                 db_queries: None,
                 db_time_ms: None,
                 monetary_cost: None,
@@ -167,6 +179,54 @@ pub fn rank_route_costs(
     });
     ranked.truncate(limit.min(COST_ROUTE_COUNT));
     Ok(ranked)
+}
+
+/// Measurements cover only SQLx completions within observed request tasks.
+/// Detached tasks, dropped queue entries, and non-SQLx work are NOT counted.
+/// Fail rather than invent a total when sampling exceeds the HTTP tally.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RouteSqlEvidence {
+    pub route_code: i16,
+    pub observed_requests: i64,
+    pub observed_queries: i64,
+    pub sqlx_elapsed_us: i64,
+}
+
+pub fn attach_sql_evidence(
+    rankings: &mut [RouteCostRanking],
+    evidence: &[RouteSqlEvidence],
+) -> Result<(), CostMapError> {
+    if evidence.len() > COST_ROUTE_COUNT {
+        return Err(CostMapError::InvalidSqlEvidence);
+    }
+    let mut seen = [false; COST_ROUTE_COUNT];
+    for record in evidence {
+        let route =
+            usize::try_from(record.route_code).map_err(|_| CostMapError::InvalidSqlEvidence)?;
+        if route >= COST_ROUTE_COUNT
+            || record.observed_requests <= 0
+            || record.observed_queries < 0
+            || record.sqlx_elapsed_us < 0
+        {
+            return Err(CostMapError::InvalidSqlEvidence);
+        }
+        if seen[route] {
+            return Err(CostMapError::DuplicateSqlEvidence);
+        }
+        seen[route] = true;
+        if let Some(row) = rankings
+            .iter_mut()
+            .find(|row| row.route_code == record.route_code)
+        {
+            if record.observed_requests as u64 > row.requests {
+                return Err(CostMapError::InvalidSqlEvidence);
+            }
+            row.sqlx_observed_requests = Some(record.observed_requests as u64);
+            row.sqlx_observed_queries = Some(record.observed_queries as u64);
+            row.sqlx_elapsed_us = Some(record.sqlx_elapsed_us as u64);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -284,6 +344,57 @@ mod tests {
         assert_eq!(
             rank_route_costs(&[all[0]; MAX_BUCKETS + 1], 1),
             Err(CostMapError::TooManyBuckets)
+        );
+    }
+
+    #[test]
+    fn measured_sql_evidence_has_explicit_coverage_and_never_invents_total_cost() {
+        let mut rows = rank_route_costs(&[bucket(2, 1, 1, 12)], 15).unwrap();
+        assert_eq!(rows[0].sqlx_observed_requests, None);
+        attach_sql_evidence(
+            &mut rows,
+            &[RouteSqlEvidence {
+                route_code: 2,
+                observed_requests: 6,
+                observed_queries: 9,
+                sqlx_elapsed_us: 4500,
+            }],
+        )
+        .unwrap();
+        assert_eq!(rows[0].sqlx_observed_requests, Some(6));
+        assert_eq!(rows[0].sqlx_observed_queries, Some(9));
+        assert_eq!(rows[0].sqlx_elapsed_us, Some(4500));
+        assert_eq!(rows[0].db_queries, None);
+        assert_eq!(rows[0].db_time_ms, None);
+        assert_eq!(rows[0].monetary_cost, None);
+    }
+
+    #[test]
+    fn missing_evidence_is_not_measured_zero_and_bad_coverage_fails_closed() {
+        let mut rows = rank_route_costs(&[bucket(2, 1, 0, 2)], 15).unwrap();
+        attach_sql_evidence(&mut rows, &[]).unwrap();
+        assert_eq!(rows[0].sqlx_observed_queries, None);
+        let zero = RouteSqlEvidence {
+            route_code: 2,
+            observed_requests: 1,
+            observed_queries: 0,
+            sqlx_elapsed_us: 0,
+        };
+        attach_sql_evidence(&mut rows, &[zero]).unwrap();
+        assert_eq!(rows[0].sqlx_observed_queries, Some(0));
+        assert_eq!(
+            attach_sql_evidence(&mut rows, &[zero, zero]),
+            Err(CostMapError::DuplicateSqlEvidence),
+        );
+        assert_eq!(
+            attach_sql_evidence(
+                &mut rows,
+                &[RouteSqlEvidence {
+                    observed_requests: 3,
+                    ..zero
+                }]
+            ),
+            Err(CostMapError::InvalidSqlEvidence),
         );
     }
 }

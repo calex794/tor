@@ -11,11 +11,19 @@ use axum::{
 use std::sync::OnceLock;
 use std::time::Instant;
 use tor_route_intelligence::{classify, RouteObservation};
+use tor_traffic_behavior::SqlCostEvent;
 use tor_traffic_behavior::VerifiedSubjectKey;
+
+mod sqlx_observer;
 use tor_traffic_behavior::{
     repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent, LatencyGroup, RouteCode,
     StatusGroup, TrafficRecorder,
 };
+
+/// Install the numerical-only SQLx subscriber during startup (before any DB work).
+pub(crate) fn activate_sqlx_observation() -> bool {
+    sqlx_observer::install_for_process()
+}
 
 // Trusted-only response marker. Auth supplies it after a live DB session lookup
 // and explicit opt-in; no client-controlled header is ever parsed as identity.
@@ -78,7 +86,7 @@ async fn observe(
     let passport = classify(template, request.method().as_str());
     request.extensions_mut().insert(passport);
     let started = Instant::now();
-    let mut response = next.run(request).await;
+    let (mut response, sql_measurement) = sqlx_observer::observe(next.run(request)).await;
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
     let observation = RouteObservation::new(passport, status, elapsed);
@@ -93,6 +101,15 @@ async fn observe(
         response.extensions_mut().remove::<VerifiedRilSubject>();
         None
     };
+    // SQLx events are counted only within this request task; background tasks
+    // remain excluded. Zero is genuine only when the subscriber was installed.
+    if let Some(measured) = sql_measurement {
+        let _ = recorder.try_record_sql(SqlCostEvent {
+            route: RouteCode::from_family(passport.route_family),
+            observed_queries: measured.queries,
+            sqlx_elapsed_us: measured.elapsed_us,
+        });
+    }
     // Anonymous counters remain independent from personal behavior paths.
     let _accepted = recorder.try_record(BehaviorEvent {
         route: RouteCode::from_family(passport.route_family),
