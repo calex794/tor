@@ -33,6 +33,17 @@ async function inspect(page, name, where) {
       assert(await page.getByText('Платная · пока недоступна').isVisible(), name + ': paywall label missing');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'), name + ': paid text in TOC');
       await inspect(page, name, 'toc');
+      const pageOne = await page.goto(base + '/books/1?limit=1');
+      assert(pageOne && pageOne.status() === 200, name + ': paginated book HTTP');
+      assert(await page.getByRole('link', { name: 'Следующие главы' }).isVisible(),
+        name + ': missing keyset navigation');
+      await page.getByRole('link', { name: 'Следующие главы' }).click();
+      await page.waitForURL(/after=1\.101#chapters$/);
+      assert(await page.getByText('Глава 3. Платная глава').isVisible(),
+        name + ': second keyset page invisible');
+      assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
+        name + ': paid body leaked in keyset page');
+      await page.goto(base + '/books/1');
       await page.getByRole('link', { name: /Глава 1\. Начало истории/ }).click();
       await page.waitForURL('**/reader/101');
       assert(await page.getByText('Первая строка').count() > 0, name + ': no actual text');

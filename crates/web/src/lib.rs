@@ -1,11 +1,12 @@
 //! Routing shell only: book business logic remains in tor-books.
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Html,
     routing::get,
-    Router,
+    Json, Router,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tor_books::{
     repositories::PgCatalog,
@@ -13,7 +14,10 @@ use tor_books::{
         CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE,
     },
 };
-use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
+use tor_reading::{
+    repositories::PgReader,
+    services::{PublicReadingRepository, ReadingError},
+};
 mod auth;
 mod auth_cookies;
 mod author_pages;
@@ -77,17 +81,74 @@ async fn catalog(State(state): State<AppState>) -> Result<Html<String>, StatusCo
         &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
     ))
 }
+#[derive(Default, Deserialize)]
+struct TocQuery {
+    limit: Option<u16>,
+    after: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TocItem {
+    chapter_id: String,
+    chapter_no: i32,
+    title: String,
+    access_level: &'static str,
+}
+
+#[derive(Serialize)]
+struct TocResponse {
+    items: Vec<TocItem>,
+    next_cursor: Option<String>,
+}
+
+fn reading_status(error: ReadingError) -> StatusCode {
+    match error {
+        ReadingError::InvalidPage => StatusCode::BAD_REQUEST,
+        ReadingError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+/// C-03: bounded chapter metadata, no unpublished chapter or paid body content.
+async fn book_toc(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+    Query(query): Query<TocQuery>,
+) -> Result<Json<TocResponse>, StatusCode> {
+    let reader = state.reader.ok_or(StatusCode::NOT_FOUND)?;
+    let book = reader
+        .public_book_page(id, query.limit.unwrap_or(100), query.after.as_deref())
+        .await
+        .map_err(reading_status)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let items = book
+        .chapters
+        .into_iter()
+        .map(|chapter| TocItem {
+            chapter_id: chapter.id.to_string(),
+            chapter_no: chapter.number,
+            title: chapter.title,
+            access_level: if chapter.is_paid { "paid" } else { "free" },
+        })
+        .collect();
+    Ok(Json(TocResponse {
+        items,
+        next_cursor: book.next_cursor,
+    }))
+}
+
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    Query(query): Query<TocQuery>,
 ) -> Result<Html<String>, StatusCode> {
     if let Some(reader) = state.reader {
+        let limit = query.limit.unwrap_or(100);
         let book = reader
-            .public_book(id)
+            .public_book_page(id, limit, query.after.as_deref())
             .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .map_err(reading_status)?
             .ok_or(StatusCode::NOT_FOUND)?;
-        return Ok(pages::book_detail_with_chapters(&book));
+        return Ok(pages::book_detail_with_chapters(&book, limit));
     }
     let repo = state.books.as_ref();
     let book = GetPublicBook::new(repo)
@@ -181,6 +242,7 @@ fn make_router(
         .route("/", get(homepage))
         .route("/catalog", get(catalog))
         .route("/books/{id}", get(book_detail))
+        .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/healthz", get(health))
