@@ -230,8 +230,25 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
         author
             .edit_unpublished_free_chapter(owner, &edited_input)
             .await,
+        Ok(updated.clone()),
+        "exact old request replays without modifying published content"
+    );
+    let new_edit = save_chapter(SaveChapterRequest {
+        book_id: book_id as u64,
+        chapter_id: Some(saved.chapter_id as u64),
+        number: 2,
+        expected_revision: 2,
+        title: "Попытка изменить опубликованную главу",
+        body: "Недопустимая замена опубликованного текста",
+        access: "free",
+        price_amount: 0,
+        command_key: &"e".repeat(43),
+    })
+    .unwrap();
+    assert_eq!(
+        author.edit_unpublished_free_chapter(owner, &new_edit).await,
         Err(AuthorError::Conflict),
-        "published version cannot be changed through the draft editor"
+        "a new edit can never change the released version"
     );
     let original_body: String =
         sqlx::query_scalar("SELECT body_markdown FROM chapter_versions WHERE id=$1")
