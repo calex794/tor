@@ -1,9 +1,9 @@
 //! Process-local, cumulative and fixed-cardinality HTTP histograms.
 //! No per-request records or user-associated data are retained.
-pub mod trace;
-pub mod wire;
 #[cfg(unix)]
 pub mod publisher;
+pub mod trace;
+pub mod wire;
 
 use crate::domain::{RouteGroup, StatusGroup, BOUNDS};
 use std::fmt::Write;
