@@ -99,11 +99,12 @@ bash -n /root/tor-db-init.sh && bash /root/tor-db-init.sh
    bash /root/tor-first-migrations.sh "$sha"
    \`\`\`
 
-The operator script refuses invalid SHA, missing binary/checksum, wrong PG instance/owner/role/secrets, already populated public schema, inactive web/DB. Before any DDL it creates a **root-readable only, local** compressed \`pg_dump -Fc\` in \`/var/backups/tor/\` and checks that \`pg_restore -l\` can read it. It then executes the trusted SQLx binary as \`tor_migrator\` against **only** local \`tor\`; afterward it requires exactly **nine successful \`_sqlx_migrations\` rows and 17 domain tables**, plus a still healthy demo site. The command is not an HTTP deploy and never replaces the current Rust service.
+The operator script refuses invalid SHA, missing binary/checksum, wrong PG instance/owner/role/secrets, already populated public schema, inactive web/DB. Before any DDL it creates a **root-readable only, local** compressed \`pg_dump -Fc\` in \`/var/backups/tor/\` and checks that \`pg_restore -l\` can read it. It then executes the trusted SQLx binary as \`tor_migrator\` against **only** local \`tor\`; afterward it requires exactly **nine successful \`_sqlx_migrations\` rows and 17 domain tables**, revokes runtime INSERT/UPDATE/DELETE on `_sqlx_migrations` while retaining SELECT for readiness, plus a still healthy demo site. The command is not an HTTP deploy and never replaces the current Rust service.
 
 **Acceptance markers:**
 
 \`\`\`text
+MIGRATION_HISTORY_ACCESS_OK: tor_app can SELECT but cannot modify migration history
 MIGRATIONS_OK: 9/9 SQLx versions, 17 domain tables
 BACKUP_OK: /var/backups/tor/tor-before-... (local only; off-server backup still required)
 TOR_DEMO_HEALTH_OK
