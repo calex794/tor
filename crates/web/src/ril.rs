@@ -17,7 +17,8 @@ use tor_traffic_behavior::VerifiedSubjectKey;
 
 mod sqlx_observer;
 use tor_traffic_behavior::{
-    repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent, LatencyGroup, RouteCode,
+    repositories::PgRilRollups,
+    services::{PgPumpMonitor, PgPumpSnapshot, PgRollupPump}, BehaviorEvent, LatencyGroup, RouteCode,
     StatusGroup, TrafficRecorder,
 };
 
@@ -34,6 +35,13 @@ pub(crate) struct VerifiedRilSubject(pub(crate) VerifiedSubjectKey);
 // One bounded worker per process, shared across all router variants and clones.
 // No pseudo-user is derived from an unverified cookie, IP, or query string.
 static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
+static RIL_PUMP_MONITOR: OnceLock<PgPumpMonitor> = OnceLock::new();
+
+/// Process-local heartbeat. None means no PostgreSQL pump was started here.
+pub(crate) fn pump_health_snapshot() -> Option<PgPumpSnapshot> {
+    RIL_PUMP_MONITOR.get().map(PgPumpMonitor::snapshot)
+}
+
 
 /// Local privacy barrier. A separate cross-instance invalidation mechanism is
 /// required before identified paths may be enabled on multiple web processes.
@@ -63,7 +71,10 @@ pub(crate) fn start_pg_background(repo: PgRilRollups) {
     let recorder = TRAFFIC
         .get_or_init(|| TrafficRecorder::start(10_000, 1_024))
         .clone();
-    PgRollupPump::new(repo, recorder).spawn_background();
+    // The monitor is installed before the first 10-second cycle; a stopped
+    // or hung task eventually becomes stale even if no jobs were queued.
+    let monitor = RIL_PUMP_MONITOR.get_or_init(PgPumpMonitor::default).clone();
+    PgRollupPump::with_monitor(repo, recorder, monitor).spawn_background();
 }
 
 pub(crate) fn instrument(router: Router) -> Router {
