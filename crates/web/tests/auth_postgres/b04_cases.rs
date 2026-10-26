@@ -20,14 +20,14 @@ pub(super) async fn draft_edit_case(
         .expect("chapter ID");
     let edit_path = format!("/me/books/{book_id}/chapters/{chapter_id}/edit");
     assert_eq!(
-        send(&app, request("GET", &edit_path, "", "", ORIGIN))
+        send(app, request("GET", &edit_path, "", "", ORIGIN))
             .await
             .status(),
         StatusCode::SEE_OTHER
     );
     let editor = send(
-        &app,
-        request("GET", &edit_path, "", &author_cookies, ORIGIN),
+        app,
+        request("GET", &edit_path, "", author_cookies, ORIGIN),
     )
     .await;
     assert_eq!(editor.status(), StatusCode::OK);
@@ -48,8 +48,8 @@ pub(super) async fn draft_edit_case(
     );
     assert_eq!(
         send(
-            &app,
-            request("POST", &edit_path, &edit_payload, &session, ORIGIN)
+            app,
+            request("POST", &edit_path, &edit_payload, session, ORIGIN)
         )
         .await
         .status(),
@@ -57,12 +57,12 @@ pub(super) async fn draft_edit_case(
     );
     assert_eq!(
         send(
-            &app,
+            app,
             request(
                 "POST",
                 &edit_path,
                 &edit_payload,
-                &author_cookies,
+                author_cookies,
                 "https://evil.example"
             )
         )
@@ -71,8 +71,8 @@ pub(super) async fn draft_edit_case(
         StatusCode::FORBIDDEN
     );
     let updated = send(
-        &app,
-        request("POST", &edit_path, &edit_payload, &author_cookies, ORIGIN),
+        app,
+        request("POST", &edit_path, &edit_payload, author_cookies, ORIGIN),
     )
     .await;
     assert_eq!(updated.status(), StatusCode::SEE_OTHER);
@@ -82,8 +82,8 @@ pub(super) async fn draft_edit_case(
     );
     assert_eq!(
         send(
-            &app,
-            request("POST", &edit_path, &edit_payload, &author_cookies, ORIGIN)
+            app,
+            request("POST", &edit_path, &edit_payload, author_cookies, ORIGIN)
         )
         .await
         .status(),
@@ -93,8 +93,8 @@ pub(super) async fn draft_edit_case(
     let stale_payload = edit_payload.replace(edit_key, &"s".repeat(43));
     assert_eq!(
         send(
-            &app,
-            request("POST", &edit_path, &stale_payload, &author_cookies, ORIGIN)
+            app,
+            request("POST", &edit_path, &stale_payload, author_cookies, ORIGIN)
         )
         .await
         .status(),
@@ -102,8 +102,8 @@ pub(super) async fn draft_edit_case(
         "stale tab must not overwrite revision two"
     );
     let editor_again = send(
-        &app,
-        request("GET", &edit_path, "", &author_cookies, ORIGIN),
+        app,
+        request("GET", &edit_path, "", author_cookies, ORIGIN),
     )
     .await;
     assert_eq!(editor_again.status(), StatusCode::OK);
