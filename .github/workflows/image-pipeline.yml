@@ -1,0 +1,39 @@
+name: Rust G image pipeline
+on:
+  pull_request:
+    paths:
+      - 'crates/ingest/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'architecture/modules.toml'
+      - '.github/workflows/image-pipeline.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/ingest/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'architecture/modules.toml'
+      - '.github/workflows/image-pipeline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-g-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format G image crate
+        run: cargo fmt --package tor-ingest -- --check
+      - name: Real JPEG/PNG/WebP + adversarial unit tests
+        run: cargo test -p tor-ingest --all-targets
+      - name: Clippy G only
+        run: cargo clippy -p tor-ingest --all-targets -- -D warnings
