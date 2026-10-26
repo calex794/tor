@@ -4,6 +4,7 @@
    components/page-header.css,pages/home.css,pages/catalog.css}.
    Keep unsupported storefront/recommendation features hidden, not fabricated. */
 :root {
+  color-scheme: light;
   --bg-main: #f7f7f8;
   --bg-surface: #fff;
   --bg-secondary: #f9fafb;
