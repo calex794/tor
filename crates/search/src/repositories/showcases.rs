@@ -27,7 +27,7 @@ impl ShowcaseRepository for PgShowcases {
         // The partial books_public_id_idx supports descending ID order.
         // Never use cached lists without publication-version invalidation.
         let rows = sqlx::query(
-            "SELECT id,title,target_language,author_name,genres FROM books
+            "SELECT id,title,target_language,author_name,genres,tags,fandoms FROM books
              WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
                AND ($1::text IS NULL OR genres @> ARRAY[$1::text])
              ORDER BY id DESC LIMIT $2",
@@ -51,6 +51,10 @@ impl ShowcaseRepository for PgShowcases {
                         .map_err(|_| SearchError::Unavailable)?,
                     genres: row
                         .try_get("genres")
+                        .map_err(|_| SearchError::Unavailable)?,
+                    tags: row.try_get("tags").map_err(|_| SearchError::Unavailable)?,
+                    fandoms: row
+                        .try_get("fandoms")
                         .map_err(|_| SearchError::Unavailable)?,
                 })
             })

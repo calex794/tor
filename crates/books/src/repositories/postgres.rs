@@ -1,6 +1,7 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod chapter_edit;
 mod chapter_release;
+mod owned_book_hash;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
@@ -158,27 +159,7 @@ impl PgAuthoring {
         if user_id <= 0 {
             return Err(AuthorError::Forbidden);
         }
-        let mut hasher = Sha256::new();
-        for part in [&book.source_identity, &book.target_language, &book.title] {
-            hasher.update((part.len() as u64).to_be_bytes());
-            hasher.update(part.as_bytes());
-        }
-        // Keep old hashes for exact retries created without optional metadata.
-        if !book.author_name.is_empty() || !book.genres.is_empty() {
-            let genres = book.genres.join("\n");
-            for part in [book.author_name.as_str(), genres.as_str()] {
-                hasher.update((part.len() as u64).to_be_bytes());
-                hasher.update(part.as_bytes());
-            }
-        }
-        // Preserve existing B-01 command digests when taxonomy is absent.
-        if !book.tags.is_empty() || !book.fandoms.is_empty() {
-            for part in [book.tags.join("\n"), book.fandoms.join("\n")] {
-                hasher.update((part.len() as u64).to_be_bytes());
-                hasher.update(part.as_bytes());
-            }
-        }
-        let digest: [u8; 32] = hasher.finalize().into();
+        let digest = owned_book_hash::payload_hash(book);
         let mut tx = self
             .pool
             .begin()
