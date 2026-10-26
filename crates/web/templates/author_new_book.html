@@ -9,6 +9,10 @@
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
         <label for="book-title">Название книги</label>
         <input id="book-title" name="title" type="text" required maxlength="200" minlength="1">
+        <label for="book-author">Автор произведения (необязательно)</label>
+        <input id="book-author" name="author_name" type="text" maxlength="160">
+        <label for="book-genres">Жанры через запятую (до 8)</label>
+        <input id="book-genres" name="genres" type="text" maxlength="400" placeholder="Фэнтези, Приключения">
         <label for="book-language">Язык</label>
         <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
         <button class="button" type="submit">Создать книгу</button>

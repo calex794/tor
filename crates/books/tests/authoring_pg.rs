@@ -430,3 +430,49 @@ async fn b_04_draft_chapter_cas_preserves_history_and_rejects_public_edits() {
     assert_eq!(first_release_count, 1);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_01_author_genres_are_owner_written_and_retry_safe() {
+    use tor_books::services::authoring::new_book_with_discovery;
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "never mutate production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let user: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ('b01-metadata@tor-ci.example','Metadata Owner','$argon2id$test')
+         ON CONFLICT (email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let key = "z".repeat(43);
+    let identity = format!("ci:b01:metadata:{user}");
+    let book = new_book_with_discovery(
+        &identity, "ru", "Проза", &key, "Авторка", "Фэнтези, Роман",
+    )
+    .unwrap();
+    let author = PgAuthoring::new(pool.clone());
+    let id = author.create_owned_book(user, &book).await.unwrap();
+    assert_eq!(author.create_owned_book(user, &book).await, Ok(id));
+    let row = sqlx::query(
+        "SELECT author_name, genres, visibility FROM books WHERE id=$1 AND owner_user_id=$2",
+    )
+    .bind(id)
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("author_name"), "Авторка");
+    assert_eq!(row.get::<Vec<String>, _>("genres"), vec!["фэнтези", "роман"]);
+    assert_eq!(row.get::<String, _>("visibility"), "draft");
+    let changed = new_book_with_discovery(
+        &identity, "ru", "Проза", &key, "Подмена", "Фэнтези",
+    )
+    .unwrap();
+    assert_eq!(
+        author.create_owned_book(user, &changed).await,
+        Err(AuthorError::Conflict)
+    );
+}
