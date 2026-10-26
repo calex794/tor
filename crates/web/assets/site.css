@@ -409,3 +409,11 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .reader-page .reader-piece__text { font-size: 17px; line-height: 1.7; }
   .reader-page .chapter-navigation { gap: 10px; }
 }
+
+.book-card__meta {
+  margin: 7px 0 0;
+  color: #586e5f;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}

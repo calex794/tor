@@ -28,6 +28,8 @@ struct SearchItem {
     id: String,
     title: String,
     language: String,
+    author_name: String,
+    genres: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -73,24 +75,17 @@ fn search_error(error: SearchError) -> (StatusCode, Json<ErrorEnvelope>) {
     )
 }
 
-/// F-03: the genre projection does not exist yet. Reject instead of
-/// pretending to filter or returning unrelated books.
+/// F-03: genre and author data comes from the B-owned published book row.
 async fn search_books(
     State(state): State<SearchApiState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorEnvelope>)> {
-    if query
-        .genre
-        .as_ref()
-        .is_some_and(|genre| !genre.trim().is_empty())
-    {
-        return Err(search_error(SearchError::Invalid));
-    }
     let page = state
         .search
-        .search_filtered(
+        .search_faceted(
             query.q.as_deref().unwrap_or(""),
             query.language.as_deref(),
+            query.genre.as_deref(),
             query.after.as_deref(),
             query.limit.unwrap_or(20),
         )
@@ -104,6 +99,8 @@ async fn search_books(
                 id: item.id.to_string(),
                 title: item.title,
                 language: item.language,
+                author_name: item.author_name,
+                genres: item.genres,
             })
             .collect(),
         next_cursor: page.next_cursor,
