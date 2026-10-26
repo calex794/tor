@@ -3,11 +3,13 @@ on:
   pull_request:
     paths:
       - 'crates/web/**'
+      - 'tools/operator_trace_visual_smoke.cjs'
       - '.github/workflows/visual-smoke.yml'
   push:
     branches: [main]
     paths:
       - 'crates/web/**'
+      - 'tools/operator_trace_visual_smoke.cjs'
       - '.github/workflows/visual-smoke.yml'
   workflow_dispatch:
 permissions:
@@ -22,8 +24,10 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build HTTP server
-        run: cargo build -p tor-web
+      - name: Build HTTP and isolated trace-store binaries
+        run: |
+          cargo build -p tor-web
+          cargo build -p tor-observability --bin tor-trace-store
       - name: Install headless browser
         run: |
           npm install --no-save playwright@1.56.1
@@ -31,15 +35,26 @@ jobs:
       - name: Browser layout checks and screenshots
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/tor-shots"
-          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 ./target/debug/tor-web > "$RUNNER_TEMP/tor.log" 2>&1 &
+          mkdir -p "$RUNNER_TEMP/tor-shots" "$RUNNER_TEMP/tor-trace-private"
+          chmod 700 "$RUNNER_TEMP/tor-trace-private"
+          trace_socket="$RUNNER_TEMP/tor-trace-private/traces.sock"
+          ./target/debug/tor-trace-store serve "$RUNNER_TEMP/tor-trace-private/traces.sqlite3" "$trace_socket" > "$RUNNER_TEMP/trace-store.log" 2>&1 &
+          writer=$!
+          for i in $(seq 1 30); do
+            if test -S "$trace_socket"; then break; fi
+            sleep 1
+          done
+          test -S "$trace_socket"
+          export TOR_TEST_OPERATOR_PASSWORD="ci-only-random-fixture-operator-password-2026"
+          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 TOR_OBS_OPERATOR_PASSWORD="$TOR_TEST_OPERATOR_PASSWORD" TOR_TRACE_STORE_SOCKET="$trace_socket" ./target/debug/tor-web > "$RUNNER_TEMP/tor.log" 2>&1 &
           pid=$!
-          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          trap 'kill "$pid" "$writer" 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3099/readyz >/dev/null; then break; fi
             sleep 1
           done
           TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/visual-smoke.cjs
+          TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/operator_trace_visual_smoke.cjs
       - name: Upload browser proof
         if: always()
         uses: actions/upload-artifact@v4

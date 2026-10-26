@@ -28,6 +28,14 @@ async fn pg_live_http_and_private_books() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("TOR CI public"));
     assert!(!html.contains("TOR CI hidden"));
+    let (home_status, home_html) = get(app.clone(), "/").await;
+    assert_eq!(home_status, StatusCode::OK);
+    assert!(home_html.contains("Недавно добавленные"));
+    assert!(home_html.contains("home-spotlight-card"));
+    assert!(home_html.contains("home-shelf__track"));
+    assert!(!home_html.contains("TOR CI hidden"));
+    assert!(!home_html.contains("TOR CI held"));
+
     assert_eq!(get(app.clone(), "/books/1").await.0, StatusCode::OK);
     assert_eq!(get(app.clone(), "/books/2").await.0, StatusCode::NOT_FOUND);
     assert_eq!(get(app.clone(), "/books/3").await.0, StatusCode::NOT_FOUND);
