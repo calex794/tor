@@ -55,7 +55,7 @@ fn endpoint(headers: HeaderMap, token: Option<&str>, metrics: &HttpMetrics) -> R
         [
             (header::CONTENT_TYPE, HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8")),
             (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
-            (header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")),
+            (header::HeaderName::from_static("x-content-type-options"), HeaderValue::from_static("nosniff")),
         ],
         metrics.prometheus(),
     )
