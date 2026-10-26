@@ -341,14 +341,18 @@ mod tests {
         assert_eq!(book.tags, vec!["магия", "космос"]);
         assert_eq!(book.fandoms, vec!["наруто", "star wars"]);
         assert!(new_book_with_taxonomy(
-            "source:1", "ru", "Роман", KEY, "", "",
-            TaxonomyFields { tags: "a,", fandoms: "" },
-        ).is_err());
-        assert!(
-            new_book_with_taxonomy("source:1", "ru", "Роман", KEY, "", "",
-                TaxonomyFields { tags: "bad\nlabel", fandoms: "" })
-                .is_err()
-        );
+            "source:1",
+            "ru",
+            "Роман",
+            KEY,
+            "",
+            "",
+            TaxonomyFields {
+                tags: "a,",
+                fandoms: ""
+            },
+        )
+        .is_err());
         assert!(new_book_with_taxonomy(
             "source:1",
             "ru",
@@ -356,7 +360,23 @@ mod tests {
             KEY,
             "",
             "",
-            TaxonomyFields { tags: "", fandoms: &"a,".repeat(9) },
+            TaxonomyFields {
+                tags: "bad\nlabel",
+                fandoms: ""
+            }
+        )
+        .is_err());
+        assert!(new_book_with_taxonomy(
+            "source:1",
+            "ru",
+            "Роман",
+            KEY,
+            "",
+            "",
+            TaxonomyFields {
+                tags: "",
+                fandoms: &"a,".repeat(9)
+            },
         )
         .is_err());
         let legacy = new_book_with_discovery("source:1", "ru", "Роман", KEY, "", "").unwrap();

@@ -1,7 +1,7 @@
 //! F-02: PostgreSQL keyset catalog. All predicates precede pagination.
 //! Oldest and newest use fixed SQL, never a client-provided ORDER BY fragment.
-use crate::domain::{CatalogSort, SearchBook, SearchError, SearchPage};
 use super::CatalogFacets;
+use crate::domain::{CatalogSort, SearchBook, SearchError, SearchPage};
 use sqlx::{PgPool, Row};
 
 const ASCENDING: &str = "

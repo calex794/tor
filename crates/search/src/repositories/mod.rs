@@ -156,12 +156,9 @@ impl PgSearch {
             fandom: fandom.as_deref(),
         };
         if lexical {
-            return catalog::read_lexical_page(
-                &self.pool, normalized, after, limit, direction,
-            ).await;
+            return catalog::read_lexical_page(&self.pool, normalized, after, limit, direction)
+                .await;
         }
-        catalog::read_page(
-            &self.pool, normalized, after_id, limit, direction,
-        ).await
+        catalog::read_page(&self.pool, normalized, after_id, limit, direction).await
     }
 }
