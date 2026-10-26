@@ -50,8 +50,8 @@ fn book_cards(books: &[PublicBookCard]) -> String {
 }
 
 pub fn home(books: &[PublicBookCard]) -> Html<String> {
-    let content =
-        include_str!("../../templates/home.html").replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
+    let content = include_str!("../../templates/home.html")
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
     layout(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
@@ -122,4 +122,3 @@ pub fn catalog_search(
         &content,
     )
 }
-
