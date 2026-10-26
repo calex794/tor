@@ -16,6 +16,7 @@ search = "F"
 imports = "G"
 ingest = "G"
 route_intelligence = "I"
+traffic_behavior = "G"
 
 # Operator migration runner; owned by integration lane I.
 migrations = "I"

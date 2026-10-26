@@ -12,6 +12,7 @@ async-trait.workspace = true
 tor-reading = { path = "../reading" }
 tor-accounts = { path = "../accounts" }
 tor-route_intelligence = { path = "../route_intelligence" }
+tor-traffic_behavior = { path = "../traffic_behavior" }
 serde.workspace = true
 
 [dev-dependencies]
