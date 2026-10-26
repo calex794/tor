@@ -19,6 +19,40 @@ impl PgRilRollups {
         Self { pool }
     }
 
+    /// RIL-10 read-only FinOps evidence, bounded to 30 days of retained hourly data.
+    /// Returns at most 15 routes x 6 statuses x 4 latency buckets (360 rows).
+    /// This is a histogram of observed HTTP response times, NOT measured DB calls,
+    /// CPU time, monetary charges, or per-request diagnostic information.
+    pub async fn read_cost_buckets(&self, days: u16) -> Result<Vec<crate::domain::RouteCount>, sqlx::Error> {
+        if !(1..=30).contains(&days) {
+            return Err(sqlx::Error::Protocol(
+                "RIL cost history window must be between 1 and 30 days".into(),
+            ));
+        }
+        let rows = sqlx::query(
+            "SELECT route_code,status_group,latency_group,
+                    LEAST(SUM(request_count),9223372036854775807)::bigint AS request_count
+               FROM ril_route_hourly
+              WHERE bucket >= date_trunc('hour',now()) - ($1::integer * INTERVAL '1 day')
+                AND bucket <= date_trunc('hour',now())
+              GROUP BY route_code,status_group,latency_group
+              ORDER BY route_code,status_group,latency_group",
+        )
+        .bind(i32::from(days))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(crate::domain::RouteCount {
+                    route: row.try_get("route_code")?,
+                    status: row.try_get("status_group")?,
+                    latency: row.try_get("latency_group")?,
+                    count: row.try_get("request_count")?,
+                })
+            })
+            .collect()
+    }
+
     /// Stage a single immutable, identified batch atomically. Replays with the
     /// same UUID never reinsert its counters even if a prior commit response
     /// was lost. Distinct process restarts receive distinct UUIDs.
