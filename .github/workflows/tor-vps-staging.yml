@@ -129,26 +129,56 @@ jobs:
           set -euo pipefail
           release_sha="$1"
           previous="$(readlink /opt/tor/current || true)"
+          # Automated updates must not replace an already broken or unknown site.
+          # Recovery of an unhealthy server is an operator-only procedure.
+          if [[ -z "$previous" || ! -x "$previous/tor-web" ]] ||
+             ! systemctl is-active --quiet tor-web.service ||
+             [[ "$(curl -fsS --max-time 3 http://127.0.0.1:3000/readyz 2>/dev/null || true)" != ok ]]; then
+            echo "REFUSING_AUTO_ACTIVATION: previous TOR server is unhealthy" >&2
+            exit 1
+          fi
           test -x "/opt/tor/releases/$release_sha/tor-web"
           ln -s "/opt/tor/releases/$release_sha" "/opt/tor/.candidate-$release_sha"
           mv -Tf "/opt/tor/.candidate-$release_sha" /opt/tor/current
           success=0
           if sudo -n /usr/bin/systemctl restart tor-web.service; then
             for i in $(seq 1 20); do
-              if curl -fsS http://127.0.0.1:3000/readyz >/dev/null; then success=1; break; fi
+              ready="$(curl -fsS --max-time 3 http://127.0.0.1:3000/readyz 2>/dev/null || true)"
+              if [[ "$ready" == ok ]]; then
+                # Demo /readyz cannot substitute for real PG + auth readiness.
+                register="$(curl -fsS --max-time 3 http://127.0.0.1:3000/register 2>/dev/null || true)"
+                if [[ "$register" == *'name="csrf_token"'* ]]; then success=1; break; fi
+              fi
               sleep 1
             done
           fi
           if test "$success" -ne 1; then
-            if test -n "$previous"; then
-              ln -s "$previous" "/opt/tor/.rollback-$release_sha"
-              mv -Tf "/opt/tor/.rollback-$release_sha" /opt/tor/current
-              sudo -n /usr/bin/systemctl restart tor-web.service || true
-            else
-              sudo -n /usr/bin/systemctl stop tor-web.service || true
-              rm -f /opt/tor/current
+            echo "ACTIVATION_FAILED: candidate did not pass PG-backed /readyz and CSRF registration" >&2
+            # Emit service state, not raw journal lines or environment secrets.
+            systemctl show tor-web.service --no-pager \
+              -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus || true
+            # A restored symlink is not proof that the old process recovered.
+            if ! ln -s "$previous" "/opt/tor/.rollback-$release_sha" ||
+               ! mv -Tf "/opt/tor/.rollback-$release_sha" /opt/tor/current; then
+              echo "ROLLBACK_UNVERIFIED: unable to restore previous release symlink" >&2
+              exit 1
             fi
-            echo "Release activation failed; restored previous binary target if present" >&2
+            sudo -n /usr/bin/systemctl restart tor-web.service || true
+            rollback_ok=0
+            for i in $(seq 1 15); do
+              if [[ "$(curl -fsS --max-time 3 http://127.0.0.1:3000/readyz 2>/dev/null || true)" == ok ]]; then
+                rollback_ok=1
+                break
+              fi
+              sleep 1
+            done
+            if [[ "$rollback_ok" == 1 ]]; then
+              echo "ROLLBACK_VERIFIED: previous TOR release $previous responds to /readyz" >&2
+            else
+              echo "ROLLBACK_UNVERIFIED: previous binary restored but HTTP did not recover" >&2
+              systemctl show tor-web.service --no-pager \
+                -p ActiveState -p SubState -p Result -p ExecMainCode -p ExecMainStatus || true
+            fi
             exit 1
           fi
           echo "Active tor commit: $release_sha"
