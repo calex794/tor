@@ -100,6 +100,13 @@ async fn consent_is_default_off_and_local_erasure_is_confirmed() {
         send(&app, "POST", "/me/behavior", &enable, "", ORIGIN)
             .await
             .status(),
+        StatusCode::FORBIDDEN
+    );
+    // A valid CSRF token without an authenticated session is not consent.
+    assert_eq!(
+        send(&app, "POST", "/me/behavior", &enable, &csrf_cookie, ORIGIN)
+            .await
+            .status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
