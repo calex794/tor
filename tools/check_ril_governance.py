@@ -213,7 +213,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: operator privilege allowed only for reviewed trace page")
         if not (
             "TOR_OBS_OPERATOR_PASSWORD" in body
-            and re.search(r"\\brespond\\s*\\(", body)
+            and "respond(" in body
             and "if !authorized(&headers, secret)" in gate
             and "return denied()" in gate
             and "StatusCode::UNAUTHORIZED" in rejected
