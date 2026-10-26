@@ -194,3 +194,55 @@ pub(super) async fn stale_second_session_cannot_overwrite(app: &Router, session:
     assert_eq!(reply.status(), StatusCode::CONFLICT);
     second_session_reads_saved_progress(app, session).await;
 }
+
+pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, session: &str) {
+    let page = send(app, request("GET", "/read/101", "", session, ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let token = csrf_token(&body_of(page).await).to_owned();
+    let cookies = format!("{session}; {csrf_cookie}");
+    let left = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":2,"expected_revision":2}"#;
+    let right = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":3,"expected_revision":2}"#;
+    let left_request = json_request(
+        "PUT",
+        "/api/v1/me/progress/free",
+        left,
+        &cookies,
+        ORIGIN,
+        &token,
+    );
+    let right_request = json_request(
+        "PUT",
+        "/api/v1/me/progress/free",
+        right,
+        &cookies,
+        ORIGIN,
+        &token,
+    );
+    let (a, b) = tokio::join!(send(app, left_request), send(app, right_request));
+    let statuses = [a.status(), b.status()];
+    assert_eq!(statuses.iter().filter(|&&s| s == StatusCode::OK).count(), 1);
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|&&s| s == StatusCode::CONFLICT)
+            .count(),
+        1
+    );
+    let state = send(
+        app,
+        json_request(
+            "GET",
+            "/api/v1/me/progress/free?chapter_id=101",
+            "",
+            session,
+            ORIGIN,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(state.status(), StatusCode::OK);
+    let body = body_of(state).await;
+    assert!(body.contains(r#""revision":3"#));
+    assert!(body.contains(r#""char_offset":2"#) || body.contains(r#""char_offset":3"#));
+}
