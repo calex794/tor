@@ -1,0 +1,27 @@
+<section class="section auth-section author-editor">
+  <div class="container">
+    <div class="auth-card author-chapter-card">
+      <nav class="breadcrumbs" aria-label="Навигационная цепочка">
+        <a href="/me/books">Мои книги</a><span aria-hidden="true">/</span>
+        <a href="/me/books/<!--BOOK_ID-->"><!--BOOK_TITLE--></a>
+        <span aria-hidden="true">/</span><span aria-current="page">Новая глава</span>
+      </nav>
+      <p class="eyebrow">Кабинет автора</p>
+      <h1>Новая глава</h1>
+      <p class="page-description">Сохранённая глава останется внутри закрытого черновика книги, пока вы не подтвердите публикацию. В первом выпуске доступны только бесплатные главы.</p>
+      <form class="auth-form author-chapter-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters/new" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
+        <label for="chapter-number">Номер главы</label>
+        <input id="chapter-number" name="number" type="number" min="1" max="2147483647" value="1" required>
+        <label for="chapter-title">Название главы</label>
+        <input id="chapter-title" name="title" type="text" maxlength="200" required>
+        <label for="chapter-body">Текст главы</label>
+        <textarea id="chapter-body" name="body" rows="18" maxlength="50000" required aria-describedby="chapter-body-hint"></textarea>
+        <p class="author-chapter-hint" id="chapter-body-hint">До 50 000 символов. Текст Markdown будет безопасно показан в читалке после публикации книги.</p>
+        <button class="button" type="submit">Сохранить главу</button>
+      </form>
+      <p class="auth-card__footer"><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге без сохранения</a></p>
+    </div>
+  </div>
+</section>
