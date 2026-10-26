@@ -79,28 +79,40 @@ fn archives_survive_reopen_and_searches_cover_more_than_last_hundred() {
     let dir = TemporaryStore::new();
     let mut db = TraceStore::open(&dir.path(), policy(200)).unwrap();
     for id in 1..=150_u128 {
-        assert!(db.append(&example(id, StatusGroup::ServerError), 1_800_000_000 + id as i64).unwrap());
+        assert!(db
+            .append(
+                &example(id, StatusGroup::ServerError),
+                1_800_000_000 + id as i64
+            )
+            .unwrap());
     }
-    let page = db.search(SearchFilter {
-        limit: 100,
-        ..SearchFilter::default()
-    }).unwrap();
+    let page = db
+        .search(SearchFilter {
+            limit: 100,
+            ..SearchFilter::default()
+        })
+        .unwrap();
     assert_eq!(page.archived, 150);
     assert_eq!(page.matches, 150);
     assert_eq!(page.items.len(), 100);
     // The oldest trace is not in the first 100, but still searchable.
-    let oldest = db.search(SearchFilter {
-        trace_id: Some(1),
-        limit: 10,
-        ..SearchFilter::default()
-    }).unwrap();
+    let oldest = db
+        .search(SearchFilter {
+            trace_id: Some(1),
+            limit: 10,
+            ..SearchFilter::default()
+        })
+        .unwrap();
     assert_eq!(oldest.matches, 1);
     assert_eq!(oldest.items.len(), 1);
     assert_eq!(oldest.items[0].trace, example(1, StatusGroup::ServerError));
     drop(db);
 
     let reopened = TraceStore::open(&dir.path(), policy(200)).unwrap();
-    assert_eq!(reopened.search(SearchFilter::default()).unwrap().archived, 150);
+    assert_eq!(
+        reopened.search(SearchFilter::default()).unwrap().archived,
+        150
+    );
 }
 
 #[test]
@@ -108,17 +120,25 @@ fn retention_and_row_cap_delete_associated_child_spans() {
     let dir = TemporaryStore::new();
     let mut db = TraceStore::open(&dir.path(), policy(7)).unwrap();
     for id in 1..=20_u128 {
-        db.append(&example(id, StatusGroup::Success), 1_900_000_000 + id as i64)
-            .unwrap();
+        db.append(
+            &example(id, StatusGroup::Success),
+            1_900_000_000 + id as i64,
+        )
+        .unwrap();
     }
     let page = db.search(SearchFilter::default()).unwrap();
     assert_eq!(page.archived, 7);
     assert_eq!(page.items.len(), 1); // default limit is one
     assert_eq!(page.items[0].trace.trace_id, 20);
-    assert_eq!(db.search(SearchFilter {
-        trace_id: Some(1),
-        ..SearchFilter::default()
-    }).unwrap().matches, 0);
+    assert_eq!(
+        db.search(SearchFilter {
+            trace_id: Some(1),
+            ..SearchFilter::default()
+        })
+        .unwrap()
+        .matches,
+        0
+    );
 
     let report = db.maintain(1_900_000_000 + 5 * 86_400).unwrap();
     assert_eq!(report.expired, 7);
@@ -138,11 +158,15 @@ fn idempotent_trace_id_and_missing_observer_are_preserved() {
     let mut unknown = example(16, StatusGroup::ServerError);
     unknown.sqlx = None;
     assert!(db.append(&unknown, 1_900_000_000).unwrap());
-    assert!(!db.append(&example(16, StatusGroup::ClientError), 1_900_000_100).unwrap());
-    let page = db.search(SearchFilter {
-        trace_id: Some(16),
-        ..SearchFilter::default()
-    }).unwrap();
+    assert!(!db
+        .append(&example(16, StatusGroup::ClientError), 1_900_000_100)
+        .unwrap());
+    let page = db
+        .search(SearchFilter {
+            trace_id: Some(16),
+            ..SearchFilter::default()
+        })
+        .unwrap();
     assert_eq!(page.matches, 1);
     assert_eq!(page.items[0].trace.sqlx, None);
     assert_eq!(page.items[0].trace.status, StatusGroup::ServerError);
@@ -152,36 +176,50 @@ fn idempotent_trace_id_and_missing_observer_are_preserved() {
 fn filtered_search_reports_exact_archive_scope_and_never_stores_raw_strings() {
     let dir = TemporaryStore::new();
     let mut db = TraceStore::open(&dir.path(), policy(16)).unwrap();
-    db.append(&example(16, StatusGroup::Success), 1_900_000_000).unwrap();
-    db.append(&example(17, StatusGroup::ServerError), 1_900_000_001).unwrap();
-    let page = db.search(SearchFilter {
-        route: Some(RouteGroup::Reader),
-        status: Some(StatusGroup::ServerError),
-        min_duration_us: Some(10_000),
-        from_unix: Some(1_900_000_000),
-        ..SearchFilter::default()
-    }).unwrap();
+    db.append(&example(16, StatusGroup::Success), 1_900_000_000)
+        .unwrap();
+    db.append(&example(17, StatusGroup::ServerError), 1_900_000_001)
+        .unwrap();
+    let page = db
+        .search(SearchFilter {
+            route: Some(RouteGroup::Reader),
+            status: Some(StatusGroup::ServerError),
+            min_duration_us: Some(10_000),
+            from_unix: Some(1_900_000_000),
+            ..SearchFilter::default()
+        })
+        .unwrap();
     assert_eq!(page.archived, 2);
     assert_eq!(page.matches, 1);
     assert_eq!(page.items[0].trace.trace_id, 17);
     drop(db);
     let bytes = fs::read(dir.path()).unwrap();
     for sensitive in [b"user_id".as_slice(), b"remote_ip", b"raw_url", b"SECRET"] {
-        assert!(!bytes.windows(sensitive.len()).any(|window| window == sensitive));
+        assert!(!bytes
+            .windows(sensitive.len())
+            .any(|window| window == sensitive));
     }
 }
 
 #[test]
 fn invalid_limits_and_symlinks_do_not_open_unsafe_store() {
     let dir = TemporaryStore::new();
-    assert!(TraceStore::open(&dir.path(), StorePolicy {
-        max_rows: 0,
-        ..policy(10)
-    }).is_err());
-    assert!(TraceStore::open(&dir.path(), StorePolicy {
-        max_file_bytes: 100,
-        ..policy(10)
-    }).is_err());
+    assert!(TraceStore::open(
+        &dir.path(),
+        StorePolicy {
+            max_rows: 0,
+            ..policy(10)
+        }
+    )
+    .is_err());
+    assert!(TraceStore::open(
+        &dir.path(),
+        StorePolicy {
+            max_file_bytes: 100,
+            ..policy(10)
+        }
+    )
+    .is_err());
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
