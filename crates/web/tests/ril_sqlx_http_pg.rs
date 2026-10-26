@@ -1,5 +1,8 @@
 //! PG18 + Axum: actual SQLx query completions are counted per route, not SQL.
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use std::time::Duration;
 use tor_books::repositories::PgCatalog;
 use tor_traffic_behavior::{repositories::PgRilRollups, RouteCode};
@@ -14,18 +17,24 @@ async fn route_sqlx_completion_measurements_survive_background_pg_flush() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let repo = PgRilRollups::new(catalog.pool());
     let before = repo.read_sql_costs(1).await.unwrap();
-    let old = |route| before.iter().find(|r| r.route == route)
-        .map(|r| (r.observed_requests,r.observed_queries,r.sqlx_elapsed_us))
-        .unwrap_or((0,0,0));
+    let old = |route| {
+        before
+            .iter()
+            .find(|r| r.route == route)
+            .map(|r| (r.observed_requests, r.observed_queries, r.sqlx_elapsed_us))
+            .unwrap_or((0, 0, 0))
+    };
     let old_catalog = old(RouteCode::ApiBooks as i16);
     let old_health = old(RouteCode::Health as i16);
 
     tor_web::start_ril_pg_background(&catalog);
     let app = tor_web::router_with_postgres(catalog.clone());
     for path in ["/api/v1/books", "/api/v1/books", "/healthz"] {
-        let response = app.clone().oneshot(
-            Request::builder().uri(path).body(Body::empty()).unwrap()
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK, "{path}");
     }
     // Production rollup pump runs out of HTTP, every 10s, with one UUID batch.
@@ -49,5 +58,7 @@ async fn route_sqlx_completion_measurements_survive_background_pg_flush() {
                 }
             }
         }
-    }).await.expect("RIL background SQLx measurement flush");
+    })
+    .await
+    .expect("RIL background SQLx measurement flush");
 }
