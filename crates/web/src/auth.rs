@@ -22,7 +22,7 @@ use tor_accounts::{
 };
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{new_book_with_discovery, AuthorError},
+    services::authoring::{new_book_with_taxonomy, AuthorError},
 };
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
@@ -78,6 +78,8 @@ struct NewBookForm {
     target_language: String,
     author_name: Option<String>,
     genres: Option<String>,
+    tags: Option<String>,
+    fandoms: Option<String>,
     command_key: String,
     csrf_token: Option<String>,
 }
@@ -270,13 +272,15 @@ async fn create_book(
     // Manual authorship does not invoke collectors or trust client-supplied IDs.
     // The source identity is stable across retries of this exact form.
     let identity = format!("manual:{actor}:{}", form.command_key);
-    let request = match new_book_with_discovery(
+    let request = match new_book_with_taxonomy(
         &identity,
         &form.target_language,
         &form.title,
         &form.command_key,
         form.author_name.as_deref().unwrap_or(""),
         form.genres.as_deref().unwrap_or(""),
+        form.tags.as_deref().unwrap_or(""),
+        form.fandoms.as_deref().unwrap_or(""),
     ) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
