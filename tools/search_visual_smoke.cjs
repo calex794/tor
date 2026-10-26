@@ -151,6 +151,7 @@ async function draftBook(page, viewport) {
           viewport + ': real genre shelves missing');
         assert(await guest.locator('a[href="/books/' + id + '"]').count() >= 2,
           viewport + ': newly published book not in latest/genre shelves');
+        await search(guest, filters);
 
         // F-02: lexical sorting is a real catalog control, not just an API flag.
         for (const sort of ['title', 'author']) {
