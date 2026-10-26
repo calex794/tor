@@ -218,14 +218,22 @@ mod tests {
         let (((), a), ((), b), ((), c)) = tokio::join!(
             observe(
                 async {
-                    tracing::event!(target: "sqlx::query", tracing::Level::DEBUG, elapsed_secs = 0.001_f64);
+                    tracing::event!(
+                        target: "sqlx::query",
+                        tracing::Level::DEBUG,
+                        elapsed_secs = 0.001_f64
+                    );
                 },
                 Instant::now(),
             ),
             observe(
                 async {
                     for _ in 0..2 {
-                        tracing::event!(target: "sqlx::query", tracing::Level::DEBUG, elapsed_secs = 0.002_f64);
+                        tracing::event!(
+                            target: "sqlx::query",
+                            tracing::Level::DEBUG,
+                            elapsed_secs = 0.002_f64
+                        );
                     }
                 },
                 Instant::now(),
@@ -246,7 +254,11 @@ mod tests {
         let ((), report) = observe(
             async {
                 for _ in 0..13 {
-                    tracing::event!(target: "sqlx::query", tracing::Level::DEBUG, elapsed_secs = 0.001_f64);
+                    tracing::event!(
+                        target: "sqlx::query",
+                        tracing::Level::DEBUG,
+                        elapsed_secs = 0.001_f64
+                    );
                 }
             },
             Instant::now(),
