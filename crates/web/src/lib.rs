@@ -15,8 +15,8 @@ use tor_books::{
 };
 use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 mod auth;
-pub mod cover_worker;
 mod auth_cookies;
+pub mod cover_worker;
 mod pages;
 mod password_jobs;
 mod safe_markdown;
