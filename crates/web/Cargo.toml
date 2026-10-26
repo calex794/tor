@@ -11,6 +11,7 @@ tor-ingest = { path = "../ingest" }
 async-trait.workspace = true
 tor-reading = { path = "../reading" }
 tor-accounts = { path = "../accounts" }
+tor-route_intelligence = { path = "../route_intelligence" }
 serde.workspace = true
 
 [dev-dependencies]

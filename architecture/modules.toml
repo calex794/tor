@@ -15,6 +15,7 @@ referrals = "F"
 search = "F"
 imports = "G"
 ingest = "G"
+route_intelligence = "I"
 
 # Operator migration runner; owned by integration lane I.
 migrations = "I"
