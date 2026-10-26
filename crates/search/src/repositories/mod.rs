@@ -42,13 +42,7 @@ impl PgSearch {
         genre: Option<&str>,
     ) -> Result<u64, SearchError> {
         let (_, language, genre) = validate_browse(term, language, genre, None, 1)?;
-        catalog::count_filtered(
-            &self.pool,
-            term,
-            language.as_deref(),
-            genre.as_deref(),
-        )
-        .await
+        catalog::count_filtered(&self.pool, term, language.as_deref(), genre.as_deref()).await
     }
 
     /// Legacy search stays strict: without a filter, callers must explicitly
