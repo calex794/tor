@@ -2,6 +2,9 @@
 //! Subject keys must be pseudonyms from a trusted, keyed HMAC computed elsewhere.
 //! This crate never takes an IP, URI, cookie, account ID, or free-form route label.
 
+mod rollup;
+pub use rollup::{RollupDelta, RouteCount, Transition, TransitionCount};
+
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
@@ -232,7 +235,7 @@ impl BehaviorSketch {
         }
     }
 
-    pub fn record(&mut self, event: BehaviorEvent) {
+    pub fn record(&mut self, event: BehaviorEvent) -> Option<Transition> {
         let at_millis = event.at_millis.max(self.last_clock);
         self.last_clock = at_millis;
         self.expire_idle(at_millis);
@@ -245,13 +248,18 @@ impl BehaviorSketch {
             self.snapshot.latency[event.latency.index()].saturating_add(1);
 
         // Anonymous traffic increments bounded counters only. No cross-visitor path inference.
-        let Some(subject) = event.subject else {
-            return;
-        };
+        let subject = event.subject?;
+
+        let mut transition = None;
 
         if let Some(previous) = self.current.get(&subject).copied() {
             self.recency.remove(&(previous.touched, subject));
             let gap = GapBucket::from_millis(at_millis.saturating_sub(previous.at_millis));
+            transition = Some(Transition {
+                from: previous.route,
+                to: event.route,
+                gap,
+            });
             let slot = &mut self.snapshot.transitions[previous.route.index()][event.route.index()]
                 [gap.index()];
             *slot = slot.saturating_add(1);
@@ -274,6 +282,7 @@ impl BehaviorSketch {
         );
         self.recency.insert((touched, subject));
         self.snapshot.active_subjects = self.current.len();
+        transition
     }
 
     /// An authenticated opt-out or account deletion can invalidate its pseudonym.

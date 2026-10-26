@@ -16,6 +16,12 @@ BEGIN
     IF to_regclass('public.cover_variant_jobs') IS NULL
        OR to_regclass('public.cover_variants') IS NULL
        OR to_regclass('public.book_cover_slots') IS NULL
+       OR to_regclass('public.ril_flush_batches') IS NULL
+       OR to_regclass('public.ril_flush_routes') IS NULL
+       OR to_regclass('public.ril_flush_transitions') IS NULL
+       OR to_regclass('public.ril_route_hourly') IS NULL
+       OR to_regclass('public.ril_transition_hourly') IS NULL
+       OR to_regclass('public.ril_daily_rollup') IS NULL
        OR to_regclass('public.cover_upload_objects') IS NULL
        OR to_regclass('public.reader_book_positions') IS NULL
        OR to_regclass('public.chapter_purchase_facts') IS NULL

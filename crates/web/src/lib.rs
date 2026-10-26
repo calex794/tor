@@ -126,6 +126,14 @@ async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
 
+/// Optional, non-blocking persistence of anonymous technical RIL aggregates.
+/// Uses the already bounded PostgreSQL pool and never changes readiness/ACL.
+pub fn start_ril_pg_background(catalog: &PgCatalog) {
+    ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
+        catalog.pool(),
+    ));
+}
+
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
     ril::instrument(make_router(repo, None, None, false))
 }

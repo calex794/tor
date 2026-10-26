@@ -1,6 +1,6 @@
 //! Never block HTTP on analytics. A single bounded worker drains compact events.
 //! Full/disconnected queues count dropped telemetry, not failed user requests.
-use crate::domain::{BehaviorEvent, BehaviorSketch, SketchSnapshot};
+use crate::domain::{BehaviorEvent, BehaviorSketch, RollupDelta, SketchSnapshot};
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -15,6 +15,7 @@ const MAX_QUEUE: usize = 4_096;
 enum Message {
     Event(BehaviorEvent),
     Snapshot(mpsc::Sender<SketchSnapshot>),
+    Drain(mpsc::Sender<RollupDelta>),
 }
 
 /// Cloneable, request-safe telemetry sender. No raw path or identity fields.
@@ -34,11 +35,19 @@ impl TrafficRecorder {
             .name("tor-ril-traffic".to_owned())
             .spawn(move || {
                 let mut sketch = BehaviorSketch::new(max_subjects);
+                let mut rollup = RollupDelta::default();
                 while let Ok(message) = receiver.recv() {
                     match message {
-                        Message::Event(event) => sketch.record(event),
+                        Message::Event(event) => {
+                            let transition = sketch.record(event);
+                            rollup.record(event, transition);
+                        }
                         Message::Snapshot(reply) => {
                             let _ = reply.send(sketch.snapshot());
+                        }
+                        Message::Drain(reply) => {
+                            let batch = std::mem::take(&mut rollup);
+                            let _ = reply.send(batch);
                         }
                     }
                 }
@@ -73,6 +82,15 @@ impl TrafficRecorder {
         Some(snapshot.with_dropped(self.dropped.load(Ordering::Relaxed)))
     }
 
+    /// Best-effort aggregation barrier. Only called from a background task,
+    /// never on Axum's request executor. Failed persistence must retry the same
+    /// batch ID and never replace the already-drained delta.
+    pub fn drain_for_persistence(&self) -> Option<RollupDelta> {
+        let (reply, response) = mpsc::channel();
+        self.sender.try_send(Message::Drain(reply)).ok()?;
+        response.recv_timeout(Duration::from_secs(2)).ok()
+    }
+
     pub fn dropped_events(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
@@ -103,6 +121,30 @@ mod tests {
         assert_eq!(snap.count_route(RouteCode::Catalog), 2);
         assert_eq!(snap.active_subjects, 0);
         assert_eq!(snap.dropped_events, 0);
+    }
+
+    #[test]
+    fn persistent_drain_resets_counters_but_not_subject_path() {
+        use crate::domain::{RouteCode, VerifiedSubjectKey};
+        let recorder = TrafficRecorder::start(5, 16);
+        let mut first = event();
+        first.subject = Some(VerifiedSubjectKey::from_hmac_digest([7; 16]));
+        first.route = RouteCode::Catalog;
+        assert!(recorder.try_record(first));
+        let batch = recorder.drain_for_persistence().expect("first barrier");
+        assert_eq!(batch.route_rows().len(), 1);
+        assert!(batch.transition_rows().is_empty());
+        assert!(recorder
+            .drain_for_persistence()
+            .expect("second barrier")
+            .is_empty());
+        let mut next = first;
+        next.route = RouteCode::Books;
+        next.at_millis = 300;
+        assert!(recorder.try_record(next));
+        let subsequent = recorder.drain_for_persistence().expect("path preserved");
+        assert_eq!(subsequent.route_rows().len(), 1);
+        assert_eq!(subsequent.transition_rows().len(), 1);
     }
 
     #[test]

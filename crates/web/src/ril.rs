@@ -11,11 +11,21 @@ use axum::{
 use std::sync::OnceLock;
 use std::time::Instant;
 use tor_route_intelligence::{classify, RouteObservation};
-use tor_traffic_behavior::{BehaviorEvent, LatencyGroup, RouteCode, StatusGroup, TrafficRecorder};
+use tor_traffic_behavior::{
+    repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent, LatencyGroup, RouteCode,
+    StatusGroup, TrafficRecorder,
+};
 
 // One bounded worker per process, shared across all router variants and clones.
 // No pseudo-user is derived from an unverified cookie, IP, or query string.
 static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
+
+pub(crate) fn start_pg_background(repo: PgRilRollups) {
+    let recorder = TRAFFIC
+        .get_or_init(|| TrafficRecorder::start(10_000, 1_024))
+        .clone();
+    PgRollupPump::new(repo, recorder).spawn_background();
+}
 
 pub(crate) fn instrument(router: Router) -> Router {
     let recorder = TRAFFIC

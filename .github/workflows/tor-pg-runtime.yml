@@ -128,6 +128,7 @@ jobs:
           PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
       - name: Database and HTTP integration
         run: |
+          cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
