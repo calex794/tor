@@ -47,10 +47,7 @@ fn public_private_and_write_routes_are_distinct() {
         classify(Some("/me/books"), "POST").cost_class,
         CostClass::Write
     );
-    assert_eq!(
-        classify(Some("/me/books/{id}"), "GET").route_family,
-        "/me/"
-    );
+    assert_eq!(classify(Some("/me/books/{id}"), "GET").route_family, "/me/");
     assert_eq!(
         classify(Some("/api/v1/books"), "GET").traffic_surface,
         TrafficSurface::Api
