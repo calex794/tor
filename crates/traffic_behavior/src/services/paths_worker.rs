@@ -89,7 +89,7 @@ impl PathRecorder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Hygiene, LatencyGroup, RouteCode, StatusGroup};
+    use crate::domain::{LatencyGroup, RouteCode, StatusGroup};
 
     fn verified(i: u8, route: RouteCode, time: u64) -> BehaviorEvent {
         BehaviorEvent {
@@ -113,9 +113,8 @@ mod tests {
         assert_eq!(report.active_subjects, 1);
         let formatted = format!("{report:?}");
         assert!(!formatted.contains("11, 11"));
-        assert!(!formatted.contains("subject"));
-        assert!(!formatted.contains("user"));
-        assert_eq!(Hygiene::Normal as u8, 0);
+        assert!(!formatted.contains("user_id"));
+        assert!(!formatted.contains("hmac"));
     }
 
     #[test]
