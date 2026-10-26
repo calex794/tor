@@ -1,4 +1,5 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
+mod chapter_edit;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
