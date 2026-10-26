@@ -229,11 +229,18 @@ async fn update_chapter(
         Ok(input) => input,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    match state.authoring.edit_unpublished_free_chapter(actor, &input).await {
+    match state
+        .authoring
+        .edit_unpublished_free_chapter(actor, &input)
+        .await
+    {
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => private_response(
-            (StatusCode::CONFLICT, "Глава изменена в другой вкладке или уже опубликована. Обновите страницу."),
+            (
+                StatusCode::CONFLICT,
+                "Глава изменена в другой вкладке или уже опубликована. Обновите страницу.",
+            ),
             &[],
         ),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
