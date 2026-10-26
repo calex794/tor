@@ -17,7 +17,6 @@ serde.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
-sqlx.workspace = true
 
 image = { version = "0.25", default-features = false, features = ["png"] }
 sha2 = "0.10"
