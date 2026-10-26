@@ -17,7 +17,12 @@ pub struct PgRollupPump {
 
 impl PgRollupPump {
     pub fn new(repo: PgRilRollups, recorder: TrafficRecorder) -> Self {
-        Self { repo, recorder, pending: None, ticks: 0 }
+        Self {
+            repo,
+            recorder,
+            pending: None,
+            ticks: 0,
+        }
     }
 
     /// One bounded progress unit. Failures affect *telemetry only*, not HTTP.
@@ -26,14 +31,15 @@ impl PgRollupPump {
     pub async fn run_once(&mut self) {
         if self.pending.is_none() {
             let source = self.recorder.clone();
-            let snapshot = tokio::task::spawn_blocking(move || {
-                source.drain_for_persistence()
-            })
-            .await
-            .ok()
-            .flatten();
+            let snapshot = tokio::task::spawn_blocking(move || source.drain_for_persistence())
+                .await
+                .ok()
+                .flatten();
             if let Some(delta) = snapshot.filter(|delta| !delta.is_empty()) {
-                self.pending = Some(Pending { id: Uuid::new_v4().to_string(), delta });
+                self.pending = Some(Pending {
+                    id: Uuid::new_v4().to_string(),
+                    delta,
+                });
             }
         }
 
