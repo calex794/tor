@@ -20,10 +20,16 @@ fn route_codes_are_finite_even_for_untrusted_strings() {
         let input = format!("/books/{n}?token=SECRET");
         families.insert(RouteCode::from_family(&input));
     }
-    assert_eq!(families, std::collections::HashSet::from([RouteCode::Unknown]));
+    assert_eq!(
+        families,
+        std::collections::HashSet::from([RouteCode::Unknown])
+    );
     assert_eq!(RouteCode::from_family("/books/"), RouteCode::Books);
     assert_eq!(RouteCode::from_family("/read/"), RouteCode::Read);
-    assert_eq!(RouteCode::from_family("/api/v1/books/"), RouteCode::ApiBooks);
+    assert_eq!(
+        RouteCode::from_family("/api/v1/books/"),
+        RouteCode::ApiBooks
+    );
 }
 
 #[test]
@@ -36,7 +42,10 @@ fn anonymous_events_do_not_link_independent_visitors() {
     assert_eq!(s.total, 100_000);
     assert_eq!(s.count_route(RouteCode::Books), 100_000);
     assert_eq!(s.active_subjects, 0);
-    assert_eq!(s.count_transition(RouteCode::Books, RouteCode::Books, GapBucket::Immediate), 0);
+    assert_eq!(
+        s.count_transition(RouteCode::Books, RouteCode::Books, GapBucket::Immediate),
+        0
+    );
 }
 
 #[test]
@@ -50,9 +59,18 @@ fn verified_subject_transitions_are_bounded_and_explainable() {
     let s = sketch.snapshot();
     assert_eq!(s.active_subjects, 1);
     assert_eq!(s.total, 4);
-    assert_eq!(s.count_transition(RouteCode::Catalog, RouteCode::Books, GapBucket::Immediate), 1);
-    assert_eq!(s.count_transition(RouteCode::Books, RouteCode::Read, GapBucket::Fast), 1);
-    assert_eq!(s.count_transition(RouteCode::Read, RouteCode::Catalog, GapBucket::Normal), 1);
+    assert_eq!(
+        s.count_transition(RouteCode::Catalog, RouteCode::Books, GapBucket::Immediate),
+        1
+    );
+    assert_eq!(
+        s.count_transition(RouteCode::Books, RouteCode::Read, GapBucket::Fast),
+        1
+    );
+    assert_eq!(
+        s.count_transition(RouteCode::Read, RouteCode::Catalog, GapBucket::Normal),
+        1
+    );
     assert_eq!(s.count_route(RouteCode::Catalog), 2);
 }
 
@@ -67,8 +85,14 @@ fn eviction_has_one_index_entry_per_subject_and_no_stale_transition() {
     let s = sketch.snapshot();
     assert_eq!(s.active_subjects, 2);
     assert_eq!(s.evicted_subjects, 2);
-    assert_eq!(s.count_transition(RouteCode::Home, RouteCode::Books, GapBucket::Immediate), 1);
-    assert_eq!(s.count_transition(RouteCode::Catalog, RouteCode::Read, GapBucket::Immediate), 0);
+    assert_eq!(
+        s.count_transition(RouteCode::Home, RouteCode::Books, GapBucket::Immediate),
+        1
+    );
+    assert_eq!(
+        s.count_transition(RouteCode::Catalog, RouteCode::Read, GapBucket::Immediate),
+        0
+    );
 }
 
 #[test]
@@ -101,7 +125,13 @@ fn idle_pseudonyms_expire_and_opt_out_removes_subject() {
 fn duration_and_status_have_only_fixed_buckets() {
     assert_eq!(StatusGroup::from_status(404), StatusGroup::ClientError);
     assert_eq!(StatusGroup::from_status(503), StatusGroup::ServerError);
-    assert_eq!(LatencyGroup::from_elapsed(Duration::from_millis(9)), LatencyGroup::Under10Ms);
-    assert_eq!(LatencyGroup::from_elapsed(Duration::from_secs(4)), LatencyGroup::Slow);
+    assert_eq!(
+        LatencyGroup::from_elapsed(Duration::from_millis(9)),
+        LatencyGroup::Under10Ms
+    );
+    assert_eq!(
+        LatencyGroup::from_elapsed(Duration::from_secs(4)),
+        LatencyGroup::Slow
+    );
     assert_eq!(GapBucket::from_millis(3_000_000), GapBucket::Long);
 }
