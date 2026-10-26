@@ -95,6 +95,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/books/102?password=PRIVATE")
+                    .header("cookie", "session=UNVERIFIED-MUST-NOT-BECOME-SUBJECT")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -106,6 +107,9 @@ mod tests {
         assert_eq!(view.count_route(RouteCode::Books), 1);
         assert_eq!(view.active_subjects, 0);
         assert_eq!(view.dropped_events, 0);
+        let paths = recorder.path_report_for_diagnostics().expect("offline path report");
+        assert_eq!(paths.assessed_events, 0);
+        assert_eq!(paths.active_subjects, 0);
     }
 
     #[tokio::test]
