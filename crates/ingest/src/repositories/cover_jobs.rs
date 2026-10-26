@@ -35,7 +35,12 @@ impl PgCoverJobs {
         .fetch_one(&self.pool)
         .await
         .map_err(|_| CoverError::Unavailable)?;
-        Ok(CoverQueueCounts { pending, running, ready, dead })
+        Ok(CoverQueueCounts {
+            pending,
+            running,
+            ready,
+            dead,
+        })
     }
 
     /// INTERNAL ONLY. Caller must have verified S3 HEAD+bounded GET and digest.
