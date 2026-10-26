@@ -174,7 +174,9 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy == "entry":
         if entry["method"] != "POST" or entry["template"] not in {"/login", "/register"}:
             errors.append(f"{label}: entry exception only applies to login/register POST")
-        if "login_limiter::limit(" not in evidence or "permit_auth_attempt(" not in limiter:
+        # Identity AND peer-address throttles must remain independent.
+        if ("login_limiter::limit(" not in evidence
+                or len(re.findall(r"\bpermit_auth_attempt\s*\(", limiter)) < 2):
             errors.append(f"{label}: missing distributed authentication rate limit")
     if policy == "csrf_only" and (entry["method"], entry["template"]) != ("POST", "/logout"):
         errors.append(f"{label}: CSRF-only exception only allowed for logout")
