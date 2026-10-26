@@ -33,22 +33,34 @@ pub(super) async fn publish_second_chapter(
     assert_eq!(
         send(
             app,
-            request("POST", &post_path, &payload, author_cookies, "https://evil.example")
+            request(
+                "POST",
+                &post_path,
+                &payload,
+                author_cookies,
+                "https://evil.example"
+            )
         )
         .await
         .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(app, request("POST", &post_path, &payload, author_cookies, ORIGIN))
-            .await
-            .status(),
+        send(
+            app,
+            request("POST", &post_path, &payload, author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        send(app, request("POST", &post_path, &payload, author_cookies, ORIGIN))
-            .await
-            .status(),
+        send(
+            app,
+            request("POST", &post_path, &payload, author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER,
         "same chapter create request must not duplicate chapters"
     );
@@ -120,7 +132,13 @@ pub(super) async fn publish_second_chapter(
     assert_eq!(
         send(
             app,
-            request("POST", &release_path, &stale_release_payload, author_cookies, ORIGIN)
+            request(
+                "POST",
+                &release_path,
+                &stale_release_payload,
+                author_cookies,
+                ORIGIN
+            )
         )
         .await
         .status(),
@@ -128,7 +146,11 @@ pub(super) async fn publish_second_chapter(
         "a previously opened publish form cannot release a stale revision"
     );
 
-    let confirmed = send(app, request("GET", &release_path, "", author_cookies, ORIGIN)).await;
+    let confirmed = send(
+        app,
+        request("GET", &release_path, "", author_cookies, ORIGIN),
+    )
+    .await;
     assert_eq!(confirmed.status(), StatusCode::OK);
     let confirmed_html = body_of(confirmed).await;
     assert!(confirmed_html.contains("PUBLIC B06 V2"));
@@ -143,9 +165,12 @@ pub(super) async fn publish_second_chapter(
     let release_payload =
         format!("version_id={version}&expected_revision=2&csrf_token={confirm_csrf}");
     assert_eq!(
-        send(app, request("POST", &release_path, &release_payload, session, ORIGIN))
-            .await
-            .status(),
+        send(
+            app,
+            request("POST", &release_path, &release_payload, session, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -165,7 +190,13 @@ pub(super) async fn publish_second_chapter(
     );
     let published = send(
         app,
-        request("POST", &release_path, &release_payload, author_cookies, ORIGIN),
+        request(
+            "POST",
+            &release_path,
+            &release_payload,
+            author_cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(published.status(), StatusCode::SEE_OTHER);
@@ -176,7 +207,13 @@ pub(super) async fn publish_second_chapter(
     assert_eq!(
         send(
             app,
-            request("POST", &release_path, &release_payload, author_cookies, ORIGIN)
+            request(
+                "POST",
+                &release_path,
+                &release_payload,
+                author_cookies,
+                ORIGIN
+            )
         )
         .await
         .status(),
