@@ -499,5 +499,4 @@ mod tests {
     fn source_brand_is_exactly_a_png() {
         assert!(include_bytes!("../assets/brand/pandaolate-header.png").starts_with(b"\x89PNG"));
     }
-
 }
