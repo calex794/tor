@@ -179,7 +179,9 @@ mod tests {
             observed.at_millis = i * 100;
             assert!(recorder.try_record(observed));
         }
-        let report = recorder.path_report_for_diagnostics().expect("offline path worker");
+        let report = recorder
+            .path_report_for_diagnostics()
+            .expect("offline path worker");
         assert_eq!(report.assessed_events, 20);
         assert_eq!(report.active_subjects, 1);
         assert!(report.reject > 0);
