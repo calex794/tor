@@ -126,18 +126,6 @@ jobs:
       - name: Advance explicit-ID book fixture sequence as schema owner
         run: |
           PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
-      - name: Seed C-11 oversized reader fixture
-        run: |
-          # This is legacy-data-only; public author APIs still enforce 50k characters.
-          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO books(id,source_identity,target_language,title,visibility)
-          VALUES (98110,'ci:c11:oversized','ru','C11 Oversized chapter','public');
-          INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
-          VALUES (98111,98110,1,'Oversized free chapter','public','free',0);
-          INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
-          VALUES (98112,98111,1,'C11-PRIVATE-SOURCE-' || repeat('😀',50001));
-          INSERT INTO chapter_publications(chapter_id,version_id) VALUES (98111,98112);
-          SQL
       - name: Database and HTTP integration
         run: |
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
