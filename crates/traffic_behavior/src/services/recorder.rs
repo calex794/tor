@@ -43,7 +43,11 @@ impl TrafficRecorder {
                     }
                 }
             });
-        Self { sender, dropped, started: Instant::now() }
+        Self {
+            sender,
+            dropped,
+            started: Instant::now(),
+        }
     }
 
     pub fn uptime_millis(&self) -> u64 {
