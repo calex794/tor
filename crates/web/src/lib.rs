@@ -253,6 +253,12 @@ pub async fn ril_cost_map_for_diagnostics(
     Some(ranked)
 }
 
+/// Activates numeric-only SQLx route metrics; must run once before opening PG.
+/// If the process already uses another subscriber, RIL SQL metrics stay OFF.
+pub fn activate_ril_sqlx_observation() -> bool {
+    ril::activate_sqlx_observation()
+}
+
 pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
         catalog.pool(),
