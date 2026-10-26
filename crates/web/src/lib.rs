@@ -393,6 +393,15 @@ fn make_router(
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
+        .route("/assets/newboo.css", get(pages::newboo_stylesheet))
+        .route(
+            "/assets/brand/pandaolate-header.png",
+            get(pages::brand_logo),
+        )
+        .route(
+            "/assets/brand/pandaolate-header-dark.png",
+            get(pages::brand_logo_dark),
+        )
         .route("/healthz", get(health))
         .route("/readyz", get(ready));
     if !active_auth {
