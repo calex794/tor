@@ -320,6 +320,8 @@ pub(super) async fn reader_v2_html_flow(app: &Router, session: &str, chapter_raw
     let changed_html = body_of(changed).await;
     assert!(changed_html.contains("V2-UPDATED-TEXT"));
     assert!(!changed_html.contains("Перейти к сохранённому месту"));
+    assert!(changed_html.contains("Глава обновлена. Сохранённое место"));
+    assert!(!changed_html.contains("Место ещё не сохранено"));
     assert!(changed_html.contains(&format!("name=\"version_id\" value=\"{newer}\"")));
     let new_csrf = csrf_token(&changed_html);
     let new_cookies = format!("{session}; {new_csrf_cookie}");
@@ -342,5 +344,7 @@ pub(super) async fn reader_v2_html_flow(app: &Router, session: &str, chapter_raw
     assert_eq!(saved_new.headers()[header::LOCATION], format!("{path}#p-1"));
     let resumed = send(app, request("GET", &path, "", session, ORIGIN)).await;
     assert_eq!(resumed.status(), StatusCode::OK);
-    assert!(body_of(resumed).await.contains("href=\"#p-1\""));
+    let resumed_html = body_of(resumed).await;
+    assert!(resumed_html.contains("href=\"#p-1\""));
+    assert!(!resumed_html.contains("Глава обновлена. Сохранённое место"));
 }
