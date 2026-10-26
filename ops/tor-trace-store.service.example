@@ -22,7 +22,7 @@ ProtectHome=yes
 PrivateTmp=yes
 ReadWritePaths=/var/lib/tor-traces /run/tor-traces
 MemoryMax=128M
-CPUQuota=25%%
+CPUQuota=25%
 
 [Install]
 WantedBy=multi-user.target
