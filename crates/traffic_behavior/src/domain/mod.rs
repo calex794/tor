@@ -248,9 +248,7 @@ impl BehaviorSketch {
             self.snapshot.latency[event.latency.index()].saturating_add(1);
 
         // Anonymous traffic increments bounded counters only. No cross-visitor path inference.
-        let Some(subject) = event.subject else {
-            return None;
-        };
+        let subject = event.subject?;
 
         let mut transition = None;
 
