@@ -144,11 +144,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
     assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_new.headers()[header::LOCATION], "/login");
-    let new_page = send(
-        &app,
-        request("GET", "/me/books/new", "", &session, ORIGIN),
-    )
-    .await;
+    let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
     let new_html = body_of(new_page).await;
@@ -166,16 +162,25 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     );
     let author_cookies = format!("{session}; {author_csrf_cookie}");
     assert_eq!(
-        send(&app, request("POST", "/me/books", &create_form, &session, ORIGIN))
-            .await
-            .status(),
+        send(
+            &app,
+            request("POST", "/me/books", &create_form, &session, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
         "Author POST requires a CSRF cookie"
     );
     assert_eq!(
         send(
             &app,
-            request("POST", "/me/books", &create_form, &author_cookies, "https://evil.example")
+            request(
+                "POST",
+                "/me/books",
+                &create_form,
+                &author_cookies,
+                "https://evil.example"
+            )
         )
         .await
         .status(),
@@ -202,9 +207,12 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(replay.headers()[header::LOCATION], book_path);
     let altered_form = create_form.replace("target_language=ru", "target_language=en");
     assert_eq!(
-        send(&app, request("POST", "/me/books", &altered_form, &author_cookies, ORIGIN))
-            .await
-            .status(),
+        send(
+            &app,
+            request("POST", "/me/books", &altered_form, &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "replay with altered payload must not mutate the original book"
     );
