@@ -20,6 +20,8 @@ mod b04_cases;
 mod b06_cases;
 #[path = "auth_postgres/c11_cases.rs"]
 mod c11_cases;
+#[path = "auth_postgres/h_account_cases.rs"]
+mod h_account_cases;
 
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
@@ -112,6 +114,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let page_body = body_of(page).await;
     let csrf = csrf_token(&page_body);
     assert!(page_body.contains("Создать учётную запись"));
+    assert!(page_body.contains("action=\"/register\" autocomplete=\"on\" novalidate"));
+    assert!(page_body.contains("register-password-hint"));
+    h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
 
     let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&csrf_token=".to_owned() + csrf;
     assert_eq!(
@@ -168,6 +173,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let private_html = body_of(private).await;
     assert!(private_html.contains("href=\"/me/library\""));
     assert!(private_html.contains("href=\"/me/books\""));
+    assert!(!private_html.contains("Приватность"));
+    assert!(!private_html.contains("Анализ ваших переходов"));
+    assert!(!private_html.contains("/me/behavior"));
     // B-01/B-02: the first genuine author journey persists a private book.
     let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
     assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
@@ -933,28 +941,14 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert!(!private_html.contains("LongSecurePassword2026"));
     assert!(private_html.contains("href=\"/me\""));
 
-    assert_eq!(
-        send(
-            &app,
-            request("POST", "/register", &form, &csrf_cookie, ORIGIN)
-        )
-        .await
-        .status(),
-        StatusCode::CONFLICT,
-        "Email uniqueness enforced by PostgreSQL"
-    );
+    h_account_cases::duplicate_registration(&app, &form, &csrf_cookie).await;
     let login_page = send(&app, request("GET", "/login", "", "", ORIGIN)).await;
     let login_csrf_cookie = cookie(&login_page, "tor-dev-csrf=");
     let login_html = body_of(login_page).await;
     let login_csrf = csrf_token(&login_html);
     let bad_login =
         format!("email=tor_ci_account%40example.com&password=badpass&csrf_token={login_csrf}");
-    let bad = send(
-        &app,
-        request("POST", "/login", &bad_login, &login_csrf_cookie, ORIGIN),
-    )
-    .await;
-    assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
+    h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
     let logged = send(
         &app,

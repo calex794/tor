@@ -3,7 +3,7 @@
     <div class="auth-card">
       <p class="eyebrow">Личный кабинет</p>
       <h1>Вход</h1>
-      <form class="auth-form" method="post" action="/login" autocomplete="on">
+      <form class="auth-form" method="post" action="/login" autocomplete="on" novalidate>
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <label for="login-email">Электронная почта</label>
         <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254">

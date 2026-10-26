@@ -2,12 +2,12 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    auth_cookies::{private_response, CookiePolicy, SESSION_AGE},
+    auth_cookies::{private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{ConnectInfo, DefaultBodyLimit, Form, Path, Query, State},
+    extract::{DefaultBodyLimit, Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     middleware,
     response::{Redirect, Response},
@@ -15,14 +15,10 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     repositories::PgAccounts,
     services::ril_pseudonym::RilSubjectSigner,
-    services::security::{
-        generate_session_token, hash_password, session_token_digest, verify_password,
-    },
-    services::validation as rules,
+    services::security::{generate_session_token, session_token_digest},
 };
 use tor_books::{
     repositories::postgres::PgAuthoring,
@@ -38,6 +34,7 @@ use tor_reading::{
     },
 };
 
+mod account_form_http;
 mod behavior_consent;
 mod library_actions;
 mod login_limiter;
@@ -54,21 +51,6 @@ struct AuthState {
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
     ril_signer: Option<RilSubjectSigner>,
-}
-
-#[derive(Deserialize)]
-struct RegisterForm {
-    email: String,
-    display_name: String,
-    password: String,
-    csrf_token: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct LoginForm {
-    email: String,
-    password: String,
-    csrf_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -130,8 +112,14 @@ pub(crate) fn router(
     };
     let observation_state = state.clone();
     Router::new()
-        .route("/register", get(show_registration).post(register))
-        .route("/login", get(show_login).post(login))
+        .route(
+            "/register",
+            get(account_form_http::show_registration).post(account_form_http::register),
+        )
+        .route(
+            "/login",
+            get(account_form_http::show_login).post(account_form_http::login),
+        )
         .route("/me", get(me))
         .route("/me/library", get(my_library))
         .route(
@@ -169,149 +157,8 @@ pub(crate) fn router(
         .merge(chapter_routes)
 }
 
-async fn show_registration(State(state): State<AuthState>) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
-    private_response(pages::registration_form(&token), &[cookie])
-}
-
-async fn show_login(State(state): State<AuthState>) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
-    private_response(pages::login_form(&token), &[cookie])
-}
-
 fn deny(status: StatusCode) -> Response {
     private_response(status, &[])
-}
-
-fn invalid_credentials() -> Response {
-    private_response(
-        (StatusCode::UNAUTHORIZED, "Неверный адрес почты или пароль"),
-        &[],
-    )
-}
-
-async fn register(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    peer: ConnectInfo<SocketAddr>,
-    Form(form): Form<RegisterForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    let account = match rules::registration(&form.email, &form.display_name, &form.password) {
-        Ok(account) => account,
-        Err(_) => return deny(StatusCode::BAD_REQUEST),
-    };
-    if let Err(status) = login_limiter::limit(&state, "register", &account.email, peer).await {
-        return deny(status);
-    }
-
-    // Argon2 is deliberately moved off Tokio's request executor.
-    let password = form.password;
-    let hashed = match state
-        .password_jobs
-        .run(move || hash_password(&password))
-        .await
-    {
-        Ok(Ok(hash)) => hash,
-        Ok(Err(_)) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        Err(status) => return deny(status),
-    };
-    let token = generate_session_token();
-    let digest = session_token_digest(&token);
-    let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
-    match state
-        .accounts
-        .register_with_session(&account.email, &account.display_name, &hashed, &digest, ttl)
-        .await
-    {
-        Ok(_) => private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)]),
-        Err(tor_accounts::repositories::postgres::AccountWriteError::Duplicate) => {
-            // No user ID or database exception is disclosed.
-            private_response(
-                (StatusCode::CONFLICT, "Не удалось создать учётную запись"),
-                &[],
-            )
-        }
-        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
-}
-
-async fn login(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    peer: ConnectInfo<SocketAddr>,
-    Form(form): Form<LoginForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    let email = match rules::login(&form.email, &form.password) {
-        Ok(email) => email,
-        Err(_) => return invalid_credentials(),
-    };
-    let identity_key = match login_limiter::limit(&state, "login", &email, peer).await {
-        Ok(key) => key,
-        Err(status) => return deny(status),
-    };
-    let stored = match state.accounts.find_user(&email).await {
-        Ok(stored) => stored,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
-    let password = form.password;
-    let verified = match state
-        .password_jobs
-        .run(move || match known_hash {
-            Some(hash) => verify_password(&password, &hash),
-            None => {
-                // A missing account still performs costly work to limit timing leaks.
-                let _ = hash_password(&password);
-                false
-            }
-        })
-        .await
-    {
-        Ok(valid) => valid,
-        Err(status) => return deny(status),
-    };
-    if !verified {
-        return invalid_credentials();
-    }
-    let Some(user) = stored else {
-        return invalid_credentials();
-    };
-
-    if state
-        .accounts
-        .clear_auth_attempt(&identity_key)
-        .await
-        .is_err()
-    {
-        return deny(StatusCode::SERVICE_UNAVAILABLE);
-    }
-    let token = generate_session_token();
-    let digest = session_token_digest(&token);
-    let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
-    if state
-        .accounts
-        .insert_session(user.id, &digest, ttl)
-        .await
-        .is_err()
-    {
-        return deny(StatusCode::SERVICE_UNAVAILABLE);
-    }
-    // No next parameter is accepted: redirects always stay on this site.
-    private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
 }
 
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
@@ -329,16 +176,8 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (enabled, _) = state
-        .accounts
-        .ril_behavior_consent(user_id)
-        .await
-        .unwrap_or((false, 0));
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        pages::my_account(&name, &csrf, enabled, state.ril_signer.is_some()),
-        &cookies,
-    )
+    private_response(pages::my_account(&name, &csrf), &cookies)
 }
 
 async fn my_library(

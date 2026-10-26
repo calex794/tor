@@ -5,6 +5,11 @@ use axum::{
 };
 use std::fmt::Write;
 
+mod account;
+pub use account::{
+    account_error_page, login_form, my_account, registration_form, registration_form_with_error,
+};
+
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
     pub id: u64,
@@ -355,56 +360,6 @@ pub fn private_reader(
     )
 }
 
-pub fn registration_form(csrf: &str) -> Html<String> {
-    let content = include_str!("../templates/register_active.html")
-        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
-    layout("Регистрация", "Создать личный кабинет читателя.", &content)
-}
-
-pub fn login_form(csrf: &str) -> Html<String> {
-    let content = include_str!("../templates/login_active.html")
-        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
-    layout("Вход", "Войти в личный кабинет.", &content)
-}
-
-pub fn my_account(name: &str, csrf: &str, behavior_opt_in: bool, configured: bool) -> Html<String> {
-    let state = if behavior_opt_in {
-        "Анализ переходов включён по вашему согласию."
-    } else {
-        "Анализ ваших переходов отключён."
-    };
-    let controls = if configured || behavior_opt_in {
-        let (choice, button) = if behavior_opt_in {
-            ("disable", "Отключить и удалить мою последовательность")
-        } else {
-            ("enable", "Включить анализ моих переходов")
-        };
-        format!(
-            "<section aria-label=\"Настройки приватности\"><h2>Приватность</h2><p>{state}</p><p>Технические общие счётчики не содержат личной истории. Персональные последовательности хранятся только в памяти этого сервера до 30 минут бездействия.</p><form method=\"post\" action=\"/me/behavior\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"choice\" value=\"{choice}\"><button class=\"button button--quiet\" type=\"submit\">{button}</button></form></section>",
-            escape_html(csrf),
-        )
-    } else {
-        "<section aria-label=\"Настройки приватности\"><h2>Приватность</h2><p>Анализ ваших переходов отключён. Сервер не настроен для персонального анализа.</p></section>".to_owned()
-    };
-    let content = include_str!("../templates/me.html")
-        .replace("<!--DISPLAY_NAME-->", &escape_html(name))
-        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
-        .replace("<!--RIL_BEHAVIOR_CONTROLS-->", &controls);
-    // Only the authenticated private page changes its navigation.
-    let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
-    Html(
-        html.0
-            .replace(
-                "<a class=\"site-nav__link\" href=\"/login\">Войти</a>",
-                "<a class=\"site-nav__link\" href=\"/me\" aria-current=\"page\">Мой кабинет</a>",
-            )
-            .replace(
-                "<a class=\"button button--small\" href=\"/register\">Регистрация</a>",
-                "",
-            ),
-    )
-}
-
 pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str) -> Html<String> {
     let title = escape_html(&book.title);
     let token = escape_html(csrf);
@@ -547,5 +502,57 @@ mod tests {
         assert!(catalog(&[])
             .0
             .contains("В каталоге пока нет опубликованных книг"));
+    }
+
+    #[test]
+    fn registration_has_russian_server_error_not_native_browser_popup() {
+        let page = registration_form_with_error(
+            "csrf-example",
+            "<script>ошибка</script>",
+            "reader\"@example.test",
+            Some("Пароль должен содержать от 12 до 128 символов"),
+        )
+        .0;
+        assert!(page.contains("lang=\"ru\""));
+        assert!(page.contains("action=\"/register\" autocomplete=\"on\" novalidate"));
+        assert!(page.contains("role=\"alert\""));
+        assert!(page.contains("Пароль должен содержать от 12 до 128 символов"));
+        assert!(page.contains("&lt;script&gt;ошибка&lt;/script&gt;"));
+        assert!(page.contains("reader&quot;@example.test"));
+        assert!(!page.contains("<script>ошибка</script>"));
+        assert!(!page.contains("value=\"1234\""));
+        assert!(registration_form("csrf-example").0.contains("novalidate"));
+        assert!(!registration_form("csrf-example")
+            .0
+            .contains("<!--FORM_ERROR-->"));
+        assert!(login_form("csrf-example").0.contains("novalidate"));
+    }
+
+    #[test]
+    fn account_failure_is_complete_branded_page_without_credentials() {
+        let html = account_error_page(
+            "Не удалось завершить регистрацию",
+            "Проверьте данные и попробуйте снова.",
+            true,
+        )
+        .0;
+        assert!(html.contains("<html lang=\"ru\">"));
+        assert!(html.contains("account-error__card"));
+        assert!(html.contains("href=\"/register\""));
+        assert!(html.contains("href=\"/login\""));
+        assert!(html.contains("href=\"/catalog\""));
+        assert!(html.contains("Не удалось завершить регистрацию"));
+    }
+
+    #[test]
+    fn profile_shows_only_actual_user_features() {
+        let html = my_account("<reader>", "csrf").0;
+        assert!(html.contains("&lt;reader&gt;"));
+        assert!(html.contains("href=\"/me/books\""));
+        assert!(html.contains("href=\"/me/library\""));
+        assert!(!html.contains("Приватность"));
+        assert!(!html.contains("Анализ ваших переходов"));
+        assert!(!html.contains("/me/behavior"));
+        assert!(!html.contains("RIL_BEHAVIOR_CONTROLS"));
     }
 }

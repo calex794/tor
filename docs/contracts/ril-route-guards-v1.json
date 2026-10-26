@@ -97,7 +97,7 @@
       "method": "GET",
       "template": "/login",
       "source": "crates/web/src/auth.rs",
-      "handler": "show_login",
+      "handler": "account_form_http::show_login",
       "policy": "public"
     },
     {
@@ -195,7 +195,7 @@
       "method": "GET",
       "template": "/register",
       "source": "crates/web/src/auth.rs",
-      "handler": "show_registration",
+      "handler": "account_form_http::show_registration",
       "policy": "public"
     },
     {
@@ -216,7 +216,7 @@
       "method": "POST",
       "template": "/login",
       "source": "crates/web/src/auth.rs",
-      "handler": "login",
+      "handler": "account_form_http::login",
       "policy": "entry"
     },
     {
@@ -293,7 +293,7 @@
       "method": "POST",
       "template": "/register",
       "source": "crates/web/src/auth.rs",
-      "handler": "register",
+      "handler": "account_form_http::register",
       "policy": "entry"
     },
     {
