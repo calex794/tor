@@ -1,10 +1,7 @@
 //! Classification is conservative: stale leases and retries are signals,
 //! not proof a remote job process crashed. The RIL heartbeat is local only.
 use tor_ingest::repositories::cover_jobs::CoverQueueCounts;
-use tor_traffic_behavior::{
-    repositories::RilQueueCounts,
-    services::PgPumpSnapshot,
-};
+use tor_traffic_behavior::{repositories::RilQueueCounts, services::PgPumpSnapshot};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Diagnostic {
@@ -12,10 +9,7 @@ pub(crate) struct Diagnostic {
     pub warning: bool,
 }
 
-pub(crate) fn ril_pump(
-    pump: Option<PgPumpSnapshot>,
-    queue: Option<RilQueueCounts>,
-) -> Diagnostic {
+pub(crate) fn ril_pump(pump: Option<PgPumpSnapshot>, queue: Option<RilQueueCounts>) -> Diagnostic {
     let Some(pump) = pump else {
         return Diagnostic {
             text: "В этом процессе сборщик RIL не запускался; другие процессы не проверены.",
@@ -45,7 +39,8 @@ pub(crate) fn ril_pump(
     }
     if queue.is_some_and(|q| q.dead > 0) {
         return Diagnostic {
-            text: "Есть задания RIL с окончательной ошибкой; цикл сборщика может продолжать работать.",
+            text:
+                "Есть задания RIL с окончательной ошибкой; цикл сборщика может продолжать работать.",
             warning: true,
         };
     }
@@ -100,30 +95,44 @@ mod tests {
 
     fn ril_queue() -> RilQueueCounts {
         RilQueueCounts {
-            pending: 0, running: 0, dead: 0, overdue_pending: 0,
-            expired_lease: 0, repeated_attempts: 0,
+            pending: 0,
+            running: 0,
+            dead: 0,
+            overdue_pending: 0,
+            expired_lease: 0,
+            repeated_attempts: 0,
         }
     }
 
     fn cover_queue() -> CoverQueueCounts {
         CoverQueueCounts {
-            pending: 0, running: 0, ready: 0, dead: 0,
-            overdue_pending: 0, expired_lease: 0, repeated_attempts: 0,
+            pending: 0,
+            running: 0,
+            ready: 0,
+            dead: 0,
+            overdue_pending: 0,
+            expired_lease: 0,
+            repeated_attempts: 0,
         }
     }
 
     #[test]
     fn stale_idle_pump_is_not_healthy_even_without_backlog() {
         let pump = PgPumpSnapshot {
-            cycles: 1, age_since_last_completion_s: Some(91), ..PgPumpSnapshot::default()
+            cycles: 1,
+            age_since_last_completion_s: Some(91),
+            ..PgPumpSnapshot::default()
         };
         assert!(ril_pump(Some(pump), Some(ril_queue())).warning);
         let running = PgPumpSnapshot {
-            active: true, running_for_s: Some(91), ..PgPumpSnapshot::default()
+            active: true,
+            running_for_s: Some(91),
+            ..PgPumpSnapshot::default()
         };
         assert!(ril_pump(Some(running), Some(ril_queue())).warning);
         let never_started = PgPumpSnapshot {
-            age_since_start_s: Some(100), ..PgPumpSnapshot::default()
+            age_since_start_s: Some(100),
+            ..PgPumpSnapshot::default()
         };
         assert!(ril_pump(Some(never_started), Some(ril_queue())).warning);
     }
@@ -131,7 +140,9 @@ mod tests {
     #[test]
     fn repeated_worker_failures_are_reported_without_user_ids() {
         let pump = PgPumpSnapshot {
-            cycles: 8, consecutive_failures: 3, age_since_last_completion_s: Some(1),
+            cycles: 8,
+            consecutive_failures: 3,
+            age_since_last_completion_s: Some(1),
             ..PgPumpSnapshot::default()
         };
         let text = ril_pump(Some(pump), Some(ril_queue()));
@@ -171,7 +182,9 @@ mod tests {
     #[test]
     fn recent_healthy_cycle_and_empty_queue_are_not_flagged() {
         let pump = PgPumpSnapshot {
-            cycles: 20, age_since_start_s: Some(300), age_since_last_completion_s: Some(5),
+            cycles: 20,
+            age_since_start_s: Some(300),
+            age_since_last_completion_s: Some(5),
             ..PgPumpSnapshot::default()
         };
         assert!(!ril_pump(Some(pump), Some(ril_queue())).warning);
