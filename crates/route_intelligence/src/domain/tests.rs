@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 17);
+    assert_eq!(unique.len(), 21);
 }
 
 #[test]
@@ -38,6 +38,18 @@ fn public_private_and_write_routes_are_distinct() {
     assert_eq!(
         classify(Some("/me/library"), "GET").product_area,
         ProductArea::Reading
+    );
+    assert_eq!(
+        classify(Some("/me/books"), "GET").product_area,
+        ProductArea::Dashboard
+    );
+    assert_eq!(
+        classify(Some("/me/books"), "POST").cost_class,
+        CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/books/{id}"), "GET").route_family,
+        "/me/"
     );
     assert_eq!(
         classify(Some("/api/v1/books"), "GET").traffic_surface,
