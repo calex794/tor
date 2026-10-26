@@ -157,9 +157,7 @@ impl PgAuthoring {
             return Err(AuthorError::Conflict);
         }
 
-        let old_title: String = row
-            .try_get("title")
-            .map_err(|_| AuthorError::Unavailable)?;
+        let old_title: String = row.try_get("title").map_err(|_| AuthorError::Unavailable)?;
         let old_body: String = row
             .try_get("body_markdown")
             .map_err(|_| AuthorError::Unavailable)?;
