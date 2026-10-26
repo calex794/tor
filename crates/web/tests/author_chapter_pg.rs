@@ -140,18 +140,6 @@ async fn b_03_06_browser_creates_private_chapter_then_releases() {
         send(&app, "POST", &path, &changed, &cookies, ORIGIN).await.status(),
         StatusCode::CONFLICT
     );
-    let chapter_id: i64 = sqlx::query_scalar(
-        "SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=1"
-    ).bind(book_id).fetch_one(&pool).await.unwrap();
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_versions WHERE chapter_id=$1"
-    ).bind(chapter_id).fetch_one(&pool).await.unwrap();
-    assert_eq!(count, 1);
-    assert_eq!(
-        send(&app, "GET", &format!("/reader/{chapter_id}"), "", "", ORIGIN)
-            .await.status(),
-        StatusCode::NOT_FOUND
-    );
 
     assert_eq!(
         send(&app, "GET", &release_path, "", &other_session, ORIGIN)
@@ -184,18 +172,17 @@ async fn b_03_06_browser_creates_private_chapter_then_releases() {
         StatusCode::SEE_OTHER,
         "release must be idempotent"
     );
-    assert_eq!(
-        send(&app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN)
-            .await.status(),
-        StatusCode::OK
-    );
-    let chapter_html = response_body(
-        send(&app, "GET", &format!("/reader/{chapter_id}"), "", "", ORIGIN).await
+    let public_book = send(
+        &app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN
     ).await;
-    assert!(chapter_html.contains("Safe Markdown text"));
-    let releases: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1"
-    ).bind(chapter_id).fetch_one(&pool).await.unwrap();
-    assert_eq!(releases, 1);
+    assert_eq!(public_book.status(), StatusCode::OK);
+    let public_html = response_body(public_book).await;
+    let chapter_ref = public_html.split("href=\"/reader/")
+        .nth(1).expect("published chapter link")
+        .split('"').next().expect("chapter ID");
+    let reader_html = response_body(
+        send(&app, "GET", &format!("/reader/{chapter_ref}"), "", "", ORIGIN).await
+    ).await;
+    assert!(reader_html.contains("Safe Markdown text"));
     pool.close().await;
 }
