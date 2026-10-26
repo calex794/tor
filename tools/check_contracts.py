@@ -225,7 +225,7 @@ def check(root: Path = ROOT) -> list[str]:
             if stage not in ril_text:
                 errors.append(f"RIL platform missing stage {stage}")
         for heading in ("RIL Core", "Behavior Intelligence", "Route Governance",
-                        "Route Cost Map", "PostgreSQL", "## 7."):
+                        "Route Cost Map", "PG hourly/daily", "## 7."):
             if heading not in ril_text:
                 errors.append(f"RIL platform missing system section {heading}")
     try:
