@@ -441,6 +441,10 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
 
     let sync = PgReadingSync::new(pool.clone());
     let reading = PgReadingProgress::new(pool.clone());
+    assert_eq!(
+        reading.saved_state(93701, 93720, 93731).await.unwrap(),
+        SavedPlaceState::NotSaved
+    );
     let old = ReadingPlace {
         block_index: 2,
         char_offset: 3,
