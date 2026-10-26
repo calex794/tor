@@ -18,6 +18,7 @@ tor-observability = { path = "../observability" }
 serde.workspace = true
 tracing = "0.1"
 tracing-subscriber = "0.3"
+base64 = "0.22"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
