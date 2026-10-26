@@ -370,3 +370,17 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .auth-card.author-chapter-card { padding: 24px 18px; }
   .author-chapter-card .author-form textarea { min-height: 44vh; padding: 12px; }
 }
+
+/* B-02: author workspace readable on desktop and mobile. */
+.auth-card.author-card { width: min(760px, 100%); }
+.author-card > h1 { overflow-wrap: anywhere; }
+.author-book-list { list-style: none; padding: 0; margin: 24px 0; display: grid; gap: 12px; }
+.author-book-list li { min-width: 0; }
+.author-book-link { display: block; padding: 16px 18px; border-radius: 12px; border: 1px solid #dce7dd; background: #f8fbf7; color: #26583a; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.author-book-link:hover { border-color: #6b9674; background: #edf5eb; }
+.author-card .auth-form input { background: #fff; }
+@media (max-width: 680px) {
+  .auth-card.author-card { padding: 24px 20px; }
+  .author-book-link { padding: 15px; }
+  .author-card .button { min-height: 44px; }
+}
