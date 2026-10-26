@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use super::{deny, session_user, AuthState};
+use tor_reading::domain::renderer::valid_reader_length;
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Query, State},
@@ -130,6 +131,9 @@ pub(super) async fn get_free(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    if !valid_reader_length(&chapter.body_markdown) {
+        return deny(StatusCode::PAYLOAD_TOO_LARGE);
+    }
     let version_id = match i64::try_from(chapter.version_id) {
         Ok(id) => id,
         Err(_) => return deny(StatusCode::NOT_FOUND),
@@ -162,6 +166,9 @@ pub(super) async fn put_free(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    if !valid_reader_length(&chapter.body_markdown) {
+        return deny(StatusCode::PAYLOAD_TOO_LARGE);
+    }
     if chapter.version_id != version_id as u64 {
         return deny(StatusCode::CONFLICT);
     }
