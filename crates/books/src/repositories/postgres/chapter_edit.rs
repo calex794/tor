@@ -1,6 +1,6 @@
 //! B-04: compare-and-swap revisions of an author's unpublished free chapter.
-//! A published book is deliberately excluded until a separate release-of-edit
-//! transaction exists. Editing must never silently change public reader text.
+//! Published chapters never change here: only hidden books or hidden chapters
+//! in already public books can advance their separate working pointers.
 use super::PgAuthoring;
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, SaveChapter, SavedChapter,
@@ -56,7 +56,7 @@ impl PgAuthoring {
             .map_err(|_| AuthorError::Unavailable)?;
 
         // Match create_free_chapter's lock order: owner book before chapter.
-        let visibility: Option<String> = sqlx::query_scalar(
+        let book_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books WHERE id=$1 AND owner_user_id=$2
              AND NOT admin_hold AND NOT is_deleted FOR UPDATE",
         )
@@ -65,11 +65,9 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        match visibility.as_deref() {
+        match book_visibility.as_deref() {
             None => return Err(AuthorError::Missing),
-            Some("draft") => (),
-            // Updating a published pointer here would expose edits without a
-            // distinct publishing decision. Reject until B-06 handles it.
+            Some("draft" | "public") => (),
             Some(_) => return Err(AuthorError::Conflict),
         }
 
@@ -120,10 +118,13 @@ impl PgAuthoring {
 
         let row = sqlx::query(
             "SELECT c.chapter_no,c.title,c.edit_revision,c.visibility,c.access_level,
-                    c.price_amount,p.version_id,v.body_markdown
+                    c.price_amount,p.version_id AS published_version_id,
+                    d.version_id AS draft_version_id,v.body_markdown
              FROM chapters c
-             JOIN chapter_publications p ON p.chapter_id=c.id
-             JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+             LEFT JOIN chapter_publications p ON p.chapter_id=c.id
+             LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=COALESCE(d.version_id,p.version_id)
+                 AND v.chapter_id=c.id
              WHERE c.id=$1 AND c.book_id=$2 AND NOT c.admin_hold AND NOT c.is_deleted
              FOR UPDATE OF c",
         )
@@ -148,11 +149,23 @@ impl PgAuthoring {
         let price: i64 = row
             .try_get("price_amount")
             .map_err(|_| AuthorError::Unavailable)?;
+        let published_version: Option<i64> = row
+            .try_get("published_version_id")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let draft_version: Option<i64> = row
+            .try_get("draft_version_id")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let book_is_draft = book_visibility.as_deref() == Some("draft");
+        let valid_state = if book_is_draft {
+            visibility == "public" && published_version.is_some() && draft_version.is_none()
+        } else {
+            visibility == "draft" && draft_version.is_some() && published_version.is_none()
+        };
         if revision != input.expected_revision
             || number != input.number
             || level != "free"
             || price != 0
-            || visibility != "public"
+            || !valid_state
         {
             return Err(AuthorError::Conflict);
         }
@@ -161,9 +174,12 @@ impl PgAuthoring {
         let old_body: String = row
             .try_get("body_markdown")
             .map_err(|_| AuthorError::Unavailable)?;
-        let old_version_id: i64 = row
-            .try_get("version_id")
-            .map_err(|_| AuthorError::Unavailable)?;
+        let old_version_id = if book_is_draft {
+            published_version
+        } else {
+            draft_version
+        }
+        .ok_or(AuthorError::Conflict)?;
         let unchanged = old_title == input.title && old_body == input.body;
         let version_id = if old_body == input.body {
             old_version_id
@@ -217,15 +233,27 @@ impl PgAuthoring {
             .map_err(|_| AuthorError::Unavailable)?;
             let new_revision = next.ok_or(AuthorError::Conflict)?;
             if version_id != old_version_id {
-                sqlx::query(
-                    "UPDATE chapter_publications SET version_id=$2
-                     WHERE chapter_id=$1",
-                )
-                .bind(chapter_id)
-                .bind(version_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|_| AuthorError::Unavailable)?;
+                if book_is_draft {
+                    sqlx::query(
+                        "UPDATE chapter_publications SET version_id=$2
+                         WHERE chapter_id=$1",
+                    )
+                    .bind(chapter_id)
+                    .bind(version_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|_| AuthorError::Unavailable)?;
+                } else {
+                    sqlx::query(
+                        "UPDATE chapter_working_drafts
+                         SET version_id=$2,updated_at=now() WHERE chapter_id=$1",
+                    )
+                    .bind(chapter_id)
+                    .bind(version_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|_| AuthorError::Unavailable)?;
+                }
             }
             new_revision
         };
@@ -250,8 +278,8 @@ impl PgAuthoring {
         })
     }
 
-    /// Read only the current working version of the owner's unpublished chapter.
-    /// A public book, another author and a deleted/held chapter all look absent.
+    /// Only the owner may see the working version. It is either in a hidden book,
+    /// or in a hidden chapter of a public book. A released chapter is never editable.
     pub async fn owned_unpublished_free_chapter(
         &self,
         actor: i64,
@@ -266,12 +294,20 @@ impl PgAuthoring {
             "SELECT c.chapter_no,c.title,c.edit_revision,v.body_markdown
              FROM chapters c
              JOIN books b ON b.id=c.book_id
-             JOIN chapter_publications p ON p.chapter_id=c.id
-             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
+             LEFT JOIN chapter_publications p ON p.chapter_id=c.id
+             LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id
+                  AND v.id=COALESCE(d.version_id,p.version_id)
              WHERE c.id=$1 AND c.book_id=$2 AND b.owner_user_id=$3
-               AND b.visibility='draft' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND NOT b.admin_hold AND NOT b.is_deleted
                AND NOT c.admin_hold AND NOT c.is_deleted
-               AND c.access_level='free' AND c.price_amount=0",
+               AND c.access_level='free' AND c.price_amount=0
+               AND (
+                 (b.visibility='draft' AND c.visibility='public'
+                    AND p.version_id IS NOT NULL AND d.version_id IS NULL)
+                 OR (b.visibility='public' AND c.visibility='draft'
+                    AND d.version_id IS NOT NULL AND p.version_id IS NULL)
+               )",
         )
         .bind(chapter_id)
         .bind(book_id)
