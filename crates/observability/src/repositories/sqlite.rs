@@ -121,8 +121,10 @@ CREATE TABLE IF NOT EXISTS query_spans (
 
 impl TraceStore {
     pub fn open(path: &Path, policy: StorePolicy) -> StoreResult<Self> {
-        if policy.retention_days == 0 || policy.retention_days > 30
-            || policy.max_rows == 0 || policy.max_rows > 1_000_000
+        if policy.retention_days == 0
+            || policy.retention_days > 30
+            || policy.max_rows == 0
+            || policy.max_rows > 1_000_000
             || policy.max_file_bytes < 1_048_576
             || policy.max_file_bytes > 2 * 1024 * 1024 * 1024
         {
@@ -158,7 +160,10 @@ impl TraceStore {
         }
         let cutoff = now_unix.saturating_sub(i64::from(self.policy.retention_days) * 86_400);
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM traces WHERE observed_at_unix < ?1", params![cutoff])?;
+        tx.execute(
+            "DELETE FROM traces WHERE observed_at_unix < ?1",
+            params![cutoff],
+        )?;
         let id = format!("{:032x}", trace.trace_id);
         let (sqlx_known, queries, query_us, uncaptured) = match &trace.sqlx {
             Some(sql) => (
@@ -175,8 +180,15 @@ impl TraceStore {
               sqlx_known,queries,query_elapsed_us,uncaptured)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
-                id, now_unix, trace.route as i64, trace.status as i64,
-                trace.duration_us as i64, sqlx_known, queries, query_us, uncaptured
+                id,
+                now_unix,
+                trace.route as i64,
+                trace.status as i64,
+                trace.duration_us as i64,
+                sqlx_known,
+                queries,
+                query_us,
+                uncaptured
             ],
         )?;
         if inserted > 0 {
@@ -187,7 +199,9 @@ impl TraceStore {
                          (trace_id,ordinal,completed_at_us,elapsed_us)
                          VALUES (?1,?2,?3,?4)",
                         params![
-                            id, ordinal as i64, span.completed_at_us as i64,
+                            id,
+                            ordinal as i64,
+                            span.completed_at_us as i64,
                             span.elapsed_us as i64
                         ],
                     )?;
@@ -223,7 +237,10 @@ impl TraceStore {
     }
 
     pub fn search(&self, filter: SearchFilter) -> StoreResult<SearchPage> {
-        if filter.min_duration_us.is_some_and(|us| us > i64::MAX as u64) {
+        if filter
+            .min_duration_us
+            .is_some_and(|us| us > i64::MAX as u64)
+        {
             return Err(StoreError::Invalid);
         }
         let route = filter.route.map(|r| r as i64);
@@ -240,8 +257,9 @@ impl TraceStore {
             params![route, status, id, filter.from_unix, min_duration],
             |row| row.get(0),
         )?;
-        let archived: i64 =
-            self.conn.query_row("SELECT COUNT(*) FROM traces", [], |row| row.get(0))?;
+        let archived: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM traces", [], |row| row.get(0))?;
         let limit = i64::from(filter.limit.clamp(1, 100));
         let offset = i64::from(filter.offset.min(1_000_000));
         let mut stmt = self.conn.prepare(&format!(
@@ -251,7 +269,15 @@ impl TraceStore {
              ORDER BY observed_at_unix DESC,trace_id DESC LIMIT ?6 OFFSET ?7"
         ))?;
         let rows = stmt.query_map(
-            params![route, status, id, filter.from_unix, min_duration, limit, offset],
+            params![
+                route,
+                status,
+                id,
+                filter.from_unix,
+                min_duration,
+                limit,
+                offset
+            ],
             |r| {
                 Ok((
                     r.get::<_, String>(0)?,
