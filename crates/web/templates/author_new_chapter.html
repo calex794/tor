@@ -3,7 +3,7 @@
     <div class="auth-card author-chapter-card">
       <p class="eyebrow">Кабинет автора</p>
       <h1>Новая бесплатная глава</h1>
-      <p>Текст и версия сохраняются в PostgreSQL. Книга станет доступна читателям только после отдельной публикации.</p>
+      <p>Глава сохраняется скрытой. Если книга уже опубликована, новая глава появится у читателей только после отдельного подтверждения автора.</p>
       <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">

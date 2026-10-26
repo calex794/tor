@@ -1,5 +1,6 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod chapter_edit;
+mod chapter_release;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
@@ -291,7 +292,7 @@ impl PgAuthoring {
             return Err(AuthorError::Missing);
         }
         let rows = sqlx::query(
-            "SELECT c.id,c.chapter_no,c.title,c.access_level FROM chapters c
+            "SELECT c.id,c.chapter_no,c.title,c.access_level,c.visibility FROM chapters c
              JOIN books b ON b.id=c.book_id
              WHERE c.book_id=$1 AND b.owner_user_id=$2
                AND NOT c.is_deleted AND NOT b.is_deleted
@@ -313,6 +314,14 @@ impl PgAuthoring {
                     "paid" => ChapterAccess::Paid,
                     _ => return Err(AuthorError::Unavailable),
                 };
+                let visibility: String = row
+                    .try_get("visibility")
+                    .map_err(|_| AuthorError::Unavailable)?;
+                let published = match visibility.as_str() {
+                    "public" => true,
+                    "draft" => false,
+                    _ => return Err(AuthorError::Unavailable),
+                };
                 Ok(OwnedChapterSummary {
                     id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
                     number: row
@@ -320,6 +329,7 @@ impl PgAuthoring {
                         .map_err(|_| AuthorError::Unavailable)?,
                     title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                     access,
+                    published,
                 })
             })
             .collect()

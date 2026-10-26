@@ -157,6 +157,7 @@ pub struct OwnedChapterSummary {
     pub number: i32,
     pub title: String,
     pub access: ChapterAccess,
+    pub published: bool,
 }
 
 pub struct OwnedChapter {
@@ -166,6 +167,15 @@ pub struct OwnedChapter {
     pub access: ChapterAccess,
     pub price_amount: i64,
     pub revision: i64,
+}
+
+/// Hidden working revision of a chapter in an already published book.
+pub struct PendingChapter {
+    pub number: i32,
+    pub title: String,
+    pub body: String,
+    pub revision: i64,
+    pub version_id: i64,
 }
 
 #[cfg(test)]
