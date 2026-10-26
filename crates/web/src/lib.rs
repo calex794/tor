@@ -147,8 +147,10 @@ pub fn router_with_postgres_reading_auth(
     secure: bool,
     public_origin: String,
 ) -> Router {
+    let auth_reader = reader.clone();
     make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true).merge(auth::router(
         accounts,
+        auth_reader,
         secure,
         public_origin,
     ))
