@@ -33,6 +33,24 @@ impl PgSearch {
             .await
     }
 
+    /// F-02: an exact count is requested separately from the fast page query.
+    /// It has the same validation and visibility predicates as the catalog.
+    pub async fn count_faceted(
+        &self,
+        term: &str,
+        language: Option<&str>,
+        genre: Option<&str>,
+    ) -> Result<u64, SearchError> {
+        let (_, language, genre) = validate_browse(term, language, genre, None, 1)?;
+        catalog::count_filtered(
+            &self.pool,
+            term,
+            language.as_deref(),
+            genre.as_deref(),
+        )
+        .await
+    }
+
     /// Legacy search stays strict: without a filter, callers must explicitly
     /// request a catalog order (the older API returned 400 for empty search).
     pub async fn search_faceted(
