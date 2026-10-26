@@ -203,8 +203,12 @@ pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, sessio
     let cookies = format!("{session}; {csrf_cookie}");
     let left = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":2,"expected_revision":2}"#;
     let right = r#"{"chapter_id":"101","version_id":"201","block_id":1,"char_offset":3,"expected_revision":2}"#;
-    let left_request = json_request("PUT", "/api/v1/me/progress/free", left, &cookies, ORIGIN, &token);
-    let right_request = json_request("PUT", "/api/v1/me/progress/free", right, &cookies, ORIGIN, &token);
+    let left_request = json_request(
+        "PUT", "/api/v1/me/progress/free", left, &cookies, ORIGIN, &token,
+    );
+    let right_request = json_request(
+        "PUT", "/api/v1/me/progress/free", right, &cookies, ORIGIN, &token,
+    );
     let (a, b) = tokio::join!(send(app, left_request), send(app, right_request));
     let statuses = [a.status(), b.status()];
     assert_eq!(statuses.iter().filter(|&&s| s == StatusCode::OK).count(), 1);
