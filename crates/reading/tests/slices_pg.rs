@@ -2,7 +2,7 @@
 use tor_reading::{
     repositories::{PgReadingProgress, PgReadingSync},
     services::{
-        progress::{reader_blocks, valid_text_place, ReadingPlace},
+        progress::{reader_blocks, valid_text_place, ReadingPlace, SavedPlaceState},
         sync::SyncError,
     },
 };
@@ -461,6 +461,10 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].block_index, 0, "do not invent a V2 anchor from V1");
     assert_eq!(
+        reading.saved_state(93701, 93720, 93732).await.unwrap(),
+        SavedPlaceState::PreviousVersion
+    );
+    assert_eq!(
         reading.saved_place(93701, 93720, 93732).await.unwrap(),
         None
     );
@@ -481,6 +485,10 @@ async fn c_09_free_v1_to_v2_drops_stale_anchor_not_history() {
         .unwrap();
     let saved_reset = reading.saved_place(93701, 93720, 93732).await.unwrap();
     assert_eq!(saved_reset, Some(reset));
+    assert_eq!(
+        reading.saved_state(93701, 93720, 93732).await.unwrap(),
+        SavedPlaceState::Current(reset)
+    );
     let reset_state = sync.free_state(93701, 93720).await.unwrap().unwrap();
     assert_eq!(reset_state.version_id, 93732);
     assert_eq!(reset_state.place, reset);
