@@ -88,12 +88,17 @@ pub fn catalog_search(
     language: Option<&str>,
     genre: Option<&str>,
     cursor: Option<&str>,
+    sort: &str,
 ) -> Html<String> {
+    let oldest = if sort == "oldest" { " selected" } else { "" };
+    let newest = if sort == "newest" { " selected" } else { "" };
     let mut controls = format!(
-        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
+        r#"<form class="catalog-filters" action="/catalog" method="get" role="search" aria-label="Фильтры каталога"><input class="ui-input catalog-filters__search" id="book-query" type="search" name="q" maxlength="80" value="{}" placeholder="Название или автор" aria-label="Название или автор"><input class="ui-input" id="book-genre" type="text" name="genre" maxlength="40" value="{}" placeholder="Жанр (фэнтези)" aria-label="Жанр"><input class="ui-input catalog-filters__select" id="book-language" name="language" maxlength="32" placeholder="Язык перевода (ru)" value="{}" aria-label="Язык перевода"><label class="catalog-filters__sort-label" for="book-sort">Порядок</label><select class="ui-input catalog-filters__select" id="book-sort" name="sort" aria-label="Сортировка"><option value="oldest"{}>Сначала добавленные</option><option value="newest"{}>Сначала новые</option></select><button class="ui-button ui-button--primary catalog-filters__submit" type="submit">Найти</button></form>"#,
         escape_html(query),
         escape_html(genre.unwrap_or("")),
         escape_html(language.unwrap_or("")),
+        oldest,
+        newest,
     );
     if let Some(cursor) = cursor {
         let language_param = language
@@ -106,10 +111,11 @@ pub fn catalog_search(
             .unwrap_or_default();
         write!(
             controls,
-            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}&amp;after={}">Показать ещё</a></nav>"#,
+            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
             encode_search_term(query),
             language_param,
             genre_param,
+            escape_html(sort),
             escape_html(cursor),
         ).expect("string write");
     }
