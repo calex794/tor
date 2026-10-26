@@ -1,3 +1,5 @@
+pub mod showcases;
+
 use crate::domain::{validate_facets, SearchBook, SearchError, SearchPage};
 use sqlx::{PgPool, Row};
 

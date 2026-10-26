@@ -256,3 +256,90 @@ async fn f_03_revocation_removes_author_genre_and_title_from_public_search() {
         .unwrap();
     assert!(!deleted.items.iter().any(|book| book.id == id as u64));
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL fixtures"]
+async fn f_04_live_genre_showcase_revokes_private_books_before_limit() {
+    use tor_search::{repositories::showcases::PgShowcases, services::showcases::RecentShowcases};
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let db: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(db, "tor_ci", "must never mutate a production database");
+
+    // Insert the public book before two larger private IDs. Filtering must
+    // happen in SQL before LIMIT 1, not in the view/service after paging.
+    let rows = [
+        ("ci:f04:visible", "F04 доступно", "public", false),
+        ("ci:f04:held", "F04 блокировано", "public", true),
+        ("ci:f04:draft", "F04 черновик", "draft", false),
+    ];
+    let mut visible_id = 0_i64;
+    for (source, title, visibility, held) in rows {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books
+                (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
+             VALUES ($1,'ru',$2,'Автор F04',ARRAY['f04-test-genre'],$3,$4,FALSE)
+             ON CONFLICT (source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,genres=EXCLUDED.genres,
+                           author_name=EXCLUDED.author_name,
+                           visibility=EXCLUDED.visibility,admin_hold=EXCLUDED.admin_hold,
+                           is_deleted=FALSE RETURNING id",
+        )
+        .bind(source)
+        .bind(title)
+        .bind(visibility)
+        .bind(held)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if source == "ci:f04:visible" {
+            visible_id = id;
+        }
+    }
+
+    let repository = PgShowcases::new(pool.clone());
+    let service = RecentShowcases::new(&repository);
+    let listed = service
+        .latest_added(Some(" F04-TEST-GENRE "), 1)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, visible_id as u64);
+    assert_eq!(listed[0].author_name, "Автор F04");
+    assert_eq!(listed[0].genres, vec!["f04-test-genre".to_owned()]);
+
+    // No cache: each transition must be reflected in the very next request.
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1")
+        .bind(visible_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service
+        .latest_added(Some("f04-test-genre"), 1)
+        .await
+        .unwrap()
+        .is_empty());
+}
