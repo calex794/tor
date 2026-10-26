@@ -83,11 +83,9 @@ jobs:
                  (2,'ci:2','ru','TOR CI hidden','draft'),
                  (3,'ci:3','ru','TOR CI held','public');
           UPDATE books SET admin_hold=true WHERE id=3;
-          -- Explicit CI fixture IDs do not advance the identity sequence.
-          -- Keep the next real insert outside the seeded ID range.
-          SELECT setval(pg_get_serial_sequence('books', 'id'),
-                        GREATEST((SELECT max(id) FROM books), 1), TRUE);
           SQL
+          # Only the migration role may advance a sequence; tor_app stays least-privilege.
+          psql -X -v ON_ERROR_STOP=1 "$MIGRATOR_URL" -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), TRUE)"
       - name: Seed published free and protected chapters
         run: |
           PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
