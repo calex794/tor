@@ -102,6 +102,21 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
       await inspect(page, name, 'library');
+      // S007: a book can be saved before any progress or purchase is recorded.
+      await page.goto(base + '/books/1');
+      await page.getByRole('link', { name: 'Добавить в библиотеку' }).click();
+      await page.waitForURL('**/me/library/add/1');
+      assert(await page.getByRole('button', { name: 'Сохранить книгу' }).isVisible(),
+        name + ': bookmark confirmation missing');
+      await page.getByRole('button', { name: 'Сохранить книгу' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
+        name + ': personal bookmark missing');
+      await inspect(page, name, 'bookmarked');
+      await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
+        name + ': bookmark removal failed');
       // Real browser: server-rendered chapter, CSRF POST, private library resume.
       await page.goto(base + '/read/101');
       assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');
@@ -131,7 +146,7 @@ async function inspect(page, name, where) {
       assert(await page.getByText('Читатель ' + name).isVisible(), name + ': login did not restore session');
       await page.close();
     }
-    console.log('TOR PG reader+auth browser PASS: 2 viewports, 10 screenshots, no overflow and real DB');
+    console.log('TOR PG reader+auth browser PASS: 2 viewports, 12 screenshots, no overflow and real DB');
   } finally {
     await browser.close();
   }

@@ -239,6 +239,112 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let library_html = body_of(private_library).await;
     assert!(library_html.contains("Вы пока не сохраняли место чтения"));
     assert!(!library_html.contains("PRIVATE-PAID-MARKER"));
+    // C-08: a book bookmark is independent of the stored reading position.
+    let bookmark_prompt = send(
+        &app,
+        request("GET", "/me/library/add/1", "", &session, ORIGIN),
+    )
+    .await;
+    assert_eq!(bookmark_prompt.status(), StatusCode::OK);
+    let bookmark_cookie = cookie(&bookmark_prompt, "tor-dev-csrf=");
+    let prompt_html = body_of(bookmark_prompt).await;
+    let token = csrf_token(&prompt_html);
+    let save_book = format!("csrf_token={token}");
+    let saved_cookies = format!("{session}; {bookmark_cookie}");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/api/v1/me/library/1", &save_book, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/library/1",
+                &save_book,
+                &saved_cookies,
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/library/2",
+                &save_book,
+                &saved_cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            send(
+                &app,
+                request(
+                    "POST",
+                    "/api/v1/me/library/1",
+                    &save_book,
+                    &saved_cookies,
+                    ORIGIN
+                )
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    let bookmarks = body_of(
+        send(
+            &app,
+            request("GET", "/api/v1/me/library", "", &session, ORIGIN),
+        )
+        .await,
+    )
+    .await;
+    assert!(bookmarks.contains("\"book_id\":\"1\""));
+    assert_eq!(bookmarks.matches("\"book_id\"").count(), 1);
+    assert!(!bookmarks.contains("PRIVATE-PAID-MARKER"));
+    let saved_html =
+        body_of(send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await).await;
+    assert!(saved_html.contains("Убрать из библиотеки"));
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "DELETE",
+                "/api/v1/me/library/1",
+                &save_book,
+                &saved_cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let after_remove = body_of(
+        send(
+            &app,
+            request("GET", "/api/v1/me/library", "", &session, ORIGIN),
+        )
+        .await,
+    )
+    .await;
+    assert!(after_remove.contains("\"items\":[]"));
     // Authentication and ACL are enforced on every place write, independent of
     // links shown to the reader. Never trust user_id from a request.
     let anonymous_read = send(&app, request("GET", "/read/101", "", "", ORIGIN)).await;
