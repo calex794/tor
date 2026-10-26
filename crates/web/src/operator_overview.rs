@@ -1,6 +1,6 @@
 //! Read-only system overview with the same independent operator password as traces.
 //! No business records or private URLs; unavailable observations stay unknown.
-use crate::{observability, operator_traces, ril, AppState};
+use crate::{observability, operator_traces, ril, worker_health, AppState};
 use axum::{
     extract::State,
     http::HeaderMap,
@@ -13,7 +13,10 @@ use tor_observability::services::{
     publisher::PublisherCounts,
     HttpSummary,
 };
-use tor_traffic_behavior::repositories::{PgRilRollups, RilQueueCounts};
+use tor_traffic_behavior::{
+    repositories::{PgRilRollups, RilQueueCounts},
+    services::PgPumpSnapshot,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PgHealth {
@@ -31,6 +34,7 @@ struct Overview {
     trace_delivery: Option<PublisherCounts>,
     ril_queue: Option<RilQueueCounts>,
     cover_queue: Option<CoverQueueCounts>,
+    ril_pump: Option<PgPumpSnapshot>,
 }
 
 async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overview {
@@ -44,6 +48,7 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
         trace_delivery: observability::trace_delivery_counts(),
         ril_queue: None,
         cover_queue: None,
+        ril_pump: ril::pump_health_snapshot(),
     };
     let Some(catalog) = postgres else {
         return state;
@@ -97,17 +102,37 @@ fn render(snapshot: &Overview) -> Html<String> {
     let ril_queue = match snapshot.ril_queue {
         None => format!("<p>{}</p>", unmeasured()),
         Some(rows) => format!(
-            "<dl><dt>Ожидают</dt><dd>{}</dd><dt>В работе</dt><dd>{}</dd><dt>Неисправимые</dt><dd>{}</dd></dl>",
-            rows.pending, rows.running, rows.dead
+            "<dl><dt>Ожидают</dt><dd>{}</dd><dt>В работе</dt><dd>{}</dd><dt>Неисправимые</dt><dd>{}</dd><dt>Ожидают более 5 минут</dt><dd>{}</dd><dt>Истекла аренда</dt><dd>{}</dd><dt>Три и более попытки</dt><dd>{}</dd></dl>",
+            rows.pending, rows.running, rows.dead,
+            rows.overdue_pending, rows.expired_lease, rows.repeated_attempts
         ),
     };
     let covers = match snapshot.cover_queue {
         None => format!("<p>{}</p>", unmeasured()),
         Some(rows) => format!(
-            "<dl><dt>Ожидают</dt><dd>{}</dd><dt>В работе</dt><dd>{}</dd><dt>Готовы к закреплению</dt><dd>{}</dd><dt>Неисправимые</dt><dd>{}</dd></dl>",
-            rows.pending, rows.running, rows.ready, rows.dead
+            "<dl><dt>Ожидают</dt><dd>{}</dd><dt>В работе</dt><dd>{}</dd><dt>Готовы к закреплению</dt><dd>{}</dd><dt>Неисправимые</dt><dd>{}</dd><dt>Ожидают более 5 минут</dt><dd>{}</dd><dt>Истекла аренда</dt><dd>{}</dd><dt>Три и более попытки</dt><dd>{}</dd></dl>",
+            rows.pending, rows.running, rows.ready, rows.dead,
+            rows.overdue_pending, rows.expired_lease, rows.repeated_attempts
         ),
     };
+    let pump_status = worker_health::ril_pump(snapshot.ril_pump, snapshot.ril_queue);
+    let cover_status = worker_health::covers(snapshot.cover_queue);
+    let pump_text = pump_status.text;
+    let cover_text = cover_status.text;
+    let pump_metrics = match snapshot.ril_pump {
+        None => format!("<p>{}</p>", unmeasured()),
+        Some(pump) => {
+            let last_cycle = pump.age_since_last_completion_s
+                .map(|age| format!("{age} с назад"))
+                .unwrap_or_else(|| "Не было завершённых циклов".to_owned());
+            format!(
+                "<dl><dt>Завершено циклов</dt><dd>{}</dd><dt>Циклы с ошибками</dt><dd>{}</dd><dt>Ошибок подряд</dt><dd>{}</dd><dt>Последний цикл</dt><dd>{}</dd></dl>",
+                pump.cycles, pump.failed_cycles, pump.consecutive_failures, last_cycle,
+            )
+        }
+    };
+    let pump_role = if pump_status.warning { "alert" } else { "status" };
+    let cover_role = if cover_status.warning { "alert" } else { "status" };
     let ril_telemetry = snapshot.ril_dropped
         .map(|(ordinary, path)| format!(
             "<dl><dt>Потеряно технических событий</dt><dd>{ordinary}</dd><dt>Потеряно событий путей</dt><dd>{path}</dd></dl>"
@@ -138,8 +163,8 @@ fn render(snapshot: &Overview) -> Html<String> {
         <section class=\"card\" aria-labelledby=\"system\"><h2 id=\"system\">Ресурсы процесса TOR</h2><dl><dt>Оперативная память (RSS)</dt><dd>{resident}</dd><dt>Накопленное время CPU</dt><dd>{cpu}</dd><dt>Загрузка CPU между просмотрами</dt><dd>{cpu_share}</dd></dl><p class=\"muted\">Только процесс сайта, не весь сервер. На системах без /proc данные недоступны; 100% означает одно полностью занятое ядро.</p></section>
         <section class=\"card\" aria-labelledby=\"http\"><h2 id=\"http\">HTTP с запуска процесса</h2><dl><dt>Завершено запросов</dt><dd>{}</dd><dt>Ответы 4xx</dt><dd>{}</dd><dt>Ответы 5xx</dt><dd>{}</dd><dt>Медленнее одной секунды</dt><dd>{}</dd></dl><p class=\"muted\">Коды 4xx могут быть обычными отказами доступа; это не обязательно ошибка сервера.</p></section>
         <section class=\"card\" aria-labelledby=\"ril\"><h2 id=\"ril\">RIL: маршруты и потери</h2><dl><dt>Известных методов маршрутов</dt><dd>{}</dd><dt>Версия классификации</dt><dd>{}</dd></dl>{ril_telemetry}<p class=\"muted\">RIL классифицирует маршруты, но не выдаёт права доступа. Потери событий не означают потерю HTTP-запросов.</p></section>
-        <section class=\"card\" aria-labelledby=\"jobs\"><h2 id=\"jobs\">Очередь аналитики RIL</h2>{ril_queue}<p class=\"muted\">Только незавершённые и окончательно ошибочные задания PostgreSQL; завершённая история исключена.</p></section>
-        <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2>{covers}<p class=\"muted\">Статусы в PostgreSQL; наличие задания «в работе» не доказывает, что исполнитель сейчас запущен.</p></section>
+        <section class=\"card\" aria-labelledby=\"jobs\"><h2 id=\"jobs\">Очередь аналитики RIL</h2><p role=\"{pump_role}\">{pump_text}</p>{pump_metrics}{ril_queue}<p class=\"muted\">Нет завершённого цикла 90 секунд — возможная остановка. Просрочка очереди: больше 5 минут после поступления и наступления срока запуска. Активность сборщика относится только к этому веб-процессу.</p></section>
+        <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2><p role=\"{cover_role}\">{cover_text}</p>{covers}<p class=\"muted\">Аренда задания и повторные попытки — признаки проблем, но не подтверждение остановки другого процесса. Живость отдельного исполнителя обложек не проверяется.</p></section>
         <section class=\"card\" aria-labelledby=\"trace\"><h2 id=\"trace\">Доставка трасс</h2>{exporters}<p class=\"muted\">Счётчики накоплены с запуска веб-процесса. Отсутствующие измерения не заменяются нулём.</p></section>
         </div>",
         snapshot.http.requests,
@@ -241,7 +266,11 @@ mod tests {
                 running: 2,
                 ready: 0,
                 dead: 1,
+                overdue_pending: 1,
+                expired_lease: 1,
+                repeated_attempts: 3,
             }),
+            ril_pump: None,
         };
         let text = render(&data).0;
         assert!(text.contains("Недоступна или проверка"));
