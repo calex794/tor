@@ -1,15 +1,50 @@
 //! Restricted, server-side Markdown for reader text. No raw HTML is trusted.
 #![forbid(unsafe_code)]
-use crate::pages::escape_html;
 use std::fmt::Write;
+
+fn escape_html(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+/// At most 50,000 Unicode scalar values per public reader response.
+pub const MAX_READER_CHARS: usize = 50_000;
+
+/// A boundary is checked before HTML expansion. Legacy data is never truncated.
+pub fn valid_reader_length(source: &str) -> bool {
+    source.chars().take(MAX_READER_CHARS + 1).count() <= MAX_READER_CHARS
+}
+
+/// One linear pass over UTF-8 replaces repeated O(n^2) prefix decoding.
+/// Only UTF-8 character boundaries are used as positions.
+fn utf16_offsets(source: &str) -> Vec<usize> {
+    let mut result = vec![0; source.len() + 1];
+    let mut count = 0;
+    for (byte_index, ch) in source.char_indices() {
+        result[byte_index] = count;
+        count += ch.len_utf16();
+    }
+    result[source.len()] = count;
+    result
+}
 
 /// Every visible source segment retains its original UTF-16 offset inside a
 /// reading block. The reader can restore older bookmarks after formatting.
-fn text_segment(out: &mut String, block: &str, byte_start: usize, text: &str) {
+fn text_segment(offsets: &[usize], out: &mut String, _block: &str, byte_start: usize, text: &str) {
     if text.is_empty() {
         return;
     }
-    let start = block[..byte_start].encode_utf16().count();
+    let start = offsets[byte_start];
     write!(
         out,
         "<span data-md-start=\"{start}\">{}</span>",
@@ -49,7 +84,7 @@ fn short_prefix(text: &str) -> &str {
 }
 
 /// Limited depth and no raw HTML keep the parser bounded and non-executable.
-fn inline(out: &mut String, block: &str, line: &str, base: usize, depth: u8) {
+fn inline(offsets: &[usize], out: &mut String, block: &str, line: &str, base: usize, depth: u8) {
     let mut i = 0;
     let mut plain = 0;
     while i < line.len() {
@@ -63,14 +98,14 @@ fn inline(out: &mut String, block: &str, line: &str, base: usize, depth: u8) {
                         let label = &rest[1..label_end];
                         let href = &rest[label_end + 2..label_end + 2 + end];
                         if !label.is_empty() && safe_link(href) {
-                            text_segment(out, block, base + plain, &line[plain..i]);
+                            text_segment(offsets, out, block, base + plain, &line[plain..i]);
                             write!(
                                 out,
                                 "<a href=\"{}\" rel=\"nofollow noopener noreferrer\">",
                                 escape_html(href)
                             )
                             .expect("writing into String");
-                            inline(out, block, label, base + i + 1, depth + 1);
+                            inline(offsets, out, block, label, base + i + 1, depth + 1);
                             out.push_str("</a>");
                             i += label_end + 3 + end;
                             plain = i;
@@ -82,9 +117,9 @@ fn inline(out: &mut String, block: &str, line: &str, base: usize, depth: u8) {
             // Inline code is literal; nested markup is never interpreted here.
             if rest.starts_with('\u{60}') {
                 if let Some(end) = candidate[1..].find('\u{60}') {
-                    text_segment(out, block, base + plain, &line[plain..i]);
+                    text_segment(offsets, out, block, base + plain, &line[plain..i]);
                     out.push_str("<code>");
-                    text_segment(out, block, base + i + 1, &rest[1..1 + end]);
+                    text_segment(offsets, out, block, base + i + 1, &rest[1..1 + end]);
                     out.push_str("</code>");
                     i += end + 2;
                     plain = i;
@@ -104,9 +139,10 @@ fn inline(out: &mut String, block: &str, line: &str, base: usize, depth: u8) {
                 {
                     if let Some(end) = candidate[marker.len()..].find(marker) {
                         if end > 0 {
-                            text_segment(out, block, base + plain, &line[plain..i]);
+                            text_segment(offsets, out, block, base + plain, &line[plain..i]);
                             write!(out, "<{tag}>").expect("writing into String");
                             inline(
+                                offsets,
                                 out,
                                 block,
                                 &rest[marker.len()..marker.len() + end],
@@ -128,7 +164,7 @@ fn inline(out: &mut String, block: &str, line: &str, base: usize, depth: u8) {
         }
         i += rest.chars().next().expect("inside UTF-8 string").len_utf8();
     }
-    text_segment(out, block, base + plain, &line[plain..]);
+    text_segment(offsets, out, block, base + plain, &line[plain..]);
 }
 
 fn list_prefix(line: &str) -> Option<(&'static str, usize)> {
@@ -161,7 +197,11 @@ fn special(line: &str) -> bool {
 /// Supports a small, documented subset: headings, paragraphs, emphasis,
 /// inline code, lists, quotations, fenced code and safe links.
 /// Everything else (including raw HTML) is displayed as escaped text.
-pub(crate) fn render(source: &str) -> String {
+/// Render a published chapter using a fixed set of non-executable HTML tags.
+/// Raw HTML, images, embedded CSS, scripts and unsafe URL schemes stay escaped.
+pub fn render(source: &str) -> String {
+    let offset_map = utf16_offsets(source);
+    let offsets = offset_map.as_slice();
     let mut lines = Vec::new();
     let mut offset = 0;
     for part in source.split_inclusive('\n') {
@@ -181,7 +221,7 @@ pub(crate) fn render(source: &str) -> String {
             i += 1;
             while i < lines.len() && !lines[i].1.starts_with("\u{60}\u{60}\u{60}") {
                 let (line_start, raw) = lines[i];
-                text_segment(&mut out, source, line_start, raw);
+                text_segment(offsets, &mut out, source, line_start, raw);
                 if i + 1 < lines.len() {
                     out.push('\n');
                 }
@@ -195,7 +235,7 @@ pub(crate) fn render(source: &str) -> String {
         }
         if let Some((level, prefix)) = heading_prefix(line) {
             write!(out, "<h{level}>").expect("writing into String");
-            inline(&mut out, source, &line[prefix..], base + prefix, 0);
+            inline(offsets, &mut out, source, &line[prefix..], base + prefix, 0);
             write!(out, "</h{level}>").expect("writing into String");
             i += 1;
             continue;
@@ -211,7 +251,14 @@ pub(crate) fn render(source: &str) -> String {
                     break;
                 }
                 out.push_str("<li>");
-                inline(&mut out, source, &current[prefix..], pos + prefix, 0);
+                inline(
+                    offsets,
+                    &mut out,
+                    source,
+                    &current[prefix..],
+                    pos + prefix,
+                    0,
+                );
                 out.push_str("</li>");
                 i += 1;
             }
@@ -224,18 +271,25 @@ pub(crate) fn render(source: &str) -> String {
                 if i > 0 && lines[i - 1].1.starts_with("> ") {
                     out.push(' ');
                 }
-                inline(&mut out, source, &lines[i].1[2..], lines[i].0 + 2, 0);
+                inline(
+                    offsets,
+                    &mut out,
+                    source,
+                    &lines[i].1[2..],
+                    lines[i].0 + 2,
+                    0,
+                );
                 i += 1;
             }
             out.push_str("</p></blockquote>");
             continue;
         }
         out.push_str("<p>");
-        inline(&mut out, source, line, base, 0);
+        inline(offsets, &mut out, source, line, base, 0);
         i += 1;
         while i < lines.len() && !lines[i].1.trim().is_empty() && !special(lines[i].1) {
             out.push(' ');
-            inline(&mut out, source, lines[i].1, lines[i].0, 0);
+            inline(offsets, &mut out, source, lines[i].1, lines[i].0, 0);
             i += 1;
         }
         out.push_str("</p>");
@@ -288,5 +342,36 @@ mod tests {
             render("\u{60}\u{60}\u{60}html\n<script>x</script>\n\u{60}\u{60}\u{60}")
                 .contains("&lt;script&gt;")
         );
+    }
+
+    #[test]
+    fn unicode_positions_remain_exact_with_many_short_lines() {
+        let source = (0..10_000).map(|_| "😀").collect::<Vec<_>>().join("\n");
+        assert!(valid_reader_length(&source));
+        let last = source.rfind('😀').expect("last emoji");
+        let expected = source[..last].encode_utf16().count();
+        let html = render(&source);
+        assert!(html.contains(&format!("data-md-start=\"{expected}\">😀")));
+        assert!(!html.contains("<script"));
+    }
+
+    #[test]
+    fn source_limit_is_in_unicode_characters_not_bytes() {
+        assert!(valid_reader_length(&"😀".repeat(MAX_READER_CHARS)));
+        assert!(!valid_reader_length(&"😀".repeat(MAX_READER_CHARS + 1)));
+        for attack in [
+            "<svg onload=alert(1)>",
+            "<iframe srcdoc=\"x\"></iframe>",
+            "[link](java\u{0009}script:alert(1))",
+            "[link](https://example.org/\" onclick=\"evil)",
+        ] {
+            let html = render(attack);
+            assert!(!html.contains("<svg"));
+            assert!(!html.contains("<iframe"));
+            // Escaped source may contain " onclick=" as harmless visible text.
+            // It must not become an executable attribute on a generated link.
+            assert!(!html.contains("<a href=\"https://example.org/"));
+            assert!(!html.contains("href=\"javascript:"));
+        }
     }
 }

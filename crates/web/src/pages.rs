@@ -187,7 +187,7 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
         .replace(
             "<!--CHAPTER_CONTENT-->",
-            &crate::safe_markdown::render(&chapter.body_markdown),
+            &tor_reading::domain::renderer::render(&chapter.body_markdown),
         );
     layout(
         &chapter.chapter_title,
@@ -209,7 +209,7 @@ pub fn private_reader(
     let mut sections = String::new();
     for (index, source) in blocks.iter().enumerate() {
         let block_index = index + 1;
-        let markdown = crate::safe_markdown::render(source);
+        let markdown = tor_reading::domain::renderer::render(source);
         write!(
             sections,
             r#"<section class="reader-piece" id="p-{block_index}" aria-label="Фрагмент {block_index}">

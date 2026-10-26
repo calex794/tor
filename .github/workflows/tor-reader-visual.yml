@@ -83,7 +83,7 @@ jobs:
                 (102,1,2,'Черновик','draft','free',0),
                 (103,1,3,'Платная глава','public','paid',250);
           INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
-          VALUES(201,101,1,'**Первая строка** и <script>alert(1)</script>'),
+          VALUES(201,101,1,'**Первая строка** и <script>alert(1)</script>' || repeat('д', 1200)),
                 (202,102,1,'PRIVATE-DRAFT-MARKER'),
                 (203,103,1,'PRIVATE-PAID-MARKER');
           INSERT INTO chapter_publications(chapter_id,version_id)

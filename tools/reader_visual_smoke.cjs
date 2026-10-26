@@ -51,10 +51,25 @@ async function inspect(page, name, where) {
       assert(!html.includes('<script>alert(1)</script>'), name + ': unsafe author HTML');
       assert(html.includes('&lt;script&gt;'), name + ': escaped author HTML not displayed');
       assert(!html.includes('PRIVATE-PAID-MARKER'), name + ': paid body leaked');
+      assert(html.includes('д'.repeat(1200)), name + ': long Unicode fixture missing');
       await inspect(page, name, 'reader');
-      for (const denied of ['/reader/102', '/reader/103', '/books/2']) {
+      for (const url of [
+        '/api/v1/chapters/101/read',
+        '/api/v1/chapters/103/read?purchase_id=999',
+        '/api/v1/chapters/102/read?preview=1'
+      ]) {
+        const denied = await page.goto(base + url);
+        assert(denied && denied.status() === 404, name + ': alternative reader access ' + url);
+        assert((denied.headers()['cache-control'] || '').includes('no-store'),
+          name + ': cacheable alternative reader denial ' + url);
+        assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
+          name + ': private marker leaked from ' + url);
+      }
+      for (const denied of ['/reader/102', '/reader/103', '/books/2', '/api/v1/books/2/toc']) {
         const response = await page.goto(base + denied);
         assert(response && response.status() === 404, name + ': denied URL ' + denied);
+        assert((response.headers()['cache-control'] || '').includes('no-store'),
+          name + ': shared-cacheable denied URL ' + denied);
       }
       await page.close();
     }

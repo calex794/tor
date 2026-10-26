@@ -98,3 +98,56 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires TEST_DATABASE_URL and disposable tor_ci"]
+async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let reader = tor_reading::repositories::PgReader::connect(&url)
+        .await
+        .unwrap();
+    let app = tor_web::router_with_postgres_reading(catalog, reader);
+    for path in [
+        "/reader/101",
+        "/reader/102",
+        "/reader/103",
+        "/reader/104",
+        "/books/2",
+        "/api/v1/books/2/toc",
+        "/api/v1/chapters/101/read",
+        "/api/v1/chapters/103/read?purchase_id=999",
+        "/api/v1/chapters/102/read?preview=1",
+    ] {
+        let reply = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let code = reply.status();
+        assert_eq!(
+            code,
+            if path == "/reader/101" {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_FOUND
+            },
+            "{path}"
+        );
+        assert_eq!(reply.headers()["cache-control"], "no-store", "{path}");
+        assert_eq!(reply.headers()["x-content-type-options"], "nosniff");
+        let policy = reply.headers()["content-security-policy"].to_str().unwrap();
+        assert!(policy.contains("script-src 'none'"));
+        assert!(policy.contains("frame-ancestors 'none'"));
+        let body = to_bytes(reply.into_body(), 256 * 1024).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(!text.contains("PRIVATE-PAID-MARKER"));
+        assert!(!text.contains("PRIVATE-DRAFT-MARKER"));
+        if code == StatusCode::NOT_FOUND {
+            assert!(text.is_empty(), "protected read error must not expose data");
+        } else {
+            assert!(text.contains("&lt;script&gt;"));
+            assert!(!text.contains("<script>"));
+        }
+    }
+}
