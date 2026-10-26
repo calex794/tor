@@ -27,6 +27,10 @@ static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
 
 /// Local privacy barrier. A separate cross-instance invalidation mechanism is
 /// required before identified paths may be enabled on multiple web processes.
+pub(crate) fn path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
+    TRAFFIC.get()?.path_report_for_diagnostics()
+}
+
 pub(crate) async fn forget_subject(key: VerifiedSubjectKey) -> bool {
     let Some(recorder) = TRAFFIC.get().cloned() else {
         return true;
