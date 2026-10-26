@@ -410,6 +410,11 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         let book_visibility = book_visibility.ok_or(AuthorError::Missing)?;
+        // Adding a chapter to a public book requires a separate chapter-release
+        // workflow. Saving text must not implicitly publish it.
+        if book_visibility != "draft" {
+            return Err(AuthorError::Conflict);
+        }
 
         let claimed: Option<i64> = sqlx::query_scalar(
             "INSERT INTO chapter_save_commands (user_id, command_key, payload_hash)
@@ -486,19 +491,8 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
 
-        // First-release facts are emitted only once the parent is public.
-        // A chapter in an unlisted draft is not publicly released yet.
-        if book_visibility == "public" {
-            sqlx::query(
-                "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-                 VALUES ($1,$2) ON CONFLICT (chapter_id) DO NOTHING",
-            )
-            .bind(chapter_id)
-            .bind(version_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-        }
+        // No release event on save. release_book emits it atomically when
+        // the owner deliberately makes the previously hidden book public.
         sqlx::query(
             "UPDATE chapter_save_commands
              SET chapter_id=$3,version_id=$4,saved_revision=1

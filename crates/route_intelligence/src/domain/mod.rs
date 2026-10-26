@@ -93,7 +93,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 33] = [
+const ROUTES: [RouteRegistration; 37] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -254,6 +254,42 @@ const ROUTES: [RouteRegistration; 33] = [
         Write,
     ), // 30
     RouteRegistration::new(
+        "/api/v1/me/progress/free",
+        "GET",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Read,
+    ), // 31
+    RouteRegistration::new(
+        "/api/v1/me/progress/free",
+        "PUT",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Write,
+    ), // 32
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased",
+        "GET",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Read,
+    ), // 33
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased",
+        "PUT",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Write,
+    ), // 34
+    RouteRegistration::new(
         "/me/books/{id}/chapters/{chapter_id}/edit",
         "GET",
         "/me/",
@@ -261,7 +297,7 @@ const ROUTES: [RouteRegistration; 33] = [
         Page,
         Dashboard,
         Read,
-    ), // 31
+    ), // 35
     RouteRegistration::new(
         "/me/books/{id}/chapters/{chapter_id}/edit",
         "POST",
@@ -270,7 +306,7 @@ const ROUTES: [RouteRegistration; 33] = [
         Page,
         Dashboard,
         Write,
-    ), // 32
+    ), // 36
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -365,8 +401,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/chapters/new"), "GET") => Some(28),
         (Some("/me/books/{id}/chapters"), "POST") => Some(29),
         (Some("/me/books/{id}/publish"), "POST") => Some(30),
-        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "GET") => Some(31),
-        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "POST") => Some(32),
+        (Some("/api/v1/me/progress/free"), "GET") => Some(31),
+        (Some("/api/v1/me/progress/free"), "PUT") => Some(32),
+        (Some("/api/v1/me/progress/purchased"), "GET") => Some(33),
+        (Some("/api/v1/me/progress/purchased"), "PUT") => Some(34),
+        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "GET") => Some(35),
+        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "POST") => Some(36),
         _ => None,
     };
     index
