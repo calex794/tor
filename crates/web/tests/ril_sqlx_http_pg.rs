@@ -46,7 +46,7 @@ async fn route_sqlx_completion_measurements_survive_background_pg_flush() {
             let health = rows.iter().find(|r| r.route == RouteCode::Health as i16);
             if let (Some(catalog), Some(health)) = (catalog, health) {
                 if catalog.observed_requests >= old_catalog.0 + 2
-                    && health.observed_requests >= old_health.0 + 1
+                    && health.observed_requests > old_health.0
                 {
                     assert!(
                         catalog.observed_queries >= old_catalog.1 + 2,
