@@ -3,13 +3,62 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use std::{sync::OnceLock, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        OnceLock,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tor_observability::{
     domain::{RouteGroup, StatusGroup},
-    services::HttpMetrics,
+    services::{
+        trace::{RequestTrace, SqlEvidence, TraceBuffer},
+        HttpMetrics,
+    },
 };
 
 static METRICS: OnceLock<HttpMetrics> = OnceLock::new();
+static TRACES: OnceLock<TraceBuffer> = OnceLock::new();
+static TRACE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+/// Server-generated technical correlation only; never derived from client input.
+#[derive(Clone, Copy)]
+pub(crate) struct TraceId(pub(crate) u128);
+
+pub(crate) fn new_trace_id() -> TraceId {
+    let tick = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let sequence = TRACE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    TraceId(((tick as u128) << 64) | u128::from(sequence))
+}
+
+pub(crate) fn finish_trace(
+    id: TraceId,
+    family: &str,
+    status: u16,
+    elapsed: Duration,
+    sqlx: Option<SqlEvidence>,
+) -> RequestTrace {
+    let trace = RequestTrace {
+        trace_id: id.0,
+        route: RouteGroup::from_ril_family(family),
+        status: StatusGroup::from_http(status),
+        duration_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
+        sqlx,
+    };
+    TRACES
+        .get_or_init(TraceBuffer::default)
+        .record(trace.clone());
+    trace
+}
+
+/// The operator can inspect these without an HTTP route or user identity.
+pub(crate) fn snapshot_traces() -> Vec<RequestTrace> {
+    TRACES.get_or_init(TraceBuffer::default).snapshot()
+}
 
 pub(crate) fn record_http(family: &str, status: u16, elapsed: Duration) {
     METRICS.get_or_init(HttpMetrics::default).observe(

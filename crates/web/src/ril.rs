@@ -3,13 +3,14 @@
 use axum::{
     body::Body,
     extract::{MatchedPath, State},
-    http::{Request, StatusCode},
+    http::{header::HeaderName, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::Response,
     Router,
 };
 use std::sync::OnceLock;
 use std::time::Instant;
+use tor_observability::services::trace::{SqlEvidence, SqlSpan};
 use tor_route_intelligence::{classify, RouteObservation};
 use tor_traffic_behavior::SqlCostEvent;
 use tor_traffic_behavior::VerifiedSubjectKey;
@@ -85,12 +86,34 @@ async fn observe(
         .map(MatchedPath::as_str);
     let passport = classify(template, request.method().as_str());
     request.extensions_mut().insert(passport);
+    let trace_id = crate::observability::new_trace_id();
+    request.extensions_mut().insert(trace_id);
     let started = Instant::now();
-    let (mut response, sql_measurement) = sqlx_observer::observe(next.run(request)).await;
+    let (mut response, sql_measurement) = sqlx_observer::observe(next.run(request), started).await;
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
     let observation = RouteObservation::new(passport, status, elapsed);
     crate::observability::record_http(passport.route_family, status, elapsed);
+    // Sample only after the complete request, never independently per SQLx event.
+    let sqlx = sql_measurement.as_ref().map(|measurement| SqlEvidence {
+        observed_queries: measurement.queries,
+        observed_elapsed_us: measurement.elapsed_us,
+        spans: measurement.samples[..usize::from(measurement.captured)]
+            .iter()
+            .map(|sample| SqlSpan {
+                completed_at_us: sample.completed_at_us,
+                elapsed_us: sample.elapsed_us,
+            })
+            .collect(),
+        uncaptured_spans: measurement.uncaptured,
+    });
+    let trace =
+        crate::observability::finish_trace(trace_id, passport.route_family, status, elapsed, sqlx);
+    response.headers_mut().insert(
+        HeaderName::from_static("x-request-id"),
+        HeaderValue::from_str(&format!("{:032x}", trace_id.0)).expect("hexadecimal request ID"),
+    );
+    response.extensions_mut().insert(trace);
     // Only the trusted authentication layer may set this internal response
     // extension after confirming a live session and explicit opt-in.
     let subject = if (200..300).contains(&status) && passport.route_known {
@@ -146,12 +169,26 @@ mod tests {
                 Request::builder()
                     .uri("/books/102?password=PRIVATE")
                     .header("cookie", "session=UNVERIFIED-MUST-NOT-BECOME-SUBJECT")
+                    .header("x-request-id", "CLIENT-CANNOT-CHOOSE-TRACE")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .expect("server-generated request ID")
+            .to_str()
+            .unwrap();
+        assert_eq!(request_id.len(), 32);
+        assert_ne!(request_id, "CLIENT-CANNOT-CHOOSE-TRACE");
+        let trace = response
+            .extensions()
+            .get::<tor_observability::services::trace::RequestTrace>()
+            .expect("correlated internal request trace");
+        assert_eq!(format!("{:032x}", trace.trace_id), request_id);
         let view = recorder.snapshot_for_diagnostics().expect("bounded worker");
         assert_eq!(view.total, 1);
         assert_eq!(view.count_route(RouteCode::Books), 1);

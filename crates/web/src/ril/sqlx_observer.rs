@@ -1,12 +1,13 @@
-//! RIL-10 read-only SQLx completion observer: capture ONLY numeric elapsed_secs.
-//! The tracing layer never reads/logs SQL text, parameters, raw URLs or identities.
-//! Scope is Tokio task-local: spawned tasks are not counted, nor claimed covered.
+//! RIL-10 numeric-only SQLx completion observer.
+//! Never collect query text, parameters, raw URLs, IPs or account identities.
+//! Scope is one Tokio request task; spawned tasks are deliberately unmeasured.
 use std::{
     future::Future,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
+    time::Instant,
 };
 use tracing::{
     field::{Field, Visit},
@@ -20,20 +21,49 @@ use tracing_subscriber::{
 
 static INSTALLED: OnceLock<bool> = OnceLock::new();
 const MAX_US_PER_REQUEST: u64 = 1_000_000_000;
+pub(crate) const MAX_SQL_SAMPLES: usize = 8;
 tokio::task_local! {
     static QUERY_COUNTER: Arc<QueryCounter>;
 }
 
-#[derive(Default)]
-struct QueryCounter {
-    completed: AtomicU64,
-    elapsed_us: AtomicU64,
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct QuerySample {
+    pub(crate) completed_at_us: u64,
+    pub(crate) elapsed_us: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct QueryBuffer {
+    samples: [QuerySample; MAX_SQL_SAMPLES],
+    count: u8,
+    uncaptured: u64,
+}
+
+struct QueryCounter {
+    started: Instant,
+    completed: AtomicU64,
+    elapsed_us: AtomicU64,
+    samples: Mutex<QueryBuffer>,
+}
+
+impl QueryCounter {
+    fn new(started: Instant) -> Self {
+        Self {
+            started,
+            completed: AtomicU64::new(0),
+            elapsed_us: AtomicU64::new(0),
+            samples: Mutex::new(QueryBuffer::default()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SqlxMeasurement {
     pub(crate) queries: u64,
     pub(crate) elapsed_us: u64,
+    pub(crate) samples: [QuerySample; MAX_SQL_SAMPLES],
+    pub(crate) captured: u8,
+    pub(crate) uncaptured: u64,
 }
 
 struct ElapsedVisitor {
@@ -50,7 +80,7 @@ impl Visit for ElapsedVisitor {
     }
 }
 
-/// Only accepts SQLx target metadata. No formatting/logging layer is installed.
+/// Only accepts SQLx numeric timing metadata; no formatting subscriber.
 struct SqlxCompletionLayer;
 
 impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
@@ -65,8 +95,8 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
         let mut visitor = ElapsedVisitor { seconds: None };
         event.record(&mut visitor);
         if let Some(seconds) = visitor.seconds.filter(|v| v.is_finite() && *v >= 0.0) {
-            // QueryLogger reports client elapsed time, including transport and
-            // response consumption. It is NOT PG server CPU/execution time.
+            // SQLx client timing includes transport and response consumption,
+            // and must NOT be mistaken for PostgreSQL server execution time.
             let elapsed = (seconds * 1_000_000.0).round() as u64;
             let _ = QUERY_COUNTER.try_with(|counter| {
                 let _ = counter
@@ -82,14 +112,28 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
                             old.checked_add(elapsed)
                                 .filter(|value| *value <= MAX_US_PER_REQUEST)
                         });
+                let mut samples = counter
+                    .samples
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if elapsed > MAX_US_PER_REQUEST || usize::from(samples.count) >= MAX_SQL_SAMPLES {
+                    samples.uncaptured = samples.uncaptured.saturating_add(1);
+                } else {
+                    let index = usize::from(samples.count);
+                    samples.samples[index] = QuerySample {
+                        completed_at_us: counter.started.elapsed().as_micros().min(u64::MAX as u128)
+                            as u64,
+                        elapsed_us: elapsed,
+                    };
+                    samples.count += 1;
+                }
             });
         }
     }
 }
 
-/// Safe to call only once during production startup, *before* PG connections.
-/// If another subscriber already exists, identified SQL measurement stays OFF.
-/// No log formatting subscriber is installed, so statements never print.
+/// Install only once before connecting to PostgreSQL. If a different global
+/// subscriber already exists, measurement stays OFF and is reported as unknown.
 pub(crate) fn install_for_process() -> bool {
     *INSTALLED.get_or_init(|| {
         tracing_subscriber::registry()
@@ -99,15 +143,26 @@ pub(crate) fn install_for_process() -> bool {
     })
 }
 
-pub(crate) async fn observe<F: Future>(future: F) -> (F::Output, Option<SqlxMeasurement>) {
+/// `started` is the HTTP handler's start, shared with the root request trace.
+pub(crate) async fn observe<F: Future>(
+    future: F,
+    started: Instant,
+) -> (F::Output, Option<SqlxMeasurement>) {
     if !INSTALLED.get().copied().unwrap_or(false) {
         return (future.await, None);
     }
-    let scope = Arc::new(QueryCounter::default());
+    let scope = Arc::new(QueryCounter::new(started));
     let output = QUERY_COUNTER.scope(scope.clone(), future).await;
+    let captured = *scope
+        .samples
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let measurement = SqlxMeasurement {
         queries: scope.completed.load(Ordering::Relaxed),
         elapsed_us: scope.elapsed_us.load(Ordering::Relaxed),
+        samples: captured.samples,
+        captured: captured.count,
+        uncaptured: captured.uncaptured,
     };
     (output, Some(measurement))
 }
@@ -117,41 +172,99 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn scoped_completion_events_have_no_leaked_identity_or_cross_request_state() {
+    async fn scoped_events_keep_numeric_spans_without_query_text() {
         assert!(install_for_process());
-        let ((), first) = observe(async {
-            tracing::event!(
-                target: "sqlx::query",
-                tracing::Level::DEBUG,
-                elapsed_secs = 0.0025_f64,
-                db.statement = "SECRET FROM SQL MUST NEVER LEAVE THE LAYER"
-            );
-        })
+        let ((), first) = observe(
+            async {
+                tracing::event!(
+                    target: "sqlx::query",
+                    tracing::Level::DEBUG,
+                    elapsed_secs = 0.0025_f64,
+                    db.statement = "SECRET FROM SQL MUST NEVER LEAVE THE LAYER"
+                );
+            },
+            Instant::now(),
+        )
         .await;
-        assert_eq!(
-            first,
-            Some(SqlxMeasurement {
-                queries: 1,
-                elapsed_us: 2500
-            })
-        );
-        let ((), second) = observe(async {}).await;
-        assert_eq!(
-            second,
-            Some(SqlxMeasurement {
-                queries: 0,
-                elapsed_us: 0
-            })
-        );
+        let measured = first.unwrap();
+        assert_eq!(measured.queries, 1);
+        assert_eq!(measured.elapsed_us, 2500);
+        assert_eq!(measured.captured, 1);
+        assert_eq!(measured.samples[0].elapsed_us, 2500);
+        assert_eq!(measured.uncaptured, 0);
+        let ((), second) = observe(async {}, Instant::now()).await;
+        assert_eq!(second, Some(SqlxMeasurement::default()));
     }
 
     #[tokio::test]
-    async fn non_sqlx_events_are_ignored_even_in_an_active_request() {
+    async fn non_sqlx_events_are_ignored() {
         assert!(install_for_process());
-        let ((), observed) = observe(async {
-            tracing::event!(target: "tor::web", tracing::Level::DEBUG, elapsed_secs = 3.0_f64);
-        })
+        let ((), observed) = observe(
+            async {
+                tracing::event!(target: "tor::web", tracing::Level::DEBUG, elapsed_secs = 3.0_f64);
+            },
+            Instant::now(),
+        )
         .await;
-        assert_eq!(observed.unwrap().queries, 0);
+        assert_eq!(observed, Some(SqlxMeasurement::default()));
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_have_isolated_query_samples() {
+        assert!(install_for_process());
+        let (((), a), ((), b), ((), c)) = tokio::join!(
+            observe(
+                async {
+                    tracing::event!(
+                        target: "sqlx::query",
+                        tracing::Level::DEBUG,
+                        elapsed_secs = 0.001_f64
+                    );
+                },
+                Instant::now(),
+            ),
+            observe(
+                async {
+                    for _ in 0..2 {
+                        tracing::event!(
+                            target: "sqlx::query",
+                            tracing::Level::DEBUG,
+                            elapsed_secs = 0.002_f64
+                        );
+                    }
+                },
+                Instant::now(),
+            ),
+            observe(async {}, Instant::now()),
+        );
+        assert_eq!(a.unwrap().queries, 1);
+        assert_eq!(b.unwrap().queries, 2);
+        assert_eq!(c.unwrap().queries, 0);
+        assert_eq!(a.unwrap().captured, 1);
+        assert_eq!(b.unwrap().captured, 2);
+        assert_eq!(c.unwrap().captured, 0);
+    }
+
+    #[tokio::test]
+    async fn sampled_spans_are_bounded_but_counts_remain_truthful() {
+        assert!(install_for_process());
+        let ((), report) = observe(
+            async {
+                for _ in 0..13 {
+                    tracing::event!(
+                        target: "sqlx::query",
+                        tracing::Level::DEBUG,
+                        elapsed_secs = 0.001_f64
+                    );
+                }
+            },
+            Instant::now(),
+        )
+        .await;
+        let report = report.unwrap();
+        assert_eq!(report.queries, 13);
+        assert_eq!(report.captured, MAX_SQL_SAMPLES as u8);
+        assert_eq!(report.uncaptured, 5);
+        assert_eq!(report.elapsed_us, 13_000);
     }
 }

@@ -332,6 +332,12 @@ pub async fn ril_cost_map_for_diagnostics(
     Some(ranked)
 }
 
+/// Bounded process-local diagnostic traces, without user IDs or raw SQL.
+/// This is an internal Rust API, not an unauthenticated HTTP endpoint.
+pub fn trace_snapshots_for_diagnostics() -> Vec<tor_observability::services::trace::RequestTrace> {
+    observability::snapshot_traces()
+}
+
 /// Activates numeric-only SQLx route metrics; must run once before opening PG.
 /// If the process already uses another subscriber, RIL SQL metrics stay OFF.
 pub fn activate_ril_sqlx_observation() -> bool {
