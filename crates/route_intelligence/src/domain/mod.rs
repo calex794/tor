@@ -74,7 +74,13 @@ impl RouteRegistration {
         cost: CostClass,
     ) -> Self {
         Self {
-            template, method, family, match_kind, surface, area, cost,
+            template,
+            method,
+            family,
+            match_kind,
+            surface,
+            area,
+            cost,
             risk: RiskHint::Normal,
         }
     }
@@ -91,19 +97,59 @@ const ROUTES: [RouteRegistration; 17] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
-    RouteRegistration::new("/reader/{id}", "GET", "/reader/", Prefix, Page, Reading, Read), // 3
-    RouteRegistration::new("/assets/site.css", "GET", "/assets/", Exact, Static, System, Free), // 4
+    RouteRegistration::new(
+        "/reader/{id}",
+        "GET",
+        "/reader/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 3
+    RouteRegistration::new(
+        "/assets/site.css",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 4
     RouteRegistration::new("/healthz", "GET", "/healthz/", Exact, Service, System, Free), // 5
     RouteRegistration::new("/readyz", "GET", "/readyz/", Exact, Service, System, Read), // 6
     RouteRegistration::new("/login", "GET", "/login/", Exact, Page, Auth, Read), // 7
     RouteRegistration::new("/login", "POST", "/login/", Exact, Page, Auth, Write), // 8
     RouteRegistration::new("/register", "GET", "/register/", Exact, Page, Auth, Read), // 9
     RouteRegistration::new("/register", "POST", "/register/", Exact, Page, Auth, Write), // 10
-    RouteRegistration::new("/api/v1/books", "GET", "/api/v1/books/", Exact, Api, Catalog, Read), // 11
+    RouteRegistration::new(
+        "/api/v1/books",
+        "GET",
+        "/api/v1/books/",
+        Exact,
+        Api,
+        Catalog,
+        Read,
+    ), // 11
     RouteRegistration::new("/me", "GET", "/me/", Exact, Page, Dashboard, Read), // 12
-    RouteRegistration::new("/me/library", "GET", "/me/library/", Exact, Page, Reading, Read), // 13
+    RouteRegistration::new(
+        "/me/library",
+        "GET",
+        "/me/library/",
+        Exact,
+        Page,
+        Reading,
+        Read,
+    ), // 13
     RouteRegistration::new("/read/{id}", "GET", "/read/", Prefix, Page, Reading, Read), // 14
-    RouteRegistration::new("/read/{id}/place", "POST", "/read/", Prefix, Page, Reading, Write), // 15
+    RouteRegistration::new(
+        "/read/{id}/place",
+        "POST",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 15
     RouteRegistration::new("/logout", "POST", "/logout/", Exact, Page, Auth, Write), // 16
 ];
 
@@ -131,10 +177,14 @@ pub struct RoutePassport {
 impl RoutePassport {
     const fn from_route(route: &RouteRegistration) -> Self {
         Self {
-            route_known: true, route_family: route.family,
-            route_match_kind: route.match_kind, route_decision: RouteDecision::Allow,
-            traffic_surface: route.surface, product_area: route.area,
-            cost_class: route.cost, risk_hint: route.risk,
+            route_known: true,
+            route_family: route.family,
+            route_match_kind: route.match_kind,
+            route_decision: RouteDecision::Allow,
+            traffic_surface: route.surface,
+            product_area: route.area,
+            cost_class: route.cost,
+            risk_hint: route.risk,
             ril_taxonomy_version: RIL_TAXONOMY_VERSION,
             ril_classifier_version: RIL_CLASSIFIER_VERSION,
             route_known_definition_version: ROUTE_KNOWN_DEFINITION_VERSION,
@@ -143,11 +193,14 @@ impl RoutePassport {
 
     const fn unknown() -> Self {
         Self {
-            route_known: false, route_family: "/unknown/",
+            route_known: false,
+            route_family: "/unknown/",
             route_match_kind: RouteMatchKind::Unknown,
             route_decision: RouteDecision::Diagnostics,
-            traffic_surface: TrafficSurface::Unknown, product_area: ProductArea::Unknown,
-            cost_class: CostClass::Unknown, risk_hint: RiskHint::Unknown,
+            traffic_surface: TrafficSurface::Unknown,
+            product_area: ProductArea::Unknown,
+            cost_class: CostClass::Unknown,
+            risk_hint: RiskHint::Unknown,
             ril_taxonomy_version: RIL_TAXONOMY_VERSION,
             ril_classifier_version: RIL_CLASSIFIER_VERSION,
             route_known_definition_version: ROUTE_KNOWN_DEFINITION_VERSION,
@@ -180,7 +233,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/logout"), "POST") => Some(16),
         _ => None,
     };
-    index.map(|i| RoutePassport::from_route(&ROUTES[i]))
+    index
+        .map(|i| RoutePassport::from_route(&ROUTES[i]))
         .unwrap_or_else(RoutePassport::unknown)
 }
 
@@ -195,9 +249,12 @@ pub struct RouteObservation {
 impl RouteObservation {
     pub fn new(passport: RoutePassport, status: u16, elapsed: Duration) -> Self {
         let status_bucket = match status / 100 {
-            1 => StatusBucket::Information, 2 => StatusBucket::Success,
-            3 => StatusBucket::Redirect, 4 => StatusBucket::ClientError,
-            5 => StatusBucket::ServerError, _ => StatusBucket::Unknown,
+            1 => StatusBucket::Information,
+            2 => StatusBucket::Success,
+            3 => StatusBucket::Redirect,
+            4 => StatusBucket::ClientError,
+            5 => StatusBucket::ServerError,
+            _ => StatusBucket::Unknown,
         };
         let latency_bucket = if elapsed.as_millis() < 10 {
             LatencyBucket::Under10Ms
@@ -208,7 +265,11 @@ impl RouteObservation {
         } else {
             LatencyBucket::Slow
         };
-        Self { passport, status_bucket, latency_bucket }
+        Self {
+            passport,
+            status_bucket,
+            latency_bucket,
+        }
     }
 }
 
