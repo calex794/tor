@@ -286,4 +286,83 @@ mod tests {
         assert!(!authorized(&credentials(&secret), Some("short")));
         assert!(!authorized(&credentials(&secret), Some("💠")));
     }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn authenticated_operator_reads_complete_root_and_sqlx_from_socket() {
+        use std::{
+            fs,
+            io::{Read, Write},
+            os::unix::net::UnixListener,
+            thread,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+        use tor_observability::{
+            domain::{RouteGroup, StatusGroup},
+            services::{
+                lookup::{self, LookupResult},
+                trace::{RequestTrace, SqlEvidence, SqlSpan},
+            },
+        };
+
+        let dir = std::env::temp_dir().join(format!(
+            "tor-operator-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let socket = dir.join("trace.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let worker = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut length = [0_u8; 4];
+            peer.read_exact(&mut length).unwrap();
+            assert_eq!(u32::from_be_bytes(length) as usize, lookup::QUERY_SIZE);
+            let mut query = [0_u8; lookup::QUERY_SIZE];
+            peer.read_exact(&mut query).unwrap();
+            assert_eq!(lookup::parse_query(&query), Some(0xabcdef));
+            let result = LookupResult {
+                archived: 150,
+                matches: 1,
+                found: Some((
+                    1_900_000_000,
+                    RequestTrace {
+                        trace_id: 0xabcdef,
+                        route: RouteGroup::Reader,
+                        status: StatusGroup::ServerError,
+                        duration_us: 240_000,
+                        sqlx: Some(SqlEvidence {
+                            observed_queries: 1,
+                            observed_elapsed_us: 175_000,
+                            spans: vec![SqlSpan {
+                                completed_at_us: 200_000,
+                                elapsed_us: 175_000,
+                            }],
+                            uncaptured_spans: 0,
+                        }),
+                    },
+                )),
+            };
+            let reply = lookup::encode_reply(&result).unwrap();
+            peer.write_all(&(reply.len() as u32).to_be_bytes()).unwrap();
+            peer.write_all(&reply).unwrap();
+        });
+        let secret = "a".repeat(48);
+        let response = respond(
+            credentials(&secret),
+            Some("id=00000000000000000000000000abcdef"),
+            Some(&secret),
+            Some(socket),
+        ).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 50_000).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("00000000000000000000000000abcdef"));
+        assert!(html.contains("150"));
+        assert!(html.contains("PostgreSQL (SQLx)"));
+        assert!(html.contains("175.00 мс"));
+        assert!(!html.contains("user_id"));
+        worker.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
