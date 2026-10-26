@@ -13,11 +13,15 @@ pub struct PublicBookCard {
 }
 
 /// NEwBOO BookCard layout, with real PostgreSQL-backed author and genre metadata.
-fn book_cards(books: &[PublicBookCard]) -> String {
+fn book_cards(books: &[PublicBookCard], shelf: bool) -> String {
     if books.is_empty() {
         return "<div class=\"ui-empty-state\"><h3 class=\"ui-empty-state__title\">Каталог пока наполняется</h3><p class=\"ui-empty-state__text\">В каталоге пока нет опубликованных книг.</p></div>".to_owned();
     }
-    let mut html = String::from("<div class=\"catalog-grid\">");
+    let mut html = if shelf {
+        String::from("<div class=\"home-shelf__track\" aria-label=\"Недавно добавленные книги\">")
+    } else {
+        String::from("<div class=\"catalog-grid\">")
+    };
     for book in books {
         let title = escape_html(&book.title);
         let language = escape_html(&book.language);
@@ -38,9 +42,10 @@ fn book_cards(books: &[PublicBookCard]) -> String {
             )
             .expect("format String");
         }
+        let variant = if shelf { "book-mini-card--shelf" } else { "book-mini-card--compact" };
         write!(
             html,
-            "<article class=\"book-mini-card book-mini-card--compact\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\"><span>Нет обложки</span></div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
+            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\"><span>Нет обложки</span></div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
             book.id,
         )
         .expect("format String");
@@ -49,9 +54,46 @@ fn book_cards(books: &[PublicBookCard]) -> String {
     html
 }
 
-pub fn home(books: &[PublicBookCard]) -> Html<String> {
+/// The public NEwBOO spotlight is populated only from actual published rows.
+fn spotlight(book: &PublicBookCard) -> String {
+    let title = escape_html(&book.title);
+    let details = book
+        .author_name
+        .as_deref()
+        .map(escape_html)
+        .unwrap_or_else(|| format!("Язык: {}", escape_html(&book.language)));
+    format!(
+        r#"<a class="home-spotlight-card" href="/books/{id}" aria-label="Открыть книгу {title}">
+           <div class="home-spotlight-card__inner">
+             <div class="home-spotlight-card__content">
+               <span class="home-spotlight-card__eyebrow">Недавно добавлена</span>
+               <h2 class="home-spotlight-card__title">{title}</h2>
+               <p class="home-spotlight-card__text">{details}</p>
+             </div>
+             <div class="home-spotlight-card__cover-wrap">
+               <div class="home-spotlight-card__cover home-spotlight-card__cover--empty">Нет обложки</div>
+             </div>
+           </div>
+         </a>"#,
+        id = book.id
+    )
+}
+
+fn home_body(books: &[PublicBookCard], latest: bool) -> Html<String> {
+    let fallback = r#"<div class="home-showcase">
+        <div><p class="ui-page-header__kicker">Библиотека платформы</p>
+        <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
+        <a class="ui-button ui-button--ghost" href="/catalog">Открыть каталог</a>
+    </div>"#;
+    let hero = if latest {
+        books.first().map(spotlight).unwrap_or_else(|| fallback.to_owned())
+    } else {
+        fallback.to_owned()
+    };
     let content = include_str!("../../templates/home.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
+        .replace("<!--HOME_SPOTLIGHT-->", &hero)
+        .replace("<!--BOOKS_HEADING-->", if latest { "Недавно добавленные" } else { "Опубликованные книги" })
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, latest));
     layout(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
@@ -59,9 +101,20 @@ pub fn home(books: &[PublicBookCard]) -> Html<String> {
     )
 }
 
+/// Demo mode cannot claim recent insertion order; only the PG projection can.
+pub fn home(books: &[PublicBookCard]) -> Html<String> {
+    home_body(books, false)
+}
+
+/// F-04 read model supplies descending creation identity, never a false daily top
+/// or a claim about publication time, rating or personal recommendations.
+pub fn home_recent(books: &[PublicBookCard]) -> Html<String> {
+    home_body(books, true)
+}
+
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
         .replace("<!--SEARCH_FORM-->", "");
     layout(
         "Каталог",
@@ -120,7 +173,7 @@ pub fn catalog_search(
         ).expect("string write");
     }
     let content = include_str!("../../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books, false))
         .replace("<!--SEARCH_FORM-->", &controls);
     layout(
         "Каталог",
