@@ -77,7 +77,6 @@ async fn b_01_owner_draft_is_private_and_idempotent() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn b_03_04_free_chapter_then_deliberate_book_release() {
@@ -164,13 +163,12 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
         Err(AuthorError::Conflict),
         "same command key with different body cannot silently overwrite"
     );
-    let version_body: String = sqlx::query_scalar(
-        "SELECT body_markdown FROM chapter_versions WHERE id=$1",
-    )
-    .bind(saved.version_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let version_body: String =
+        sqlx::query_scalar("SELECT body_markdown FROM chapter_versions WHERE id=$1")
+            .bind(saved.version_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(version_body, "Реальный Markdown-текст");
     let book_status: String = sqlx::query_scalar("SELECT visibility FROM books WHERE id=$1")
         .bind(book_id)
@@ -178,14 +176,16 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
         .await
         .unwrap();
     assert_eq!(book_status, "draft", "saving a chapter is not book release");
-    let released_events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(released_events, 0, "hidden book has no public release event");
+    let released_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(saved.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        released_events, 0,
+        "hidden book has no public release event"
+    );
     assert_eq!(
         author.release_book(outsider, book_id).await,
         Err(AuthorError::Missing),
@@ -193,13 +193,12 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
     );
     author.release_book(user, book_id).await.unwrap();
     author.release_book(user, book_id).await.unwrap();
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(saved.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 1, "one first release event, even on repeat");
     let public_title: Option<String> = sqlx::query_scalar(
         "SELECT b.title FROM books b
