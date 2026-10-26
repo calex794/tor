@@ -15,6 +15,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("TOR must bind to loopback behind HTTPS reverse proxy".into());
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
+    // Optional numeric-only SQLx telemetry. Never enables raw SQL logs.
+    if !demo && env::var("DATABASE_URL").is_ok() {
+        if !tor_web::activate_ril_sqlx_observation() {
+            eprintln!("RIL SQLx completion telemetry disabled (subscriber unavailable)");
+        }
+    }
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
