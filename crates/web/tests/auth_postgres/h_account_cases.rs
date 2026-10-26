@@ -6,8 +6,8 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
         "email=tor_ci_account%40example.com&display_name=CIReader&password=1234&csrf_token={csrf}"
     );
     let invalid = send(
-        &app,
-        request("POST", "/register", &weak_password, &csrf_cookie, ORIGIN),
+        app,
+        request("POST", "/register", &weak_password, csrf_cookie, ORIGIN),
     )
     .await;
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
@@ -22,8 +22,8 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     let unsafe_name =
         format!("email=x%40example.com&display_name=%3Cscript%3E&password=1234&csrf_token={csrf}");
     let bad_name = send(
-        &app,
-        request("POST", "/register", &unsafe_name, &csrf_cookie, ORIGIN),
+        app,
+        request("POST", "/register", &unsafe_name, csrf_cookie, ORIGIN),
     )
     .await;
     assert_eq!(bad_name.status(), StatusCode::BAD_REQUEST);
@@ -34,8 +34,8 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
 
 pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie: &str) {
     let duplicate = send(
-        &app,
-        request("POST", "/register", &form, &csrf_cookie, ORIGIN),
+        app,
+        request("POST", "/register", form, csrf_cookie, ORIGIN),
     )
     .await;
     assert_eq!(
@@ -55,8 +55,8 @@ pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie
 
 pub(super) async fn rejected_login(app: &Router, bad_login: &str, login_csrf_cookie: &str) {
     let bad = send(
-        &app,
-        request("POST", "/login", &bad_login, &login_csrf_cookie, ORIGIN),
+        app,
+        request("POST", "/login", bad_login, login_csrf_cookie, ORIGIN),
     )
     .await;
     assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
