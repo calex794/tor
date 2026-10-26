@@ -16,6 +16,7 @@ use tor_books::{
 use tor_reading::{repositories::PgReader, services::PublicReadingRepository};
 mod auth;
 mod auth_cookies;
+mod author_editor;
 mod author_pages;
 pub mod cover_worker;
 mod pages;
@@ -164,9 +165,12 @@ pub fn router_with_postgres_reading_auth(
     public_origin: String,
 ) -> Router {
     let auth_reader = reader.clone();
+    let author_chapter_routes =
+        author_editor::router(accounts.clone(), secure, public_origin.clone());
     ril::instrument(
         make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true)
-            .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+            .merge(auth::router(accounts, auth_reader, secure, public_origin))
+            .merge(author_chapter_routes),
     )
 }
 
