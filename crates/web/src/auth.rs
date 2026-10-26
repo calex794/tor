@@ -38,6 +38,7 @@ use tor_reading::{
 };
 
 mod behavior_consent;
+mod login_limiter;
 mod library_actions;
 mod sync_actions;
 
@@ -183,36 +184,6 @@ fn invalid_credentials() -> Response {
     )
 }
 
-/// Bound Argon2 work by verified TCP peer IP, never forwarding headers.
-async fn limit(
-    state: &AuthState,
-    action: &str,
-    email: &str,
-    peer: ConnectInfo<SocketAddr>,
-) -> Result<[u8; 32], StatusCode> {
-    let identity_key = session_token_digest(&format!("auth:{action}:identity:{email}"));
-    let ip = peer.0.ip().to_string();
-    let address_key = session_token_digest(&format!("auth:{action}:peer:{ip}"));
-    // No in-process counters: these limits apply across all server processes.
-    let address_ok = state
-        .accounts
-        .permit_auth_attempt(&address_key, 60, 600)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !address_ok {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-    let identity_ok = state
-        .accounts
-        .permit_auth_attempt(&identity_key, 8, 600)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !identity_ok {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-    Ok(identity_key)
-}
-
 async fn register(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -230,7 +201,7 @@ async fn register(
         Ok(account) => account,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    if let Err(status) = limit(&state, "register", &account.email, peer).await {
+    if let Err(status) = login_limiter::limit(&state, "register", &account.email, peer).await {
         return deny(status);
     }
 
@@ -282,7 +253,7 @@ async fn login(
         Ok(email) => email,
         Err(_) => return invalid_credentials(),
     };
-    let identity_key = match limit(&state, "login", &email, peer).await {
+    let identity_key = match login_limiter::limit(&state, "login", &email, peer).await {
         Ok(key) => key,
         Err(status) => return deny(status),
     };
