@@ -117,6 +117,10 @@ pub fn book_detail_with_chapters(
         )
         .expect("writing String");
     }
+    items.push_str(&format!(
+        "<p><a class=\"button button--small\" href=\"/me/library/add/{}\">Добавить в библиотеку</a></p>",
+        book.id
+    ));
     let section = format!(
         "<section class=\"section chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><div class=\"container\"><p class=\"eyebrow\">Оглавление</p><h2 id=\"toc-title\">Главы книги</h2>{items}</div></section>"
     );
@@ -305,7 +309,24 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
     )
 }
 
-pub fn my_library(items: &[tor_reading::services::progress::ContinueReading]) -> Html<String> {
+pub fn bookmark_prompt(
+    book: &tor_reading::services::PublicBookPage,
+    csrf: &str,
+) -> Html<String> {
+    let title = escape_html(&book.title);
+    let token = escape_html(csrf);
+    let html = format!(
+        "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card\"><p class=\"eyebrow\">Личная библиотека</p><h1>Добавить книгу</h1><p>{title}</p><form method=\"post\" action=\"/me/library/{}/save\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button\" type=\"submit\">Сохранить книгу</button></form><p><a href=\"/books/{}\">Вернуться к книге</a></p></div></div></section>",
+        book.id, book.id
+    );
+    layout("Добавить книгу", "Сохранить книгу в личной библиотеке.", &html)
+}
+
+pub fn my_library(
+    items: &[tor_reading::services::progress::ContinueReading],
+    saved: &tor_reading::services::library::SavedBookPage,
+    csrf: &str,
+) -> Html<String> {
     let mut cards = String::new();
     if items.is_empty() {
         cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Откройте любую бесплатную главу, затем нажмите «Сохранить место здесь». После этого книга появится в вашей истории чтения.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
@@ -326,8 +347,30 @@ pub fn my_library(items: &[tor_reading::services::progress::ContinueReading]) ->
             write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">Продолжить чтение</p><h2>{book}</h2><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"/read/{}{bookmark}\">Продолжить</a></article>", item.chapter_no, item.chapter_id).expect("write HTML");
         }
     }
+    let token = escape_html(csrf);
+    let mut saved_html = String::new();
+    if saved.items.is_empty() {
+        saved_html.push_str("<p>Пока нет сохранённых книг.</p>");
+    } else {
+        for book in &saved.items {
+            let title = escape_html(&book.title);
+            write!(
+                saved_html,
+                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
+                book.book_id, book.book_id
+            )
+            .expect("writing saved book");
+        }
+    }
+    if let Some(after) = saved.next_cursor {
+        write!(
+            saved_html,
+            "<p><a href=\"/me/library?after={after}\">Другие сохранённые книги</a></p>"
+        )
+        .expect("writing library cursor");
+    }
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div></div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
     );
     layout(
         "Моя библиотека",

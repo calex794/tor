@@ -56,3 +56,5 @@ pub trait PublicReadingRepository: Send + Sync {
 pub mod progress;
 
 pub mod toc;
+
+pub mod library;
