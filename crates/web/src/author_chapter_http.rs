@@ -45,6 +45,13 @@ struct EditChapterForm {
 }
 
 #[derive(Deserialize)]
+struct ReleaseChapterForm {
+    expected_revision: i64,
+    version_id: i64,
+    csrf_token: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct PublishForm {
     csrf_token: Option<String>,
 }
@@ -62,6 +69,10 @@ pub(crate) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
         .route(
             "/me/books/{id}/chapters/{chapter_id}/edit",
             get(edit_chapter).post(update_chapter),
+        )
+        .route(
+            "/me/books/{id}/chapters/{chapter_id}/release",
+            get(confirm_release).post(publish_chapter),
         )
         .route("/me/books/{id}/publish", post(publish_book))
         .layer(DefaultBodyLimit::max(768 * 1024))
@@ -99,13 +110,6 @@ async fn new_chapter(
     match state.authoring.owned_book(actor, id).await {
         Ok(Some(_)) => (),
         Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
-    // A saved draft cannot be added to an already public book until a
-    // separate chapter-release operation exists.
-    match state.authoring.owned_book_is_public(actor, id).await {
-        Ok(true) => return deny(StatusCode::NOT_FOUND),
-        Ok(false) => (),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
@@ -152,7 +156,19 @@ async fn create_chapter(
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    match state.authoring.create_free_chapter(actor, &request).await {
+    // Saving a new chapter to a published book creates only a PRIVATE draft.
+    // The transaction rechecks the visibility under the owner book row lock.
+    let is_public = match state.authoring.owned_book_is_public(actor, id as i64).await {
+        Ok(value) => value,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let outcome = if is_public {
+        state.authoring.create_pending_free_chapter(actor, &request).await
+    } else {
+        state.authoring.create_free_chapter(actor, &request).await
+    };
+    match outcome {
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
@@ -247,6 +263,76 @@ async fn update_chapter(
             (
                 StatusCode::CONFLICT,
                 "Глава изменена в другой вкладке или уже опубликована. Обновите страницу.",
+            ),
+            &[],
+        ),
+        Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+        Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+        Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+async fn confirm_release(
+    State(state): State<AuthorChapterState>,
+    Path((id, chapter_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let pending = match state
+        .authoring
+        .pending_free_chapter(actor, id, chapter_id)
+        .await
+    {
+        Ok(Some(chapter)) => chapter,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(
+        crate::author_chapter_pages::release_chapter(id, chapter_id, &pending, &csrf),
+        &cookies,
+    )
+}
+
+async fn publish_chapter(
+    State(state): State<AuthorChapterState>,
+    Path((id, chapter_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+    Form(form): Form<ReleaseChapterForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    match state
+        .authoring
+        .release_pending_free_chapter(
+            actor,
+            id,
+            chapter_id,
+            form.expected_revision,
+            form.version_id,
+        )
+        .await
+    {
+        Ok(()) => private_response(Redirect::to(&format!("/books/{id}")), &[]),
+        Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+        Err(AuthorError::Conflict) => private_response(
+            (
+                StatusCode::CONFLICT,
+                "Глава изменилась после открытия подтверждения. Перезагрузите страницу.",
             ),
             &[],
         ),
