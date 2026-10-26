@@ -58,7 +58,7 @@ pub fn detail(
         )
     };
     let body = format!(
-        r#"<section class="section auth-section"><div class="container"><div class="auth-card">
+        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
