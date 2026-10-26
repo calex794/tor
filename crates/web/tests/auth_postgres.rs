@@ -160,16 +160,42 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let csrf = csrf_token(&read_html);
     let place_form = format!("csrf_token={csrf}&version_id=201&block_index=1&char_offset=0");
     assert_eq!(
-        send(&app, request("POST", "/read/101/place", &place_form, &session, ORIGIN)).await.status(),
-        StatusCode::FORBIDDEN, "missing CSRF cookie"
+        send(
+            &app,
+            request("POST", "/read/101/place", &place_form, &session, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "missing CSRF cookie"
     );
     assert_eq!(
-        send(&app, request("POST", "/read/101/place", &place_form,
-            &format!("{session}; {new_csrf_cookie}"), "https://evil.example")).await.status(),
-        StatusCode::FORBIDDEN, "cross-origin must be rejected"
+        send(
+            &app,
+            request(
+                "POST",
+                "/read/101/place",
+                &place_form,
+                &format!("{session}; {new_csrf_cookie}"),
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "cross-origin must be rejected"
     );
-    let saved = send(&app, request("POST", "/read/101/place", &place_form,
-        &format!("{session}; {new_csrf_cookie}"), ORIGIN)).await;
+    let saved = send(
+        &app,
+        request(
+            "POST",
+            "/read/101/place",
+            &place_form,
+            &format!("{session}; {new_csrf_cookie}"),
+            ORIGIN,
+        ),
+    )
+    .await;
     assert_eq!(saved.status(), StatusCode::SEE_OTHER);
     assert_eq!(saved.headers()[header::LOCATION], "/read/101#p-1");
     let library_after = send(&app, request("GET", "/me/library", "", &session, ORIGIN)).await;
@@ -178,23 +204,47 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert!(!after.contains("PRIVATE-PAID-MARKER"));
     let bad_version = format!("csrf_token={csrf}&version_id=999&block_index=1&char_offset=0");
     assert_eq!(
-        send(&app, request("POST", "/read/101/place", &bad_version,
-            &format!("{session}; {new_csrf_cookie}"), ORIGIN)).await.status(),
+        send(
+            &app,
+            request(
+                "POST",
+                "/read/101/place",
+                &bad_version,
+                &format!("{session}; {new_csrf_cookie}"),
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
     let bad_block = format!("csrf_token={csrf}&version_id=201&block_index=201&char_offset=0");
     assert_eq!(
-        send(&app, request("POST", "/read/101/place", &bad_block,
-            &format!("{session}; {new_csrf_cookie}"), ORIGIN)).await.status(),
+        send(
+            &app,
+            request(
+                "POST",
+                "/read/101/place",
+                &bad_block,
+                &format!("{session}; {new_csrf_cookie}"),
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
-    for hidden in [102,103,104,105,106,107] {
+    for hidden in [102, 103, 104, 105, 106, 107] {
         assert_eq!(
-            send(&app, request("GET", &format!("/read/{hidden}"), "", &session, ORIGIN)).await.status(),
+            send(
+                &app,
+                request("GET", &format!("/read/{hidden}"), "", &session, ORIGIN)
+            )
+            .await
+            .status(),
             StatusCode::NOT_FOUND
         );
     }
-
 
     assert!(private_html.contains("CIReader"));
     assert!(!private_html.contains("LongSecurePassword2026"));
