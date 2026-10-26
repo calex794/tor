@@ -78,6 +78,10 @@ async function inspect(page, name, where) {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
       await page.goto(base + '/register');
       assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
+      assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
+        name + ': original NEwBOO panda missing on registration');
+      assert(await page.locator('.auth-card__kicker').getByText('Пандаолейт').isVisible(),
+        name + ': original auth header missing');
       assert(await page.locator('form[action="/register"][novalidate]').count() === 1,
         name + ': browser-native English validation must be disabled');
       await inspect(page, name, 'register');
@@ -177,6 +181,8 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/login');
       await page.getByLabel('Электронная почта').fill('visual.' + name + '@example.test');
       await page.getByLabel('Пароль').fill('TestPassphrase2026');
+      assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
+        name + ': original NEwBOO panda missing on login');
       await inspect(page, name, 'login');
       await page.getByRole('button', { name: 'Войти', exact: true }).click();
       await page.waitForURL('**/me');
