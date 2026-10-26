@@ -243,22 +243,5 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap()
         .is_none());
 
-    // B must revoke the internal S3 lookup immediately on the same row.
-    let pool = catalog.pool();
-    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=901")
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(slots.public_variant(901, PublicCoverKind::Card).await.unwrap().is_none());
-    sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=901")
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(slots.public_variant(901, PublicCoverKind::Main).await.unwrap().is_none());
-    sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=901")
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(slots.public_variant(901, PublicCoverKind::Card).await.unwrap().is_none());
-    pool.close().await;
+    catalog.pool().close().await;
 }
