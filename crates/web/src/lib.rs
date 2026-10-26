@@ -24,10 +24,10 @@ mod author_chapter_http;
 mod author_chapter_pages;
 mod author_pages;
 pub mod cover_worker;
+mod observability;
 mod pages;
 mod password_jobs;
 mod ril;
-mod observability;
 
 #[derive(Clone)]
 struct AppState {
