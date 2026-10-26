@@ -73,11 +73,17 @@ mod tests {
     #[test]
     fn f_03_normalizes_language_and_rejects_malformed_filters() {
         assert_eq!(normalize_language(Some(" RU ")), Ok(Some("ru".to_owned())));
-        assert_eq!(normalize_language(Some("en-us")), Ok(Some("en-us".to_owned())));
+        assert_eq!(
+            normalize_language(Some("en-us")),
+            Ok(Some("en-us".to_owned()))
+        );
         assert_eq!(normalize_language(None), Ok(None));
         for value in ["", "ru/../../", "-ru", "ru-", "en us", "a@example"] {
             assert_eq!(normalize_language(Some(value)), Err(SearchError::Invalid));
         }
-        assert_eq!(normalize_language(Some(&"x".repeat(33))), Err(SearchError::Invalid));
+        assert_eq!(
+            normalize_language(Some(&"x".repeat(33))),
+            Err(SearchError::Invalid)
+        );
     }
 }

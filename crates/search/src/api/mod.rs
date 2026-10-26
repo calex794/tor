@@ -1,6 +1,11 @@
 //! The public JSON search route exposes only published book metadata.
 use crate::{domain::SearchError, repositories::PgSearch};
-use axum::{extract::{Query, State}, http::StatusCode, routing::get, Json, Router};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -74,7 +79,11 @@ async fn search_books(
     State(state): State<SearchApiState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorEnvelope>)> {
-    if query.genre.as_ref().is_some_and(|genre| !genre.trim().is_empty()) {
+    if query
+        .genre
+        .as_ref()
+        .is_some_and(|genre| !genre.trim().is_empty())
+    {
         return Err(search_error(SearchError::Invalid));
     }
     let page = state
@@ -88,11 +97,15 @@ async fn search_books(
         .await
         .map_err(search_error)?;
     Ok(Json(SearchResponse {
-        items: page.items.into_iter().map(|item| SearchItem {
-            id: item.id.to_string(),
-            title: item.title,
-            language: item.language,
-        }).collect(),
+        items: page
+            .items
+            .into_iter()
+            .map(|item| SearchItem {
+                id: item.id.to_string(),
+                title: item.title,
+                language: item.language,
+            })
+            .collect(),
         next_cursor: page.next_cursor,
     }))
 }

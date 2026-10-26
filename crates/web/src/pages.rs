@@ -84,7 +84,12 @@ fn encode_search_term(value: &str) -> String {
     result
 }
 
-pub fn catalog_search(books: &[PublicBookCard], query: &str, language: Option<&str>, cursor: Option<&str>) -> Html<String> {
+pub fn catalog_search(
+    books: &[PublicBookCard],
+    query: &str,
+    language: Option<&str>,
+    cursor: Option<&str>,
+) -> Html<String> {
     let mut controls = format!(
         r#"<form action="/catalog" method="get" role="search" class="catalog-search"><label for="book-query">Название книги</label><input id="book-query" type="search" name="q" maxlength="80" value="{}" required><label for="book-language">Язык перевода</label><input id="book-language" type="text" name="language" maxlength="32" placeholder="ru" value="{}"><button class="button button--small" type="submit">Найти</button></form>"#,
         escape_html(query),

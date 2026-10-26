@@ -90,7 +90,11 @@ async fn catalog(
     Query(query): Query<CatalogQuery>,
 ) -> Result<Html<String>, StatusCode> {
     if let Some(search) = state.search.as_ref() {
-        if query.genre.as_ref().is_some_and(|genre| !genre.trim().is_empty()) {
+        if query
+            .genre
+            .as_ref()
+            .is_some_and(|genre| !genre.trim().is_empty())
+        {
             return Err(StatusCode::BAD_REQUEST);
         }
         let term = query.q.as_deref().unwrap_or("").trim();
@@ -133,7 +137,11 @@ async fn catalog(
             None,
         ));
     }
-    if query.q.is_some() || query.after.is_some() || query.language.is_some() || query.genre.is_some() {
+    if query.q.is_some()
+        || query.after.is_some()
+        || query.language.is_some()
+        || query.genre.is_some()
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
     Ok(pages::catalog(
@@ -360,7 +368,10 @@ fn make_router(
     let search = postgres
         .as_ref()
         .map(|catalog| tor_search::PgSearch::new(catalog.pool()));
-    let search_api = search.clone().map(tor_search::api::router).unwrap_or_else(Router::new);
+    let search_api = search
+        .clone()
+        .map(tor_search::api::router)
+        .unwrap_or_else(Router::new);
     app.with_state(AppState {
         books: repo,
         postgres,

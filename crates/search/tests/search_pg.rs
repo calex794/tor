@@ -47,20 +47,34 @@ async fn f_03_language_filter_and_param_binding() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test URL");
     let pool = PgPool::connect(&url).await.unwrap();
     let database: String = sqlx::query_scalar("SELECT current_database()")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(database, "tor_ci", "never mutate production DB");
     sqlx::query(
         "INSERT INTO books (source_identity,target_language,title,visibility)
          VALUES ('ci:f03-en','en','TOR English Search','public')
          ON CONFLICT (source_identity,target_language)
          DO UPDATE SET title=EXCLUDED.title",
-    ).execute(&pool).await.unwrap();
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let search = PgSearch::new(pool);
-    let english = search.search_filtered("TOR", Some("EN"), None, 100).await.unwrap();
+    let english = search
+        .search_filtered("TOR", Some("EN"), None, 100)
+        .await
+        .unwrap();
     assert!(!english.items.is_empty());
     assert!(english.items.iter().all(|item| item.language == "en"));
-    let russian = search.search_filtered("TOR", Some("ru"), None, 100).await.unwrap();
+    let russian = search
+        .search_filtered("TOR", Some("ru"), None, 100)
+        .await
+        .unwrap();
     assert!(russian.items.iter().any(|item| item.id == 1));
     assert!(russian.items.iter().all(|item| item.language == "ru"));
-    assert_eq!(search.search_filtered("TOR", Some("../ru"), None, 20).await, Err(SearchError::Invalid));
+    assert_eq!(
+        search.search_filtered("TOR", Some("../ru"), None, 20).await,
+        Err(SearchError::Invalid)
+    );
 }
