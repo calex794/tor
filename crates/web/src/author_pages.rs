@@ -89,7 +89,11 @@ pub fn release_book(book: &OwnedBook, csrf: &str) -> Html<String> {
         </div></div></section>"#,
         id = book.id
     );
-    layout("Публикация книги", "Подтверждение выпуска бесплатной книги.", &content)
+    layout(
+        "Публикация книги",
+        "Подтверждение выпуска бесплатной книги.",
+        &content,
+    )
 }
 
 #[cfg(test)]
