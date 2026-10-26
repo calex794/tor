@@ -1,0 +1,136 @@
+//! Process-local, cumulative and fixed-cardinality HTTP histograms.
+//! No per-request records or user-associated data are retained.
+use crate::domain::{RouteGroup, StatusGroup, BOUNDS};
+use std::fmt::Write;
+use std::sync::Mutex;
+use std::time::Duration;
+
+#[derive(Clone, Copy, Default)]
+struct Observation {
+    count: u64,
+    sum_ns: u128,
+    buckets: [u64; BOUNDS.len()],
+}
+
+#[derive(Default)]
+pub struct HttpMetrics {
+    observations: Mutex<[[Observation; StatusGroup::ALL.len()]; RouteGroup::ALL.len()]>,
+}
+
+impl HttpMetrics {
+    /// Always counts completed requests; saturation never wraps an exported counter.
+    pub fn observe(&self, route: RouteGroup, status: StatusGroup, duration: Duration) {
+        let mut guard = self
+            .observations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let record = &mut guard[route as usize][status as usize];
+        record.count = record.count.saturating_add(1);
+        let elapsed = duration.as_nanos();
+        record.sum_ns = record.sum_ns.saturating_add(elapsed);
+        for (index, (bound, _)) in BOUNDS.iter().enumerate() {
+            if elapsed <= *bound {
+                record.buckets[index] = record.buckets[index].saturating_add(1);
+            }
+        }
+    }
+
+    /// This is not a distributed or persistent series. Process restarts reset it.
+    pub fn prometheus(&self) -> String {
+        let snapshot = *self
+            .observations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut out = String::from(
+            "# HELP tor_http_request_duration_seconds HTTP handler duration (process-local).\n\
+             # TYPE tor_http_request_duration_seconds histogram\n",
+        );
+        for (route_idx, groups) in snapshot.iter().enumerate() {
+            let route = RouteGroup::ALL[route_idx].label();
+            for (status_idx, bucket) in groups.iter().enumerate() {
+                if bucket.count == 0 {
+                    continue;
+                }
+                let status = StatusGroup::ALL[status_idx].label();
+                for (idx, (_, bound_label)) in BOUNDS.iter().enumerate() {
+                    writeln!(
+                        out,
+                        "tor_http_request_duration_seconds_bucket{{route_family=\"{route}\",status_group=\"{status}\",le=\"{bound_label}\"}} {}",
+                        bucket.buckets[idx]
+                    )
+                    .expect("writing into String");
+                }
+                writeln!(
+                    out,
+                    "tor_http_request_duration_seconds_bucket{{route_family=\"{route}\",status_group=\"{status}\",le=\"+Inf\"}} {}",
+                    bucket.count
+                )
+                .expect("writing into String");
+                writeln!(
+                    out,
+                    "tor_http_request_duration_seconds_count{{route_family=\"{route}\",status_group=\"{status}\"}} {}",
+                    bucket.count
+                )
+                .expect("writing into String");
+                writeln!(
+                    out,
+                    "tor_http_request_duration_seconds_sum{{route_family=\"{route}\",status_group=\"{status}\"}} {}",
+                    bucket.sum_ns as f64 / 1_000_000_000.0
+                )
+                .expect("writing into String");
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_and_buckets_are_cumulative_after_two_hundred_requests() {
+        let metrics = HttpMetrics::default();
+        for _ in 0..200 {
+            metrics.observe(
+                RouteGroup::Catalog,
+                StatusGroup::Success,
+                Duration::from_millis(15),
+            );
+        }
+        let text = metrics.prometheus();
+        assert!(text.contains(
+            "tor_http_request_duration_seconds_count{route_family=\"catalog\",status_group=\"2xx\"} 200"
+        ));
+        assert!(text.contains(
+            "tor_http_request_duration_seconds_bucket{route_family=\"catalog\",status_group=\"2xx\",le=\"0.01\"} 0"
+        ));
+        assert!(text.contains(
+            "tor_http_request_duration_seconds_bucket{route_family=\"catalog\",status_group=\"2xx\",le=\"0.05\"} 200"
+        ));
+        assert!(text.contains(
+            "tor_http_request_duration_seconds_bucket{route_family=\"catalog\",status_group=\"2xx\",le=\"+Inf\"} 200"
+        ));
+    }
+
+    #[test]
+    fn groups_are_independent_and_do_not_store_identity() {
+        let metrics = HttpMetrics::default();
+        metrics.observe(
+            RouteGroup::Books,
+            StatusGroup::ServerError,
+            Duration::from_secs(2),
+        );
+        metrics.observe(
+            RouteGroup::Other,
+            StatusGroup::ClientError,
+            Duration::ZERO,
+        );
+        let text = metrics.prometheus();
+        assert!(text.contains("route_family=\"books\",status_group=\"5xx\""));
+        assert!(text.contains("route_family=\"other\",status_group=\"4xx\""));
+        assert!(!text.contains("request_id"));
+        assert!(!text.contains("user_id"));
+        assert!(!text.contains("by_path"));
+    }
+}
