@@ -9,7 +9,7 @@ use std::{
 };
 
 /// Only this process's RIL pump. No user identity, SQL or batch identifiers.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PgPumpMonitor(Arc<Mutex<PumpVitality>>);
 
 #[derive(Default)]
@@ -32,6 +32,15 @@ pub struct PgPumpSnapshot {
     pub age_since_start_s: Option<u64>,
     pub age_since_last_completion_s: Option<u64>,
     pub running_for_s: Option<u64>,
+}
+
+impl Default for PgPumpMonitor {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(PumpVitality {
+            since: Some(Instant::now()),
+            ..PumpVitality::default()
+        })))
+    }
 }
 
 impl PgPumpMonitor {
@@ -139,9 +148,7 @@ impl PgRollupPump {
             };
             if self.repo.materialize(&claim).await.is_err() {
                 failed = true;
-                if self.repo.retry(&claim).await.is_err() {
-                    failed = true;
-                }
+                let _ = self.repo.retry(&claim).await;
                 break;
             }
         }
