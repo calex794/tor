@@ -106,9 +106,9 @@ impl PathAnalyzer {
         let now = event.at_millis.max(self.clock);
         self.prune_idle(now);
         let old = self.subjects.get(&subject);
-        let gap = old.map(|state| GapBucket::from_millis(
-            now.saturating_sub(state.last_millis),
-        )).unwrap_or(GapBucket::Long);
+        let gap = old
+            .map(|state| GapBucket::from_millis(now.saturating_sub(state.last_millis)))
+            .unwrap_or(GapBucket::Long);
         if let Some(old) = old {
             self.recency.remove(&(old.touched, subject));
         } else if self.subjects.len() == self.capacity {
