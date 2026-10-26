@@ -287,11 +287,17 @@ async fn b_04_draft_chapter_cas_preserves_history_and_rejects_public_edits() {
         author.edit_unpublished_free_chapter(outsider, &a).await,
         Err(AuthorError::Missing)
     );
-    let saved = author.edit_unpublished_free_chapter(user, &a).await.unwrap();
+    let saved = author
+        .edit_unpublished_free_chapter(user, &a)
+        .await
+        .unwrap();
     assert_eq!(saved.revision, 2);
     assert_ne!(saved.version_id, initial.version_id);
     assert_eq!(
-        author.edit_unpublished_free_chapter(user, &a).await.unwrap(),
+        author
+            .edit_unpublished_free_chapter(user, &a)
+            .await
+            .unwrap(),
         saved,
         "exact retry must return prior version"
     );
@@ -312,7 +318,10 @@ async fn b_04_draft_chapter_cas_preserves_history_and_rejects_public_edits() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(previous_body, "Исходный текст", "past versions are immutable");
+    assert_eq!(
+        previous_body, "Исходный текст",
+        "past versions are immutable"
+    );
 
     let unchanged_key = "y".repeat(43);
     let unchanged = edit("Редакция А", "Первая глава", 2, &unchanged_key);
@@ -366,9 +375,7 @@ async fn b_04_draft_chapter_cas_preserves_history_and_rejects_public_edits() {
         1,
         "only one contender may update the expected revision"
     );
-    assert!(
-        result_a == Err(AuthorError::Conflict) || result_b == Err(AuthorError::Conflict)
-    );
+    assert!(result_a == Err(AuthorError::Conflict) || result_b == Err(AuthorError::Conflict));
     let winner = result_a.or(result_b).unwrap();
     assert_eq!(winner.revision, 5);
 
@@ -389,13 +396,12 @@ async fn b_04_draft_chapter_cas_preserves_history_and_rejects_public_edits() {
             .await
             .unwrap();
     assert_eq!(public_version, winner.version_id);
-    let first_release_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(initial.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let first_release_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(initial.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(first_release_count, 1);
     pool.close().await;
 }
