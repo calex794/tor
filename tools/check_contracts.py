@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = (
     "paid-delivery-v1.md",
+    "ril-platform-v1.md",
     "ril-reader-signals-v1.md",
     "finance-ad-exact-v1.md",
     "refunds-payouts-v1.md",
@@ -197,6 +198,52 @@ def check(root: Path = ROOT) -> list[str]:
             _golden_score(case, errors)
         if len(oracle.get("system_acceptance_cases", [])) < 8:
             errors.append("missing external RIL/PG/S3 acceptance cases")
+
+    # RIL is system-wide: every stage must have an accountable existing task.
+    ril_map = {
+        "I-02": ("RIL-01", "RIL-02"),
+        "I-13": ("RIL-03",),
+        "A-09": ("RIL-04",),
+        "G-06": ("RIL-05",),
+        "G-07": ("RIL-06",),
+        "G-10": ("RIL-07",),
+        "I-07": ("RIL-08", "RIL-09"),
+        "I-09": ("RIL-10",),
+        "F-08": ("RIL-11",),
+        "F-07": ("RIL-12",),
+        "F-10": ("RIL-12",),
+        "H-07": ("RIL-13",),
+        "I-12": ("RIL-14",),
+    }
+    ril_contract = base / "ril-platform-v1.md"
+    try:
+        ril_text = ril_contract.read_text(encoding="utf-8")
+    except OSError:
+        errors.append("missing RIL platform contract")
+    else:
+        for stage in (f"RIL-{i:02d}" for i in range(1, 15)):
+            if stage not in ril_text:
+                errors.append(f"RIL platform missing stage {stage}")
+        for heading in ("RIL Core", "Behavior Intelligence", "Route Governance",
+                        "Route Cost Map", "PG hourly/daily", "## 7."):
+            if heading not in ril_text:
+                errors.append(f"RIL platform missing system section {heading}")
+    try:
+        with (root / "docs" / "roadmap" / "tasks.tsv").open(encoding="utf-8", newline="") as stream:
+            ril_tasks = list(csv.DictReader((row for row in stream if not row.startswith("#")), delimiter="\t"))
+    except (OSError, ValueError) as exc:
+        errors.append(f"RIL task map unreadable: {exc}")
+    else:
+        indexed = {row.get("id"): row for row in ril_tasks}
+        if len(ril_tasks) != 117 or len(indexed) != 117:
+            errors.append("RIL task map must preserve 117 unique tasks")
+        for task, stages in ril_map.items():
+            row = indexed.get(task, {})
+            for stage in stages:
+                if stage not in row.get("implementation", ""):
+                    errors.append(f"RIL task {task} missing implementation {stage}")
+                if stage not in row.get("acceptance", ""):
+                    errors.append(f"RIL task {task} missing acceptance {stage}")
 
     scenario = _scenario(root, "S024", errors)
     if scenario.get("owner") != "-" or scenario.get("decision") != "заморожено" or scenario.get("rust_status") != "Исключено":
