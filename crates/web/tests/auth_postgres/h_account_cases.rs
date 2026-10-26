@@ -33,11 +33,7 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
 }
 
 pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie: &str) {
-    let duplicate = send(
-        app,
-        request("POST", "/register", form, csrf_cookie, ORIGIN),
-    )
-    .await;
+    let duplicate = send(app, request("POST", "/register", form, csrf_cookie, ORIGIN)).await;
     assert_eq!(
         duplicate.status(),
         StatusCode::CONFLICT,
