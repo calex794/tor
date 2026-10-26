@@ -2,6 +2,8 @@
 //! No per-request records or user-associated data are retained.
 pub mod trace;
 pub mod wire;
+#[cfg(unix)]
+pub mod publisher;
 
 use crate::domain::{RouteGroup, StatusGroup, BOUNDS};
 use std::fmt::Write;
