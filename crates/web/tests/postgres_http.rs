@@ -166,6 +166,9 @@ async fn f_03_search_api_is_bounded_and_never_exposes_drafts() {
     let (status, blank_language) = get(app.clone(), "/catalog?q=TOR&language=").await;
     assert_eq!(status, StatusCode::OK);
     assert!(blank_language.contains("TOR CI public"));
+    let (status, language_only) = get(app.clone(), "/api/v1/search/books?language=ru").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(language_only.contains("TOR CI public"));
     let (status, html) = get(app.clone(), "/catalog?q=TOR&language=ru").await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"role="search""#));
@@ -176,7 +179,7 @@ async fn f_03_search_api_is_bounded_and_never_exposes_drafts() {
         "/api/v1/search/books?q=TOR&language=bad!lang",
         "/api/v1/search/books?q=TOR&genre=bad%0Agenre",
         "/api/v1/search/books?q=TOR&after=01",
-        "/api/v1/search/books?language=ru",
+        "/api/v1/search/books",
         "/catalog?q=TOR&genre=bad%0Agenre",
         "/catalog?q=TOR&language=ru&after=01",
     ] {
