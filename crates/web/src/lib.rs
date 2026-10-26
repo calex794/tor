@@ -25,6 +25,7 @@ mod author_chapter_pages;
 mod author_pages;
 pub mod cover_worker;
 mod observability;
+mod operator_traces;
 mod pages;
 mod password_jobs;
 mod ril;
@@ -399,7 +400,8 @@ fn make_router(
         )
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
-        .route("/metrics", get(observability::metrics_endpoint));
+        .route("/metrics", get(observability::metrics_endpoint))
+        .route("/ops/traces", get(operator_traces::page));
     if !active_auth {
         app = app
             .route("/login", get(login))
