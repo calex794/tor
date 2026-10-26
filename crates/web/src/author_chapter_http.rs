@@ -35,6 +35,16 @@ struct ChapterForm {
 }
 
 #[derive(Deserialize)]
+struct EditChapterForm {
+    number: i32,
+    title: String,
+    body: String,
+    expected_revision: i64,
+    command_key: String,
+    csrf_token: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct PublishForm {
     csrf_token: Option<String>,
 }
@@ -49,6 +59,10 @@ pub(crate) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
         .route("/me/books/{id}/chapters", post(create_chapter))
+        .route(
+            "/me/books/{id}/chapters/{chapter_id}/edit",
+            get(edit_chapter).post(update_chapter),
+        )
         .route("/me/books/{id}/publish", post(publish_book))
         .layer(DefaultBodyLimit::max(768 * 1024))
         .with_state(state)
@@ -135,6 +149,93 @@ async fn create_chapter(
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+        Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+        Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+        Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+/// Prepopulate a draft editor only after resolving the active database session.
+async fn edit_chapter(
+    State(state): State<AuthorChapterState>,
+    Path((id, chapter_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let chapter = match state
+        .authoring
+        .owned_unpublished_free_chapter(actor, id, chapter_id)
+        .await
+    {
+        Ok(Some(chapter)) => chapter,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(
+        crate::author_chapter_pages::edit_chapter(
+            id,
+            chapter_id,
+            &chapter,
+            &csrf,
+            &generate_session_token(),
+        ),
+        &cookies,
+    )
+}
+
+/// Two tabs can open the same revision, but only one may save it.
+async fn update_chapter(
+    State(state): State<AuthorChapterState>,
+    Path((id, chapter_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+    Form(form): Form<EditChapterForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let book = match u64::try_from(id) {
+        Ok(book) if book > 0 => book,
+        _ => return deny(StatusCode::NOT_FOUND),
+    };
+    let chapter = match u64::try_from(chapter_id) {
+        Ok(chapter) if chapter > 0 => chapter,
+        _ => return deny(StatusCode::NOT_FOUND),
+    };
+    let input = match save_chapter(SaveChapterRequest {
+        book_id: book,
+        chapter_id: Some(chapter),
+        number: form.number,
+        expected_revision: form.expected_revision,
+        title: &form.title,
+        body: &form.body,
+        access: "free",
+        price_amount: 0,
+        command_key: &form.command_key,
+    }) {
+        Ok(input) => input,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    match state.authoring.edit_unpublished_free_chapter(actor, &input).await {
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+        Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+        Err(AuthorError::Conflict) => private_response(
+            (StatusCode::CONFLICT, "Глава изменена в другой вкладке или уже опубликована. Обновите страницу."),
+            &[],
+        ),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
