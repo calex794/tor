@@ -160,13 +160,13 @@ async fn f_03_search_api_is_bounded_and_never_exposes_drafts() {
     let (status, json) = get(app.clone(), "/api/v1/search/books?q=TOR&limit=20").await;
     assert_eq!(status, StatusCode::OK);
     assert!(json.contains("TOR CI public"));
-    assert!(json.contains("\\"id\\":\\"1\\""));
+    assert!(json.contains(r#""id":"1""#));
     assert!(!json.contains("TOR CI hidden"));
     assert!(!json.contains("TOR CI held"));
     let (status, html) = get(app.clone(), "/catalog?q=TOR&language=ru").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("role=\\"search\\""));
-    assert!(html.contains("name=\\"language\\""));
+    assert!(html.contains(r#"role="search""#));
+    assert!(html.contains(r#"name="language""#));
     assert!(!html.contains("TOR CI hidden"));
     for path in [
         "/api/v1/search/books?q=TOR&limit=101",
