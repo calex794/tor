@@ -70,6 +70,29 @@ class ContractTests(unittest.TestCase):
         self.update_json("openapi-v1.json", lambda data: data["paths"]["/api/v1/purchases"]["post"]["parameters"].clear())
         self.assertTrue(any("Idempotency-Key header" in x for x in check(self.root)))
 
+    def test_missing_ril_platform_document(self):
+        path = self.root / "docs" / "contracts" / "ril-platform-v1.md"
+        path.unlink()
+        self.assertTrue(any("ril-platform-v1.md" in x for x in check(self.root)))
+
+    def test_ril_stage_deleted_from_platform(self):
+        path = self.root / "docs" / "contracts" / "ril-platform-v1.md"
+        value = path.read_text(encoding="utf-8")
+        path.write_text(value.replace("RIL-06", "RIL-XX"), encoding="utf-8")
+        self.assertTrue(any("RIL platform missing stage RIL-06" in x for x in check(self.root)))
+
+    def test_ril_aggregate_task_cannot_disappear(self):
+        path = self.root / "docs" / "roadmap" / "tasks.tsv"
+        value = path.read_text(encoding="utf-8")
+        path.write_text(value.replace("RIL-06", "RIL-XX"), encoding="utf-8")
+        self.assertTrue(any("RIL task G-07 missing" in x for x in check(self.root)))
+
+    def test_ril_route_governance_task_cannot_disappear(self):
+        path = self.root / "docs" / "roadmap" / "tasks.tsv"
+        value = path.read_text(encoding="utf-8")
+        path.write_text(value.replace("RIL-09", "RIL-XX"), encoding="utf-8")
+        self.assertTrue(any("RIL task I-07 missing" in x for x in check(self.root)))
+
     def test_missing_policy_document(self):
         path = self.root / "docs" / "contracts" / "refunds-payouts-v1.md"
         path.unlink()
