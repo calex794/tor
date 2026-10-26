@@ -45,8 +45,10 @@ pub fn normalize_language(raw: Option<&str>) -> Result<Option<String>, SearchErr
         return Ok(None);
     };
     let value = raw.trim().to_ascii_lowercase();
-    if value.is_empty()
-        || value.len() > 32
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() > 32
         || value.starts_with('-')
         || value.ends_with('-')
         || !value
@@ -78,7 +80,9 @@ mod tests {
             Ok(Some("en-us".to_owned()))
         );
         assert_eq!(normalize_language(None), Ok(None));
-        for value in ["", "ru/../../", "-ru", "ru-", "en us", "a@example"] {
+        assert_eq!(normalize_language(Some("")), Ok(None));
+        assert_eq!(normalize_language(Some("  ")), Ok(None));
+        for value in ["ru/../../", "-ru", "ru-", "en us", "a@example"] {
             assert_eq!(normalize_language(Some(value)), Err(SearchError::Invalid));
         }
         assert_eq!(

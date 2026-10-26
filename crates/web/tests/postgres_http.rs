@@ -163,6 +163,9 @@ async fn f_03_search_api_is_bounded_and_never_exposes_drafts() {
     assert!(json.contains(r#""id":"1""#));
     assert!(!json.contains("TOR CI hidden"));
     assert!(!json.contains("TOR CI held"));
+    let (status, blank_language) = get(app.clone(), "/catalog?q=TOR&language=").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(blank_language.contains("TOR CI public"));
     let (status, html) = get(app.clone(), "/catalog?q=TOR&language=ru").await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"role="search""#));
