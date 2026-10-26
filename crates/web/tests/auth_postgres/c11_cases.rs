@@ -257,6 +257,8 @@ pub(super) async fn reader_v2_html_flow(app: &Router, session: &str, chapter_raw
     assert_eq!(page.status(), StatusCode::OK);
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
     let html = body_of(page).await;
+    assert!(html.contains("Место ещё не сохранено"));
+    assert!(!html.contains("Глава обновлена. Сохранённое место"));
     let old_version = html
         .split("name=\"version_id\" value=\"")
         .nth(1)
