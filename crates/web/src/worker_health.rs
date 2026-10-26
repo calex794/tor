@@ -13,7 +13,9 @@ pub(crate) fn ril_pump(pump: Option<PgPumpSnapshot>, queue: Option<RilQueueCount
     let Some(pump) = pump else {
         return Diagnostic {
             text: "В этом процессе сборщик RIL не запускался; другие процессы не проверены.",
-            warning: queue.is_some_and(|q| q.overdue_pending > 0 || q.expired_lease > 0),
+            warning: queue.is_some_and(|q| {
+                q.overdue_pending > 0 || q.expired_lease > 0 || q.dead > 0 || q.repeated_attempts > 0
+            }),
         };
     };
     if pump.running_for_s.is_some_and(|s| s >= 90)
@@ -41,6 +43,12 @@ pub(crate) fn ril_pump(pump: Option<PgPumpSnapshot>, queue: Option<RilQueueCount
         return Diagnostic {
             text:
                 "Есть задания RIL с окончательной ошибкой; цикл сборщика может продолжать работать.",
+            warning: true,
+        };
+    }
+    if queue.is_some_and(|q| q.repeated_attempts > 0) {
+        return Diagnostic {
+            text: "У заданий RIL три и более попытки; требуется проверка причин повторов.",
             warning: true,
         };
     }
@@ -73,6 +81,12 @@ pub(crate) fn covers(queue: Option<CoverQueueCounts>) -> Diagnostic {
     if queue.dead > 0 {
         return Diagnostic {
             text: "Обложки: имеются задания с окончательной ошибкой.",
+            warning: true,
+        };
+    }
+    if queue.repeated_attempts > 0 {
+        return Diagnostic {
+            text: "Обложки: три и более попытки выполнения; нужно проверить исполнителя.",
             warning: true,
         };
     }
@@ -157,6 +171,12 @@ mod tests {
         let mut queue = ril_queue();
         queue.overdue_pending = 1;
         assert!(ril_pump(None, Some(queue)).warning);
+        queue.overdue_pending = 0;
+        queue.dead = 1;
+        assert!(ril_pump(None, Some(queue)).warning);
+        queue.dead = 0;
+        queue.repeated_attempts = 1;
+        assert!(ril_pump(None, Some(queue)).warning);
         assert!(!covers(Some(cover_queue())).warning);
         assert!(covers(None).text.contains("не подтверждена"));
     }
@@ -173,6 +193,9 @@ mod tests {
         queue.dead = 1;
         assert!(covers(Some(queue)).warning);
         queue.dead = 0;
+        queue.repeated_attempts = 2;
+        assert!(covers(Some(queue)).warning);
+        queue.repeated_attempts = 0;
         queue.pending = 1;
         let info = covers(Some(queue));
         assert!(!info.warning);
