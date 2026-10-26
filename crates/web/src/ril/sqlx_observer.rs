@@ -72,14 +72,14 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
                 let _ =
                     counter
                         .completed
-                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+                        .try_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
                             old.checked_add(1)
                                 .filter(|value| *value <= MAX_US_PER_REQUEST)
                         });
                 let _ =
                     counter
                         .elapsed_us
-                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+                        .try_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
                             old.checked_add(elapsed)
                                 .filter(|value| *value <= MAX_US_PER_REQUEST)
                         });
