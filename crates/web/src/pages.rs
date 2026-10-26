@@ -435,6 +435,7 @@ mod tests {
             Some("фэнтези"),
             None,
             "oldest",
+            Some(1),
         )
         .0;
         assert!(html.contains("&lt;img"));
