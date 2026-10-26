@@ -19,16 +19,6 @@ pub enum Hygiene {
 }
 
 /// 'Reject' is a diagnostic quality bucket. It never authorizes blocking.
-impl Hygiene {
-    const fn index(self) -> usize {
-        match self {
-            Self::Normal => 0,
-            Self::Watch => 1,
-            Self::Degraded => 2,
-            Self::Reject => 3,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PathReasons {
