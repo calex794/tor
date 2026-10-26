@@ -121,11 +121,7 @@ mod tests {
             StatusGroup::ServerError,
             Duration::from_secs(2),
         );
-        metrics.observe(
-            RouteGroup::Other,
-            StatusGroup::ClientError,
-            Duration::ZERO,
-        );
+        metrics.observe(RouteGroup::Other, StatusGroup::ClientError, Duration::ZERO);
         let text = metrics.prometheus();
         assert!(text.contains("route_family=\"books\",status_group=\"5xx\""));
         assert!(text.contains("route_family=\"other\",status_group=\"4xx\""));
