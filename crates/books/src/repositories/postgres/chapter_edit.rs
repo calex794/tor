@@ -297,5 +297,4 @@ impl PgAuthoring {
         })
         .transpose()
     }
-
 }
