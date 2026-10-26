@@ -151,3 +151,26 @@ pub(super) async fn resume_after_login(app: &Router, logged: &Response) {
     assert!(body_of(library).await.contains("href=\"/read/101#p-1\""));
     reopened_reader_has_saved_anchor(app, &renewed_session).await;
 }
+
+pub(super) async fn second_session_reads_saved_progress(
+    app: &Router,
+    session: &str,
+) {
+    let reply = send(
+        app,
+        json_request(
+            "GET",
+            "/api/v1/me/progress/free?chapter_id=101",
+            "",
+            session,
+            ORIGIN,
+            "",
+        ),
+    )
+    .await;
+    assert_eq!(reply.status(), StatusCode::OK);
+    assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
+    let json = body_of(reply).await;
+    assert!(json.contains(r#""revision":2"#));
+    assert!(json.contains(r#""char_offset":1"#));
+}
