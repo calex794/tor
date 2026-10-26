@@ -14,6 +14,9 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+#[path = "auth_postgres/b04_cases.rs"]
+mod b04_cases;
+
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
         .method(method)
@@ -366,6 +369,15 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let author_book_html = body_of(private_book).await;
     assert!(author_book_html.contains("Опубликовать книгу"));
     assert!(author_book_html.contains("Глава"));
+    let edit_path = b04_cases::draft_edit_case(
+        &app,
+        book_id,
+        &book_path,
+        &session,
+        &author_cookies,
+        &author_book_html,
+    )
+    .await;
     assert_eq!(
         send(
             &app,
@@ -430,13 +442,33 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     .await;
     assert_eq!(new_reader.status(), StatusCode::OK);
     assert!(
-        body_of(new_reader).await.contains("Real chapter"),
+        body_of(new_reader).await.contains("Updated chapter"),
         "Published Markdown is readable through real PostgreSQL"
     );
     let published_detail = send(&app, request("GET", &book_path, "", &session, ORIGIN)).await;
     let published_html = body_of(published_detail).await;
     assert!(published_html.contains("Опубликована"));
     assert!(published_html.contains(&format!("href=\"/books/{book_id}\"")));
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &edit_path, "", &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "published chapter text cannot be edited as a draft"
+    );
+    assert_eq!(
+        send(
+            &app,
+            request("GET", &chapter_form_path, "", &author_cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "no new chapter form on a public book before chapter-release is implemented"
+    );
     assert_eq!(
         send(
             &app,

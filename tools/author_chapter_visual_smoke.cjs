@@ -69,6 +69,18 @@ async function inspect(page, viewport, name) {
       assert(await page.getByRole('button', { name: 'Опубликовать книгу' }).isVisible(),
         viewport + ': missing explicit publishing control');
       await inspect(page, viewport, 'chapter-saved');
+      await page.getByRole('link', { name: 'Редактировать' }).click();
+      await page.waitForURL(/\/chapters\/\d+\/edit$/);
+      assert(await page.getByRole('heading', { name: 'Редактировать главу' }).isVisible(),
+        viewport + ': missing draft editor');
+      assert(await page.getByText('Редакция №1.').isVisible(),
+        viewport + ': initial chapter revision missing');
+      await page.getByLabel('Текст главы').fill('Обновлённая версия: **важная строка**.');
+      await inspect(page, viewport, 'edit-draft');
+      await page.getByRole('button', { name: 'Сохранить изменения' }).click();
+      await page.waitForURL(base + '/me/books/' + bookId);
+      assert(await page.getByText(/Черновик/).isVisible(),
+        viewport + ': draft edit must not publish book');
 
       const hidden = await page.goto(base + '/books/' + bookId);
       assert(hidden && hidden.status() === 404,
@@ -82,12 +94,12 @@ async function inspect(page, viewport, name) {
 
       await page.getByRole('link', { name: /Глава 1.*Глава для проверки/ }).click();
       await page.waitForURL(/\/reader\/\d+$/);
-      assert(await page.getByText('Проверочный текст:').isVisible(),
+      assert(await page.getByText('Обновлённая версия:').isVisible(),
         viewport + ': published chapter text missing');
       await inspect(page, viewport, 'reader');
       await context.close();
     }
-    console.log('TOR author chapter browser PASS: 390/1440, real PG, draft isolation, deliberate publish');
+    console.log('TOR author chapter browser PASS: 390/1440, real PG, draft edit/revision, isolation, deliberate publish');
   } finally {
     await browser.close();
   }

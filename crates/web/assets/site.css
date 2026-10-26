@@ -384,3 +384,6 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .author-book-link { padding: 15px; }
   .author-card .button { min-height: 44px; }
 }
+
+/* B-04: make stale-revision guidance legible on small screens. */
+.author-edit-warning { font-size: 13px; color: #536755; line-height: 1.6; }

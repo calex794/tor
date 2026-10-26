@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 35);
+    assert_eq!(unique.len(), 37);
 }
 
 #[test]
@@ -48,6 +48,12 @@ fn public_private_and_write_routes_are_distinct() {
         CostClass::Write
     );
     assert_eq!(classify(Some("/me/books/{id}"), "GET").route_family, "/me/");
+    let draft_get = classify(Some("/me/books/{id}/chapters/{chapter_id}/edit"), "GET");
+    let draft_post = classify(Some("/me/books/{id}/chapters/{chapter_id}/edit"), "POST");
+    assert_eq!(draft_get.route_family, "/me/");
+    assert_eq!(draft_get.cost_class, CostClass::CheapRead);
+    assert_eq!(draft_post.route_family, "/me/");
+    assert_eq!(draft_post.cost_class, CostClass::Write);
     assert_eq!(
         classify(Some("/me/books/{id}/chapters/new"), "GET").product_area,
         ProductArea::Dashboard
