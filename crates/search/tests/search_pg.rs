@@ -168,3 +168,75 @@ async fn f_03_facet_search_masks_hidden_author_and_genre() {
         0
     );
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL fixtures"]
+async fn f_03_revocation_removes_author_genre_and_title_from_public_search() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let db: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(db, "tor_ci", "never alter production books");
+
+    // Dedicated identity: this test checks the published -> draft/hold/deleted
+    // transitions on the *same* row, without deleting shared fixtures.
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO books
+         (source_identity,target_language,title,author_name,genres,visibility,admin_hold,is_deleted)
+         VALUES ('ci:f03:revocation','ru','Отзывная книга','Уникальныйавтор',
+                 ARRAY['уникальныйжанр'],'draft',FALSE,FALSE)
+         ON CONFLICT (source_identity,target_language)
+         DO UPDATE SET visibility='draft',admin_hold=FALSE,is_deleted=FALSE,
+                       title=EXCLUDED.title,author_name=EXCLUDED.author_name,genres=EXCLUDED.genres
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let search = PgSearch::new(pool.clone());
+
+    // Check three independent discovery dimensions. None may reveal a draft.
+    for (term, genre) in [
+        ("Отзывная", None),
+        ("Уникальныйавтор", None),
+        ("", Some("уникальныйжанр")),
+    ] {
+        let found = search
+            .search_faceted(term, Some("ru"), genre, None, 100)
+            .await
+            .unwrap();
+        assert!(!found.items.iter().any(|book| book.id == id as u64));
+    }
+
+    sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    let published = search
+        .search_faceted("", Some("ru"), Some("уникальныйжанр"), None, 100)
+        .await.unwrap();
+    assert!(published.items.iter().any(|book| book.id == id as u64));
+
+    // A hold must revoke existing search results immediately, with no stale
+    // index-only result leaking author metadata or even the book identity.
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    let held = search
+        .search_faceted("Уникальныйавтор", None, None, None, 100)
+        .await.unwrap();
+    assert!(!held.items.iter().any(|book| book.id == id as u64));
+
+    sqlx::query("UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    let withdrawn = search
+        .search_faceted("Отзывная", None, None, None, 100)
+        .await.unwrap();
+    assert!(!withdrawn.items.iter().any(|book| book.id == id as u64));
+
+    sqlx::query("UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1")
+        .bind(id).execute(&pool).await.unwrap();
+    let deleted = search
+        .search_faceted("", None, Some("уникальныйжанр"), None, 100)
+        .await.unwrap();
+    assert!(!deleted.items.iter().any(|book| book.id == id as u64));
+}
