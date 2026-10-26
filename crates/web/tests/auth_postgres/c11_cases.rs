@@ -249,11 +249,7 @@ pub(super) async fn concurrent_sessions_one_progress_winner(app: &Router, sessio
 
 /// Browser-facing C-05: a re-published chapter must discard stale V1 anchors,
 /// while still letting the reader save a new position through the HTML form.
-pub(super) async fn reader_v2_html_flow(
-    app: &Router,
-    session: &str,
-    chapter_raw: &str,
-) {
+pub(super) async fn reader_v2_html_flow(app: &Router, session: &str, chapter_raw: &str) {
     let chapter_id = chapter_raw.parse::<i64>().expect("published chapter ID");
     let path = format!("/read/{chapter_id}");
     let save_path = format!("{path}/place");
