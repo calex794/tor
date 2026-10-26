@@ -153,3 +153,12 @@ fn fixed_window_discards_old_unknown_probes_after_clean_behavior() {
     assert_eq!(a.unknown, 0);
     assert_eq!(a.errors, 0);
 }
+
+#[test]
+fn periodic_expiry_does_not_require_new_tracking_events() {
+    let mut paths = PathAnalyzer::new(10);
+    paths.record(ok(RouteCode::Books, 5, 2));
+    paths.prune_idle(SUBJECT_TTL_MS + 3);
+    assert_eq!(paths.report().active_subjects, 0);
+    assert_eq!(paths.report().evicted_subjects, 1);
+}
