@@ -55,14 +55,10 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
     }
     state.pg = PgHealth::Ready;
     let pool = catalog.pool();
-    let ril_future = tokio::time::timeout(
-        timeout,
-        PgRilRollups::new(pool.clone()).queue_counts(),
-    );
-    let cover_future = tokio::time::timeout(
-        timeout,
-        PgCoverJobs::new(pool).queue_counts(),
-    );
+    let ril_repo = PgRilRollups::new(pool.clone());
+    let cover_repo = PgCoverJobs::new(pool);
+    let ril_future = tokio::time::timeout(timeout, ril_repo.queue_counts());
+    let cover_future = tokio::time::timeout(timeout, cover_repo.queue_counts());
     let (ril, covers) = tokio::join!(ril_future, cover_future);
     state.ril_queue = ril.ok().and_then(Result::ok);
     state.cover_queue = covers.ok().and_then(Result::ok);
