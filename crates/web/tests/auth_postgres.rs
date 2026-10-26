@@ -342,9 +342,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     )
     .await;
     assert_eq!(private_book.status(), StatusCode::OK);
-    let private_html = body_of(private_book).await;
-    assert!(private_html.contains("Опубликовать книгу"));
-    assert!(private_html.contains("Глава"));
+    let author_book_html = body_of(private_book).await;
+    assert!(author_book_html.contains("Опубликовать книгу"));
+    assert!(author_book_html.contains("Глава"));
     assert_eq!(
         send(
             &app,
