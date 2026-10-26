@@ -10,6 +10,9 @@ pub struct CoverQueueCounts {
     pub running: i64,
     pub ready: i64,
     pub dead: i64,
+    pub overdue_pending: i64,
+    pub expired_lease: i64,
+    pub repeated_attempts: i64,
 }
 
 #[derive(Clone)]
@@ -24,11 +27,21 @@ impl PgCoverJobs {
 
     /// Bounded output for operators. A 'running' row is NOT proof of a live worker.
     pub async fn queue_counts(&self) -> Result<CoverQueueCounts, CoverError> {
-        let (pending, running, ready, dead): (i64, i64, i64, i64) = sqlx::query_as(
+        let (pending, running, ready, dead, overdue_pending, expired_lease, repeated_attempts):
+            (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT COUNT(*) FILTER (WHERE status='pending')::bigint,
                     COUNT(*) FILTER (WHERE status='running')::bigint,
                     COUNT(*) FILTER (WHERE status='ready')::bigint,
-                    COUNT(*) FILTER (WHERE status='dead')::bigint
+                    COUNT(*) FILTER (WHERE status='dead')::bigint,
+                    COUNT(*) FILTER (
+                        WHERE status='pending' AND run_after<=now()
+                          AND created_at<=now()-INTERVAL '5 minutes'
+                    )::bigint,
+                    COUNT(*) FILTER (
+                        WHERE status IN ('running','ready') AND
+                          (locked_until IS NULL OR locked_until<=now())
+                    )::bigint,
+                    COUNT(*) FILTER (WHERE attempts>=3)::bigint
                FROM cover_variant_jobs
               WHERE status IN ('pending','running','ready','dead')",
         )
@@ -40,6 +53,9 @@ impl PgCoverJobs {
             running,
             ready,
             dead,
+            overdue_pending,
+            expired_lease,
+            repeated_attempts,
         })
     }
 
