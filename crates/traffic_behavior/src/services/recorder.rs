@@ -4,8 +4,8 @@ use crate::domain::{
     BehaviorEvent, BehaviorSketch, PathReport, RollupDelta, SketchSnapshot, VerifiedSubjectKey,
     MAX_SUBJECTS,
 };
-use std::collections::{HashSet, VecDeque};
 use crate::services::paths_worker::PathRecorder;
+use std::collections::{HashSet, VecDeque};
 use std::{
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -60,7 +60,10 @@ impl TrafficRecorder {
                                 expirations.pop_front();
                                 revoked.remove(&key);
                             }
-                            if event.subject.is_some_and(|key| fail_closed || revoked.contains(&key)) {
+                            if event
+                                .subject
+                                .is_some_and(|key| fail_closed || revoked.contains(&key))
+                            {
                                 event.subject = None;
                             }
                             let transition = sketch.record(event);
@@ -244,9 +247,21 @@ mod tests {
         v.route = RouteCode::Books;
         v.subject = Some(old);
         assert!(recorder.try_record(v));
-        assert_eq!(recorder.path_report_for_diagnostics().unwrap().active_subjects, 1);
+        assert_eq!(
+            recorder
+                .path_report_for_diagnostics()
+                .unwrap()
+                .active_subjects,
+            1
+        );
         assert_eq!(recorder.forget_subject_for_privacy(old), Some(true));
-        assert_eq!(recorder.path_report_for_diagnostics().unwrap().active_subjects, 0);
+        assert_eq!(
+            recorder
+                .path_report_for_diagnostics()
+                .unwrap()
+                .active_subjects,
+            0
+        );
         // A request which started before opt-out cannot recreate the old path.
         assert!(recorder.try_record(v));
         let report = recorder.path_report_for_diagnostics().unwrap();
@@ -255,7 +270,13 @@ mod tests {
         // Re-enabling consent uses a different epoch-derived pseudonym.
         v.subject = Some(new_epoch);
         assert!(recorder.try_record(v));
-        assert_eq!(recorder.path_report_for_diagnostics().unwrap().active_subjects, 1);
+        assert_eq!(
+            recorder
+                .path_report_for_diagnostics()
+                .unwrap()
+                .active_subjects,
+            1
+        );
     }
 
     #[test]

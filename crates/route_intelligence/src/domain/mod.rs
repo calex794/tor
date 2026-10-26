@@ -307,7 +307,15 @@ const ROUTES: [RouteRegistration; 38] = [
         Dashboard,
         Write,
     ), // 36
-    RouteRegistration::new("/me/behavior", "POST", "/me/", Exact, Page, Dashboard, Write), // 37
+    RouteRegistration::new(
+        "/me/behavior",
+        "POST",
+        "/me/",
+        Exact,
+        Page,
+        Dashboard,
+        Write,
+    ), // 37
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.

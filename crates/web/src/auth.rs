@@ -38,8 +38,8 @@ use tor_reading::{
 };
 
 mod behavior_consent;
-mod login_limiter;
 mod library_actions;
+mod login_limiter;
 mod sync_actions;
 
 #[derive(Clone)]
@@ -159,7 +159,10 @@ pub(crate) fn router(
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(4096))
         .with_state(state)
-        .layer(middleware::from_fn_with_state(observation_state, behavior_consent::annotate_verified_ril))
+        .layer(middleware::from_fn_with_state(
+            observation_state,
+            behavior_consent::annotate_verified_ril,
+        ))
         .merge(chapter_routes)
 }
 
@@ -323,7 +326,11 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (enabled, _) = state.accounts.ril_behavior_consent(user_id).await.unwrap_or((false, 0));
+    let (enabled, _) = state
+        .accounts
+        .ril_behavior_consent(user_id)
+        .await
+        .unwrap_or((false, 0));
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
         pages::my_account(&name, &csrf, enabled, state.ril_signer.is_some()),

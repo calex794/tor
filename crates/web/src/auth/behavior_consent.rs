@@ -1,6 +1,9 @@
 //! Privacy controls and verified identity opt-in, owned by the account boundary.
 use super::{deny, session_user, AuthState};
-use crate::{auth_cookies::private_response, ril::{self, VerifiedRilSubject}};
+use crate::{
+    auth_cookies::private_response,
+    ril::{self, VerifiedRilSubject},
+};
 use axum::{
     body::Body,
     extract::{Form, MatchedPath, State},
@@ -36,10 +39,20 @@ pub(super) async fn annotate_verified_ril(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    let template = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+    let template = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(MatchedPath::as_str);
     let observe = request.method() == Method::GET
-        && matches!(template, Some("/me") | Some("/me/library") | Some("/read/{id}")
-            | Some("/me/books") | Some("/me/books/new") | Some("/me/books/{id}"));
+        && matches!(
+            template,
+            Some("/me")
+                | Some("/me/library")
+                | Some("/read/{id}")
+                | Some("/me/books")
+                | Some("/me/books/new")
+                | Some("/me/books/{id}")
+        );
     let verified = if observe {
         if let (Some(signer), Some(token)) = (
             state.ril_signer.as_ref(),
@@ -49,7 +62,9 @@ pub(super) async fn annotate_verified_ril(
             match tokio::time::timeout(
                 std::time::Duration::from_millis(100),
                 state.accounts.ril_verified_opted_in_session(&digest),
-            ).await {
+            )
+            .await
+            {
                 Ok(Ok(Some((id, epoch)))) => Some(VerifiedSubjectKey::from_hmac_digest(
                     signer.pseudonym(id, epoch),
                 )),
@@ -78,7 +93,9 @@ pub(super) async fn set_behavior_consent(
     Form(form): Form<BehaviorConsentForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }

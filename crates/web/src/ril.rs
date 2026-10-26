@@ -11,11 +11,11 @@ use axum::{
 use std::sync::OnceLock;
 use std::time::Instant;
 use tor_route_intelligence::{classify, RouteObservation};
+use tor_traffic_behavior::VerifiedSubjectKey;
 use tor_traffic_behavior::{
     repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent, LatencyGroup, RouteCode,
     StatusGroup, TrafficRecorder,
 };
-use tor_traffic_behavior::VerifiedSubjectKey;
 
 // Trusted-only response marker. Auth supplies it after a live DB session lookup
 // and explicit opt-in; no client-controlled header is ever parsed as identity.
