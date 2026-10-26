@@ -15,10 +15,28 @@ use tor_traffic_behavior::{
     repositories::PgRilRollups, services::PgRollupPump, BehaviorEvent, LatencyGroup, RouteCode,
     StatusGroup, TrafficRecorder,
 };
+use tor_traffic_behavior::VerifiedSubjectKey;
+
+// Trusted-only response marker. Auth supplies it after a live DB session lookup
+// and explicit opt-in; no client-controlled header is ever parsed as identity.
+pub(crate) struct VerifiedRilSubject(pub(crate) VerifiedSubjectKey);
 
 // One bounded worker per process, shared across all router variants and clones.
 // No pseudo-user is derived from an unverified cookie, IP, or query string.
 static TRAFFIC: OnceLock<TrafficRecorder> = OnceLock::new();
+
+/// Local privacy barrier. A separate cross-instance invalidation mechanism is
+/// required before identified paths may be enabled on multiple web processes.
+pub(crate) async fn forget_subject(key: VerifiedSubjectKey) -> bool {
+    let Some(recorder) = TRAFFIC.get().cloned() else {
+        return true;
+    };
+    tokio::task::spawn_blocking(move || recorder.forget_subject_for_privacy(key))
+        .await
+        .ok()
+        .flatten()
+        == Some(true)
+}
 
 pub(crate) fn start_pg_background(repo: PgRilRollups) {
     let recorder = TRAFFIC
@@ -59,14 +77,23 @@ async fn observe(
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
     let observation = RouteObservation::new(passport, status, elapsed);
-    // A bounded, non-blocking technical event. No verified subject identity exists
-    // at this HTTP wrapper, so only anonymous aggregate counters are produced.
-    // This is not evidence of reading a chapter or a billable ad impression.
+    // Only the trusted authentication layer may set this internal response
+    // extension after confirming a live session and explicit opt-in.
+    let subject = if (200..300).contains(&status) && passport.route_known {
+        response
+            .extensions_mut()
+            .remove::<VerifiedRilSubject>()
+            .map(|marker| marker.0)
+    } else {
+        response.extensions_mut().remove::<VerifiedRilSubject>();
+        None
+    };
+    // Anonymous counters remain independent from personal behavior paths.
     let _accepted = recorder.try_record(BehaviorEvent {
         route: RouteCode::from_family(passport.route_family),
         status: StatusGroup::from_status(status),
         latency: LatencyGroup::from_elapsed(elapsed),
-        subject: None,
+        subject,
         at_millis: recorder.uptime_millis(),
     });
     response.extensions_mut().insert(observation);
