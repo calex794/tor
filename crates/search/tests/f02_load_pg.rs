@@ -157,6 +157,65 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
         counted_start.elapsed().as_millis()
     );
 
+    // NEwBOO-style lexical sorts must also traverse 100k rows without OFFSET,
+    // including duplicate author names, not only pass on a small fixture.
+    for (sort, oracle) in [
+        (
+            "title",
+            "SELECT id FROM books WHERE visibility='public'
+              AND NOT admin_hold AND NOT is_deleted
+              AND target_language='ru' AND genres @> ARRAY['f02-load']
+              ORDER BY lower(title) ASC,id ASC",
+        ),
+        (
+            "author",
+            "SELECT id FROM books WHERE visibility='public'
+              AND NOT admin_hold AND NOT is_deleted
+              AND target_language='ru' AND genres @> ARRAY['f02-load']
+              ORDER BY lower(author_name) ASC,id ASC",
+        ),
+    ] {
+        let expected: Vec<i64> = sqlx::query_scalar(oracle).fetch_all(&pool).await.unwrap();
+        assert_eq!(expected.len(), 85_000);
+        let started = Instant::now();
+        let mut actual = Vec::with_capacity(expected.len());
+        let mut cursor: Option<String> = None;
+        let mut pages = 0;
+        loop {
+            let page = search
+                .search_faceted_sorted(
+                    "",
+                    Some("ru"),
+                    Some("f02-load"),
+                    cursor.as_deref(),
+                    100,
+                    Some(sort),
+                )
+                .await
+                .unwrap();
+            assert!(!page.items.is_empty());
+            assert!(page.items.len() <= 100);
+            actual.extend(page.items.into_iter().map(|book| i64::try_from(book.id).unwrap()));
+            pages += 1;
+            assert!(pages <= 900, "unbounded {sort} pagination");
+            match page.next_cursor {
+                Some(next) => {
+                    assert!(next.starts_with(&format!("{sort}.")));
+                    assert_ne!(cursor.as_deref(), Some(next.as_str()));
+                    cursor = Some(next);
+                }
+                None => break,
+            }
+        }
+        assert_eq!(pages, 850);
+        assert_eq!(actual, expected, "{sort}: missing, duplicate or private row");
+        println!(
+            "F02_100K lexical_sort={sort} pages={pages} visible={} scan_ms={}",
+            actual.len(),
+            started.elapsed().as_millis()
+        );
+    }
+
     // These are the repository's two static query shapes, with representative
     // midpoint cursors. Record real PostgreSQL execution plans as CI evidence.
     let midpoint = expected[expected.len() / 2];
