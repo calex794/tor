@@ -11,6 +11,7 @@ use std::{
 use tor_observability::{
     domain::{RouteGroup, StatusGroup},
     services::{
+        lookup,
         trace::{RequestTrace, SqlEvidence, SqlSpan},
         wire,
     },
@@ -85,6 +86,17 @@ fn actual_separate_process_rejects_bad_frames_and_persists_numeric_traces() {
     stream.read_exact(&mut ack).unwrap();
     assert_eq!(ack, [1]);
     drop(stream);
+
+    // The same isolated service returns a complete exact-ID query, not merely
+    // the newest N traces. No browser may open SQLite directly.
+    let present = lookup::request(&socket, trace.trace_id).unwrap();
+    assert_eq!(present.archived, 1);
+    assert_eq!(present.matches, 1);
+    assert_eq!(present.found.unwrap().1, trace);
+    let absent = lookup::request(&socket, 0xdecaf).unwrap();
+    assert_eq!(absent.archived, 1);
+    assert_eq!(absent.matches, 0);
+    assert!(absent.found.is_none());
 
     // Read from SQLite in a distinct process, even while the writer runs.
     let output = Command::new(exe)

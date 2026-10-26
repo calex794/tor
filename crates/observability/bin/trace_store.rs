@@ -18,7 +18,10 @@ mod unix_store {
     };
     use tor_observability::{
         repositories::sqlite::{SearchFilter, StorePolicy, TraceStore},
-        services::wire::{decode, MAX_FRAME_BYTES},
+        services::{
+            lookup::{self, LookupResult},
+            wire::{decode, MAX_FRAME_BYTES},
+        },
     };
 
     fn unix_now() -> Result<i64, Box<dyn Error>> {
@@ -76,6 +79,28 @@ mod unix_store {
         }
         let mut body = vec![0_u8; length];
         stream.read_exact(&mut body)?;
+        if let Some(id) = lookup::parse_query(&body) {
+            // Exact indexed lookup on the single store-owner process.
+            // The web process never opens or migrates SQLite.
+            let page = store.search(SearchFilter {
+                trace_id: Some(id),
+                limit: 1,
+                ..SearchFilter::default()
+            })?;
+            let result = LookupResult {
+                archived: page.archived,
+                matches: page.matches,
+                found: page
+                    .items
+                    .into_iter()
+                    .next()
+                    .map(|item| (item.observed_at_unix, item.trace)),
+            };
+            let response = lookup::encode_reply(&result).ok_or("invalid lookup result")?;
+            stream.write_all(&(response.len() as u32).to_be_bytes())?;
+            stream.write_all(&response)?;
+            return Ok(());
+        }
         let trace = decode(&body).map_err(|_| "invalid trace frame")?;
         store.append(&trace, unix_now()?)?;
         stream.write_all(&[1_u8])?;

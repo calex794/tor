@@ -25,6 +25,7 @@ mod author_chapter_pages;
 mod author_pages;
 pub mod cover_worker;
 mod observability;
+mod operator_traces;
 mod pages;
 mod password_jobs;
 mod ril;
@@ -79,6 +80,34 @@ async fn public_cards(
 }
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
+    if let Some(catalog) = state.postgres {
+        // The F-04 repository filters draft/held/deleted rows before LIMIT.
+        // Do not label the original ascending demo catalogue as "newest".
+        let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
+        let showcase = tor_search::services::showcases::RecentShowcases::new(&repository);
+        let rows = showcase
+            .latest_added(None, 12)
+            .await
+            .map_err(|error| match error {
+                tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
+                tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            })?;
+        let cards = rows
+            .into_iter()
+            .map(|book| pages::PublicBookCard {
+                id: book.id,
+                title: book.title,
+                language: book.language,
+                author_name: if book.author_name.is_empty() {
+                    None
+                } else {
+                    Some(book.author_name)
+                },
+                genres: book.genres,
+            })
+            .collect::<Vec<_>>();
+        return Ok(pages::home_recent(&cards));
+    }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
 }
 #[derive(Default, Deserialize)]
@@ -419,7 +448,8 @@ fn make_router(
         )
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
-        .route("/metrics", get(observability::metrics_endpoint));
+        .route("/metrics", get(observability::metrics_endpoint))
+        .route("/ops/traces", get(operator_traces::page));
     if !active_auth {
         app = app
             .route("/login", get(login))
@@ -489,6 +519,18 @@ mod tests {
     async fn demo_must_not_advertise_unimplemented_reader() {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
     }
+    #[tokio::test]
+    async fn operator_diagnostics_never_open_without_independent_credentials() {
+        for path in [
+            "/ops/traces",
+            "/ops/traces?id=00000000000000000000000000000010",
+            "/ops/traces?id=%3Cscript%3E",
+        ] {
+            // Even when the query is invalid, access control runs first.
+            assert_eq!(get(path).await.0, StatusCode::UNAUTHORIZED);
+        }
+    }
+
     #[tokio::test]
     async fn no_user_or_finance_write_routes() {
         assert_eq!(
