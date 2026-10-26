@@ -1,3 +1,3 @@
 mod postgres;
 
-pub use postgres::{BatchClaim, PgRilRollups};
+pub use postgres::{BatchClaim, PgRilRollups, RilQueueCounts};
