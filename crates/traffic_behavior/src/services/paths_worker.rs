@@ -140,7 +140,10 @@ mod tests {
     fn privacy_removal_clears_active_path_and_new_events_start_fresh() {
         let worker = PathRecorder::start(8, 8);
         assert!(worker.try_record(verified(7, RouteCode::Books, 10)));
-        assert_eq!(worker.forget_for_privacy(VerifiedSubjectKey::from_hmac_digest([7; 16])), Some(true));
+        assert_eq!(
+            worker.forget_for_privacy(VerifiedSubjectKey::from_hmac_digest([7; 16])),
+            Some(true)
+        );
         assert!(worker.try_record(verified(7, RouteCode::Read, 20)));
         let report = worker.report_for_diagnostics().unwrap();
         assert_eq!(report.assessed_events, 2);
@@ -150,7 +153,10 @@ mod tests {
     #[test]
     fn saturation_is_counted_without_panicking_or_blocking() {
         let (sender, _receiver) = mpsc::sync_channel(1);
-        let worker = PathRecorder { sender, dropped: Arc::new(AtomicU64::new(0)) };
+        let worker = PathRecorder {
+            sender,
+            dropped: Arc::new(AtomicU64::new(0)),
+        };
         assert!(worker.try_record(verified(4, RouteCode::Books, 1)));
         assert!(!worker.try_record(verified(4, RouteCode::Books, 2)));
         assert_eq!(worker.dropped_events(), 1);
@@ -161,7 +167,10 @@ mod tests {
     fn lost_worker_does_not_affect_sending_site_requests() {
         let (sender, receiver) = mpsc::sync_channel(1);
         drop(receiver);
-        let worker = PathRecorder { sender, dropped: Arc::new(AtomicU64::new(0)) };
+        let worker = PathRecorder {
+            sender,
+            dropped: Arc::new(AtomicU64::new(0)),
+        };
         assert!(!worker.try_record(verified(4, RouteCode::Reader, 1)));
         assert_eq!(worker.dropped_events(), 1);
     }
