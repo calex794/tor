@@ -8,6 +8,30 @@ const LATENCY: usize = 4;
 const GAPS: usize = 4;
 const MAX_CELL: u64 = 1_000_000_000;
 
+/// One completed request whose SQLx events were counted in its Tokio task.
+/// No SQL text, parameters, account, or URL fields are accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SqlCostEvent {
+    pub route: RouteCode,
+    pub observed_queries: u64,
+    pub sqlx_elapsed_us: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SqlCostCount {
+    pub route: i16,
+    pub observed_requests: i64,
+    pub observed_queries: i64,
+    pub sqlx_elapsed_us: i64,
+}
+
+#[derive(Clone, Copy, Default)]
+struct SqlCell {
+    requests: u64,
+    queries: u64,
+    elapsed_us: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Transition {
     pub from: RouteCode,
@@ -37,6 +61,7 @@ pub struct TransitionCount {
 pub struct RollupDelta {
     routes: [[[u64; LATENCY]; STATUS]; ROUTES],
     transitions: [[[u64; GAPS]; ROUTES]; ROUTES],
+    sql: [SqlCell; ROUTES],
     capped_cells: u64,
 }
 
@@ -45,6 +70,7 @@ impl Default for RollupDelta {
         Self {
             routes: [[[0; LATENCY]; STATUS]; ROUTES],
             transitions: [[[0; GAPS]; ROUTES]; ROUTES],
+            sql: [SqlCell::default(); ROUTES],
             capped_cells: 0,
         }
     }
@@ -70,9 +96,47 @@ impl RollupDelta {
         }
     }
 
+    /// Fail closed on a saturated counter: do not persist a partial sample.
+    /// Zero SQL queries is valid only because a completed request was observed.
+    pub fn record_sql(&mut self, sample: SqlCostEvent) {
+        let cell = &mut self.sql[sample.route as usize];
+        let next = (
+            cell.requests.checked_add(1),
+            cell.queries.checked_add(sample.observed_queries),
+            cell.elapsed_us.checked_add(sample.sqlx_elapsed_us),
+        );
+        match next {
+            (Some(requests), Some(queries), Some(elapsed_us))
+                if requests <= MAX_CELL && queries <= MAX_CELL && elapsed_us <= MAX_CELL =>
+            {
+                *cell = SqlCell {
+                    requests,
+                    queries,
+                    elapsed_us,
+                };
+            }
+            _ => self.capped_cells = self.capped_cells.saturating_add(1),
+        }
+    }
+
+    pub fn sql_rows(&self) -> Vec<SqlCostCount> {
+        self.sql
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.requests > 0)
+            .map(|(route, item)| SqlCostCount {
+                route: route as i16,
+                observed_requests: item.requests as i64,
+                observed_queries: item.queries as i64,
+                sqlx_elapsed_us: item.elapsed_us as i64,
+            })
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.routes.iter().flatten().flatten().all(|n| *n == 0)
             && self.transitions.iter().flatten().flatten().all(|n| *n == 0)
+            && self.sql.iter().all(|item| item.requests == 0)
     }
 
     pub fn capped_cells(&self) -> u64 {
@@ -178,5 +242,38 @@ mod tests {
                 count: 1,
             }]
         );
+    }
+
+    #[test]
+    fn sql_completion_costs_are_bounded_and_only_accept_fixed_route_codes() {
+        let mut delta = RollupDelta::default();
+        delta.record_sql(SqlCostEvent {
+            route: RouteCode::Books,
+            observed_queries: 2,
+            sqlx_elapsed_us: 1732,
+        });
+        delta.record_sql(SqlCostEvent {
+            route: RouteCode::Books,
+            observed_queries: 0,
+            sqlx_elapsed_us: 0,
+        });
+        assert_eq!(
+            delta.sql_rows(),
+            vec![SqlCostCount {
+                route: RouteCode::Books as i16,
+                observed_requests: 2,
+                observed_queries: 2,
+                sqlx_elapsed_us: 1732,
+            }]
+        );
+        assert!(!delta.is_empty());
+        delta.record_sql(SqlCostEvent {
+            route: RouteCode::Books,
+            observed_queries: MAX_CELL,
+            sqlx_elapsed_us: MAX_CELL,
+        });
+        assert_eq!(delta.capped_cells(), 1);
+        assert_eq!(delta.sql_rows()[0].observed_queries, 2);
+        assert!(RollupDelta::default().sql_rows().is_empty());
     }
 }
