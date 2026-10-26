@@ -195,7 +195,11 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
                 .unwrap();
             assert!(!page.items.is_empty());
             assert!(page.items.len() <= 100);
-            actual.extend(page.items.into_iter().map(|book| i64::try_from(book.id).unwrap()));
+            actual.extend(
+                page.items
+                    .into_iter()
+                    .map(|book| i64::try_from(book.id).unwrap()),
+            );
             pages += 1;
             assert!(pages <= 900, "unbounded {sort} pagination");
             match page.next_cursor {
@@ -208,7 +212,10 @@ async fn f_02_100k_keyset_order_visibility_and_query_plans() {
             }
         }
         assert_eq!(pages, 850);
-        assert_eq!(actual, expected, "{sort}: missing, duplicate or private row");
+        assert_eq!(
+            actual, expected,
+            "{sort}: missing, duplicate or private row"
+        );
         println!(
             "F02_100K lexical_sort={sort} pages={pages} visible={} scan_ms={}",
             actual.len(),
