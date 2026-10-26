@@ -70,3 +70,46 @@ bash -n /root/tor-db-init.sh && bash /root/tor-db-init.sh
 
 **Следующее:** перенос девяти SQLx миграций от [bokarust](https://github.com/calex794/bokarust/tree/main/crates/adapters/migrations), единый мигратор с CI PostgreSQL 18, schema-compatibility и bootstrap-backup. Никаких фиктивных pg-связей к демо-HTTP.
 
+
+
+## 26.10.2026 — verified PostgreSQL + manual SQLx schema handoff
+
+**Operator-verifiable facts (VPS owner output):** PostgreSQL 18.6 running; \`tor\` owner \`tor_migrator\`; app role \`tor_app|f|f|f|6\`, migrator \`tor_migrator|f|f|f|3\`. \`tor-app.env\` and \`tor-migrator.env\` are root:root with mode 600. **Public domain table count = 0.** Rust/Nginx still serve the old in-memory S0 demo; this says nothing about readiness of the real account/reader platform.
+
+**Repo implementation already exists:** \`crates/migrations/migrate.rs\` invokes \`sqlx::migrate!\` for the nine original \`migrations/*.sql\` files, refuses any PostgreSQL role other than \`tor_migrator\` or any database except \`tor\`, \`tor_ci\`, \`tor_test\`. \`PgCatalog\` verifies version \`202610130003\` in \`_sqlx_migrations\` and tests its table permissions. [Real PostgreSQL 18 CI](../../.github/workflows/tor-pg-runtime.yml) runs migrations twice and forbids the app role from applying them.
+
+**On the tiny VPS do not build Rust.** The [manual-only deployment workflow](../../.github/workflows/tor-vps-staging.yml) now builds \`tor-migrate\` on a GitHub runner alongside \`tor-web\`, sends both binaries over the verified SSH channel into \`/opt/tor/releases/<SHA>/\` and verifies a SHA-256 checksum file. *The workflow NEVER executes the migration.* A dispatch with \`install=false\` stages the binaries and smoke-tests the new candidate on loopback port 3099 while leaving \`/opt/tor/current\` untouched.
+
+### Operator's first migration (empty TOR database)
+
+1. In [GitHub Actions / tor VPS staged release](https://github.com/calex794/tor/actions/workflows/tor-vps-staging.yml) choose **Run workflow → main → install=false**. Require workflow success. Note the commit SHA shown by that exact run. Never use an arbitrary artifact from a PR.
+2. Under root on the TOR VPS verify that staged release contains the migration executable and its SHA-256 manifest:
+
+   \`\`\`bash
+   sha="<SUCCESSFUL_MAIN_RUN_COMMIT_SHA>"
+   ls -l "/opt/tor/releases/$sha/tor-migrate" "/opt/tor/releases/$sha/tor-migrate.sha256"
+   (cd "/opt/tor/releases/$sha" && sha256sum -c tor-migrate.sha256)
+   \`\`\`
+3. Obtain the operator script from the **same pinned main SHA** so it is auditable, check syntax, run with the explicit SHA (script must run under root; never supply credentials on command line or in chat):
+
+   \`\`\`bash
+   curl -fsSL "https://raw.githubusercontent.com/calex794/tor/$sha/ops/apply-tor-migrations-vps.sh" \
+     -o /root/tor-first-migrations.sh
+   bash -n /root/tor-first-migrations.sh &&
+   bash /root/tor-first-migrations.sh "$sha"
+   \`\`\`
+
+The operator script refuses invalid SHA, missing binary/checksum, wrong PG instance/owner/role/secrets, already populated public schema, inactive web/DB. Before any DDL it creates a **root-readable only, local** compressed \`pg_dump -Fc\` in \`/var/backups/tor/\` and checks that \`pg_restore -l\` can read it. It then executes the trusted SQLx binary as \`tor_migrator\` against **only** local \`tor\`; afterward it requires exactly **nine successful \`_sqlx_migrations\` rows and 17 domain tables**, revokes runtime INSERT/UPDATE/DELETE on `_sqlx_migrations` while retaining SELECT for readiness, plus a still healthy demo site. The command is not an HTTP deploy and never replaces the current Rust service.
+
+**Acceptance markers:**
+
+\`\`\`text
+MIGRATION_HISTORY_ACCESS_OK: tor_app can SELECT but cannot modify migration history
+MIGRATIONS_OK: 9/9 SQLx versions, 17 domain tables
+BACKUP_OK: /var/backups/tor/tor-before-... (local only; off-server backup still required)
+TOR_DEMO_HEALTH_OK
+\`\`\`
+
+**Do not confuse local dump with durable backup:** a copy to a *separate storage failure domain* and tested restore remain prerequisites to real users, paid chapters and finances. If the script fails, preserve both the dump and PostgreSQL state and inspect the error before retrying; schema/binary rollback are **not** the same operation. Never run the disposable CI \`tests/postgres/verify-migrations.sh\` on the VPS: it expects root-like test credentials and creates/drops test DBs.
+
+After schema activation, do a *separate* runtime rollout: configure a restricted environment file readable by the \`tor-deploy\` systemd account (never expose migrator credentials to the app), remove \`TOR_DEMO_MODE=1\`, enable real \`DATABASE_URL\`, verify DB-backed \`/readyz\`, public catalog/book/chapter and negative authorization cases, perform restart/recovery checks, and then add off-site backups. Don't simply \`EnvironmentFile=/etc/tor/tor-app.env\` without accounting for that file's root-only directory and systemd security model.

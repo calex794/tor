@@ -61,10 +61,12 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
-      - name: Build release on runner, never on 1-vCPU VPS
+      - name: Build release and embedded SQLx migrator on runner, never on 1-vCPU VPS
         run: |
           cargo build --release -p tor-web
+          cargo build --release -p tor-migrations --bin tor-migrate
           sha256sum target/release/tor-web > "$RUNNER_TEMP/tor-web.sha256"
+          sha256sum target/release/tor-migrate | sed 's#target/release/##' > "$RUNNER_TEMP/tor-migrate.sha256"
       - name: Set up verified SSH identity
         run: |
           set -euo pipefail
@@ -82,9 +84,13 @@ jobs:
           ssh "${opts[@]}" "$destination" "test -d /opt/tor/releases && test -w /opt/tor/releases"
           ssh "${opts[@]}" "$destination" "mkdir -p /opt/tor/releases/$TARGET_SHA"
           scp -p "${opts[@]}" target/release/tor-web "$destination:/opt/tor/releases/$TARGET_SHA/tor-web"
+          scp -p "${opts[@]}" target/release/tor-migrate "$destination:/opt/tor/releases/$TARGET_SHA/tor-migrate"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-migrate.sha256" "$destination:/opt/tor/releases/$TARGET_SHA/tor-migrate.sha256"
           local_sha="$(sha256sum target/release/tor-web | awk '{print $1}')"
           remote_sha="$(ssh "${opts[@]}" "$destination" "sha256sum /opt/tor/releases/$TARGET_SHA/tor-web | awk '{print \$1}'")"
           test "$local_sha" = "$remote_sha"
+          ssh "${opts[@]}" "$destination" "cd /opt/tor/releases/$TARGET_SHA && sha256sum -c --status tor-migrate.sha256"
+          echo "SQLx migrator delivered and checksum verified, not executed on the VPS"
           ssh "${opts[@]}" "$destination" 'bash -s' -- "$TARGET_SHA" <<'REMOTE'
           set -euo pipefail
           release_sha="$1"
