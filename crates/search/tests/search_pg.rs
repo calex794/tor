@@ -508,7 +508,8 @@ async fn f_02_exact_total_matches_filters_and_immediate_revocation() {
         Ok(0)
     );
     assert_eq!(
-        search.count_faceted("", None, Some("f02-count-total%"))
+        search
+            .count_faceted("", None, Some("f02-count-total%"))
             .await,
         Ok(0)
     );
