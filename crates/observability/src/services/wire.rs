@@ -77,9 +77,7 @@ pub fn encode(trace: &RequestTrace) -> Result<Vec<u8>, WireError> {
             out.extend_from_slice(&sql.uncaptured_spans.to_be_bytes());
             out.push(sql.spans.len() as u8);
             for span in &sql.spans {
-                if span.completed_at_us > trace.duration_us
-                    || span.elapsed_us > MAX_DURATION_US
-                {
+                if span.completed_at_us > trace.duration_us || span.elapsed_us > MAX_DURATION_US {
                     return Err(WireError::InvalidValue);
                 }
                 out.extend_from_slice(&span.completed_at_us.to_be_bytes());
