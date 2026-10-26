@@ -33,8 +33,8 @@ impl PgCoverJobs {
         }
         sqlx::query_scalar::<_, i64>(
             "INSERT INTO cover_upload_objects
-             (book_id,uploader_user_id,storage_key,content_type,size_bytes,content_sha256)
-             SELECT b.id,$2,$3,$4,$5,$6 FROM books b
+             (book_id,uploader_user_id,storage_key,content_type,size_bytes,content_sha256,status)
+             SELECT b.id,$2,$3,$4,$5,$6,'verified' FROM books b
              WHERE b.id=$1 AND b.owner_user_id=$2
                AND NOT b.admin_hold AND NOT b.is_deleted
              RETURNING id",
