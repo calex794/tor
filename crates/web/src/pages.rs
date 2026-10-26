@@ -63,12 +63,44 @@ pub fn home(books: &[PublicBookCard]) -> Html<String> {
 
 pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
     let content = include_str!("../templates/catalog.html")
-        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books));
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
+        .replace("<!--SEARCH_FORM-->", "");
     layout(
         "Каталог",
         "Опубликованные книги и переводы на Пандаолейт.",
         &content,
     )
+}
+
+fn encode_search_term(value: &str) -> String {
+    let mut result = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            result.push(char::from(byte));
+        } else {
+            write!(result, "%{byte:02X}").expect("string write");
+        }
+    }
+    result
+}
+
+pub fn catalog_search(books: &[PublicBookCard], query: &str, cursor: Option<&str>) -> Html<String> {
+    let mut controls = format!(
+        r#"<form action="/catalog" method="get" role="search" class="catalog-search"><label for="book-query">Название книги</label><input id="book-query" type="search" name="q" maxlength="80" value="{}" required><button class="button button--small" type="submit">Найти</button></form>"#,
+        escape_html(query),
+    );
+    if let Some(cursor) = cursor {
+        write!(
+            controls,
+            r#"<nav aria-label="Следующая страница поиска"><a href="/catalog?q={}&amp;after={}">Следующие книги</a></nav>"#,
+            encode_search_term(query),
+            escape_html(cursor),
+        ).expect("string write");
+    }
+    let content = include_str!("../templates/catalog.html")
+        .replace("<!--PUBLIC_BOOKS-->", &book_cards(books))
+        .replace("<!--SEARCH_FORM-->", &controls);
+    layout("Каталог", "Поиск опубликованных книг на Пандаолейт.", &content)
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
