@@ -175,8 +175,7 @@ fn invalid_credentials() -> Response {
     )
 }
 
-/// Reserve capacity before Argon2 to slow password guessing and account spray.
-/// A client IP comes from the TCP peer, NEVER from untrusted forwarding headers.
+/// Bound Argon2 work by verified TCP peer IP, never forwarding headers.
 async fn limit(
     state: &AuthState,
     action: &str,
@@ -382,8 +381,7 @@ async fn my_library(
     private_response(pages::my_library(&books, &saved, &csrf), &cookies)
 }
 
-/// Resolve the authenticated actor exclusively from the database-backed session.
-/// A client-supplied user ID is never accepted.
+/// Resolve actor from the session database, never client-supplied user IDs.
 async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
     let Some(token) = state.cookies.session_token(headers) else {
         return Ok(None);
@@ -523,8 +521,7 @@ async fn private_reader(
     private_response(pages::private_reader(id, &chapter, &csrf, saved), &cookies)
 }
 
-/// Manual, no-JavaScript place saving. Every write verifies session, Origin,
-/// double-submit CSRF, current published version, and free-content visibility.
+/// Manual place save checks session, Origin, CSRF, published version and visibility.
 async fn save_place(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
