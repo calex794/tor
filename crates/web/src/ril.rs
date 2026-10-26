@@ -90,6 +90,7 @@ async fn observe(
     let elapsed = started.elapsed();
     let status = response.status().as_u16();
     let observation = RouteObservation::new(passport, status, elapsed);
+    crate::observability::record_http(passport.route_family, status, elapsed);
     // Only the trusted authentication layer may set this internal response
     // extension after confirming a live session and explicit opt-in.
     let subject = if (200..300).contains(&status) && passport.route_known {
