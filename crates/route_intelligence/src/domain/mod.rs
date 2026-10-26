@@ -99,7 +99,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 42] = [
+const ROUTES: [RouteRegistration; 43] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -358,6 +358,8 @@ const ROUTES: [RouteRegistration; 42] = [
         Catalog,
         Read,
     ), // 41
+    // Internal protected diagnostics; reuse the bounded technical-service family.
+    RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 42
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -463,6 +465,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/chapters/{chapter_id}/release"), "POST") => Some(39),
         (Some("/api/v1/chapters/{id}/read"), "GET") => Some(40),
         (Some("/api/v1/search/books"), "GET") => Some(41),
+        (Some("/metrics"), "GET") => Some(42),
         _ => None,
     };
     index
