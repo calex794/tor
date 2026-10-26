@@ -2,7 +2,10 @@
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
-        authoring::{AuthorError, NewBook, OwnedBook},
+        authoring::{
+            valid_command_key, AuthorError, ChapterAccess, NewBook, OwnedBook, SaveChapter,
+            SavedChapter,
+        },
         CatalogError, PublicBookRepository, MAX_PAGE_SIZE,
     },
 };
@@ -251,5 +254,217 @@ impl PgAuthoring {
             })
         })
         .transpose()
+    }
+}
+
+/// First real writer vertical: create immutable, free chapter version and
+/// publication pointer in one PostgreSQL transaction. Never expose paid text.
+impl PgAuthoring {
+    pub async fn create_free_chapter(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<SavedChapter, AuthorError> {
+        if actor <= 0
+            || request.book_id <= 0
+            || request.chapter_id.is_some()
+            || request.expected_revision != 0
+            || request.number <= 0
+            || request.access != ChapterAccess::Free
+            || request.price_amount != 0
+            || !valid_command_key(&request.command_key)
+            || request.title.chars().count() == 0
+            || request.title.chars().count() > 200
+            || request.body.chars().count() == 0
+            || request.body.chars().count() > 50_000
+        {
+            return Err(AuthorError::Invalid);
+        }
+
+        let mut hasher = Sha256::new();
+        for value in [
+            request.book_id.to_string(),
+            request.number.to_string(),
+            request.title.clone(),
+            request.body.clone(),
+            request.access.as_str().to_owned(),
+            request.price_amount.to_string(),
+        ] {
+            hasher.update((value.len() as u64).to_be_bytes());
+            hasher.update(value.as_bytes());
+        }
+        let digest: [u8; 32] = hasher.finalize().into();
+        let content_sha256: [u8; 32] = Sha256::digest(request.body.as_bytes()).into();
+        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+
+        // Row lock serializes publication against deletion, owner changes and
+        // concurrent chapter creation. Unowned and missing books are identical.
+        let book_visibility: Option<String> = sqlx::query_scalar(
+            "SELECT visibility FROM books
+             WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
+             FOR UPDATE",
+        )
+        .bind(request.book_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        let book_visibility = book_visibility.ok_or(AuthorError::Missing)?;
+
+        let claimed: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO chapter_save_commands (user_id, command_key, payload_hash)
+             VALUES ($1,$2,$3) ON CONFLICT (user_id,command_key) DO NOTHING
+             RETURNING user_id",
+        )
+        .bind(actor)
+        .bind(&request.command_key)
+        .bind(digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+
+        if claimed.is_none() {
+            let row = sqlx::query(
+                "SELECT payload_hash, chapter_id, version_id, saved_revision
+                 FROM chapter_save_commands WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
+            )
+            .bind(actor)
+            .bind(&request.command_key)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+            let prior: Vec<u8> = row.try_get("payload_hash").map_err(|_| AuthorError::Unavailable)?;
+            if prior.as_slice() != digest.as_slice() {
+                return Err(AuthorError::Conflict);
+            }
+            return Ok(SavedChapter {
+                chapter_id: row.try_get::<Option<i64>, _>("chapter_id")
+                    .map_err(|_| AuthorError::Unavailable)?
+                    .ok_or(AuthorError::Unavailable)?,
+                version_id: row.try_get::<Option<i64>, _>("version_id")
+                    .map_err(|_| AuthorError::Unavailable)?
+                    .ok_or(AuthorError::Unavailable)?,
+                revision: row.try_get::<Option<i64>, _>("saved_revision")
+                    .map_err(|_| AuthorError::Unavailable)?
+                    .ok_or(AuthorError::Unavailable)?,
+            });
+        }
+
+        let chapter_id: i64 = sqlx::query_scalar(
+            "INSERT INTO chapters (book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
+             VALUES ($1,$2,$3,'public','free',0,1) RETURNING id",
+        )
+        .bind(request.book_id)
+        .bind(request.number)
+        .bind(&request.title)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| match error {
+            sqlx::Error::Database(ref db) if db.code().as_deref() == Some("23505") =>
+                AuthorError::Conflict,
+            _ => AuthorError::Unavailable,
+        })?;
+        let version_id: i64 = sqlx::query_scalar(
+            "INSERT INTO chapter_versions (chapter_id,version_no,body_markdown,content_sha256)
+             VALUES ($1,1,$2,$3) RETURNING id",
+        )
+        .bind(chapter_id)
+        .bind(&request.body)
+        .bind(content_sha256.as_slice())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2)")
+            .bind(chapter_id)
+            .bind(version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+
+        // First-release facts are emitted only once the parent is public.
+        // A chapter in an unlisted draft is not publicly released yet.
+        if book_visibility == "public" {
+            sqlx::query(
+                "INSERT INTO chapter_first_release_events(chapter_id,version_id)
+                 VALUES ($1,$2) ON CONFLICT (chapter_id) DO NOTHING",
+            )
+            .bind(chapter_id)
+            .bind(version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        }
+        sqlx::query(
+            "UPDATE chapter_save_commands
+             SET chapter_id=$3,version_id=$4,saved_revision=1
+             WHERE user_id=$1 AND command_key=$2",
+        )
+        .bind(actor)
+        .bind(&request.command_key)
+        .bind(chapter_id)
+        .bind(version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
+        Ok(SavedChapter {
+            chapter_id,
+            version_id,
+            revision: 1,
+        })
+    }
+
+    /// Release is a deliberate owner action, not a side effect of editing.
+    /// It refuses books without at least one visible free published chapter.
+    pub async fn release_book(&self, actor: i64, book_id: i64) -> Result<(), AuthorError> {
+        if actor <= 0 || book_id <= 0 {
+            return Err(AuthorError::Missing);
+        }
+        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let book_id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM books WHERE id=$1 AND owner_user_id=$2
+             AND NOT admin_hold AND NOT is_deleted FOR UPDATE",
+        )
+        .bind(book_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        let book_id = book_id.ok_or(AuthorError::Missing)?;
+        let can_release: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM chapters c
+                JOIN chapter_publications p ON p.chapter_id=c.id
+                WHERE c.book_id=$1 AND c.visibility='public' AND c.access_level='free'
+                  AND NOT c.admin_hold AND NOT c.is_deleted
+                  AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+             )",
+        )
+        .bind(book_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        if !can_release {
+            return Err(AuthorError::Conflict);
+        }
+        sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
+            .bind(book_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        sqlx::query(
+            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
+             SELECT c.id,p.version_id FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             WHERE c.book_id=$1 AND c.visibility='public' AND c.access_level='free'
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+             ON CONFLICT (chapter_id) DO NOTHING",
+        )
+        .bind(book_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        tx.commit().await.map_err(|_| AuthorError::Unavailable)
     }
 }
