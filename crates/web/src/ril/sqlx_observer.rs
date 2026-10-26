@@ -121,11 +121,8 @@ impl<S: Subscriber> Layer<S> for SqlxCompletionLayer {
                 } else {
                     let index = usize::from(samples.count);
                     samples.samples[index] = QuerySample {
-                        completed_at_us: counter
-                            .started
-                            .elapsed()
-                            .as_micros()
-                            .min(u64::MAX as u128) as u64,
+                        completed_at_us: counter.started.elapsed().as_micros().min(u64::MAX as u128)
+                            as u64,
                         elapsed_us: elapsed,
                     };
                     samples.count += 1;
