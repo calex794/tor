@@ -18,6 +18,8 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 mod b04_cases;
 #[path = "auth_postgres/b06_cases.rs"]
 mod b06_cases;
+#[path = "auth_postgres/c11_cases.rs"]
+mod c11_cases;
 
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
@@ -659,6 +661,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     // C-09: JSON progress persists across independent client sessions, while
     // stale and concurrent requests cannot move the cursor backwards.
     let csrf_cookies = format!("{session}; {new_csrf_cookie}");
+    c11_cases::reader_and_progress_share_access_policy(&app, &session, &csrf_cookies, csrf).await;
     let read_free = send(
         &app,
         json_request(

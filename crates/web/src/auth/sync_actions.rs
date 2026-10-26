@@ -10,6 +10,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::services::{
     progress::{reader_blocks, valid_text_place, ReadingPlace},
     sync::{positive_id, StoredProgress, SyncError, SyncReceipt},
@@ -130,6 +131,9 @@ pub(super) async fn get_free(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    if !valid_reader_length(&chapter.body_markdown) {
+        return deny(StatusCode::PAYLOAD_TOO_LARGE);
+    }
     let version_id = match i64::try_from(chapter.version_id) {
         Ok(id) => id,
         Err(_) => return deny(StatusCode::NOT_FOUND),
@@ -162,6 +166,9 @@ pub(super) async fn put_free(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    if !valid_reader_length(&chapter.body_markdown) {
+        return deny(StatusCode::PAYLOAD_TOO_LARGE);
+    }
     if chapter.version_id != version_id as u64 {
         return deny(StatusCode::CONFLICT);
     }
