@@ -120,3 +120,6 @@ mod tests {
         assert_eq!(use_case.execute(20).await, Err(CatalogError::Unavailable));
     }
 }
+
+/// Owner-scoped authoring validation (B-01/B-03).
+pub mod authoring;
