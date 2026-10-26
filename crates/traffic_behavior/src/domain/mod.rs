@@ -6,6 +6,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 pub const MAX_SUBJECTS: usize = 10_000;
+/// Temporary in-memory pseudonymous state expires after 30 idle minutes.
+pub const SUBJECT_TTL_MS: u64 = 30 * 60 * 1_000;
 const ROUTE_COUNT: usize = 15;
 const GAP_COUNT: usize = 4;
 
@@ -202,6 +204,7 @@ impl SketchSnapshot {
 pub struct BehaviorSketch {
     max_subjects: usize,
     counter: u64,
+    last_clock: u64,
     current: HashMap<VerifiedSubjectKey, SubjectState>,
     /// Exactly one entry per subject; unlike append-only LRU it cannot grow forever.
     recency: BTreeSet<(u64, VerifiedSubjectKey)>,
@@ -213,6 +216,7 @@ impl BehaviorSketch {
         Self {
             max_subjects: max_subjects.clamp(1, MAX_SUBJECTS),
             counter: 0,
+            last_clock: 0,
             current: HashMap::new(),
             recency: BTreeSet::new(),
             snapshot: SketchSnapshot {
@@ -229,6 +233,9 @@ impl BehaviorSketch {
     }
 
     pub fn record(&mut self, event: BehaviorEvent) {
+        let at_millis = event.at_millis.max(self.last_clock);
+        self.last_clock = at_millis;
+        self.expire_idle(at_millis);
         self.snapshot.total = self.snapshot.total.saturating_add(1);
         self.snapshot.routes[event.route.index()] =
             self.snapshot.routes[event.route.index()].saturating_add(1);
@@ -244,7 +251,7 @@ impl BehaviorSketch {
 
         if let Some(previous) = self.current.get(&subject).copied() {
             self.recency.remove(&(previous.touched, subject));
-            let gap = GapBucket::from_millis(event.at_millis.saturating_sub(previous.at_millis));
+            let gap = GapBucket::from_millis(at_millis.saturating_sub(previous.at_millis));
             let slot = &mut self.snapshot.transitions[previous.route.index()]
                 [event.route.index()][gap.index()];
             *slot = slot.saturating_add(1);
@@ -260,9 +267,34 @@ impl BehaviorSketch {
         let touched = self.counter;
         self.current.insert(
             subject,
-            SubjectState { route: event.route, at_millis: event.at_millis, touched },
+            SubjectState { route: event.route, at_millis, touched },
         );
         self.recency.insert((touched, subject));
+        self.snapshot.active_subjects = self.current.len();
+    }
+
+    /// An authenticated opt-out or account deletion can invalidate its pseudonym.
+    pub fn forget_subject(&mut self, subject: VerifiedSubjectKey) -> bool {
+        let Some(previous) = self.current.remove(&subject) else {
+            return false;
+        };
+        self.recency.remove(&(previous.touched, subject));
+        self.snapshot.active_subjects = self.current.len();
+        true
+    }
+
+    fn expire_idle(&mut self, now: u64) {
+        // The recency index is ordered by last touch, so each entry is examined
+        // at most once until removal. No O(subjects) scan per HTTP event.
+        while let Some((_, key)) = self.recency.first().copied() {
+            let Some(state) = self.current.get(&key) else { break; };
+            if now.saturating_sub(state.at_millis) <= SUBJECT_TTL_MS {
+                break;
+            }
+            self.recency.pop_first();
+            self.current.remove(&key);
+            self.snapshot.evicted_subjects = self.snapshot.evicted_subjects.saturating_add(1);
+        }
         self.snapshot.active_subjects = self.current.len();
     }
 
