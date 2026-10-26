@@ -34,19 +34,26 @@ async fn b_01_owner_draft_is_private_and_idempotent() {
     let identity = format!("tor-ci:b01:{user}");
     let draft = new_book(&identity, "ru", "Первый черновик", &key).unwrap();
     let book_id = author.create_owned_book(user, &draft).await.unwrap();
-    assert_eq!(author.create_owned_book(user, &draft).await.unwrap(), book_id);
     assert_eq!(
-        author.owned_book(user, book_id).await.unwrap().unwrap().title,
+        author.create_owned_book(user, &draft).await.unwrap(),
+        book_id
+    );
+    assert_eq!(
+        author
+            .owned_book(user, book_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .title,
         "Первый черновик"
     );
     assert!(author.owned_book(other, book_id).await.unwrap().is_none());
-    let visible: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM books WHERE id=$1 AND visibility='public'",
-    )
-    .bind(book_id)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let visible: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM books WHERE id=$1 AND visibility='public'")
+            .bind(book_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     assert!(visible.is_none(), "new books must stay drafts");
     let changed = new_book(&identity, "ru", "Подменённый заголовок", &key).unwrap();
     assert_eq!(
@@ -61,8 +68,11 @@ async fn b_01_owner_draft_is_private_and_idempotent() {
         "canonical identity must be unique"
     );
     let row = sqlx::query("SELECT owner_user_id,visibility FROM books WHERE id=$1")
-        .bind(book_id).fetch_one(&pool).await.unwrap();
-    assert_eq!(row.get::<i64,_>("owner_user_id"), user);
-    assert_eq!(row.get::<String,_>("visibility"), "draft");
+        .bind(book_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<i64, _>("owner_user_id"), user);
+    assert_eq!(row.get::<String, _>("visibility"), "draft");
     pool.close().await;
 }
