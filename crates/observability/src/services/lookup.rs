@@ -33,7 +33,8 @@ pub fn parse_query(bytes: &[u8]) -> Option<u128> {
 }
 
 pub fn encode_reply(result: &LookupResult) -> Option<Vec<u8>> {
-    if result.matches > 1 || result.matches != u64::from(result.found.is_some())
+    if result.matches > 1
+        || result.matches != u64::from(result.found.is_some())
         || result.matches > result.archived
     {
         return None;
@@ -93,7 +94,9 @@ pub fn request(socket: &Path, id: u128) -> Result<LookupResult, ()> {
         .set_write_timeout(Some(Duration::from_millis(850)))
         .map_err(|_| ())?;
     let bytes = query_frame(id);
-    stream.write_all(&(bytes.len() as u32).to_be_bytes()).map_err(|_| ())?;
+    stream
+        .write_all(&(bytes.len() as u32).to_be_bytes())
+        .map_err(|_| ())?;
     stream.write_all(&bytes).map_err(|_| ())?;
     let mut length = [0_u8; 4];
     stream.read_exact(&mut length).map_err(|_| ())?;
@@ -130,10 +133,16 @@ mod tests {
         assert_eq!(parse_query(&query_frame(42)), Some(42));
         assert_eq!(parse_query(b"OBQ1"), None);
         assert_eq!(parse_query(b"OBQ1/secret?user_id=42"), None);
-        let miss = LookupResult { archived: 151, matches: 0, found: None };
+        let miss = LookupResult {
+            archived: 151,
+            matches: 0,
+            found: None,
+        };
         assert_eq!(decode_reply(&encode_reply(&miss).unwrap()), Some(miss));
         let hit = LookupResult {
-            archived: 151, matches: 1, found: Some((1_900_000_000, trace()))
+            archived: 151,
+            matches: 1,
+            found: Some((1_900_000_000, trace())),
         };
         let wire = encode_reply(&hit).unwrap();
         assert!(wire.len() <= REPLY_MAX);
@@ -142,15 +151,26 @@ mod tests {
 
     #[test]
     fn corrupted_or_mismatched_counts_fail_closed() {
-        assert!(encode_reply(&LookupResult { archived: 0, matches: 1, found: None }).is_none());
+        assert!(encode_reply(&LookupResult {
+            archived: 0,
+            matches: 1,
+            found: None
+        })
+        .is_none());
         let mut wire = encode_reply(&LookupResult {
-            archived: 1, matches: 1, found: Some((100, trace()))
-        }).unwrap();
+            archived: 1,
+            matches: 1,
+            found: Some((100, trace())),
+        })
+        .unwrap();
         wire[20] = 9;
         assert_eq!(decode_reply(&wire), None);
         let mut wire = encode_reply(&LookupResult {
-            archived: 1, matches: 1, found: Some((100, trace()))
-        }).unwrap();
+            archived: 1,
+            matches: 1,
+            found: Some((100, trace())),
+        })
+        .unwrap();
         wire.push(0);
         assert_eq!(decode_reply(&wire), None);
     }
