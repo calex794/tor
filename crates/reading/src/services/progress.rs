@@ -22,6 +22,15 @@ pub struct ReadingPlace {
     pub char_offset: i32,
 }
 
+/// State of a saved anchor for the version currently published to a reader.
+/// Older positions are not silently mapped onto changed chapter text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SavedPlaceState {
+    NotSaved,
+    Current(ReadingPlace),
+    PreviousVersion,
+}
+
 pub fn valid_text_place(place: ReadingPlace, blocks: &[String]) -> Result<(), ProgressError> {
     valid_place(place.block_index, blocks.len())?;
     let text = &blocks[(place.block_index - 1) as usize];

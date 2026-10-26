@@ -8,7 +8,10 @@ use std::{
     io::Cursor,
     sync::{Arc, Mutex},
 };
-use tor_books::repositories::{cover_slots::PgCoverSlots, PgCatalog};
+use tor_books::repositories::{
+    cover_slots::{PgCoverSlots, PublicCoverKind},
+    PgCatalog,
+};
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
@@ -115,6 +118,28 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     assert_eq!(worker.run_one().await.unwrap(), WorkerResult::Attached);
     assert_eq!(slots.current_slot(901).await.unwrap(), Some((job, 1)));
     assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"));
+    let card = slots
+        .public_variant(901, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .expect("a verified public card");
+    assert_eq!(card.revision, 1);
+    let object = store
+        .get_bounded(&card.storage_key, 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(object.len() as i64, card.size_bytes);
+    assert_eq!(digest(&object), card.sha256);
+    assert!(slots
+        .public_variant(901, PublicCoverKind::Main)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(slots
+        .public_variant(0, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
     let variants = jobs.existing_variants(job).await.unwrap();
     assert_eq!(variants.len(), 2);
     assert_eq!(variants[0].name, "card");
@@ -153,6 +178,13 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     assert_eq!(worker.run_one().await.unwrap(), WorkerResult::Attached);
     assert_eq!(slots.current_slot(901).await.unwrap(), Some((second, 2)));
     assert_ne!(second, job);
+    let current = slots
+        .public_variant(901, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.revision, 2);
+    assert_ne!(current.sha256, card.sha256);
     assert_eq!(
         jobs.existing_variants(job).await.unwrap().len(),
         2,
@@ -216,5 +248,11 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         Some("dead")
     );
     assert!(slots.current_slot(903).await.unwrap().is_none());
+    assert!(slots
+        .public_variant(903, PublicCoverKind::Card)
+        .await
+        .unwrap()
+        .is_none());
+
     catalog.pool().close().await;
 }

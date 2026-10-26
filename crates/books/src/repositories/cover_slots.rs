@@ -82,3 +82,111 @@ impl PgCoverSlots {
         Ok(true)
     }
 }
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum PublicCoverKind {
+    Card,
+    Main,
+}
+
+impl PublicCoverKind {
+    pub fn from_route(value: &str) -> Option<Self> {
+        match value {
+            "card" => Some(Self::Card),
+            "main" => Some(Self::Main),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Card => "card",
+            Self::Main => "main",
+        }
+    }
+}
+
+/// Server-only internal read model: never render the private S3 key into HTML,
+/// JSON or a redirect Location header. The HTTP layer must proxy and verify bytes.
+#[derive(Clone, Eq, PartialEq)]
+pub struct PublicCoverObject {
+    pub storage_key: String,
+    pub sha256: [u8; 32],
+    pub size_bytes: i64,
+    pub revision: i64,
+}
+
+impl PgCoverSlots {
+    /// Reads only the currently attached, completed cover of a visible book.
+    /// All visibility and current-owner checks happen in the SQL query.
+    /// No cached result may bypass a subsequent unpublish/hold/delete operation.
+    pub async fn public_variant(
+        &self,
+        book_id: i64,
+        kind: PublicCoverKind,
+    ) -> Result<Option<PublicCoverObject>, sqlx::Error> {
+        if book_id <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT v.storage_key,v.content_sha256,v.size_bytes,s.revision
+             FROM books b
+             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
+             JOIN cover_variants v ON v.job_id=j.id AND v.variant_name=$2
+             WHERE b.id=$1 AND b.visibility='public'
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.owner_user_id=j.actor_user_id
+               AND j.status='done'",
+        )
+        .bind(book_id)
+        .bind(kind.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let storage_key: String = row.try_get("storage_key")?;
+        let digest: Vec<u8> = row.try_get("content_sha256")?;
+        let size_bytes: i64 = row.try_get("size_bytes")?;
+        let revision: i64 = row.try_get("revision")?;
+        let sha256: [u8; 32] = digest
+            .try_into()
+            .map_err(|_| sqlx::Error::Protocol("cover SHA-256 length mismatch".into()))?;
+        if size_bytes <= 0
+            || size_bytes > 8 * 1024 * 1024
+            || revision <= 0
+            || !storage_key.starts_with("staging/covers/variants/")
+            || storage_key.len() > 512
+            || storage_key.contains("..")
+            || storage_key.contains("//")
+            || !storage_key.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'-' | b'_')
+            })
+        {
+            return Err(sqlx::Error::Protocol(
+                "invalid stored public cover variant metadata".into(),
+            ));
+        }
+        Ok(Some(PublicCoverObject {
+            storage_key,
+            sha256,
+            size_bytes,
+            revision,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod public_cover_tests {
+    use super::PublicCoverKind;
+
+    #[test]
+    fn accepts_only_bounded_cover_variants() {
+        assert!(PublicCoverKind::from_route("card").is_some());
+        assert!(PublicCoverKind::from_route("main").is_some());
+        for invalid in ["", "CARD", "../card", "source", "thumb", "card/../main"] {
+            assert!(PublicCoverKind::from_route(invalid).is_none());
+        }
+    }
+}

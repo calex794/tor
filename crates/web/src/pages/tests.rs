@@ -1,4 +1,3 @@
-
 use super::*;
 #[test]
 fn escapes_untrusted_book_titles() {

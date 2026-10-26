@@ -350,7 +350,7 @@ async fn private_reader(
     };
     let saved = match state
         .progress
-        .saved_place(actor, chapter_id, version_id)
+        .saved_state(actor, chapter_id, version_id)
         .await
     {
         Ok(saved) => saved,
