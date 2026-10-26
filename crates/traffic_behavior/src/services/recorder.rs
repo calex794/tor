@@ -209,6 +209,7 @@ mod tests {
         let recorder = TrafficRecorder {
             sender,
             dropped: Arc::new(AtomicU64::new(0)),
+            paths: PathRecorder::start(2, 2),
             started: Instant::now(),
         };
         assert!(!recorder.try_record(event()));
