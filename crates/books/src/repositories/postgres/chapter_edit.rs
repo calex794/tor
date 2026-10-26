@@ -27,7 +27,7 @@ impl PgAuthoring {
             || input.price_amount != 0
             || !(1..=200).contains(&input.title.chars().count())
             || !(1..=50_000).contains(&input.body.chars().count())
-            || !valid_command_key(&input.command_key)
+            || !valid_command_key(input.command_key.as_str())
         {
             return Err(AuthorError::Invalid);
         }
@@ -77,7 +77,7 @@ impl PgAuthoring {
              RETURNING user_id",
         )
         .bind(actor)
-        .bind(&input.command_key)
+        .bind(input.command_key.as_str())
         .bind(payload_hash.as_slice())
         .fetch_optional(&mut *tx)
         .await
@@ -90,7 +90,7 @@ impl PgAuthoring {
                  FOR UPDATE",
             )
             .bind(actor)
-            .bind(&input.command_key)
+            .bind(input.command_key.as_str())
             .fetch_one(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
@@ -263,7 +263,7 @@ impl PgAuthoring {
              WHERE user_id=$1 AND command_key=$2",
         )
         .bind(actor)
-        .bind(&input.command_key)
+        .bind(input.command_key.as_str())
         .bind(chapter_id)
         .bind(version_id)
         .bind(saved_revision)

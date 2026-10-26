@@ -1,6 +1,7 @@
 # Each new domain package must be registered and have exactly one owning lane.
 # Changes to this map are shared-contract changes approved by lane I.
 [features]
+contracts = "I"
 accounts = "A"
 books = "B"
 teams = "B"

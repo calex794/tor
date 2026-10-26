@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const base = 'http://127.0.0.1:3098';
+const base = process.env.TOR_BASE_URL || 'http://127.0.0.1:3098';
 const out = process.env.TOR_AUTHOR_SHOTS || 'author-chapter-shots';
 fs.mkdirSync(out, { recursive: true });
 
@@ -29,14 +29,18 @@ async function inspect(page, viewport, name) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.TOR_CHROMIUM_EXECUTABLE || undefined,
+  });
+  const runId = Date.now().toString(36);
   try {
     for (const [viewport, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const context = await browser.newContext({ viewport: { width, height } });
       const page = await context.newPage();
       await page.goto(base + '/register');
       await page.getByLabel('Отображаемое имя').fill('Автор ' + viewport);
-      await page.getByLabel('Электронная почта').fill('author.chapter.' + viewport + '@example.test');
+      await page.getByLabel('Электронная почта').fill('author.chapter.' + viewport + '.' + runId + '@example.test');
       await page.getByLabel('Пароль (12–128 символов)').fill('TestAuthorPassword2026');
       await page.getByRole('button', { name: 'Создать учётную запись' }).click();
       await page.waitForURL('**/me');
@@ -82,9 +86,13 @@ async function inspect(page, viewport, name) {
       assert(await page.getByText(/Черновик/).isVisible(),
         viewport + ': draft edit must not publish book');
 
-      const hidden = await page.goto(base + '/books/' + bookId);
-      assert(hidden && hidden.status() === 404,
+      // Empty 404 navigations can surface as net::ERR_HTTP_RESPONSE_CODE_FAILURE
+      // in Chromium. The context request shares the browser's authenticated cookies.
+      const hidden = await context.request.get(base + '/books/' + bookId);
+      assert(hidden.status() === 404,
         viewport + ': saved chapter exposed before explicit publication');
+      assert(!(await hidden.text()).includes('Обновлённая версия:'),
+        viewport + ': private chapter text leaked in the denial response');
       await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
       await page.waitForURL(base + '/books/' + bookId);

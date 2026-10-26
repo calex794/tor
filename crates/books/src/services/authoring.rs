@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 use crate::domain::BookKey;
 use std::{error::Error, fmt};
+use tor_contracts::{BookId, ChapterId, IdempotencyKey};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum AuthorError {
@@ -19,10 +20,7 @@ impl fmt::Display for AuthorError {
 impl Error for AuthorError {}
 
 pub fn valid_command_key(key: &str) -> bool {
-    key.len() == 43
-        && key
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    key.parse::<IdempotencyKey>().is_ok()
 }
 
 #[derive(Debug)]
@@ -30,7 +28,7 @@ pub struct NewBook {
     pub source_identity: String,
     pub target_language: String,
     pub title: String,
-    pub command_key: String,
+    pub command_key: IdempotencyKey,
 }
 
 pub fn new_book(
@@ -39,6 +37,7 @@ pub fn new_book(
     title: &str,
     command_key: &str,
 ) -> Result<NewBook, AuthorError> {
+    let command_key = command_key.parse().map_err(|_| AuthorError::Invalid)?;
     let key = BookKey::new(source, language).map_err(|_| AuthorError::Invalid)?;
     let title = title.trim();
     if key.source_identity().chars().count() > 256
@@ -46,7 +45,6 @@ pub fn new_book(
         || key.source_identity().chars().any(char::is_control)
         || !(1..=200).contains(&title.chars().count())
         || title.chars().any(char::is_control)
-        || !valid_command_key(command_key)
     {
         return Err(AuthorError::Invalid);
     }
@@ -54,7 +52,7 @@ pub fn new_book(
         source_identity: key.source_identity().to_owned(),
         target_language: key.target_language().to_owned(),
         title: title.to_owned(),
-        command_key: command_key.to_owned(),
+        command_key,
     })
 }
 
@@ -82,7 +80,7 @@ pub struct SaveChapter {
     pub body: String,
     pub access: ChapterAccess,
     pub price_amount: i64,
-    pub command_key: String,
+    pub command_key: IdempotencyKey,
 }
 
 pub struct SaveChapterRequest<'a> {
@@ -98,11 +96,21 @@ pub struct SaveChapterRequest<'a> {
 }
 
 pub fn save_chapter(input: SaveChapterRequest<'_>) -> Result<SaveChapter, AuthorError> {
-    let book_id = i64::try_from(input.book_id).map_err(|_| AuthorError::Invalid)?;
+    let book_id = BookId::try_from(input.book_id)
+        .map_err(|_| AuthorError::Invalid)?
+        .get();
     let chapter_id = input
         .chapter_id
-        .map(|id| i64::try_from(id).map_err(|_| AuthorError::Invalid))
+        .map(|id| {
+            ChapterId::try_from(id)
+                .map(ChapterId::get)
+                .map_err(|_| AuthorError::Invalid)
+        })
         .transpose()?;
+    let command_key = input
+        .command_key
+        .parse()
+        .map_err(|_| AuthorError::Invalid)?;
     let title = input.title.trim();
     let body = input.body.replace("\r\n", "\n");
     let access = match input.access {
@@ -119,7 +127,6 @@ pub fn save_chapter(input: SaveChapterRequest<'_>) -> Result<SaveChapter, Author
         || title.chars().any(char::is_control)
         || !(1..=50_000).contains(&body.chars().count())
         || body.contains('\0')
-        || !valid_command_key(input.command_key)
         || match access {
             ChapterAccess::Free => input.price_amount != 0,
             ChapterAccess::Paid => input.price_amount <= 0,
@@ -136,7 +143,7 @@ pub fn save_chapter(input: SaveChapterRequest<'_>) -> Result<SaveChapter, Author
         body,
         access,
         price_amount: input.price_amount,
-        command_key: input.command_key.to_owned(),
+        command_key,
     })
 }
 

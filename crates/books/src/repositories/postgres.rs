@@ -173,7 +173,7 @@ impl PgAuthoring {
              RETURNING user_id",
         )
         .bind(user_id)
-        .bind(&book.command_key)
+        .bind(book.command_key.as_str())
         .bind(&digest[..])
         .fetch_optional(&mut *tx)
         .await
@@ -185,7 +185,7 @@ impl PgAuthoring {
                  WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
             )
             .bind(user_id)
-            .bind(&book.command_key)
+            .bind(book.command_key.as_str())
             .fetch_optional(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?
@@ -222,7 +222,7 @@ impl PgAuthoring {
             "UPDATE book_create_commands SET book_id=$3 WHERE user_id=$1 AND command_key=$2",
         )
         .bind(user_id)
-        .bind(&book.command_key)
+        .bind(book.command_key.as_str())
         .bind(book_id)
         .execute(&mut *tx)
         .await
@@ -378,7 +378,7 @@ impl PgAuthoring {
             || request.number <= 0
             || request.access != ChapterAccess::Free
             || request.price_amount != 0
-            || !valid_command_key(&request.command_key)
+            || !valid_command_key(request.command_key.as_str())
             || request.title.chars().count() == 0
             || request.title.chars().count() > 200
             || request.body.chars().count() == 0
@@ -432,7 +432,7 @@ impl PgAuthoring {
              RETURNING user_id",
         )
         .bind(actor)
-        .bind(&request.command_key)
+        .bind(request.command_key.as_str())
         .bind(digest.as_slice())
         .fetch_optional(&mut *tx)
         .await
@@ -444,7 +444,7 @@ impl PgAuthoring {
                  FROM chapter_save_commands WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
             )
             .bind(actor)
-            .bind(&request.command_key)
+            .bind(request.command_key.as_str())
             .fetch_one(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
@@ -509,7 +509,7 @@ impl PgAuthoring {
              WHERE user_id=$1 AND command_key=$2",
         )
         .bind(actor)
-        .bind(&request.command_key)
+        .bind(request.command_key.as_str())
         .bind(chapter_id)
         .bind(version_id)
         .execute(&mut *tx)

@@ -1,6 +1,7 @@
 //! C-09/S006: version-pinned, revision-checked reading positions.
 #![forbid(unsafe_code)]
 use super::progress::ReadingPlace;
+use tor_contracts::PositiveId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SyncError {
@@ -26,13 +27,9 @@ pub struct StoredProgress {
 
 /// New JSON commands use decimal strings to avoid JavaScript integer loss.
 pub fn positive_id(raw: &str) -> Result<i64, SyncError> {
-    if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|c| c.is_ascii_digit()) {
-        return Err(SyncError::Invalid);
-    }
-    raw.parse::<i64>()
-        .ok()
-        .filter(|id| *id > 0)
-        .ok_or(SyncError::Invalid)
+    raw.parse::<PositiveId>()
+        .map(PositiveId::get)
+        .map_err(|_| SyncError::Invalid)
 }
 
 pub fn checked_place(place: ReadingPlace, revision: i64) -> Result<(), SyncError> {
