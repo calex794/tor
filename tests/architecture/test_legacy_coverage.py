@@ -21,6 +21,8 @@ class LegacyCoverageTests(unittest.TestCase):
         out.mkdir(parents=True)
         source = ROOT / "docs" / "roadmap"
         shutil.copy2(source / "sources.lock.toml", out.parent / "sources.lock.toml")
+        shutil.copy2(source / "functions-coverage-audit.tsv", out.parent / "functions-coverage-audit.tsv")
+        shutil.copy2(source / "tasks.tsv", out.parent / "tasks.tsv")
         for file in (source / "legacy-inventory").glob("*"):
             shutil.copy2(file, out / file.name)
 
@@ -36,6 +38,9 @@ class LegacyCoverageTests(unittest.TestCase):
         self.assertEqual(stats["source_declarations"], 560)
         self.assertEqual(stats["job_registered"], 57)
         self.assertEqual(stats["job_frozen"], 8)
+        self.assertEqual(stats["semantic_candidate_from_source"], 420)
+        self.assertEqual(stats["semantic_explicit_subfunction"], 45)
+        self.assertEqual(stats["semantic_excluded"], 101)
         self.assertEqual(stats["review_unresolved_mount"], 1)
 
     def test_strict_does_not_claim_unreviewed_routes(self):
@@ -66,6 +71,29 @@ class LegacyCoverageTests(unittest.TestCase):
         self.edit(f, "scene_marketplace_notification_event\t", "plain_notification_event\t")
         problems, _ = audit(self.root)
         self.assertTrue(any("frozen deferred jobs" in x or "freeze" in x for x in problems))
+
+    def test_semantic_mapping_missing_row_detected(self):
+        p = self.root / "docs/roadmap/legacy-inventory/route-action-candidates.tsv"
+        rows = p.read_text(encoding="utf-8").splitlines(keepends=True)
+        index = next(i for i, x in enumerate(rows) if "X-NEWS" in x)
+        p.write_text("".join(rows[:index] + rows[index + 1:]), encoding="utf-8")
+        issues, _ = audit(self.root)
+        self.assertTrue(any("semantic rows" in x or "semantic action keys mismatch" in x for x in issues))
+
+    def test_invalid_feature_group_detected(self):
+        self.edit("route-action-candidates.tsv", "\\tF015\\t", "\\tF999\\t")
+        issues, _ = audit(self.root)
+        self.assertTrue(any("unknown canonical feature" in x for x in issues))
+
+    def test_false_behavior_verification_detected(self):
+        self.edit("route-action-candidates.tsv", "\\tnot_behavior_verified\\t", "\\truntime_verified\\t")
+        issues, _ = audit(self.root)
+        self.assertTrue(any("falsely marked behavior-verified" in x for x in issues))
+
+    def test_frozen_action_must_remain_frozen(self):
+        self.edit("route-action-candidates.tsv", "\\tFROZEN\\t\\texcluded\\t", "\\tF018\\tB-02\\tcandidate_from_source\\t")
+        issues, _ = audit(self.root)
+        self.assertTrue(any("frozen route" in x for x in issues))
 
     def test_source_pin_failure(self):
         f = "routes-part-000.tsv"
