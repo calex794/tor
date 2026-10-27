@@ -12,7 +12,7 @@ pub use account::{
 mod reader_private;
 pub use reader_private::private_reader;
 mod reader_paid;
-pub use reader_paid::paid_reader_shell;
+pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
