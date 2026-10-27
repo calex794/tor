@@ -49,6 +49,8 @@ const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-private-chapter-ci";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
+const OBJECT_ID_SECOND: &str = "f0c0e034-2026-4034-8034-000000000035";
+const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <script>опасно</script>";
 const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
@@ -180,6 +182,8 @@ fn save_ephemeral_fixture(
     reader_html: String,
     reader_csp: String,
     expiry_probe_url: Value,
+    toc_chapter: i64,
+    toc_purchase: i64,
 ) {
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
@@ -204,6 +208,9 @@ fn save_ephemeral_fixture(
         "expected_chapter_title": CHAPTER_TITLE,
         "expected_chapter_no": 1,
         "expected_version_no": 1,
+        "toc_second_chapter_id": toc_chapter.to_string(),
+        "toc_second_purchase_id": toc_purchase.to_string(),
+        "toc_second_title": CHAPTER_TWO_TITLE,
     });
     file.write_all(payload.to_string().as_bytes()).unwrap();
     file.sync_all().unwrap();
@@ -309,7 +316,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .unwrap();
 
     let short_store = s3.clone();
-    let signer = PgPrivateDelivery::new(pool.clone(), s3, kek, BUCKET.to_owned()).unwrap();
+    let signer = PgPrivateDelivery::new(pool.clone(), s3, kek.clone(), BUCKET.to_owned()).unwrap();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
         catalog,
         reader,
@@ -369,6 +376,77 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
     let purchase_id = purchase.purchase_id.get();
+    // A second fully verified paid edition proves that the TOC contains
+    // live links, not synthetic chapter IDs or a public TOC.
+    let chapter_two = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) \
+             VALUES({book},2,'Вторая купленная глава <script>опасно</script>','public','paid',175) RETURNING id"
+        ),
+    );
+    let version_two = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({chapter_two},1,'Second paid edition content') RETURNING id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({chapter_two},{version_two})"
+        ),
+    );
+    let pinned_two = ChapterVersionRef {
+        chapter_id: PositiveId::new(chapter_two).unwrap(),
+        version_id: PositiveId::new(version_two).unwrap(),
+    };
+    let object_two = ObjectId::parse(OBJECT_ID_SECOND).unwrap();
+    let sealed_two = seal_chapter(pinned_two, object_two.clone(), "Second paid edition content", &kek)
+        .unwrap();
+    let reference_two = registry
+        .reserve_pending(&sealed_two, &kek, BUCKET)
+        .await
+        .unwrap();
+    let receipt_two = upload_and_verify(&short_store, &reference_two, &sealed_two.ciphertext)
+        .await
+        .unwrap();
+    registry.mark_ready(&receipt_two).await.unwrap();
+    PgPaidStorage::new(pool.clone())
+        .attach_verified_and_publish(
+            author,
+            book,
+            pinned_two,
+            &object_two,
+            PaidPublication::KeepCurrent,
+        )
+        .await
+        .unwrap();
+    let purchase_two = PgCheckout::new(pool.clone())
+        .checkout_once(
+            &PurchaseCommand::new(
+                PositiveId::new(buyer).unwrap(),
+                WalletId::new(buyer).unwrap(),
+                pinned_two,
+                MoneyMinor::new(175).unwrap(),
+                IdempotencyKey::parse(&format!("{}5", "Y".repeat(42))).unwrap(),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let purchase_two_id = purchase_two.purchase_id.get();
+    let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
+    assert_eq!(second_reader.status(), StatusCode::OK);
+    let second_html = html_body(second_reader).await;
+    assert!(second_html.contains("data-paid-toc"));
+    assert!(second_html.contains(&format!(
+        "/read/paid/{chapter}?purchase_id={purchase_id}"
+    )));
+    assert!(!second_html.contains("<script>опасно</script>"));
+
     let stranger_list = private_get(&app, "/me/purchases", Some(&stranger_cookie)).await;
     assert_eq!(stranger_list.status(), StatusCode::OK);
     assert!(
@@ -494,6 +572,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .unwrap();
     assert!(reader_html.contains("data-paid-chapter-reader"));
+    assert!(reader_html.contains("data-paid-toc"));
+    assert!(reader_html.contains("Оглавление купленных глав"));
+    assert!(reader_html.contains(&format!(
+        "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
+    )));
+    assert!(reader_html.contains("Вторая купленная глава &lt;script&gt;опасно&lt;/script&gt;"));
+    assert!(!reader_html.contains("<script>опасно</script>"));
     assert!(reader_html.contains("<body class=\"reader-standalone\">"));
     assert!(reader_html.contains("<main id=\"main\" class=\"reader-standalone__main\">"));
     assert!(!reader_html.contains("class=\"site-header\""));
@@ -519,6 +604,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         reader_html,
         reader_csp,
         expiry_probe_url,
+        chapter_two,
+        purchase_two_id,
     );
 
     pg(
