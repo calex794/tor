@@ -70,13 +70,27 @@ impl PgDirectEntitlements {
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             items.push(ReadablePurchase {
-                purchase_id: row.try_get("purchase_id").map_err(|_| DeliveryError::Unavailable)?,
-                chapter_id: row.try_get("chapter_id").map_err(|_| DeliveryError::Unavailable)?,
-                version_id: row.try_get("version_id").map_err(|_| DeliveryError::Unavailable)?,
-                version_no: row.try_get("version_no").map_err(|_| DeliveryError::Unavailable)?,
-                chapter_no: row.try_get("chapter_no").map_err(|_| DeliveryError::Unavailable)?,
-                book_title: row.try_get("book_title").map_err(|_| DeliveryError::Unavailable)?,
-                chapter_title: row.try_get("chapter_title").map_err(|_| DeliveryError::Unavailable)?,
+                purchase_id: row
+                    .try_get("purchase_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_id: row
+                    .try_get("chapter_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                version_id: row
+                    .try_get("version_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                version_no: row
+                    .try_get("version_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_no: row
+                    .try_get("chapter_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                book_title: row
+                    .try_get("book_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_title: row
+                    .try_get("chapter_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
             });
         }
         let next_after = if more {
