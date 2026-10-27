@@ -364,7 +364,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let stranger_list = private_get(&app, "/me/purchases", Some(&stranger_cookie)).await;
     assert_eq!(stranger_list.status(), StatusCode::OK);
     assert!(
-        !html_body(stranger_list).await.contains(&format!("purchase_id={purchase_id}")),
+        !html_body(stranger_list)
+            .await
+            .contains(&format!("purchase_id={purchase_id}")),
         "another account cannot enumerate purchases"
     );
     let owned_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
