@@ -246,7 +246,8 @@ impl PgPaidStorage {
 
 /// B resolves historical versions only after D returns an Allowed pinned
 /// edition. No query joins the current-publication pointer: V1 is retained
-/// after a later V2, but hidden/held/removed content is never returned.
+/// after a later V2. Creator-hide is not refund; holds and hard deletion
+/// always deny. The D port must independently authorize exact V1 first.
 #[async_trait]
 impl ChapterVersionPort for PgPaidStorage {
     async fn encrypted_chapter(
@@ -262,8 +263,8 @@ impl ChapterVersionPort for PgPaidStorage {
              JOIN storage_objects o ON o.id=v.storage_object_id
              WHERE v.chapter_id=$1 AND v.id=$2
                AND c.access_level='paid'
-               AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND NOT b.admin_hold AND NOT b.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                AND o.state='attached' AND o.object_kind='chapter' AND o.codec='gzip'",
         )
