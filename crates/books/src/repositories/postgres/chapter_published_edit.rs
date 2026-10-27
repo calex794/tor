@@ -79,7 +79,7 @@ impl PgAuthoring {
             || input.book_id <= 0
             || chapter_id <= 0
             || input.number <= 0
-            || input.expected_revision < 1
+            || input.expected_revision < 0
             || input.access != ChapterAccess::Free
             || input.price_amount != 0
             || !valid_command_key(&input.command_key)
