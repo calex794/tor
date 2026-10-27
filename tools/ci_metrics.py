@@ -164,8 +164,8 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
     complete = True
     for run in runs:
         status, conclusion = run.get("status"), run.get("conclusion")
-        if status != "completed" or conclusion is None:
-            complete = False
+        if status != "completed" or conclusion != "success":
+            complete = False  # failed/cancelled workflows cannot prove a speedup
         outcomes.append({"run_id": run["id"], "workflow": run.get("name"), "status": status,
                          "conclusion": conclusion, "url": run.get("html_url")})
         jobs = paginated(api, f"/repos/{repo}/actions/runs/{run['id']}/jobs", "jobs", max_jobs)
@@ -177,6 +177,8 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
             if job.get("conclusion") == "skipped":
                 jobs_skipped += 1
                 continue
+            if job.get("conclusion") not in ("success", None):
+                complete = False  # fail-fast is not a valid performance baseline
             if start is None:
                 jobs_waiting += 1
                 complete = False
