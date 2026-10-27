@@ -985,3 +985,14 @@ img.home-spotlight-card__cover {
 .catalog-active-filters .ui-chip__key { color: var(--text-muted); }
 .catalog-active-filters .ui-chip__value { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
 .catalog-active-filters .ui-chip__remove { flex: none; margin-left: 2px; font-size: 18px; line-height: 1; }
+
+/* H-10: restore original NEwBOO public BookCard text boundaries. */
+.book-mini-card__body { min-width: 0; }
+.book-mini-card__title {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; line-clamp: 2;
+}
+.book-mini-card__meta {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.book-mini-card__cover { position: relative; }
