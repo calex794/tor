@@ -8,7 +8,7 @@ use aes_gcm::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
-use std::{fmt, io::Write};
+use std::{fmt, io::Write, sync::Arc};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use zeroize::Zeroizing;
 
@@ -37,8 +37,12 @@ impl ContentKek {
     /// Strict unpadded base64url, exactly 32 bytes, from a separate secret.
     /// Never derive this from cookie, JWT, database password or HMAC keys.
     pub fn from_environment() -> Result<Self, CryptoError> {
+        Self::from_named_environment("TOR_CONTENT_KEK_V1")
+    }
+
+    fn from_named_environment(name: &str) -> Result<Self, CryptoError> {
         let encoded = Zeroizing::new(
-            std::env::var("TOR_CONTENT_KEK_V1").map_err(|_| CryptoError::UnavailableKey)?,
+            std::env::var(name).map_err(|_| CryptoError::UnavailableKey)?,
         );
         let decoded = Zeroizing::new(
             URL_SAFE_NO_PAD
@@ -57,6 +61,49 @@ impl ContentKek {
 impl fmt::Debug for ContentKek {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ContentKek([REDACTED])")
+    }
+}
+
+/// Read-only, versioned content keys, independent of cookies/JWT and the DB.
+/// V1 remains mandatory until no historical edition references it.
+pub struct ContentKeyring {
+    v1: Arc<ContentKek>,
+    v2: Option<Arc<ContentKek>>,
+}
+
+impl ContentKeyring {
+    /// Preserve all existing v1 callers without activating key rotation.
+    pub fn v1_only(v1: Arc<ContentKek>) -> Self {
+        Self { v1, v2: None }
+    }
+
+    pub fn with_v2(v1: Arc<ContentKek>, v2: Arc<ContentKek>) -> Result<Self, CryptoError> {
+        if v1.0[..] == v2.0[..] {
+            return Err(CryptoError::InvalidMaterial);
+        }
+        Ok(Self { v1, v2: Some(v2) })
+    }
+
+    /// Missing V2 means the old safe V1-only reader. A present but invalid V2
+    /// must fail startup rather than silently serving an inconsistent keyring.
+    pub fn from_environment() -> Result<Self, CryptoError> {
+        let v1 = Arc::new(ContentKek::from_environment()?);
+        match std::env::var("TOR_CONTENT_KEK_V2") {
+            Ok(_) => Self::with_v2(
+                v1,
+                Arc::new(ContentKek::from_named_environment("TOR_CONTENT_KEK_V2")?),
+            ),
+            Err(std::env::VarError::NotPresent) => Ok(Self::v1_only(v1)),
+            Err(_) => Err(CryptoError::UnavailableKey),
+        }
+    }
+
+    fn for_id(&self, id: &str) -> Result<&ContentKek, CryptoError> {
+        match id {
+            KEK_ID => Ok(&self.v1),
+            KEK_ID_V2 => self.v2.as_deref().ok_or(CryptoError::UnavailableKey),
+            _ => Err(CryptoError::UnavailableKey),
+        }
     }
 }
 
@@ -292,7 +339,19 @@ pub(crate) fn unwrap_registered_dek(
     kek_id: &str,
     kek: &ContentKek,
 ) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
-    if kek_id != KEK_ID || wrapped_dek.len() != 48 {
+    if kek_id != KEK_ID {
+        return Err(CryptoError::UnavailableKey);
+    }
+    unwrap_bytes(object_id, wrapped_dek, wrap_nonce, kek)
+}
+
+fn unwrap_bytes(
+    object_id: &ObjectId,
+    wrapped_dek: &[u8],
+    wrap_nonce: &[u8; 12],
+    kek: &ContentKek,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    if wrapped_dek.len() != 48 {
         return Err(CryptoError::UnavailableKey);
     }
     let aad = wrap_aad(object_id);
@@ -303,6 +362,19 @@ pub(crate) fn unwrap_registered_dek(
     let mut dek = Zeroizing::new([0_u8; 32]);
     dek[..].copy_from_slice(&bytes);
     Ok(dek)
+}
+
+/// Select only an independently configured KEK for the trusted registry
+/// version. Never guess a key or silently fall back to V1 for a V2 row.
+pub(crate) fn unwrap_registered_dek_from_keyring(
+    object_id: &ObjectId,
+    wrapped_dek: &[u8],
+    wrap_nonce: &[u8; 12],
+    kek_id: &str,
+    keyring: &ContentKeyring,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    let key = keyring.for_id(kek_id)?;
+    unwrap_bytes(object_id, wrapped_dek, wrap_nonce, key)
 }
 
 #[cfg(test)]
