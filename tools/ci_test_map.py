@@ -54,6 +54,7 @@ TEST_SUITES = {
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/discussions/tests/public_book_comments_pg.rs": {"rust", "postgres"},
     "crates/observability/tests/store_sqlite.rs": {"rust"},
     "crates/observability/tests/trace_store_daemon.rs": {"rust"},
     "tools/visual-smoke.cjs": {"visual"},
