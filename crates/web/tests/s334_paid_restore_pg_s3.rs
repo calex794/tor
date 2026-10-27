@@ -16,7 +16,10 @@ use axum::{
 use serde_json::{json, Value};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-use std::{env, fs, fs::OpenOptions, io::Write, num::NonZeroU32, path::PathBuf, process::Command, sync::Arc};
+use std::{
+    env, fs, fs::OpenOptions, io::Write, num::NonZeroU32, path::PathBuf, process::Command,
+    sync::Arc,
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
