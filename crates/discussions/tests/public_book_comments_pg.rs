@@ -34,7 +34,8 @@ async fn e_02_public_book_visibility_and_replay() {
         CreateResult::Replayed(id)
     );
     assert_eq!(
-        repo.create(user, book, "Чужой текст", &command_key, &hash).await,
+        repo.create(user, book, "Чужой текст", &command_key, &hash)
+            .await,
         CreateResult::Conflict
     );
     let comments = repo.list(book, None, 50).await.unwrap().unwrap();
