@@ -93,20 +93,6 @@ impl PgRanking {
             tx.commit().await?;
             return Ok(false);
         }
-        // A saved C fact never overrides current moderation or visibility.
-        // Hold the row until the event/rank are committed.
-        let allowed: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM books WHERE id=$1
-             AND visibility='public' AND NOT admin_hold AND NOT is_deleted
-             FOR SHARE",
-        )
-        .bind(book_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if allowed.is_none() {
-            return Err(RankingStoreError::Conflict);
-        }
-
         sqlx::query(
             "INSERT INTO user_book_ranking_head(user_id,revision)
              SELECT id,0 FROM users WHERE id=$1
@@ -121,6 +107,20 @@ impl PgRanking {
         .bind(user_id)
         .fetch_one(&mut *tx)
         .await?;
+        // A saved C fact never overrides current moderation or visibility.
+        // Hold the row until the event/rank are committed.
+        let allowed: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM books WHERE id=$1
+             AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+             FOR SHARE",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if allowed.is_none() {
+            return Err(RankingStoreError::Conflict);
+        }
+
         let before = load_snapshot(&mut tx, user_id, revision).await?;
         let mut next = before.clone();
 
