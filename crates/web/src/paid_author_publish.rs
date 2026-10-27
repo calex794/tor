@@ -3,10 +3,9 @@
 //! No writer endpoint is enabled without an explicit, configured S3-paid router.
 use crate::author_chapter_http::PaidChapterPublisher;
 use async_trait::async_trait;
-use sqlx::PgPool;
 use std::sync::Arc;
 use tor_books::{
-    repositories::paid_storage::{PaidPublication, PgPaidStorage},
+    repositories::{paid_storage::{PaidPublication, PgPaidStorage}, PgCatalog},
     services::authoring::{AuthorError, SaveChapter},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
@@ -29,7 +28,7 @@ pub struct PgPaidAuthorPublisher<S> {
 
 impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
     pub fn new(
-        pool: PgPool,
+        catalog: PgCatalog,
         store: S,
         keyring: Arc<ContentKeyring>,
         bucket: String,
@@ -37,6 +36,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         if !valid_private_bucket(&bucket) {
             return Err("Invalid private author S3 bucket");
         }
+        let pool = catalog.pool();
         Ok(Self {
             paid: PgPaidStorage::new(pool.clone()),
             registry: PgStorageRegistry::new(pool),
