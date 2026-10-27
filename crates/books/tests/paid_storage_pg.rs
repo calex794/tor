@@ -1,6 +1,6 @@
 //! B S3-09/11: owner-only historical paid version to verified G object.
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use tor_books::{
     repositories::paid_storage::{PaidPublication, PgPaidStorage},
     services::authoring::AuthorError,
