@@ -70,9 +70,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                pending_ranking_consumer = Some(
-                    tor_recommendations::repositories::PgRanking::new(pool.clone()),
-                );
+                pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
+                    pool.clone(),
+                ));
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
