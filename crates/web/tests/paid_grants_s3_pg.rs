@@ -182,7 +182,7 @@ fn save_ephemeral_fixture(
     reader_html: String,
     reader_csp: String,
     expiry_probe_url: Value,
-    toc_target: (i64, i64),
+    toc_target: (i64, i64, i64, i64, i64),
 ) {
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
@@ -210,6 +210,9 @@ fn save_ephemeral_fixture(
         "toc_second_chapter_id": toc_target.0.to_string(),
         "toc_second_purchase_id": toc_target.1.to_string(),
         "toc_second_title": CHAPTER_TWO_TITLE,
+        "toc_free_chapter_id": toc_target.2.to_string(),
+        "toc_locked_chapter_id": toc_target.3.to_string(),
+        "toc_draft_chapter_id": toc_target.4.to_string(),
     });
     file.write_all(payload.to_string().as_bytes()).unwrap();
     file.sync_all().unwrap();
@@ -518,6 +521,105 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(first["schema"], "tor.paid_delivery.v1");
     assert!(!first.to_string().contains(MARKDOWN), "no plaintext in API");
 
+    // Mirror B's public reading conditions for the combined chapter menu:
+    // free public text, visible locked metadata and no draft/unreleased rows.
+    let free_chapter = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level) \
+             VALUES({book},3,'Бесплатная <img src=x onerror=window.__xss=true>','public','free') RETURNING id"
+        ),
+    );
+    let free_version = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({free_chapter},1,'Real public free content') RETURNING id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({free_chapter},{free_version})"
+        ),
+    );
+    let locked_chapter = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) \
+             VALUES({book},4,'Закрытая редакция <svg onload=alert(1)>','public','paid',175) RETURNING id"
+        ),
+    );
+    let locked_version = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({locked_chapter},1,'Unpurchased body never in TOC') RETURNING id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({locked_chapter},{locked_version})"
+        ),
+    );
+    let draft_chapter = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level) \
+             VALUES({book},5,'SECRET_DRAFT_CHAPTER','draft','free') RETURNING id"
+        ),
+    );
+    let draft_version = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({draft_chapter},1,'Private draft body') RETURNING id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({draft_chapter},{draft_version})"
+        ),
+    );
+    let not_released = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,reader_released_at) \
+             VALUES({book},6,'SECRET_FUTURE_CHAPTER','public','free',now()+interval '3 days') RETURNING id"
+        ),
+    );
+    let future_version = scalar(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({not_released},1,'Future body') RETURNING id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({not_released},{future_version})"
+        ),
+    );
+    assert_eq!(
+        private_get(&app, &format!("/reader/{free_chapter}"), None)
+            .await
+            .status(),
+        StatusCode::OK,
+    );
+    assert_eq!(
+        private_get(&app, &format!("/reader/{locked_chapter}"), None)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+    );
+
     let v2 = scalar(
         &url,
         &format!(
@@ -529,6 +631,27 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
+    // Capture the actual Rust HTML before the author hides the book. CI
+    // screenshots exercise the mixed original NEwBOO-style free/paid/locked
+    // design while preserving a separate hidden-book entitlement check.
+    let visible_page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
+    assert_eq!(visible_page.status(), StatusCode::OK);
+    let visible_html = html_body(visible_page).await;
+    assert!(visible_html.contains("data-toc-state=\"free\""));
+    assert!(visible_html.contains("data-toc-state=\"owned\""));
+    assert!(visible_html.contains("data-toc-state=\"locked\""));
+    assert!(visible_html.contains(&format!("href=\"/reader/{free_chapter}\"")));
+    assert!(visible_html.contains(&format!(
+        "href=\"/read/paid/{chapter_two}?purchase_id={purchase_two_id}\""
+    )));
+    assert!(visible_html.contains("1,75 ₽"));
+    assert!(!visible_html.contains(&format!("href=\"/reader/{locked_chapter}\"")));
+    assert!(!visible_html.contains("Unpurchased body never in TOC"));
+    assert!(!visible_html.contains("SECRET_DRAFT_CHAPTER"));
+    assert!(!visible_html.contains("SECRET_FUTURE_CHAPTER"));
+    assert!(!visible_html.contains("<svg onload="));
+    assert!(!visible_html.contains("<img src=x"));
+
     pg(
         &url,
         &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
@@ -575,7 +698,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     .unwrap();
     assert!(reader_html.contains("data-paid-chapter-reader"));
     assert!(reader_html.contains("data-paid-toc"));
-    assert!(reader_html.contains("Оглавление купленных глав"));
+    assert!(reader_html.contains("Оглавление книги"));
+    assert!(!reader_html.contains("data-toc-state=\"free\""));
+    assert!(!reader_html.contains("data-toc-state=\"locked\""));
     assert!(reader_html.contains(&format!(
         "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
     )));
@@ -603,10 +728,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         still_v1,
         v1,
         purchase_id,
-        reader_html,
+        visible_html,
         reader_csp,
         expiry_probe_url,
-        (chapter_two, purchase_two_id),
+        (chapter_two, purchase_two_id, free_chapter, locked_chapter, draft_chapter),
     );
 
     pg(
