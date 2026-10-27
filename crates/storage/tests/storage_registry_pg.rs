@@ -165,10 +165,7 @@ async fn g_09_s3_08_pending_verified_ready_immutability_and_retention() {
         .await
         .unwrap();
     assert_eq!(registry.mark_ready(&receipt).await, Ok(()));
-    assert_eq!(
-        registry.state(&id).await.unwrap(),
-        Some(ObjectState::Ready)
-    );
+    assert_eq!(registry.state(&id).await.unwrap(), Some(ObjectState::Ready));
     assert_eq!(
         registry.mark_ready(&receipt).await,
         Err(RegistryError::Conflict)
