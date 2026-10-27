@@ -1,5 +1,6 @@
 //! Read-only system overview with the same independent operator password as traces.
 //! No business records or private URLs; unavailable observations stay unknown.
+use crate::cover_worker::CoverRunnerSnapshot;
 use crate::{cover_worker, observability, operator_traces, ril, worker_health, AppState};
 use axum::{
     extract::State,
@@ -8,7 +9,6 @@ use axum::{
 };
 use std::{fmt::Write, time::Duration};
 use tor_ingest::repositories::cover_jobs::{CoverQueueCounts, PgCoverJobs};
-use crate::cover_worker::CoverRunnerSnapshot;
 use tor_observability::services::{
     process::{self, ProcessSnapshot},
     publisher::PublisherCounts,
@@ -143,7 +143,8 @@ fn render(snapshot: &Overview) -> Html<String> {
     let cover_metrics = match snapshot.cover_runner {
         None => "<p>Локальный исполнитель не включён или не запускался.</p>".to_owned(),
         Some(runner) => {
-            let last = runner.since_completion_s
+            let last = runner
+                .since_completion_s
                 .map(|seconds| format!("{seconds} с назад"))
                 .unwrap_or_else(|| "Ещё не завершал цикл".to_owned());
             format!(
