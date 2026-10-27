@@ -34,9 +34,7 @@ fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
                 purchase_id,
                 version_no,
                 ..
-            } if chapter.chapter_id == edition.chapter_id
-                && purchase_id == edition.purchase_id =>
-            {
+            } if chapter.chapter_id == edition.chapter_id && purchase_id == edition.purchase_id => {
                 write!(
                     entries,
                     "<li class=\"reader-paid__toc-row reader-paid__toc-row--current\" data-toc-state=\"current\">
@@ -264,35 +262,49 @@ mod tests {
     fn mixed_book_toc_displays_nevboo_states_without_granting_closed_pages() {
         use tor_commerce::repositories::entitlements::MixedTocChapter;
         let edition = ReadablePurchase {
-            purchase_id: 31, chapter_id: 23, version_id: 40, version_no: 1,
-            chapter_no: 2, book_title: "Book".to_owned(),
+            purchase_id: 31,
+            chapter_id: 23,
+            version_id: 40,
+            version_no: 1,
+            chapter_no: 2,
+            book_title: "Book".to_owned(),
             chapter_title: "Current".to_owned(),
         };
         let toc = MixedBookToc {
             chapters: vec![
                 MixedTocChapter {
-                    chapter_id: 21, chapter_no: 1,
+                    chapter_id: 21,
+                    chapter_no: 1,
                     title: "Бесплатная <img src=x>".to_owned(),
                     access: MixedTocAccess::PublicFree,
                 },
                 MixedTocChapter {
-                    chapter_id: 23, chapter_no: 2,
+                    chapter_id: 23,
+                    chapter_no: 2,
                     title: "Current".to_owned(),
                     access: MixedTocAccess::Purchased {
-                        purchase_id: 31, version_id: 40, version_no: 1,
+                        purchase_id: 31,
+                        version_id: 40,
+                        version_no: 1,
                     },
                 },
                 MixedTocChapter {
-                    chapter_id: 24, chapter_no: 3,
+                    chapter_id: 24,
+                    chapter_no: 3,
                     title: "Купленная <script>x</script>".to_owned(),
                     access: MixedTocAccess::Purchased {
-                        purchase_id: 32, version_id: 42, version_no: 1,
+                        purchase_id: 32,
+                        version_id: 42,
+                        version_no: 1,
                     },
                 },
                 MixedTocChapter {
-                    chapter_id: 25, chapter_no: 4,
+                    chapter_id: 25,
+                    chapter_no: 4,
                     title: "Платная, без доступа".to_owned(),
-                    access: MixedTocAccess::Locked { price_minor: Some(175) },
+                    access: MixedTocAccess::Locked {
+                        price_minor: Some(175),
+                    },
                 },
             ],
             truncated: true,
