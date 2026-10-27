@@ -291,6 +291,13 @@
     },
     {
       "method": "POST",
+      "template": "/api/v1/purchases",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::buy",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
       "template": "/login",
       "source": "crates/web/src/auth.rs",
       "handler": "account_form_http::login",

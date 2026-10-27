@@ -11,6 +11,8 @@ s3-covers = ["tor-ingest/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 axum.workspace = true
 tokio = { workspace = true, features = ["time"] }
 tor-books = { path = "../books" }
+tor-commerce = { path = "../commerce" }
+tor-contracts = { path = "../contracts" }
 tor-search = { path = "../search" }
 tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
