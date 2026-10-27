@@ -1,6 +1,8 @@
 //! B/S065: immutable paid-image membership, never a reader entitlement.
 //! Only G-verified, exact-version assets may be attached to an unpublished
 //! edition. C must resolve D rights before requesting any B asset reference.
+use async_trait::async_trait;
+use tor_contracts::paid_delivery::ChapterAssetPort;
 use crate::services::authoring::AuthorError;
 use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::{
@@ -238,5 +240,16 @@ impl PgPaidAssets {
             wrapped_key_id: kek_id,
             codec: ContentCodec::None,
         }))
+    }
+}
+
+#[async_trait]
+impl ChapterAssetPort for PgPaidAssets {
+    async fn encrypted_asset(
+        &self,
+        pinned: ChapterVersionRef,
+        object_id: &ObjectId,
+    ) -> Result<Option<EncryptedObjectRef>, DeliveryError> {
+        self.encrypted_for_pinned(pinned, object_id).await
     }
 }
