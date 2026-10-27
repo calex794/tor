@@ -47,9 +47,9 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
     }
 }
 
-#[async_trait]
-impl<S: PrivateObjectStore> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
-    async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
+impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
+    /// Reusable orchestration for the browser and isolated PG/S3 tests.
+    pub async fn publish(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
         let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
         // A lost HTTP response is not another publication. Earlier G objects
         // and purchase-scoped old editions are deliberately left untouched.
@@ -107,5 +107,12 @@ impl<S: PrivateObjectStore> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
             }
         }
         published
+    }
+}
+
+#[async_trait]
+impl<S: PrivateObjectStore> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
+    async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
+        self.publish(actor, request).await
     }
 }
