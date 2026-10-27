@@ -155,8 +155,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         secure,
                         origin,
                         paid,
-                        cover_store,
-                        cover_worker_enabled,
+                        cover_store.map(|store| (store, cover_worker_enabled)),
                     )
                 } else if let Some(store) = cover_store {
                     if cover_worker_enabled {

@@ -258,7 +258,6 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         ORIGIN.to_owned(),
         fake.clone(),
         None,
-        false,
     );
     let path = route(chapter);
     let pre_purchase = send(
