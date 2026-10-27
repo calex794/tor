@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 64] = [
+const ROUTES: [RouteRegistration; 66] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -462,6 +462,24 @@ const ROUTES: [RouteRegistration; 64] = [
         Reading,
         Read,
     ), // 63
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased/complete",
+        "GET",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Read,
+    ), // 64
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased/complete",
+        "POST",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Write,
+    ), // 65
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -539,6 +557,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/read/paid/{chapter_id}"), "GET") => Some(61),
         (Some("/assets/newboo-paid-reader.mjs"), "GET") => Some(62),
         (Some("/me/purchases"), "GET") => Some(63),
+        (Some("/api/v1/me/progress/purchased/complete"), "GET") => Some(64),
+        (Some("/api/v1/me/progress/purchased/complete"), "POST") => Some(65),
         _ => None,
     };
     index
