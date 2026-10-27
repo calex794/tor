@@ -112,10 +112,40 @@ export async function decryptPaidGrant(
     referrerPolicy: "no-referrer",
   });
   requireValue(reply.ok && reply.status === 200);
-  const length = Number(reply.headers.get("content-length") || "0");
-  requireValue(length <= MAX_CIPHERTEXT_BYTES);
-  const cipher = new Uint8Array(await reply.arrayBuffer());
-  requireValue(cipher.byteLength >= 17 && cipher.byteLength <= MAX_CIPHERTEXT_BYTES);
+  // Do not buffer an untrusted S3 response before validating its real size.
+  // Content-Length can be absent, wrong or inaccessible through CORS.
+  const declared = reply.headers.get("content-length");
+  if (declared !== null) {
+    requireValue(/^(0|[1-9][0-9]*)$/.test(declared));
+    requireValue(Number.isSafeInteger(Number(declared)) &&
+      Number(declared) <= MAX_CIPHERTEXT_BYTES);
+  }
+  requireValue(reply.body && typeof reply.body.getReader === "function");
+  const reader = reply.body.getReader();
+  const chunks = [];
+  let received = 0;
+  let complete = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) { complete = true; break; }
+      requireValue(value instanceof Uint8Array);
+      received += value.byteLength;
+      requireValue(received <= MAX_CIPHERTEXT_BYTES);
+      chunks.push(value);
+    }
+  } finally {
+    if (!complete) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  requireValue(received >= 17 &&
+    (declared === null || Number(declared) === received));
+  const cipher = new Uint8Array(received);
+  let copied = 0;
+  for (const chunk of chunks) {
+    cipher.set(chunk, copied);
+    copied += chunk.byteLength;
+  }
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", cipher));
   const checksum = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
   requireValue(checksum === content.object_sha256);
