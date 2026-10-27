@@ -82,7 +82,7 @@ VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 SQL
 history="$(psql "$MIGRATOR_URL" -X -A -t -v ON_ERROR_STOP=1 \
-  -c 'SELECT count(*)::text || ':' || max(version)::text FROM _sqlx_migrations WHERE success')"
+  -c 'SELECT concat(count(*), chr(58), max(version)) FROM _sqlx_migrations WHERE success')"
 [[ "$history" =~ ^[1-9][0-9]*:[0-9]+$ ]] || {
   echo 'FAIL: SQLx migration history unavailable' >&2
   exit 1
@@ -167,7 +167,7 @@ docker run --rm --network host \
   --dbname="$restore_db" --no-owner --exit-on-error /work/restored.dump
 
 restored_history="$(psql "$restored_url" -X -A -t -v ON_ERROR_STOP=1 \
-  -c 'SELECT count(*)::text || ':' || max(version)::text FROM _sqlx_migrations WHERE success')"
+  -c 'SELECT concat(count(*), chr(58), max(version)) FROM _sqlx_migrations WHERE success')"
 [[ "$history" == "$restored_history" ]] || {
   echo 'FAIL: restored schema history differs' >&2
   exit 1
