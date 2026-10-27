@@ -47,7 +47,10 @@ fn independent_golden_vector_matches_aesgcm_and_wrap_aad() {
 
     let ciphertext = encrypt_raw(&dek, &nonce, &aad, &gzip).unwrap();
     assert_eq!(hex::encode(&ciphertext), field("ciphertext_hex"));
-    assert_eq!(hex::encode(sha256_bytes(&ciphertext)), field("sha256_ciphertext"));
+    assert_eq!(
+        hex::encode(sha256_bytes(&ciphertext)),
+        field("sha256_ciphertext")
+    );
     let clear = decrypt_raw(&dek, &nonce, &aad, &ciphertext).unwrap();
     assert_eq!(clear, gzip);
     assert_eq!(decode_gzip(&clear), field("plaintext"));
