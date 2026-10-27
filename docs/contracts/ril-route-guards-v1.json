@@ -456,6 +456,13 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::paid_reader_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/purchases",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "purchased_library",
+      "policy": "scoped"
     }
   ]
 }
