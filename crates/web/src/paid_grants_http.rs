@@ -314,7 +314,7 @@ async fn purchased_library(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let Ok(actor_id) = PositiveId::new(actor) else {
+    let Ok(actor) = PositiveId::new(actor) else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     };
     let after = match query.after {
@@ -324,7 +324,7 @@ async fn purchased_library(
         },
         None => None,
     };
-    let owned = match state.entitlement.readable_purchases(actor_id, after).await {
+    let owned = match state.entitlement.readable_purchases(actor, after).await {
         Ok(owned) => owned,
         Err(error) => return deny(status(error)),
     };
