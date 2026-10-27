@@ -275,6 +275,38 @@ async fn c_09_c_06_purchased_v1_survives_v2_but_not_revoke_or_hold() {
         "late device cannot roll back purchased edition"
     );
 
+    // Paid V1 survives withdrawal from the storefront. This must match D-03:
+    // a creator's choice to stop NEW sales cannot silently erase old rights.
+    sqlx::query("UPDATE books SET visibility='draft' WHERE id=93610")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=93620")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(sync
+        .purchased_allowed(93601, 93640, 93620, 93631)
+        .await
+        .unwrap());
+    assert_eq!(
+        after_v2
+            .purchased_state(93601, 93640, 93620, 93631)
+            .await
+            .unwrap()
+            .unwrap()
+            .version_id,
+        93631
+    );
+    sqlx::query("UPDATE books SET visibility='public' WHERE id=93610")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=93620")
+        .execute(&pool)
+        .await
+        .unwrap();
+
     sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=93620")
         .execute(&pool)
         .await

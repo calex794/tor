@@ -32,7 +32,10 @@ impl EntitlementPort for PgDirectEntitlements {
             "SELECT l.active_version_id AS version_id,
                     (r.purchase_id IS NOT NULL) AS revoked,
                     (b.admin_hold OR c.admin_hold) AS admin_hold,
-                    (b.is_deleted OR c.is_deleted) AS hard_deleted
+                    (b.is_deleted OR c.is_deleted) AS hard_deleted,
+                    tor_purchase_version_readable(
+                        $1, p.id, p.chapter_id, p.version_id
+                    ) AS canonical_readable
              FROM library_purchased_chapters l
              JOIN chapter_purchase_facts p
                ON p.id=l.purchase_id AND p.user_id=l.user_id
@@ -65,6 +68,9 @@ impl EntitlementPort for PgDirectEntitlements {
                         .map_err(|_| DeliveryError::Unavailable)?,
                     hard_deleted: row
                         .try_get("hard_deleted")
+                        .map_err(|_| DeliveryError::Unavailable)?,
+                    canonical_readable: row
+                        .try_get("canonical_readable")
                         .map_err(|_| DeliveryError::Unavailable)?,
                 })
             })

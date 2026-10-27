@@ -10,6 +10,7 @@ pub struct DirectPurchaseRecord {
     pub revoked: bool,
     pub admin_hold: bool,
     pub hard_deleted: bool,
+    pub canonical_readable: bool,
 }
 
 /// Hard removal and moderation override a purchase; only the pinned edition
@@ -38,6 +39,11 @@ pub fn decide_direct_purchase(
             reason: DenialReason::Refunded,
         };
     }
+    if !record.canonical_readable {
+        return EntitlementDecision::Denied {
+            reason: DenialReason::Unknown,
+        };
+    }
     let Ok(version_id) = PositiveId::new(record.purchased_version_id) else {
         return EntitlementDecision::Denied {
             reason: DenialReason::Unknown,
@@ -61,6 +67,7 @@ mod tests {
             revoked: false,
             admin_hold: false,
             hard_deleted: false,
+            canonical_readable: true,
         }
     }
 
@@ -80,6 +87,18 @@ mod tests {
                     chapter_id: id,
                     version_id: PositiveId::new(7).unwrap()
                 }
+            }
+        );
+        assert_eq!(
+            decide_direct_purchase(
+                id,
+                Some(DirectPurchaseRecord {
+                    canonical_readable: false,
+                    ..record()
+                })
+            ),
+            EntitlementDecision::Denied {
+                reason: DenialReason::Unknown
             }
         );
         assert_eq!(

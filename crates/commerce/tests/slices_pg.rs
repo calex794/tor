@@ -472,6 +472,28 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
         EntitlementDecision::Allowed { .. }
     ));
 
+    // C's shared database gate must agree with D's purchased-entitlement port.
+    let canonical_readable: bool = sqlx::query_scalar(
+        "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
+    )
+    .bind(actor)
+    .bind(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT purchase_id FROM library_purchased_chapters WHERE user_id=$1 AND chapter_id=$2",
+        )
+        .bind(actor)
+        .bind(chapter)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+    )
+    .bind(chapter)
+    .bind(version)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(canonical_readable);
+
     sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=$1")
         .bind(chapter)
         .execute(&pool)
