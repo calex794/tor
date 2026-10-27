@@ -7,6 +7,7 @@ use std::{
 };
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tor_books::repositories::cover_slots::PgCoverSlots;
+use tor_books::repositories::PgCatalog;
 use tor_ingest::{
     domain::cover::CoverError,
     repositories::cover_jobs::PgCoverJobs,
@@ -15,7 +16,6 @@ use tor_ingest::{
         cover_worker::{CoverWorker, WorkerResult},
     },
 };
-use tor_books::repositories::PgCatalog;
 
 #[derive(Clone)]
 pub struct PgBookCoverBridge {
@@ -77,13 +77,22 @@ impl Default for CoverRunnerMonitor {
 
 impl CoverRunnerMonitor {
     fn begin(&self) {
-        let mut value = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut value = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         value.started = Some(Instant::now());
         value.metrics.active = true;
     }
 
-    fn finish(&self, result: &Result<Result<WorkerResult, CoverError>, tokio::time::error::Elapsed>) {
-        let mut value = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    fn finish(
+        &self,
+        result: &Result<Result<WorkerResult, CoverError>, tokio::time::error::Elapsed>,
+    ) {
+        let mut value = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         value.completed = Some(Instant::now());
         let counters = &mut value.metrics;
         counters.active = false;
@@ -99,8 +108,7 @@ impl CoverRunnerMonitor {
                 counters.consecutive_errors = 0;
             }
             Ok(Ok(WorkerResult::RetryOrQuarantine)) => {
-                counters.retried_or_quarantined =
-                    counters.retried_or_quarantined.saturating_add(1);
+                counters.retried_or_quarantined = counters.retried_or_quarantined.saturating_add(1);
                 counters.consecutive_errors = counters.consecutive_errors.saturating_add(1);
             }
             Ok(Err(_)) => {
@@ -118,13 +126,21 @@ impl CoverRunnerMonitor {
     }
 
     pub fn snapshot(&self) -> CoverRunnerSnapshot {
-        let value = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let value = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = Instant::now();
-        let elapsed = |time: Option<Instant>| time.map(|v| now.saturating_duration_since(v).as_secs());
+        let elapsed =
+            |time: Option<Instant>| time.map(|v| now.saturating_duration_since(v).as_secs());
         CoverRunnerSnapshot {
             since_start_s: elapsed(Some(value.since)),
             since_completion_s: elapsed(value.completed),
-            running_for_s: if value.metrics.active { elapsed(value.started) } else { None },
+            running_for_s: if value.metrics.active {
+                elapsed(value.started)
+            } else {
+                None
+            },
             ..value.metrics
         }
     }
@@ -153,7 +169,11 @@ pub struct CoverRunner {
 }
 
 impl CoverRunner {
-    pub fn new(catalog: PgCatalog, storage: Arc<dyn CoverObjectStore>, monitor: CoverRunnerMonitor) -> Self {
+    pub fn new(
+        catalog: PgCatalog,
+        storage: Arc<dyn CoverObjectStore>,
+        monitor: CoverRunnerMonitor,
+    ) -> Self {
         let pool = catalog.pool();
         Self {
             jobs: PgCoverJobs::new(pool.clone()),
