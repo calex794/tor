@@ -86,10 +86,10 @@ impl PgPaidStorage {
                AND object_kind='chapter_asset' AND codec='none'
                AND size_bytes BETWEEN 17 AND 8388608
                AND object_aad=convert_to(
-                  'tor.encrypted.asset.v1' || E'\\n' ||
-                  $2::text || E'\\n' || $3::text || E'\\n' ||
-                  id::text || E'\\n' ||
-                  encode(plaintext_sha256,'hex') || E'\\n',
+                  'tor.encrypted.asset.v1' || E'\n' ||
+                  $2::text || E'\n' || $3::text || E'\n' ||
+                  id::text || E'\n' ||
+                  encode(plaintext_sha256,'hex') || E'\n',
                   'UTF8'
                )
              RETURNING id::text",
