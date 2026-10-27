@@ -73,10 +73,12 @@ done < "$authorized"
 [[ "$key_count" == 1 ]] ||
   refuse 'expected exactly one restricted GitHub deploy key'
 signer_tmp=$(mktemp /root/.tor-release-signer.XXXXXXXX)
+public_tmp=$(mktemp /root/.tor-release-public.XXXXXXXX)
 printf 'tor-release %s\n' "$public_key" > "$signer_tmp"
-chmod 0600 "$signer_tmp"
-ssh-keygen -lf "$signer_tmp" >/dev/null ||
-  refuse 'invalid trusted release signer'
+printf '%s\n' "$public_key" > "$public_tmp"
+chmod 0600 "$signer_tmp" "$public_tmp"
+ssh-keygen -lf "$public_tmp" >/dev/null ||
+  refuse 'invalid trusted release public key'
 [[ ! -L "$helper" && ! -L "$sudoers" ]] ||
   refuse 'unexpected symlink at trusted setup destination'
 if [[ -e "$helper" ]]; then
@@ -90,7 +92,7 @@ fi
 
 download=$(mktemp /root/.tor-release-helper.XXXXXXXX)
 config_tmp=$(mktemp /etc/sudoers.d/.tor-one-click.XXXXXXXX)
-trap 'rm -f -- "$download" "$config_tmp" "$signer_tmp"' EXIT
+trap 'rm -f -- "$download" "$config_tmp" "$signer_tmp" "$public_tmp"' EXIT
 
 curl -fsSL --retry 2 --max-time 20 \
   "https://raw.githubusercontent.com/calex794/tor/$sha/ops/one-click-release-vps.sh" \
