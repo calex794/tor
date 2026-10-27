@@ -35,6 +35,7 @@ mod operator_overview;
 mod operator_traces;
 mod pages;
 mod password_jobs;
+pub mod ranking_consumer;
 mod ril;
 mod worker_health;
 
