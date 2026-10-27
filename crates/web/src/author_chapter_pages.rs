@@ -7,15 +7,6 @@ use tor_books::services::authoring::{
 
 use crate::pages::{escape_html, layout};
 
-pub fn detail(
-    book: &OwnedBook,
-    published: bool,
-    chapters: &[OwnedChapterSummary],
-    csrf: &str,
-) -> Html<String> {
-    detail_with_covers(book, published, chapters, csrf, false, None)
-}
-
 /// The form exists only when a signed source store and cover worker are enabled.
 pub fn detail_with_covers(
     book: &OwnedBook,
@@ -249,6 +240,16 @@ pub fn release_chapter(
         "Подтверждение публикации выбранной версии.",
         &content,
     )
+}
+
+#[cfg(test)]
+pub fn detail(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+) -> Html<String> {
+    detail_with_covers(book, published, chapters, csrf, false, None)
 }
 
 #[cfg(test)]

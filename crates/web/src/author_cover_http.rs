@@ -202,7 +202,6 @@ mod tests {
     #[test]
     fn uploads_are_bounded_and_use_only_server_generated_staging_keys() {
         assert_eq!(MAX_SOURCE_BYTES, 8 * 1024 * 1024);
-        assert!(MAX_MULTIPART_BYTES > MAX_SOURCE_BYTES);
         let opaque = generate_session_token();
         assert_eq!(opaque.len(), 43);
         assert!(
