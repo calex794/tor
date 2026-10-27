@@ -14,7 +14,7 @@ refuse() {
 [[ $# == 1 && $1 =~ ^[0-9a-f]{40}$ ]] ||
   refuse 'one full 40-character commit SHA required'
 sha=$1
-for command in curl python3 flock sha256sum stat systemctl readlink install mv; do
+for command in curl python3 flock sha256sum ssh-keygen stat systemctl readlink install mv; do
   command -v "$command" >/dev/null || refuse "missing $command"
 done
 
@@ -78,14 +78,36 @@ target="/opt/tor/releases/$sha"
   refuse 'verified candidate has not been delivered'
 [[ $(stat -c '%U:%G' "$inbox") == tor-deploy:tor-deploy ]] ||
   refuse 'incoming candidate must be owned by tor-deploy'
-for f in tor-web tor-migrate tor-web.sha256 tor-migrate.sha256; do
+for f in tor-web tor-migrate tor-web.sha256 tor-migrate.sha256 tor-release-manifest tor-release-manifest.sig; do
   [[ -f "$inbox/$f" && ! -L "$inbox/$f" ]] ||
     refuse "staged $f is missing or unsafe"
 done
+# An SSH deploy account may alter its own inbox, but has no private signing
+# key. Verify the build manifest with the GitHub Environment's *existing*
+# SSH key and a trusted allowed_signers file installed once by root.
+signers=/etc/tor/tor-release-allowed-signers
+[[ -f "$signers" && ! -L "$signers" &&
+   $(stat -c '%U:%G:%a' "$signers") == root:root:644 ]] ||
+  refuse 'trusted release signer is not configured'
+ssh-keygen -Y verify -f "$signers" -I tor-release -n tor-release \
+  -s "$inbox/tor-release-manifest.sig" < "$inbox/tor-release-manifest" >/dev/null ||
+  refuse 'staged artifact signature is invalid'
+expected_manifest=$(
+  printf 'TOR_RELEASE_SHA %s\n' "$sha"
+  cat "$inbox/tor-web.sha256"
+  cat "$inbox/tor-migrate.sha256"
+)
+[[ $(cat "$inbox/tor-release-manifest") == "$expected_manifest" ]] ||
+  refuse 'signed manifest does not match the selected SHA and checksums'
+[[ $(cat "$inbox/tor-web.sha256") =~ ^[a-f0-9]{64}[[:space:]][[:space:]]tor-web$ ]] ||
+  refuse 'unexpected tor-web checksum format'
+[[ $(cat "$inbox/tor-migrate.sha256") =~ ^[a-f0-9]{64}[[:space:]][[:space:]]tor-migrate$ ]] ||
+  refuse 'unexpected migrator checksum format'
 (cd "$inbox" &&
   sha256sum -c --status tor-web.sha256 &&
   sha256sum -c --status tor-migrate.sha256) ||
   refuse 'staged binaries have unexpected hashes'
+echo 'TOR_RELEASE_SIGNATURE_OK'
 
 # Never execute a binary from the SSH user's writable inbox as root.
 # Copy to a root-owned release directory, then independently verify the copy.
@@ -99,7 +121,7 @@ else
   for f in tor-web tor-migrate; do
     install -o root -g root -m 0755 "$inbox/$f" "$temporary/$f"
   done
-  for f in tor-web.sha256 tor-migrate.sha256; do
+  for f in tor-web.sha256 tor-migrate.sha256 tor-release-manifest tor-release-manifest.sig; do
     install -o root -g root -m 0644 "$inbox/$f" "$temporary/$f"
   done
   (cd "$temporary" &&
@@ -114,6 +136,11 @@ fi
   sha256sum -c --status tor-web.sha256 &&
   sha256sum -c --status tor-migrate.sha256) ||
   refuse 'candidate release checksum mismatch'
+[[ $(cat "$target/tor-release-manifest") == "$expected_manifest" ]] ||
+  refuse 'root-owned release manifest differs from signed candidate'
+ssh-keygen -Y verify -f "$signers" -I tor-release -n tor-release \
+  -s "$target/tor-release-manifest.sig" < "$target/tor-release-manifest" >/dev/null ||
+  refuse 'root-owned release signature is invalid'
 [[ $(stat -c '%U:%G' "$target/tor-migrate") == root:root ]] ||
   refuse 'privileged migrator must be root owned'
 [[ $(stat -c '%U:%G' "$target/tor-web") == root:root ]] ||
