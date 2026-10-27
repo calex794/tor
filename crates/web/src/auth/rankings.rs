@@ -27,10 +27,20 @@ struct QuestionView {
 }
 
 #[derive(Serialize)]
+struct RankedBookView {
+    book_id: String,
+    title: String,
+    place: usize,
+    tied: bool,
+    comparisons_count: u64,
+}
+
+#[derive(Serialize)]
 struct RankingView {
     revision: u64,
     state: &'static str,
     question: Option<QuestionView>,
+    ranked_books: Vec<RankedBookView>,
 }
 
 #[derive(Deserialize)]
@@ -87,6 +97,26 @@ fn csrf_header(headers: &HeaderMap) -> Option<&str> {
 
 async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode> {
     let snapshot = state.rankings.snapshot(user_id).await.map_err(status)?;
+    let visible = state.rankings.visible_ranks(user_id).await.map_err(status)?;
+    // Visible tiers are ranked, not chronological. A tied pair shares a place.
+    let mut place = 0;
+    let mut previous_tier = None;
+    let mut ranked_books = Vec::with_capacity(visible.len());
+    for (index, rank) in visible.iter().enumerate() {
+        if previous_tier != Some(rank.tier) {
+            place += 1;
+            previous_tier = Some(rank.tier);
+        }
+        let tied = index > 0 && visible[index - 1].tier == rank.tier
+            || visible.get(index + 1).is_some_and(|next| next.tier == rank.tier);
+        ranked_books.push(RankedBookView {
+            book_id: rank.book_id.to_string(),
+            title: rank.title.clone(),
+            place,
+            tied,
+            comparisons_count: rank.comparisons_count,
+        });
+    }
     let Some(question) = snapshot
         .next_question()
         .map_err(|error| status(error.into()))?
@@ -95,14 +125,16 @@ async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode
             revision: snapshot.revision,
             state: if snapshot.placement.is_some() {
                 "exhausted"
-            } else {
+            } else if ranked_books.is_empty() {
                 "awaiting_verified_completion"
+            } else {
+                "ranked"
             },
             question: None,
+            ranked_books,
         });
     };
-    // Only public, unblocked books are displayed. Two bounded lookups,
-    // regardless of how many prior comparisons this reader has.
+    // Only public, unblocked books are displayed. Never reveal hidden titles.
     let (left_id, right_id) = (
         u64::try_from(question.book_a_id).map_err(|_| StatusCode::CONFLICT)?,
         u64::try_from(question.book_b_id).map_err(|_| StatusCode::CONFLICT)?,
@@ -130,6 +162,7 @@ async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode
             book_a_title: left.title,
             book_b_title: right.title,
         }),
+        ranked_books,
     })
 }
 
@@ -306,10 +339,32 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
             pages::escape_html(&csrf),
             result.revision
         ),
+        None if !result.ranked_books.is_empty() => {
+            "<p class=\"ranking-info\">Новых пар для сравнения пока нет.</p>".into()
+        },
         None => "<p class=\"ranking-info\">Пока нет книг для сравнения. Рейтинг появится после подтверждённого завершения чтения глав.</p>".into(),
     };
+    let mut ranked = String::new();
+    if !result.ranked_books.is_empty() {
+        ranked.push_str(
+            "<section class=\"ranking-history\" aria-labelledby=\"ranking-list-title\"><h2 id=\"ranking-list-title\">Мои книги</h2><ol class=\"ranking-books\">",
+        );
+        for book in &result.ranked_books {
+            use std::fmt::Write;
+            write!(
+                ranked,
+                "<li class=\"ranking-book\"><span class=\"ranking-book__place\">Место {}</span><a href=\"/books/{}\">{}</a>{}</li>",
+                book.place,
+                book.book_id,
+                pages::escape_html(&book.title),
+                if book.tied { " <span class=\"ranking-book__tie\">Равнозначны</span>" } else { "" },
+            )
+            .expect("write ranking card");
+        }
+        ranked.push_str("</ol></section>");
+    }
     let content = include_str!("../../templates/me_rankings.html")
-        .replace("<!--RANKING_CONTENT-->", &content);
+        .replace("<!--RANKING_CONTENT-->", &format!("{content}{ranked}"));
     private_response(
         pages::layout(
             "Мой рейтинг",
