@@ -204,7 +204,7 @@ fn s334_rewrap_preserves_paid_v1_ciphertext_but_changes_only_key_envelope() {
         &first.wrapped_dek,
     )
     .unwrap();
-    assert_eq!(new_dek, old_dek.as_slice());
+    assert_eq!(new_dek.as_slice(), &old_dek[..]);
     assert_eq!(
         decrypt_raw(
             &old.0,
