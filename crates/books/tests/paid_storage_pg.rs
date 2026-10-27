@@ -374,7 +374,50 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .await;
     assert!(deletion.is_err(), "purchased historical V1 cannot be GC'd");
 
-    // Hidden/held material is not returned through B's grant-side resolver.
+    // D contract: creator hiding a storefront never revokes a settled V1.
+    sqlx::query("UPDATE books SET visibility='draft' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let still_allowed: bool =
+        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+            .bind(buyer)
+            .bind(purchase)
+            .bind(chapter)
+            .bind(v1)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(still_allowed, "creator-hide never revokes the paid V1");
+    assert_eq!(
+        b.encrypted_chapter(pinned(chapter, v1))
+            .await
+            .unwrap()
+            .unwrap()
+            .object
+            .object_id,
+        object_v1,
+        "B must not deny the historical V1 permitted by D"
+    );
+    sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Administrative moderation still overrides a paid entitlement.
+
     sqlx::query("UPDATE chapters SET admin_hold=TRUE WHERE id=$1")
         .bind(chapter)
         .execute(&pool)
