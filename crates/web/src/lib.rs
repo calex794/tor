@@ -374,7 +374,10 @@ pub fn router_with_postgres_reading_auth_paid_grants(
     secure: bool,
     public_origin: String,
     paid_storage: Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
-    cover: Option<(Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>, bool)>,
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
 ) -> Router {
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
