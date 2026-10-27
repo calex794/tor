@@ -13,6 +13,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tor_reading::repositories::sync::PurchasedFinish;
 use tor_reading::services::progress::ReadingPlace;
 
 // The actual cookie and Origin predicates are local so the RIL reviewer
@@ -117,12 +118,14 @@ pub(super) async fn post(
         .sync
         .complete_purchased_s3(
             actor,
-            purchase_id,
-            chapter_id,
-            version_id,
-            place,
-            command.expected_revision,
-            &command.plaintext_sha256,
+            PurchasedFinish {
+                purchase_id,
+                chapter_id,
+                version_id,
+                place,
+                expected_revision: command.expected_revision,
+                plaintext_sha256: &command.plaintext_sha256,
+            },
         )
         .await
     {
