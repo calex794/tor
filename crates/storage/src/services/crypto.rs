@@ -70,20 +70,29 @@ impl fmt::Debug for ContentKek {
 pub struct ContentKeyring {
     v1: Arc<ContentKek>,
     v2: Option<Arc<ContentKek>>,
+    active_kek_id: &'static str,
 }
 
 #[cfg(any(feature = "pg", test))]
 impl ContentKeyring {
     /// Preserve all existing v1 callers without activating key rotation.
     pub fn v1_only(v1: Arc<ContentKek>) -> Self {
-        Self { v1, v2: None }
+        Self {
+            v1,
+            v2: None,
+            active_kek_id: KEK_ID,
+        }
     }
 
     pub fn with_v2(v1: Arc<ContentKek>, v2: Arc<ContentKek>) -> Result<Self, CryptoError> {
         if v1.0[..] == v2.0[..] {
             return Err(CryptoError::InvalidMaterial);
         }
-        Ok(Self { v1, v2: Some(v2) })
+        Ok(Self {
+            v1,
+            v2: Some(v2),
+            active_kek_id: KEK_ID,
+        })
     }
 
     /// Missing V2 means the old safe V1-only reader. A present but invalid V2
