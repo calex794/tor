@@ -100,10 +100,11 @@ fn canonical_aad(
         chapter_id,
         version_id,
     };
-    match kind {
+    let canonical = match kind {
         EncryptedObjectKind::Chapter => chapter_aad(pinned, id, &digest),
         EncryptedObjectKind::ChapterAsset => asset_aad(pinned, id, &digest),
-    } == aad
+    };
+    canonical == aad
 }
 
 #[async_trait]
@@ -138,7 +139,27 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
              WHERE id=$1::uuid AND object_kind=$7
                AND state='attached' AND codec=$8
                AND size_bytes=$2 AND sha256_ciphertext=$3
-               AND object_nonce=$4 AND object_aad=$5 AND kek_id=$6",
+               AND object_nonce=$4 AND object_aad=$5 AND kek_id=$6
+               AND ($7 <> 'chapter_asset' OR EXISTS (
+                    SELECT 1 FROM chapter_version_assets AS image
+                    JOIN chapter_versions AS v
+                      ON v.chapter_id=image.chapter_id AND v.id=image.version_id
+                    JOIN storage_objects AS body
+                      ON body.id=v.storage_object_id
+                    JOIN chapters AS c ON c.id=image.chapter_id
+                    JOIN books AS b ON b.id=c.book_id
+                    JOIN chapter_encrypted_release_events AS released
+                      ON released.chapter_id=image.chapter_id
+                     AND released.version_id=image.version_id
+                     AND released.storage_object_id=body.id
+                    WHERE image.storage_object_id=storage_objects.id
+                      AND body.state='attached'
+                      AND body.object_kind='chapter'
+                      AND c.access_level='paid'
+                      AND NOT c.admin_hold AND NOT c.is_deleted
+                      AND NOT b.admin_hold AND NOT b.is_deleted
+                      AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               ))",
         )
         .bind(encrypted.object.object_id.as_str())
         .bind(encrypted.object.size_bytes as i64)
