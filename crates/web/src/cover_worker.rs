@@ -15,7 +15,7 @@ use tor_ingest::{
         cover_worker::{CoverWorker, WorkerResult},
     },
 };
-use sqlx::PgPool;
+use tor_books::repositories::PgCatalog;
 
 #[derive(Clone)]
 pub struct PgBookCoverBridge {
@@ -153,7 +153,8 @@ pub struct CoverRunner {
 }
 
 impl CoverRunner {
-    pub fn new(pool: PgPool, storage: Arc<dyn CoverObjectStore>, monitor: CoverRunnerMonitor) -> Self {
+    pub fn new(catalog: PgCatalog, storage: Arc<dyn CoverObjectStore>, monitor: CoverRunnerMonitor) -> Self {
+        let pool = catalog.pool();
         Self {
             jobs: PgCoverJobs::new(pool.clone()),
             storage,
@@ -201,14 +202,14 @@ pub fn cover_runner_snapshot() -> Option<CoverRunnerSnapshot> {
 /// Call only after PostgreSQL readiness, private S3 setup, and an explicit
 /// TOR_COVER_WORKER_ENABLED=1; keep the JoinHandle alive until shutdown.
 pub fn start_cover_worker_background(
-    pool: PgPool,
+    catalog: PgCatalog,
     storage: Arc<dyn CoverObjectStore>,
 ) -> Result<JoinHandle<()>, &'static str> {
     let monitor = CoverRunnerMonitor::default();
     COVER_MONITOR
         .set(monitor.clone())
         .map_err(|_| "Cover worker was already started")?;
-    Ok(CoverRunner::new(pool, storage, monitor)
+    Ok(CoverRunner::new(catalog, storage, monitor)
         .spawn(Duration::from_secs(5), Duration::from_secs(90)))
 }
 
