@@ -3,6 +3,8 @@ name = "tor-discussions"
 version.workspace = true
 edition.workspace = true
 
+[dependencies]
+sqlx.workspace = true
+
 [dev-dependencies]
 tokio.workspace = true
-sqlx.workspace = true
