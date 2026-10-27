@@ -85,7 +85,14 @@ impl ContentKeyring {
     /// Missing V2 means the old safe V1-only reader. A present but invalid V2
     /// must fail startup rather than silently serving an inconsistent keyring.
     pub fn from_environment() -> Result<Self, CryptoError> {
-        let v1 = Arc::new(ContentKek::from_environment()?);
+        Self::from_v1_and_optional_v2_environment(Arc::new(ContentKek::from_environment()?))
+    }
+
+    /// G can retain its already loaded V1 without copying key bytes.
+    /// Optional V2 comes from the same operator-owned secret environment.
+    pub fn from_v1_and_optional_v2_environment(
+        v1: Arc<ContentKek>,
+    ) -> Result<Self, CryptoError> {
         match std::env::var("TOR_CONTENT_KEK_V2") {
             Ok(_) => Self::with_v2(
                 v1,
