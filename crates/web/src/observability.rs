@@ -232,6 +232,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn login_outcome_series_are_also_protected_and_never_contain_identity() {
+        let secret = "o".repeat(48);
+        let metrics = HttpMetrics::default();
+        let denied = endpoint(HeaderMap::new(), Some(&secret), &metrics);
+        assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+        let response = endpoint(headers(&secret), Some(&secret), &metrics);
+        let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains(
+            "tor_auth_login_outcomes_total{outcome=\"lookup_unavailable\"}"
+        ));
+        assert!(text.contains(
+            "tor_auth_login_outcomes_total{outcome=\"rate_limited\"}"
+        ));
+        for forbidden in ["email=", "user_id", "cookie=", "request_id", "sql_text"] {
+            assert!(!text.contains(forbidden), "{forbidden}");
+        }
+    }
+
+    #[tokio::test]
     async fn secret_does_not_appear_in_metrics_or_response_headers() {
         let secret = "a".repeat(48);
         let metrics = HttpMetrics::default();
