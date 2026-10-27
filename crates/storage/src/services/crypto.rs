@@ -373,6 +373,7 @@ fn unwrap_bytes(
 
 /// Select only an independently configured KEK for the trusted registry
 /// version. Never guess a key or silently fall back to V1 for a V2 row.
+#[cfg(any(feature = "pg", test))]
 pub(crate) fn unwrap_registered_dek_from_keyring(
     object_id: &ObjectId,
     wrapped_dek: &[u8],
