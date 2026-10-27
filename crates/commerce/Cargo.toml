@@ -1,0 +1,8 @@
+[package]
+name = "tor-commerce"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+tor-contracts = { path = "../contracts" }
