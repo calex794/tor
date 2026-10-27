@@ -279,9 +279,26 @@ async fn paid_reader(
         Ok(None) => return deny(StatusCode::FORBIDDEN),
         Err(error) => return deny(status(error)),
     };
+    let toc = match state
+        .entitlement
+        .readable_book_toc(actor_id, chapter_id, purchase_id)
+        .await
+    {
+        Ok(toc) => toc,
+        Err(error) => return deny(status(error)),
+    };
+    // The anchor must still be one of the actor's readable paid editions.
+    // Prevent TOC construction after a concurrent refund or hold.
+    if !toc
+        .items
+        .iter()
+        .any(|item| item.purchase_id == purchase_id.get() && item.version_id == pinned.version_id.get())
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        pages::paid_reader_shell(&details, &csrf, s3_origin),
+        pages::paid_reader_shell(&details, &toc, &csrf, s3_origin),
         &cookies,
     );
     let csp = format!(
