@@ -185,7 +185,7 @@ pub fn seal_chapter(
     let object_nonce = random_bytes::<12>()?;
     let wrap_nonce = random_bytes::<12>()?;
     let ciphertext = encrypt_raw(&dek, &object_nonce, &aad, &compressed)?;
-    let wrapped_dek = encrypt_raw(&kek.0, &wrap_nonce, &wrap_aad(&object_id), &dek)?;
+    let wrapped_dek = encrypt_raw(&kek.0, &wrap_nonce, &wrap_aad(&object_id), &dek[..])?;
     let ciphertext_sha256 = sha256_bytes(&ciphertext);
     let sealed = EncryptedChapter {
         object_id,
