@@ -41,17 +41,44 @@ async function apiHas(page, id, query) {
   assert(Array.isArray(body.items) && Object.hasOwn(body, 'next_cursor'), 'invalid search JSON');
   return body.items.some(book => book.id === id);
 }
+// The NEwBOO UI exposes taxonomy as native selects. Values hidden from the
+// public taxonomy list cannot be chosen in the form; test these via direct URL.
+async function setTaxonomy(page, label, value) {
+  const control = page.getByLabel(label, { exact: true });
+  const isSelect = await control.evaluate(el => el.tagName === 'SELECT');
+  if (!isSelect) {
+    await control.fill(value);
+    return true;
+  }
+  const hasValue = await control.evaluate((el, selected) =>
+    Array.from(el.options).some(option => option.value === selected), value);
+  if (!hasValue) return false;
+  await control.selectOption(value);
+  return true;
+}
 async function search(page, { q = '', genre = '', language = '', tag = '', fandom = '' }) {
   const res = await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
   assert(res && res.status() === 200, 'catalog HTTP failed');
   await page.getByLabel('Название или автор').fill(q);
-  await page.getByLabel('Жанр', { exact: true }).fill(genre);
-  await page.getByLabel('Тег', { exact: true }).fill(tag);
-  await page.getByLabel('Фэндом', { exact: true }).fill(fandom);
+  const available = [
+    await setTaxonomy(page, 'Жанр', genre),
+    await setTaxonomy(page, 'Тег', tag),
+    await setTaxonomy(page, 'Фэндом', fandom),
+  ];
   await page.getByLabel('Язык перевода').fill(language);
-  await page.getByRole('button', { name: 'Найти' }).click();
-  await page.waitForLoadState('networkidle');
-  assert(new URL(page.url()).pathname === '/catalog', 'search form navigation failed');
+  if (available.every(Boolean)) {
+    await page.getByRole('button', { name: 'Найти' }).click();
+    await page.waitForLoadState('networkidle');
+  } else {
+    // Test direct GET rejection for unpublished/nonexistent taxonomy values.
+    // Do not add hidden/private options to a public dropdown just for CI.
+    const params = new URLSearchParams({ q, genre, language, tag, fandom });
+    const direct = await page.goto(base + '/catalog?' + params, {
+      waitUntil: 'networkidle',
+    });
+    assert(direct && direct.status() === 200, 'direct catalog filter HTTP failed');
+  }
+  assert(new URL(page.url()).pathname === '/catalog', 'search navigation failed');
 }
 async function snapshot(page, name) {
   const x = await page.evaluate(() => ({
@@ -116,7 +143,7 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).count() === 0, viewport + ': draft leaked to HTML');
         assert(!(await apiHas(guest, id, filters)), viewport + ': draft leaked to JSON');
-        assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 0,
+        assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 0,
           viewport + ': private tag leaked to options');
 
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
@@ -124,7 +151,7 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
-        assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 1,
+        assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 1,
           viewport + ': published tag missing from options');
         await search(guest, { ...filters, tag: 'not-the-tag' });
         assert(await bookLink(guest, id).count() === 0, viewport + ': wrong tag matched');
