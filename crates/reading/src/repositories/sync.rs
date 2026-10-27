@@ -64,7 +64,11 @@ impl PgReadingSync {
             return Err(SyncError::Invalid);
         }
         checked_place(place, expected_revision)?;
-        let mut tx = self.pool.begin().await.map_err(|_| SyncError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         // Lock exactly the published free version and its access gate until
         // both progress and completion/outbox have committed.
         let edition = sqlx::query(
@@ -87,7 +91,9 @@ impl PgReadingSync {
         .await
         .map_err(|_| SyncError::Unavailable)?
         .ok_or(SyncError::Conflict)?;
-        let book_id: i64 = edition.try_get("book_id").map_err(|_| SyncError::Unavailable)?;
+        let book_id: i64 = edition
+            .try_get("book_id")
+            .map_err(|_| SyncError::Unavailable)?;
         let body: String = edition
             .try_get("body_markdown")
             .map_err(|_| SyncError::Unavailable)?;
