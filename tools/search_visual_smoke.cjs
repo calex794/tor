@@ -65,6 +65,65 @@ async function snapshot(page, name) {
     name + ': missing catalog heading');
   await page.screenshot({ path: path.join(shots, 'search-' + name + '.png'), fullPage: true });
 }
+// H-10: inspect the real PostgreSQL-backed BookCard, not an injected HTML
+// mock. Visual proportions and author metadata follow original NEwBOO.
+async function verifyOriginalBookCard(page, id, viewport) {
+  const card = bookLink(page, id);
+  assert(await card.isVisible(), viewport + ': real published book card not visible');
+  assert((await card.locator('.book-mini-card__meta').allTextContents())
+    .some(text => text.trim() === 'АвторПоиска'),
+    viewport + ': original public author missing');
+  const text = await card.innerText();
+  assert(!text.includes('Язык:') && !text.includes('Жанры:') &&
+    !text.includes('Лайков:') && !text.includes('Комментарии:'),
+    viewport + ': invented metadata is polluting NEwBOO book card');
+  const dimensions = await card.evaluate(node => {
+    const cover = node.querySelector('.book-mini-card__cover');
+    const title = node.querySelector('.book-mini-card__title');
+    const author = node.querySelector('.book-mini-card__meta');
+    const c = cover.getBoundingClientRect();
+    const titleCss = getComputedStyle(title);
+    const authorCss = getComputedStyle(author);
+    return {
+      ratio: c.width / c.height,
+      titleClamp: titleCss.webkitLineClamp,
+      titleOverflow: titleCss.overflow,
+      authorOverflow: authorCss.textOverflow,
+      authorWhiteSpace: authorCss.whiteSpace,
+      container: node.getBoundingClientRect().toJSON(),
+      viewport: document.documentElement.clientWidth,
+      cardColor: getComputedStyle(node).backgroundColor,
+      coverColor: getComputedStyle(cover).backgroundColor,
+    };
+  });
+  assert(Math.abs(dimensions.ratio - 2 / 3) < 0.035,
+    viewport + ': original NEwBOO 2:3 book cover lost');
+  assert(dimensions.titleClamp === '2' && dimensions.titleOverflow === 'hidden',
+    viewport + ': original two-line BookCard title lost');
+  assert(dimensions.authorOverflow === 'ellipsis' &&
+    dimensions.authorWhiteSpace === 'nowrap',
+    viewport + ': original author ellipsis lost');
+  assert(dimensions.container.right <= dimensions.viewport + 1,
+    viewport + ': BookCard extends outside viewport');
+
+  await page.screenshot({
+    path: path.join(shots, 'newboo-book-card-' + viewport + '-light.png'),
+    fullPage: true,
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const dark = await card.evaluate(node => {
+    const c = node.querySelector('.book-mini-card__cover');
+    return getComputedStyle(c).backgroundColor;
+  });
+  assert(dark !== dimensions.coverColor,
+    viewport + ': NEwBOO BookCard dark background tokens not applied');
+  await page.screenshot({
+    path: path.join(shots, 'newboo-book-card-' + viewport + '-dark.png'),
+    fullPage: true,
+  });
+  await page.emulateMedia({ colorScheme: 'light' });
+}
+
 async function draftBook(page, viewport) {
   const title = 'Книга поиска F03 ' + viewport;
   await page.goto(base + '/register');
@@ -123,6 +182,7 @@ async function draftBook(page, viewport) {
         await page.waitForURL(base + '/books/' + id);
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
+        await verifyOriginalBookCard(guest, id, viewport);
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
         assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 1,
           viewport + ': published tag missing from options');
