@@ -130,9 +130,17 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
 
     let ranking = PgRanking::new(pool.clone());
     assert_eq!(ranking.snapshot(99501).await.unwrap().revision, 0);
-    assert!(ranking.pending_completion_event_ids().await.unwrap().is_empty());
+    assert!(ranking
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .is_empty());
     let first = completed_fixture(&pool, 99520).await;
-    assert!(ranking.pending_completion_event_ids().await.unwrap().contains(&first));
+    assert!(ranking
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&first));
     assert!(ranking.accept_completed_chapter(&first).await.unwrap());
     assert!(!ranking.accept_completed_chapter(&first).await.unwrap());
     let snap = PgRanking::new(pool.clone()).snapshot(99501).await.unwrap();
@@ -146,7 +154,11 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
     let active = ranking.snapshot(99501).await.unwrap();
     assert_eq!(active.placement.as_ref().unwrap().placing_book_id, 99511);
     let third = completed_fixture(&pool, 99522).await;
-    assert!(!ranking.pending_completion_event_ids().await.unwrap().contains(&third));
+    assert!(!ranking
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&third));
     assert_eq!(
         ranking.accept_completed_chapter(&third).await,
         Err(RankingStoreError::Conflict),
@@ -180,7 +192,11 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
             .status,
         Some(AnswerStatus::Ranked)
     );
-    assert!(ranking.pending_completion_event_ids().await.unwrap().contains(&third));
+    assert!(ranking
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&third));
     let other_worker = PgRanking::new(pool.clone());
     let (a, b) = tokio::join!(
         ranking.accept_completed_chapter(&third),
