@@ -661,7 +661,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
     );
     assert_eq!(
-        pg(&url, &format!("SELECT visibility FROM books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT visibility FROM books WHERE id={book}")
+        ),
         "draft",
         "author-hide must persist before private TOC is rendered"
     );
