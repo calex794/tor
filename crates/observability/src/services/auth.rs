@@ -78,9 +78,7 @@ impl LoginSnapshot {
     }
 
     pub fn total(self) -> u64 {
-        self.counts
-            .into_iter()
-            .fold(0_u64, u64::saturating_add)
+        self.counts.into_iter().fold(0_u64, u64::saturating_add)
     }
 }
 
@@ -148,9 +146,9 @@ mod tests {
         assert_eq!(snapshot.count(LoginOutcome::RateLimited), 1);
         assert_eq!(snapshot.count(LoginOutcome::Success), 0);
         assert_eq!(snapshot.total(), 201);
-        assert!(metrics.prometheus().contains(
-            "tor_auth_login_outcomes_total{outcome=\"lookup_unavailable\"} 200"
-        ));
+        assert!(metrics
+            .prometheus()
+            .contains("tor_auth_login_outcomes_total{outcome=\"lookup_unavailable\"} 200"));
     }
 
     #[test]
@@ -161,10 +159,20 @@ mod tests {
         }
         let lines = metrics.prometheus();
         assert_eq!(
-            lines.lines().filter(|line| line.starts_with("tor_auth_login_outcomes_total{")).count(),
+            lines
+                .lines()
+                .filter(|line| line.starts_with("tor_auth_login_outcomes_total{"))
+                .count(),
             10
         );
-        for forbidden in ["email", "user_id", "request_id", "remote_ip", "cookie", "sql_text"] {
+        for forbidden in [
+            "email",
+            "user_id",
+            "request_id",
+            "remote_ip",
+            "cookie",
+            "sql_text",
+        ] {
             assert!(!lines.contains(forbidden), "{forbidden}");
         }
     }
@@ -172,8 +180,7 @@ mod tests {
     #[test]
     fn totals_saturate_instead_of_wrapping() {
         let metrics = LoginMetrics::default();
-        metrics.counters[LoginOutcome::Success as usize]
-            .store(u64::MAX, Ordering::Relaxed);
+        metrics.counters[LoginOutcome::Success as usize].store(u64::MAX, Ordering::Relaxed);
         metrics.record(LoginOutcome::Success);
         assert_eq!(metrics.snapshot().count(LoginOutcome::Success), u64::MAX);
     }
