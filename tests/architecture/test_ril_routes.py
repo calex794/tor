@@ -43,7 +43,7 @@ class RilCoverageTests(unittest.TestCase):
 
     def test_missing_classifier_method_is_detected(self):
         self.mutate(
-            "crates/route_intelligence/src/domain/mod.rs",
+            "crates/route_intelligence/src/domain/routes.rs",
             '(Some("/login"), "POST") => Some(8)',
             '(Some("/login"), "PATCH") => Some(8)',
         )
@@ -61,7 +61,7 @@ class RilCoverageTests(unittest.TestCase):
 
     def test_stale_registry_is_detected(self):
         self.mutate(
-            "crates/route_intelligence/src/domain/mod.rs",
+            "crates/route_intelligence/src/domain/routes.rs",
             'RouteRegistration::new("/", "GET", "/", Exact',
             'RouteRegistration::new("/phantom", "GET", "/", Exact',
         )

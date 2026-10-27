@@ -12,7 +12,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CLASSIFIER = Path("crates/route_intelligence/src/domain/mod.rs")
+CLASSIFIERS = (
+    Path("crates/route_intelligence/src/domain/mod.rs"),
+    Path("crates/route_intelligence/src/domain/routes.rs"),
+)
 _METHODS = r"get|post|put|patch|delete|head|options|trace"
 
 
@@ -86,9 +89,9 @@ def _reference(source: str) -> tuple[set[tuple[str, str]], set[tuple[str, str]],
 
 def check(root: Path = ROOT) -> list[str]:
     problems: list[str] = []
-    src = root / CLASSIFIER
     try:
-        registered, classifier, issues = _reference(src.read_text(encoding="utf-8"))
+        source = "\n".join((root / src).read_text(encoding="utf-8") for src in CLASSIFIERS)
+        registered, classifier, issues = _reference(source)
     except OSError as exc:
         return [f"missing RIL classifier registry: {exc}"]
     problems.extend(issues)

@@ -38,6 +38,7 @@ mod account_form_http;
 mod behavior_consent;
 mod library_actions;
 mod login_limiter;
+mod rankings;
 mod sync_actions;
 
 #[derive(Clone)]
@@ -48,6 +49,7 @@ struct AuthState {
     sync: PgReadingSync,
     bookmarks: PgLibrary,
     reader: PgReader,
+    rankings: tor_recommendations::repositories::PgRanking,
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
     ril_signer: Option<RilSubjectSigner>,
@@ -100,6 +102,7 @@ pub(crate) fn router(
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
+    let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthState {
         accounts,
@@ -108,6 +111,7 @@ pub(crate) fn router(
         sync,
         bookmarks,
         reader,
+        rankings,
         cookies: CookiePolicy { secure, origin },
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
@@ -124,6 +128,12 @@ pub(crate) fn router(
         )
         .route("/me", get(me))
         .route("/me/library", get(my_library))
+        .route("/me/rankings", get(rankings::page))
+        .route("/me/rankings/choice", post(rankings::browser_choice))
+        .route("/me/rankings/resume", post(rankings::browser_resume))
+        .route("/api/v1/me/rankings", get(rankings::api_state))
+        .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
+        .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),

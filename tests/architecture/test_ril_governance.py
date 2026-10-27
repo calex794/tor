@@ -118,6 +118,24 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
+    def test_ranking_csrf_helper_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth/rankings.rs",
+            "state.cookies.same_origin(headers)",
+            "state.cookies.bypass_origin(headers)",
+            start="fn csrf_valid(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_ranking_actor_guard_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth/rankings.rs",
+            "actor(&state, &headers).await",
+            "unverified_actor(&state, &headers).await",
+            start="pub(super) async fn api_state(",
+        )
+        self.assert_detected("missing verified PG session guard")
+
     def test_distributed_rate_limiter_removal_fails(self):
         self.mutate(
             "crates/web/src/auth/login_limiter.rs",
