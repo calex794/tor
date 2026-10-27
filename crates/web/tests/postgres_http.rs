@@ -431,3 +431,25 @@ async fn f_02_http_taxonomy_filters_validate_and_never_change_legacy_api() {
     assert_eq!(status, StatusCode::OK);
     assert!(legacy.starts_with('['));
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci public/hidden/held fixture"]
+async fn f_03_nfkc_search_normalization_works_through_public_http() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    let app = tor_web::router_with_postgres(PgCatalog::connect(&url).await.unwrap());
+    // Fullwidth Unicode letters (ＴＯＲ) normalize to the fixture's ASCII title.
+    let term = "%EF%BC%B4%EF%BC%AF%EF%BC%B2";
+    for path in [
+        format!("/api/v1/search/books?q={term}&sort=newest&include_total=true"),
+        format!("/catalog?q={term}&sort=newest"),
+    ] {
+        let (code, response) = get(app.clone(), &path).await;
+        assert_eq!(code, StatusCode::OK, "{path}");
+        assert!(response.contains("TOR CI public"), "{path}: {response}");
+        assert!(!response.contains("TOR CI hidden"), "{path}");
+        assert!(!response.contains("TOR CI held"), "{path}");
+    }
+    let (code, legacy) = get(app, "/api/v1/books").await;
+    assert_eq!(code, StatusCode::OK);
+    assert!(legacy.starts_with('['));
+}
