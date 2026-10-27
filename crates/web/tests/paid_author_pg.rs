@@ -250,9 +250,13 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     assert_eq!(status, StatusCode::OK);
     assert!(!page.contains("<option value=\"paid\">"));
 
-    let author =
-        PgPaidAuthorPublisher::new(catalog.clone(), store.clone(), ring.clone(), BUCKET.to_owned())
-            .unwrap();
+    let author = PgPaidAuthorPublisher::new(
+        catalog.clone(),
+        store.clone(),
+        ring.clone(),
+        BUCKET.to_owned(),
+    )
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
         catalog,
         PgReader::new(pool.clone()),
@@ -378,7 +382,10 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         BUCKET.to_owned(),
     )
     .unwrap();
-    assert_eq!(failed.publish(owner, &draft).await, Err(AuthorError::Unavailable));
+    assert_eq!(
+        failed.publish(owner, &draft).await,
+        Err(AuthorError::Unavailable)
+    );
     assert_eq!(
         pg(
             &url,
