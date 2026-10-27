@@ -16,18 +16,17 @@ use tor_storage::{
         paid_delivery::PgPrivateDelivery,
         registry::PgStorageRegistry,
     },
-    services::{crypto::{seal_chapter, ContentKek, ContentKeyring}, provider::PrivateObjectStore},
+    services::{
+        crypto::{seal_chapter, ContentKek, ContentKeyring},
+        provider::PrivateObjectStore,
+    },
 };
 
 struct FakeSigner;
 
 #[async_trait]
 impl PrivateObjectStore for FakeSigner {
-    async fn put_immutable(
-        &self,
-        _object: &ObjectRef,
-        _bytes: &[u8],
-    ) -> Result<(), StorageError> {
+    async fn put_immutable(&self, _object: &ObjectRef, _bytes: &[u8]) -> Result<(), StorageError> {
         Err(StorageError::Unavailable)
     }
     async fn head_verified(&self, _object: &ObjectRef) -> Result<bool, StorageError> {
@@ -130,32 +129,28 @@ async fn s334_rotates_only_authenticated_wrapper_and_keeps_historical_dek() {
     let prior = serde_json::to_value(original).unwrap();
 
     // An app user cannot rotate data, even when it knows V2-sized bytes.
-    assert!(
-        sqlx::query(
-            "UPDATE storage_objects
+    assert!(sqlx::query(
+        "UPDATE storage_objects
              SET encrypted_dek=$2,wrap_nonce=$3,kek_id='content-kek-v2'
              WHERE id=$1::uuid",
-        )
-        .bind(id.as_str())
-        .bind(vec![0x61_u8; 48])
-        .bind(vec![0x63_u8; 12])
-        .execute(&app)
-        .await
-        .is_err()
-    );
-    assert!(
-        sqlx::query_scalar::<_, bool>(
-            "SELECT rewrap_attached_storage_v1_to_v2($1::uuid,$2,$3,$4,$5)",
-        )
-        .bind(id.as_str())
-        .bind(&sealed.wrapped_dek)
-        .bind(sealed.wrap_nonce.as_slice())
-        .bind(vec![0x61_u8; 48])
-        .bind(vec![0x63_u8; 12])
-        .fetch_one(&app)
-        .await
-        .is_err()
-    );
+    )
+    .bind(id.as_str())
+    .bind(vec![0x61_u8; 48])
+    .bind(vec![0x63_u8; 12])
+    .execute(&app)
+    .await
+    .is_err());
+    assert!(sqlx::query_scalar::<_, bool>(
+        "SELECT rewrap_attached_storage_v1_to_v2($1::uuid,$2,$3,$4,$5)",
+    )
+    .bind(id.as_str())
+    .bind(&sealed.wrapped_dek)
+    .bind(sealed.wrap_nonce.as_slice())
+    .bind(vec![0x61_u8; 48])
+    .bind(vec![0x63_u8; 12])
+    .fetch_one(&app)
+    .await
+    .is_err());
 
     let operator = PgKekRotation::new(mig.clone());
     assert!(operator.count_v1_references().await.unwrap() > 0);
@@ -167,11 +162,7 @@ async fn s334_rotates_only_authenticated_wrapper_and_keeps_historical_dek() {
     );
     assert_eq!(
         operator
-            .rewrap_one_v1_to_v2(
-                &id,
-                &ContentKek::from_bytes([0x69; 32]),
-                &next,
-            )
+            .rewrap_one_v1_to_v2(&id, &ContentKek::from_bytes([0x69; 32]), &next)
             .await,
         Err(RotationError::KeyRejected)
     );
@@ -196,12 +187,11 @@ async fn s334_rotates_only_authenticated_wrapper_and_keeps_historical_dek() {
     .await
     .unwrap();
     assert_eq!(before, after, "immutable S3 bytes and AAD never change");
-    let new_id: String =
-        sqlx::query_scalar("SELECT kek_id FROM storage_objects WHERE id=$1::uuid")
-            .bind(id.as_str())
-            .fetch_one(&app)
-            .await
-            .unwrap();
+    let new_id: String = sqlx::query_scalar("SELECT kek_id FROM storage_objects WHERE id=$1::uuid")
+        .bind(id.as_str())
+        .fetch_one(&app)
+        .await
+        .unwrap();
     assert_eq!(new_id, "content-kek-v2");
     assert_eq!(
         v1_grant
@@ -245,13 +235,11 @@ async fn s334_rotates_only_authenticated_wrapper_and_keeps_historical_dek() {
     assert_eq!(prior["aad_b64u"], renewed["aad_b64u"]);
 
     // No direct rewind or rewriting S3 metadata under a migrator role.
-    assert!(sqlx::query(
-        "UPDATE storage_objects SET kek_id='content-kek-v1' WHERE id=$1::uuid",
-    )
-    .bind(id.as_str())
-    .execute(&mig)
-    .await
-    .is_err());
+    assert!(sqlx::query("UPDATE storage_objects SET kek_id='content-kek-v1' WHERE id=$1::uuid")
+        .bind(id.as_str())
+        .execute(&mig)
+        .await
+        .is_err());
     assert!(sqlx::query(
         "UPDATE storage_objects SET sha256_ciphertext=$2 WHERE id=$1::uuid",
     )
