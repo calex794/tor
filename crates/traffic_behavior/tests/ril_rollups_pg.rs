@@ -73,6 +73,23 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .unwrap();
 
     assert!(repo.enqueue(&id, &batch).await.unwrap());
+    sqlx::query(
+        "UPDATE ril_flush_batches SET enqueued_at=now()-INTERVAL '10 minutes'
+         WHERE batch_id=$1",
+    )
+    .bind(&id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        repo.queue_counts().await.unwrap().overdue_pending >= 1,
+        "truly runnable batches older than five minutes must be detected"
+    );
+    sqlx::query("UPDATE ril_flush_batches SET enqueued_at=now() WHERE batch_id=$1")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .unwrap();
     // Read-only operator count uses the real tor_app PostgreSQL role.
     let queued = repo.queue_counts().await.unwrap();
     assert!(queued.pending >= 1);
@@ -100,6 +117,10 @@ async fn ril_06_pg_crash_replay_fencing_and_daily_rollups() {
     .await
     .unwrap();
     let reloaded = PgRilRollups::new(pool.clone()); // a new process
+    assert!(
+        repo.queue_counts().await.unwrap().expired_lease >= 1,
+        "expired running lease must trigger a diagnosis"
+    );
     let second = reloaded.claim_next().await.unwrap().expect("expired claim");
     assert_eq!(second.epoch, 2);
     assert!(!repo.materialize(first).await.unwrap(), "old epoch fenced");

@@ -56,6 +56,23 @@ async fn g_07_claim_fence_recovery_and_forbidden_registration() {
     );
     // Operator counters reflect the actual job state, without exposing an actor.
     assert!(repo.queue_counts().await.unwrap().pending >= 1);
+    sqlx::query(
+        "UPDATE cover_variant_jobs SET created_at=now()-INTERVAL '10 minutes'
+         WHERE id=$1",
+    )
+    .bind(job)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        repo.queue_counts().await.unwrap().overdue_pending >= 1,
+        "runnable old jobs must be visible without exposing owner IDs"
+    );
+    sqlx::query("UPDATE cover_variant_jobs SET created_at=now() WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let (one, two) = tokio::join!(repo.claim_next(), repo.claim_next());
     let claims: Vec<_> = [one.unwrap(), two.unwrap()].into_iter().flatten().collect();
@@ -73,6 +90,10 @@ async fn g_07_claim_fence_recovery_and_forbidden_registration() {
         .execute(&pool)
         .await
         .unwrap();
+    assert!(
+        repo.queue_counts().await.unwrap().expired_lease >= 1,
+        "an expired cover lease is visible to the operator"
+    );
     let latest = repo.claim_next().await.unwrap().unwrap();
     assert_eq!(latest.job_id, job);
     assert_eq!(latest.epoch, old.epoch + 1);
@@ -90,5 +111,14 @@ async fn g_07_claim_fence_recovery_and_forbidden_registration() {
         .await
         .unwrap();
     assert_eq!(repo.job_status(job).await.unwrap().as_deref(), Some("dead"));
+    sqlx::query("UPDATE cover_variant_jobs SET attempts=3 WHERE id=$1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let signals = repo.queue_counts().await.unwrap();
+    assert!(signals.dead >= 1);
+    assert!(signals.repeated_attempts >= 1);
+
     pool.close().await;
 }

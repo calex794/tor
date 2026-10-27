@@ -34,6 +34,7 @@ mod operator_traces;
 mod pages;
 mod password_jobs;
 mod ril;
+mod worker_health;
 
 #[derive(Clone)]
 struct AppState {
