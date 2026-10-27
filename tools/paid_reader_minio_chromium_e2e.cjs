@@ -177,10 +177,11 @@ const server = http.createServer(async (req, reply) => {
   }
 });
 
-function signatureExpiry(url) {
+function signatureExpiry(url, expectedSeconds) {
   const date = url.searchParams.get("X-Amz-Date");
   const seconds = Number(url.searchParams.get("X-Amz-Expires"));
-  assert(/^[0-9]{8}T[0-9]{6}Z$/.test(date) && seconds === 30);
+  assert(/^[0-9]{8}T[0-9]{6}Z$/.test(date) &&
+    seconds === expectedSeconds, "unexpected S3 signature lifetime");
   return Date.UTC(
     +date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6, 8),
     +date.slice(9, 11), +date.slice(11, 13), +date.slice(13, 15)
@@ -188,10 +189,23 @@ function signatureExpiry(url) {
 }
 
 async function run() {
-  assert.equal(new URL(grant.content.ciphertext_url).origin, S3);
+  // PG already committed the refund before exporting the ephemeral fixture.
+  // Its previously issued bearer URL must still work until S3's real TTL;
+  // the next fresh grant was separately denied by the Rust HTTP test.
+  const issuedBeforeRefund = new URL(grant.content.ciphertext_url);
+  assert.equal(issuedBeforeRefund.origin, S3);
+  assert(signatureExpiry(issuedBeforeRefund, 90) > Date.now(),
+    "90s grant must not have expired before the browser test");
+  const heldToken = await fetch(issuedBeforeRefund);
+  assert.equal(heldToken.status, 200,
+    "a refund cannot instantly revoke a previously issued S3 bearer URL");
+  const heldCiphertext = await heldToken.arrayBuffer();
+  assert(heldCiphertext.byteLength > 16, "S3 must serve ciphertext, not an empty body");
+
   const short = new URL(fixture.expiry_probe_url);
   assert.equal(short.origin, S3);
-  assert.equal(short.searchParams.get("X-Amz-Expires"), "30");
+  assert(signatureExpiry(short, 30) > Date.now(),
+    "30s probe URL must not expire before the browser test");
   const initiallySigned = await fetch(short);
   assert.equal(initiallySigned.status, 200, "30s signed GET must work before expiry");
   await initiallySigned.arrayBuffer();
@@ -488,11 +502,17 @@ async function run() {
     await new Promise((resolve) => server.close(resolve));
   }
 
-  const remaining = signatureExpiry(short) + 2500 - Date.now();
+  // One deadline wait verifies BOTH real MinIO TTLs without an added 90s
+  // interval. Never log the signed query, scoped key or response bytes.
+  const expiry = Math.max(signatureExpiry(short, 30),
+    signatureExpiry(issuedBeforeRefund, 90));
+  const remaining = expiry + 2500 - Date.now();
   if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
-  const expired = await fetch(short);
-  assert.equal(expired.status, 403, "Expired S3 URL must be rejected");
-  console.log("H/S034 Chromium + real private MinIO CORS PASS; 30s signed URL expired");
+  const expiredShort = await fetch(short);
+  assert.equal(expiredShort.status, 403, "30s signed URL must expire");
+  const expiredGrant = await fetch(issuedBeforeRefund);
+  assert.equal(expiredGrant.status, 403, "90s refunded bearer URL must expire");
+  console.log("H/S065 Chromium/MinIO: refunded bearer works only until 90s; 30s/90s expired");
 }
 
 run().catch((error) => {
