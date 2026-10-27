@@ -285,6 +285,12 @@ async function run() {
           document.documentElement.scrollWidth >
           document.documentElement.clientWidth + 1);
         assert(!tocOverflow, device + ": TOC opens outside the viewport");
+        // An isolated TOC screenshot reveals every badge on mobile without
+        // the masked encrypted-text layer crossing the menu. The fixture is
+        // synthetic; only server-authorized metadata enters this crop.
+        await toc.locator(".reader-paid__toc-menu").screenshot({
+          path: path.join(screenshotRoot, "s065-mixed-toc-menu-" + device + ".png"),
+        });
         await toc.locator("summary").click();
         assert(!(await toc.evaluate((element) => element.open)),
           device + ": purchased TOC did not close");
