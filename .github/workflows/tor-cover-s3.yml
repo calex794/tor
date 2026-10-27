@@ -10,6 +10,13 @@ on:
       - 'crates/ingest/src/repositories/s3.rs'
       - 'crates/ingest/tests/s3_provider.rs'
       - 'crates/web/tests/cover_s3_pg.rs'
+      - 'crates/web/src/cover_worker.rs'
+      - 'crates/ingest/src/services/cover_worker.rs'
+      - 'crates/ingest/src/services/cover_jobs.rs'
+      - 'crates/ingest/src/repositories/cover_jobs.rs'
+      - 'crates/ingest/src/services/image_pipeline.rs'
+      - 'crates/books/src/repositories/cover_slots.rs'
+      - 'migrations/**'
       - '.github/workflows/tor-cover-s3.yml'
   push:
     branches: [main]
@@ -22,6 +29,13 @@ on:
       - 'crates/ingest/src/repositories/s3.rs'
       - 'crates/ingest/tests/s3_provider.rs'
       - 'crates/web/tests/cover_s3_pg.rs'
+      - 'crates/web/src/cover_worker.rs'
+      - 'crates/ingest/src/services/cover_worker.rs'
+      - 'crates/ingest/src/services/cover_jobs.rs'
+      - 'crates/ingest/src/repositories/cover_jobs.rs'
+      - 'crates/ingest/src/services/image_pipeline.rs'
+      - 'crates/books/src/repositories/cover_slots.rs'
+      - 'migrations/**'
       - '.github/workflows/tor-cover-s3.yml'
   workflow_dispatch:
 permissions:
