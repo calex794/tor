@@ -86,7 +86,8 @@ impl PgAuthoring {
             || !(1..=200).contains(&input.title.chars().count())
             || input.title.chars().any(char::is_control)
             || !(1..=50_000).contains(&input.body.chars().count())
-            || input.body.contains(['\0', '\r'])
+            || input.body.contains('\0')
+            || input.body.contains('\r')
         {
             return Err(AuthorError::Invalid);
         }
