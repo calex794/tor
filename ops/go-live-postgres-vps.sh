@@ -10,6 +10,38 @@ if [[ $(id -u) -ne 0 || $# -ne 1 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
+# TOR_MAIN_SHA_GUARD_BEGIN
+# Fail closed before any SQLx migration when the selected staged SHA is stale.
+require_current_main_sha() {
+  local actual_main_sha
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "REFUSE_OBSOLETE_MAIN: python3 is required to verify GitHub main" >&2
+    return 1
+  fi
+  actual_main_sha=$(
+    curl --fail --silent --show-error --location --retry 2 --max-time 15 \
+      -H "Accept: application/vnd.github+json" \
+      https://api.github.com/repos/calex794/tor/git/ref/heads/main |
+      python3 -c '
+import json
+import sys
+payload = json.load(sys.stdin)
+if payload.get("ref") != "refs/heads/main":
+    sys.exit(1)
+print(payload.get("object", {}).get("sha", ""))
+'
+  ) || {
+    echo "REFUSE_OBSOLETE_MAIN: could not verify GitHub main; no release permitted" >&2
+    return 1
+  }
+  if [[ ! "$actual_main_sha" =~ ^[0-9a-f]{40}$ || "$actual_main_sha" != "$sha" ]]; then
+    echo "REFUSE_OBSOLETE_MAIN: staged SHA differs from verified GitHub main" >&2
+    return 1
+  fi
+}
+# TOR_MAIN_SHA_GUARD_END
+require_current_main_sha
+
 release="/opt/tor/releases/$sha"
 if [[ ! -x $release/tor-web || ! -x $release/tor-migrate ||
       -L $release || $(readlink -f "$release") != "$release" ||
@@ -112,6 +144,10 @@ chown root:root "$schema_tmp"
 chmod 0644 "$schema_tmp"
 mv -fT "$schema_tmp" "$schema_marker"
 echo "TOR_SCHEMA_MARKED $latest_schema"
+
+# Check again: main may have changed while SQLx ran. Old binary remains active
+# on refusal; an already applied SQLx migration must be handled separately.
+require_current_main_sha
 
 dropin_dir=/etc/systemd/system/tor-web.service.d
 dropin="$dropin_dir/20-postgres.conf"
