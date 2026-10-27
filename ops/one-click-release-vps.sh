@@ -128,6 +128,9 @@ else
     sha256sum -c --status tor-web.sha256 &&
     sha256sum -c --status tor-migrate.sha256) ||
     refuse 'root-owned copy failed checksum verification'
+  # mktemp -d defaults to 0700: tor-web runs as tor-deploy and must
+  # traverse the new root-owned release directory after switching.
+  chmod 0755 "$temporary"
   mv -T "$temporary" "$target"
   trap - EXIT
 fi
@@ -145,6 +148,8 @@ ssh-keygen -Y verify -f "$signers" -I tor-release -n tor-release \
   refuse 'privileged migrator must be root owned'
 [[ $(stat -c '%U:%G' "$target/tor-web") == root:root ]] ||
   refuse 'server binary must be root owned'
+[[ $(stat -c '%a' "$target") == 755 ]] ||
+  refuse 'server process cannot traverse release directory'
 
 if [[ "$previous" == "$target" ]]; then
   echo "TOR_ALREADY_ACTIVE $sha"
