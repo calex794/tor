@@ -6,6 +6,7 @@ const { createCipheriv, createHash } = require("node:crypto");
 const { gzipSync } = require("node:zlib");
 const fs = require("node:fs");
 const path = require("node:path");
+const { URL: URLClass } = require("node:url");
 
 const SITE = "http://127.0.0.1:3098";
 const S3 = "http://127.0.0.1:9000";
@@ -58,6 +59,7 @@ function html() {
     '← Моя библиотека</a><span class="reader-topbar__chapter">Глава 103</span></header>' +
     '<h1>Глава 103</h1><p data-paid-status role="status"></p>' +
     '<div class="reader-resume" data-paid-resume></div>' +
+    '<div class="reader-resume reader-paid__completion" data-paid-completion aria-live="polite" hidden></div>' +
     '<article class="chapter-content reader-markdown reader-paid__content" data-paid-content>' +
     '</article></div><script type="module" src="/assets/newboo-paid-reader.mjs"></script>' +
     '</main></body></html>';
@@ -82,7 +84,7 @@ async function testDevice(browser, name, width, height, tamper) {
   const fixture = sealedFixture();
   const grant = JSON.parse(JSON.stringify(fixture.grant));
   if (tamper) grant.content.object_sha256 = "0".repeat(64);
-  let grantCalls = 0, s3Calls = 0, saved = null;
+  let grantCalls = 0, s3Calls = 0, completionGets = 0, completionPosts = 0, saved = null;
   await page.route("**/read/paid/103?purchase_id=501", (route) =>
     route.fulfill({
       status: 200, contentType: "text/html; charset=utf-8", body: html(),
@@ -117,7 +119,34 @@ async function testDevice(browser, name, width, height, tamper) {
     });
   });
   await page.route("**/api/v1/me/progress/purchased**", async (route) => {
-    if (route.request().method() === "PUT") {
+    const request = route.request();
+    if (new URLClass(request.url()).pathname.endsWith("/complete")) {
+      if (request.method() === "GET") {
+        completionGets++;
+        const query = new URLClass(request.url()).searchParams;
+        assert.equal(query.get("chapter_id"), "103");
+        assert.equal(query.get("purchase_id"), "501");
+        assert.equal(query.get("version_id"), "201");
+        await route.fulfill({ status: 200, contentType: "application/json",
+          body: JSON.stringify({ available: true, completed: false }) });
+      } else {
+        assert.equal(request.method(), "POST");
+        assert.equal(request.headers()["x-csrf-token"], "c".repeat(43));
+        const body = request.postDataJSON();
+        assert.equal(body.chapter_id, "103");
+        assert.equal(body.purchase_id, "501");
+        assert.equal(body.version_id, "201");
+        assert.equal(body.block_id, 3);
+        assert.equal(body.char_offset, "第二章".length);
+        assert.equal(body.expected_revision, 1);
+        const aad = Buffer.from(fixture.grant.content.aad_b64u, "base64url")
+          .toString("utf8").split("\n");
+        assert.equal(body.plaintext_sha256, aad[4]);
+        completionPosts++;
+        await route.fulfill({ status: 200, contentType: "application/json",
+          body: JSON.stringify({ status: "completed" }) });
+      }
+    } else if (request.method() === "PUT") {
       saved = route.request().postDataJSON();
       await route.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ revision: 1, version_id: "201" }) });
@@ -140,6 +169,9 @@ async function testDevice(browser, name, width, height, tamper) {
       assert((await page.locator(".reader-piece__text").nth(1).textContent())
         .includes("<img src=x onerror="), "HTML wasn't literal text");
       await inspect(page, name, true);
+      const finish = page.getByRole("button", { name: "Глава прочитана" });
+      assert(await finish.isVisible(), name + ": missing separate completion action");
+      assert.equal(completionPosts, 0, "decrypt or bookmark must not auto-complete");
       await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
       await page.getByText("Место сохранено.").waitFor();
       assert.deepEqual(saved, {
@@ -148,6 +180,10 @@ async function testDevice(browser, name, width, height, tamper) {
       });
       assert.equal(await page.locator("img[src=x]").count(), 0, "Unsafe image parsed");
       if (name === "desktop") {
+        assert.equal(completionPosts, 0, "bookmark must not mint completion");
+        await finish.click();
+        await page.getByRole("link", { name: "Открыть мой рейтинг" }).waitFor();
+        assert.equal(completionPosts, 1, "explicit click must mint one completion");
         // A forged Content-Length must not make the browser buffer an
         // unbounded object before the cryptographic hash check.
         const blockedOversize = await page.evaluate(async (grant) => {
@@ -179,6 +215,9 @@ async function testDevice(browser, name, width, height, tamper) {
     }
     assert.equal(grantCalls, 1, name + ": unexpected grant retries");
     assert.equal(s3Calls, 1, name + ": extra private S3 GET");
+    assert.equal(completionGets, tamper ? 0 : 1, name + ": unexpected capability checks");
+    assert.equal(completionPosts, name === "desktop" ? 1 : 0,
+      name + ": completion must require an explicit click");
   } finally {
     await page.close();
   }
