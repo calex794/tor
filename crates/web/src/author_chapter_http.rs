@@ -8,21 +8,31 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use async_trait::async_trait;
 use serde::Deserialize;
+use std::sync::Arc;
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
+    services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest},
 };
 
 use crate::auth_cookies::{private_response, CookiePolicy};
+
+/// Only the S3-paid constructor provides this port. Ordinary author routes
+/// remain entirely unable to write private paid content.
+#[async_trait]
+pub(crate) trait PaidChapterPublisher: Send + Sync {
+    async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+}
 
 #[derive(Clone)]
 struct AuthorChapterState {
     accounts: PgAccounts,
     authoring: PgAuthoring,
     cookies: CookiePolicy,
+    paid_author: Option<Arc<dyn PaidChapterPublisher>>,
 }
 
 #[derive(Deserialize)]
@@ -31,6 +41,8 @@ struct ChapterForm {
     title: String,
     body: String,
     command_key: String,
+    access: Option<String>,
+    price_amount: Option<i64>,
     csrf_token: Option<String>,
 }
 
@@ -56,12 +68,17 @@ struct PublishForm {
     csrf_token: Option<String>,
 }
 
-pub(crate) fn router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
+pub(crate) fn router(
+    accounts: PgAccounts,
+    cookies: CookiePolicy,
+    paid_author: Option<Arc<dyn PaidChapterPublisher>>,
+) -> Router {
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthorChapterState {
         accounts,
         authoring,
         cookies,
+        paid_author,
     };
     Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
@@ -112,10 +129,15 @@ async fn new_chapter(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+    let paid_enabled = if state.paid_author.is_some() {
+        matches!(state.authoring.owned_book_is_public(actor, id).await, Ok(true))
+    } else {
+        false
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
     private_response(
-        crate::author_chapter_pages::new_chapter(id, &csrf, &key),
+        crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled),
         &cookies,
     )
 }
@@ -142,22 +164,53 @@ async fn create_chapter(
         Ok(id) if id > 0 => id,
         _ => return deny(StatusCode::NOT_FOUND),
     };
+    // G requires identical LF canonicalization for B's content SHA and
+    // the ciphertext AAD. Never permit the form to choose a KEK or S3 path.
+    let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
+    let access = form.access.as_deref().unwrap_or("free");
     let request = match save_chapter(SaveChapterRequest {
         book_id: id,
         chapter_id: None,
         number: form.number,
         expected_revision: 0,
         title: &form.title,
-        body: &form.body,
-        access: "free",
-        price_amount: 0,
+        body: &body,
+        access,
+        price_amount: form.price_amount.unwrap_or(0),
         command_key: &form.command_key,
     }) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    // Saving a new chapter to a published book creates only a PRIVATE draft.
-    // The transaction rechecks the visibility under the owner book row lock.
+    if request.access == ChapterAccess::Paid {
+        let Some(publisher) = &state.paid_author else {
+            return private_response(
+                (StatusCode::SERVICE_UNAVAILABLE, "Платная публикация пока не включена."),
+                &[],
+            );
+        };
+        return match publisher.publish_new(actor, &request).await {
+            Ok(()) => private_response(Redirect::to(&format!("/books/{id}")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => private_response(
+                (
+                    StatusCode::CONFLICT,
+                    "Глава уже создаётся или изменена в другой вкладке. Повторите отправку этой же формы.",
+                ),
+                &[],
+            ),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => private_response(
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Не удалось завершить защищённую публикацию. Вернитесь к форме и повторите отправку без изменения данных.",
+                ),
+                &[],
+            ),
+        };
+    }
+    // The existing free save flow is unchanged in this paid-only release.
     let is_public = match state.authoring.owned_book_is_public(actor, id as i64).await {
         Ok(value) => value,
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
