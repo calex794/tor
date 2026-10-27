@@ -51,7 +51,9 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     })
     .unwrap();
     assert_eq!(
-        authoring.create_published_free_chapter(stranger, &request).await,
+        authoring
+            .create_published_free_chapter(stranger, &request)
+            .await,
         Err(AuthorError::Missing),
         "non-owner cannot publish through the new Save path"
     );
@@ -61,7 +63,9 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
         .unwrap();
     assert_eq!(saved.revision, 1);
     assert_eq!(
-        authoring.create_published_free_chapter(owner, &request).await,
+        authoring
+            .create_published_free_chapter(owner, &request)
+            .await,
         Ok(saved.clone()),
         "network retry is an exact replay and not another edition"
     );
@@ -90,13 +94,12 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     .await
     .unwrap();
     assert_eq!(release_fact, 1);
-    let working: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1",
-    )
-    .bind(saved.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let working: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
+            .bind(saved.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(working, 0);
 
     let modified = save_chapter(SaveChapterRequest {
@@ -112,7 +115,9 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     })
     .unwrap();
     assert_eq!(
-        authoring.create_published_free_chapter(owner, &modified).await,
+        authoring
+            .create_published_free_chapter(owner, &modified)
+            .await,
         Err(AuthorError::Conflict),
         "same key cannot replace an immutable edition"
     );
@@ -130,7 +135,9 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     })
     .unwrap();
     assert_eq!(
-        authoring.create_published_free_chapter(owner, &duplicate_number).await,
+        authoring
+            .create_published_free_chapter(owner, &duplicate_number)
+            .await,
         Err(AuthorError::Conflict)
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM chapters WHERE book_id=$1")
@@ -191,13 +198,12 @@ async fn draft_book_is_still_private_and_public_save_fails_closed() {
         .await
         .unwrap();
     assert_eq!(visibility, "draft");
-    let version: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(hidden.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let version: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(hidden.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(version, hidden.version_id);
     pool.close().await;
 }
