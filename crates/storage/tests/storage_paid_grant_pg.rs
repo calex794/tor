@@ -130,7 +130,13 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
         codec: ContentCodec::Gzip,
     };
     let s3 = FakeSignedS3::default();
-    let grant = PgPrivateDelivery::new(pool.clone(), s3.clone(), kek.clone());
+    let grant = PgPrivateDelivery::new(
+        pool.clone(),
+        s3.clone(),
+        kek.clone(),
+        "tor-private-chapter-ci".to_owned(),
+    )
+    .unwrap();
 
     for state in ["pending", "ready"] {
         assert_eq!(
@@ -259,7 +265,9 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
         pool.clone(),
         s3.clone(),
         Arc::new(ContentKek::from_bytes([0x77; 32])),
-    );
+        "tor-private-chapter-ci".to_owned(),
+    )
+    .unwrap();
     assert_eq!(
         wrong_key
             .grant_verified_object(&encrypted, Duration::from_secs(90))
@@ -268,6 +276,33 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
         DeliveryError::Unavailable
     );
     assert_eq!(s3.calls.load(Ordering::SeqCst), 1);
+
+    // A valid ciphertext record from another bucket cannot authorize the
+    // signer configured for a different private storage namespace.
+    let wrong_bucket = PgPrivateDelivery::new(
+        pool.clone(),
+        s3.clone(),
+        kek.clone(),
+        "tor-other-private-ci".to_owned(),
+    )
+    .unwrap();
+    assert_eq!(
+        wrong_bucket
+            .grant_verified_object(&encrypted, Duration::from_secs(90))
+            .await
+            .unwrap_err(),
+        DeliveryError::Unavailable
+    );
+    assert_eq!(s3.calls.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        PgPrivateDelivery::new(
+            pool.clone(),
+            s3.clone(),
+            kek.clone(),
+            "public-readable".to_owned()
+        ),
+        Err(DeliveryError::Invalid)
+    ));
 
     s3.unavailable.store(true, Ordering::SeqCst);
     assert_eq!(

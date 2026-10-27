@@ -4,9 +4,12 @@
 //! exact immutable object and re-check D after this method returns. No public
 //! HTTP endpoint, arbitrary S3 key, unverified HEAD or plaintext fallback.
 use crate::{
-    domain::provider::valid_ciphertext_size,
+    domain::{
+        object_keys::PrivateObjectKey,
+        provider::{valid_ciphertext_size, valid_private_bucket},
+    },
     services::{
-        crypto::{unwrap_registered_dek, ContentKek},
+        crypto::{chapter_aad, unwrap_registered_dek, ContentKek},
         provider::PrivateObjectStore,
     },
 };
@@ -15,20 +18,66 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sqlx::{PgPool, Row};
 use std::{sync::Arc, time::Duration};
 use tor_contracts::paid_delivery::{
-    validate_signed_get_ttl, ContentCodec, DeliveryError, EncryptedObjectKind, EncryptedObjectRef,
-    GrantedContent, PrivateObjectDeliveryPort, SecretValue,
+    validate_signed_get_ttl, ChapterVersionRef, ContentCodec, DeliveryError, EncryptedObjectKind,
+    EncryptedObjectRef, GrantedContent, ObjectId, PositiveId, PrivateObjectDeliveryPort,
+    SecretValue,
 };
 
 pub struct PgPrivateDelivery<S> {
     pool: PgPool,
     store: S,
     kek: Arc<ContentKek>,
+    private_bucket: String,
 }
 
 impl<S: PrivateObjectStore> PgPrivateDelivery<S> {
-    pub fn new(pool: PgPool, store: S, kek: Arc<ContentKek>) -> Self {
-        Self { pool, store, kek }
+    /// Pass the same server-owned private bucket used to configure S3PrivateStore.
+    /// A PG registry row from another bucket must never authorize this signer.
+    pub fn new(
+        pool: PgPool,
+        store: S,
+        kek: Arc<ContentKek>,
+        private_bucket: String,
+    ) -> Result<Self, DeliveryError> {
+        if !valid_private_bucket(&private_bucket) {
+            return Err(DeliveryError::Invalid);
+        }
+        Ok(Self {
+            pool,
+            store,
+            kek,
+            private_bucket,
+        })
     }
+}
+
+fn canonical_aad(aad: &[u8], id: &ObjectId, plaintext_sha256: &[u8]) -> bool {
+    let Ok(digest) = <[u8; 32]>::try_from(plaintext_sha256) else {
+        return false;
+    };
+    let Ok(text) = std::str::from_utf8(aad) else {
+        return false;
+    };
+    let mut fields = text.split('\n');
+    if fields.next() != Some("tor.encrypted.chapter.v1") {
+        return false;
+    }
+    let parse_id = |raw: Option<&str>| {
+        raw.and_then(|value| value.parse::<i64>().ok())
+            .and_then(|value| PositiveId::new(value).ok())
+    };
+    let (Some(chapter_id), Some(version_id)) = (parse_id(fields.next()), parse_id(fields.next()))
+    else {
+        return false;
+    };
+    chapter_aad(
+        ChapterVersionRef {
+            chapter_id,
+            version_id,
+        },
+        id,
+        &digest,
+    ) == aad
 }
 
 #[async_trait]
@@ -51,7 +100,7 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
         // The whole trusted B ObjectRef must match a G attached registry
         // row. A pending, ready, deleted, rekeyed or tampered row cannot sign.
         let row = sqlx::query(
-            "SELECT encrypted_dek, wrap_nonce
+            "SELECT encrypted_dek, wrap_nonce, bucket, object_key, plaintext_sha256
              FROM storage_objects
              WHERE id=$1::uuid AND object_kind='chapter'
                AND state='attached' AND codec='gzip'
@@ -68,6 +117,28 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
         .await
         .map_err(|_| DeliveryError::Unavailable)?
         .ok_or(DeliveryError::Unavailable)?;
+
+        let bucket: String = row
+            .try_get("bucket")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let key: String = row
+            .try_get("object_key")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let plaintext_sha256: Vec<u8> = row
+            .try_get("plaintext_sha256")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let expected_key =
+            PrivateObjectKey::for_object(encrypted.object.kind, &encrypted.object.object_id);
+        if bucket != self.private_bucket
+            || key != expected_key.as_str()
+            || !canonical_aad(
+                &encrypted.aad,
+                &encrypted.object.object_id,
+                &plaintext_sha256,
+            )
+        {
+            return Err(DeliveryError::Unavailable);
+        }
 
         let wrapped: Vec<u8> = row
             .try_get("encrypted_dek")
@@ -107,5 +178,29 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             aad_b64u: URL_SAFE_NO_PAD.encode(&encrypted.aad),
             dek_b64u,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn g_s3_20_rejects_noncanonical_or_different_object_aad() {
+        let id = ObjectId::parse("a01e4711-2119-48a1-b280-74b38ac1b9a2").unwrap();
+        let digest = [0x42_u8; 32];
+        let pinned = ChapterVersionRef {
+            chapter_id: PositiveId::new(41).unwrap(),
+            version_id: PositiveId::new(42).unwrap(),
+        };
+        let canonical = chapter_aad(pinned, &id, &digest);
+        assert!(canonical_aad(&canonical, &id, &digest));
+        assert!(!canonical_aad(&canonical, &id, &[0_u8; 32]));
+        let swapped = ObjectId::parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").unwrap();
+        assert!(!canonical_aad(&canonical, &swapped, &digest));
+        let padded = String::from_utf8(canonical)
+            .unwrap()
+            .replace("\n41\n", "\n041\n");
+        assert!(!canonical_aad(padded.as_bytes(), &id, &digest));
     }
 }
