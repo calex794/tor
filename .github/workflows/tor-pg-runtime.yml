@@ -1,15 +1,19 @@
 name: TOR PostgreSQL runtime
 on:
   pull_request:
-    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py','tools/tor_pg_restart_smoke.sh','tools/tor_pg_backup_restore_smoke.sh']
   push:
     branches: [main]
-    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py','tools/tor_pg_restart_smoke.sh','tools/tor_pg_backup_restore_smoke.sh']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: postgres
   postgres-runtime:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
