@@ -171,7 +171,7 @@ pub fn seal_chapter(
     let ciphertext = encrypt_raw(&dek, &object_nonce, &aad, &compressed)?;
     let wrapped_dek = encrypt_raw(&kek.0, &wrap_nonce, &wrap_aad(&object_id), &dek)?;
     let ciphertext_sha256 = sha256_bytes(&ciphertext);
-    Ok(EncryptedChapter {
+    let sealed = EncryptedChapter {
         object_id,
         version,
         ciphertext,
@@ -182,7 +182,12 @@ pub fn seal_chapter(
         wrap_nonce,
         wrapped_dek,
         kek_id: KEK_ID,
-    })
+    };
+    // Verify newly wrapped DEK before the object can be registered or uploaded.
+    if unwrap_scoped_dek(&sealed, kek)?[..] != dek[..] {
+        return Err(CryptoError::AuthenticationFailed);
+    }
+    Ok(sealed)
 }
 
 /// Verify downloaded bytes against the immutable PG/HEAD receipt before any
