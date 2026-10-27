@@ -8,9 +8,9 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use tor_contracts::paid_delivery::{
-    Actor, ChapterVersionPort, ContentCodec, DEFAULT_SIGNED_GET_TTL, DeliveryError, DeliveryGrant,
-    DenialReason, EncryptedObjectKind, EntitlementDecision, EntitlementPort, GrantedContent,
-    PositiveId, PrivateObjectDeliveryPort,
+    Actor, ChapterVersionPort, ContentCodec, DeliveryError, DeliveryGrant, DenialReason,
+    EncryptedObjectKind, EntitlementDecision, EntitlementPort, GrantedContent, PositiveId,
+    PrivateObjectDeliveryPort, DEFAULT_SIGNED_GET_TTL,
 };
 
 fn denied(reason: DenialReason) -> DeliveryError {
@@ -78,7 +78,9 @@ pub async fn issue_paid_chapter_grant(
         .resolve_entitlement(actor, chapter_id, purchase_id)
         .await?
     {
-        EntitlementDecision::Allowed { pinned: still_allowed } if still_allowed == pinned => {}
+        EntitlementDecision::Allowed {
+            pinned: still_allowed,
+        } if still_allowed == pinned => {}
         EntitlementDecision::Allowed { .. } => return Err(DeliveryError::Conflict),
         EntitlementDecision::Denied { reason } => return Err(denied(reason)),
     }

@@ -11,10 +11,10 @@ use std::{
     time::Duration,
 };
 use tor_contracts::paid_delivery::{
-    Actor, ChapterVersionPort, ChapterVersionRef, ContentCodec, DEFAULT_SIGNED_GET_TTL,
-    DeliveryError, DenialReason, EncryptedObjectKind, EncryptedObjectRef, EntitlementDecision,
-    EntitlementPort, GrantedContent, ObjectId, ObjectRef, PositiveId, PrivateObjectDeliveryPort,
-    SecretValue,
+    Actor, ChapterVersionPort, ChapterVersionRef, ContentCodec, DeliveryError, DenialReason,
+    EncryptedObjectKind, EncryptedObjectRef, EntitlementDecision, EntitlementPort, GrantedContent,
+    ObjectId, ObjectRef, PositiveId, PrivateObjectDeliveryPort, SecretValue,
+    DEFAULT_SIGNED_GET_TTL,
 };
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
 
@@ -77,7 +77,11 @@ impl EntitlementPort for D {
         assert_eq!(chapter_id, id(44));
         assert_eq!(purchase_id, Some(id(71)));
         self.count.fetch_add(1, Ordering::SeqCst);
-        self.next.lock().unwrap().pop_front().expect("one D response per call")
+        self.next
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("one D response per call")
     }
 }
 
@@ -185,7 +189,10 @@ async fn c_06_paid_v1_grant_uses_only_d_pin_and_never_logs_secrets() {
         .unwrap()
         .contains("X-Amz-Signature="));
     let debug = format!("{result:?}");
-    assert!(!debug.contains("SENSITIVE"), "never leak URL or DEK in Debug");
+    assert!(
+        !debug.contains("SENSITIVE"),
+        "never leak URL or DEK in Debug"
+    );
 }
 
 #[tokio::test]
@@ -266,9 +273,18 @@ async fn c_06_mismatched_d_chapter_and_b_version_never_reach_signer() {
 async fn c_06_storage_failures_or_mismatched_metadata_fail_closed() {
     let b = B::new(Some(encrypted()));
     for g in [
-        G { unavailable: true, ..G::default() },
-        G { wrong_sha: true, ..G::default() },
-        G { wrong_nonce: true, ..G::default() },
+        G {
+            unavailable: true,
+            ..G::default()
+        },
+        G {
+            wrong_sha: true,
+            ..G::default()
+        },
+        G {
+            wrong_nonce: true,
+            ..G::default()
+        },
     ] {
         let d = D::new(vec![allowed(111)]);
         let response = issue_paid_chapter_grant(&d, &b, &g, actor(), id(44), Some(id(71))).await;
