@@ -8,9 +8,9 @@ use aes_gcm::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
-use std::{fmt, io::Write};
 #[cfg(any(feature = "pg", test))]
 use std::sync::Arc;
+use std::{fmt, io::Write};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use zeroize::Zeroizing;
 
@@ -94,9 +94,7 @@ impl ContentKeyring {
 
     /// G can retain its already loaded V1 without copying key bytes.
     /// Optional V2 comes from the same operator-owned secret environment.
-    pub fn from_v1_and_optional_v2_environment(
-        v1: Arc<ContentKek>,
-    ) -> Result<Self, CryptoError> {
+    pub fn from_v1_and_optional_v2_environment(v1: Arc<ContentKek>) -> Result<Self, CryptoError> {
         match std::env::var("TOR_CONTENT_KEK_V2") {
             Ok(_) => Self::with_v2(
                 v1,
