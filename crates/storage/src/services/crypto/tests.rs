@@ -166,3 +166,115 @@ fn invalid_size_empty_and_missing_material_fail_closed() {
     zipped[4] = 1;
     assert_ne!(&zipped[4..8], &[0_u8; 4]);
 }
+
+#[test]
+fn s334_rewrap_preserves_paid_v1_ciphertext_but_changes_only_key_envelope() {
+    let old = ContentKek::from_bytes([0x11; 32]);
+    let next = ContentKek::from_bytes([0x22; 32]);
+    let stored = seal_chapter(version(), object_id(), "Старая купленная V1 😀", &old).unwrap();
+    let unchanged_ciphertext = sha256_bytes(&stored.ciphertext);
+    let old_dek = unwrap_scoped_dek(&stored, &old).unwrap();
+
+    let first = rewrap_registered_v1_to_v2(
+        &stored.object_id,
+        &stored.wrapped_dek,
+        &stored.wrap_nonce,
+        &old,
+        &next,
+    )
+    .unwrap();
+    let second = rewrap_registered_v1_to_v2(
+        &stored.object_id,
+        &stored.wrapped_dek,
+        &stored.wrap_nonce,
+        &old,
+        &next,
+    )
+    .unwrap();
+    assert_eq!(first.kek_id, "content-kek-v2");
+    assert_ne!(first.wrap_nonce, stored.wrap_nonce);
+    assert_ne!(first.wrap_nonce, second.wrap_nonce);
+    assert_ne!(first.wrapped_dek, stored.wrapped_dek);
+    assert_eq!(first.wrapped_dek.len(), 48);
+    assert_eq!(sha256_bytes(&stored.ciphertext), unchanged_ciphertext);
+    let new_dek = decrypt_raw(
+        &next.0,
+        &first.wrap_nonce,
+        &wrap_aad(&stored.object_id),
+        &first.wrapped_dek,
+    )
+    .unwrap();
+    assert_eq!(new_dek, old_dek.as_slice());
+    assert_eq!(
+        decrypt_raw(
+            &old.0,
+            &first.wrap_nonce,
+            &wrap_aad(&stored.object_id),
+            &first.wrapped_dek
+        ),
+        Err(CryptoError::AuthenticationFailed),
+    );
+    assert!(!format!("{first:?}").contains(&hex::encode(&first.wrapped_dek)));
+    assert!(format!("{first:?}").contains("[REDACTED]"));
+}
+
+#[test]
+fn s334_rewrap_rejects_wrong_old_key_tampering_wrong_object_and_fake_rotation() {
+    let old = ContentKek::from_bytes([0x11; 32]);
+    let next = ContentKek::from_bytes([0x22; 32]);
+    let wrong = ContentKek::from_bytes([0x33; 32]);
+    let stored = seal_chapter(version(), object_id(), "Pinned V1", &old).unwrap();
+    assert!(matches!(
+        rewrap_registered_v1_to_v2(
+            &stored.object_id,
+            &stored.wrapped_dek,
+            &stored.wrap_nonce,
+            &wrong,
+            &next,
+        ),
+        Err(CryptoError::AuthenticationFailed)
+    ));
+    let mut tampered = stored.wrapped_dek.clone();
+    tampered[0] ^= 1;
+    assert!(matches!(
+        rewrap_registered_v1_to_v2(
+            &stored.object_id,
+            &tampered,
+            &stored.wrap_nonce,
+            &old,
+            &next,
+        ),
+        Err(CryptoError::AuthenticationFailed)
+    ));
+    let swapped = ObjectId::parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+    assert!(matches!(
+        rewrap_registered_v1_to_v2(
+            &swapped,
+            &stored.wrapped_dek,
+            &stored.wrap_nonce,
+            &old,
+            &next,
+        ),
+        Err(CryptoError::AuthenticationFailed)
+    ));
+    assert!(matches!(
+        rewrap_registered_v1_to_v2(
+            &stored.object_id,
+            &stored.wrapped_dek,
+            &stored.wrap_nonce,
+            &old,
+            &old,
+        ),
+        Err(CryptoError::InvalidMaterial)
+    ));
+    assert!(matches!(
+        rewrap_registered_v1_to_v2(
+            &stored.object_id,
+            &stored.wrapped_dek[..47],
+            &stored.wrap_nonce,
+            &old,
+            &next,
+        ),
+        Err(CryptoError::UnavailableKey)
+    ));
+}
