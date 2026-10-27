@@ -575,6 +575,36 @@ async function run() {
         await control.click();
         assert(await panel.isVisible(), device + ": settings button does not open panel");
         assert.equal(await control.getAttribute("aria-expanded"), "true");
+        const dialog = panel.getByRole("dialog", { name: "Настройки чтения" });
+        assert(await dialog.isVisible(), device + ": original modal panel missing");
+        assert.equal(await dialog.getAttribute("aria-modal"), "true");
+        assert(await control.evaluate((node) => node.closest("[inert]") !== null),
+          device + ": reader remains interactive under settings modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden",
+          device + ": page scroll not locked under settings");
+        const dialogBounds = await dialog.boundingBox();
+        assert(dialogBounds && dialogBounds.width <= 362 &&
+          dialogBounds.x >= 0 &&
+          dialogBounds.x + dialogBounds.width <=
+            (device === "desktop" ? 1440 : 390) + 1,
+          device + ": settings panel overflows screen");
+        await page.getByRole("button", { name: "Сбросить настройки" }).focus();
+        await page.keyboard.press("Tab");
+        assert(await page.getByRole("button", { name: "Закрыть настройки", exact: true })
+          .evaluate((node) => node === document.activeElement),
+          device + ": Tab escapes original settings modal");
+        await page.keyboard.press("Shift+Tab");
+        assert(await page.getByRole("button", { name: "Сбросить настройки" })
+          .evaluate((node) => node === document.activeElement),
+          device + ": reverse Tab does not wrap inside modal");
+        await panel.locator(".reader-paid__settings-backdrop").click({
+          position: { x: 5, y: 5 },
+        });
+        assert(await panel.isHidden(), device + ": backdrop did not close modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "",
+          device + ": backdrop did not restore scrolling");
+        assert(await control.evaluate((node) => node.closest("[inert]") === null),
+          device + ": reader remained inert after closing settings");
         // NEwBOO's original topbar also provides one-tap theme cycling.
         // Test computed colors and synchronization with the Aa panel.
         const quick = page.locator("[data-paid-theme-cycle]");
@@ -600,6 +630,8 @@ async function run() {
           "dark", device + ": quick dark step missing");
         assert.equal(await page.getByRole("button", { name: "Тёмная" })
           .getAttribute("aria-pressed"), "true");
+        await control.click();
+        assert(await panel.isVisible(), device + ": settings not reopenable after cycling");
         const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
           (element) => Number.parseFloat(getComputedStyle(element).fontSize));
         await page.locator("[data-paid-font-scale]").evaluate((input) => {
@@ -643,7 +675,7 @@ async function run() {
         assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
         assert.equal(await page.evaluate(() => document.body.hasAttribute(
           "data-paid-reader-theme")), false, device + ": reset did not clear theme");
-        await page.getByRole("button", { name: "Закрыть настройки" }).click();
+        await page.getByRole("button", { name: "Закрыть настройки", exact: true }).click();
         assert(await panel.isHidden(), device + ": settings close did not work");
         assert.equal(await control.getAttribute("aria-expanded"), "false");
         await control.click();
