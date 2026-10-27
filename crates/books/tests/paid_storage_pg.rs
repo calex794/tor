@@ -27,6 +27,7 @@ async fn ready_object(
     body: &str,
     raw_id: &str,
     corrupt_plaintext_hash: bool,
+    kek_id: &str,
 ) -> ObjectId {
     let id = ObjectId::parse(raw_id).unwrap();
     let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
@@ -46,7 +47,7 @@ async fn ready_object(
            sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,
            kek_id,object_nonce,object_aad,codec,verified_at,delete_after)
          VALUES ($1::uuid,'chapter','tor-private-chapter-ci',$2,'ready',64,
-                 $3,$4,$5,$6,'content-kek-v1',$7,$8,'gzip',
+                 $3,$4,$5,$6,$9,$7,$8,'gzip',
                  now(),now()+INTERVAL '24 hours')",
     )
     .bind(id.as_str())
@@ -57,6 +58,7 @@ async fn ready_object(
     .bind([3_u8; 12].as_slice())
     .bind([2_u8; 12].as_slice())
     .bind(aad.as_bytes())
+    .bind(kek_id)
     .execute(pool)
     .await
     .unwrap();
@@ -170,6 +172,7 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         v1_body,
         "b9040000-0001-4000-8000-000000000001",
         false,
+        "content-kek-v1",
     )
     .await;
     let object_wrong = ready_object(
@@ -179,6 +182,7 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         v2_body,
         "b9040000-0002-4000-8000-000000000002",
         true,
+        "content-kek-v2",
     )
     .await;
     let object_v2 = ready_object(
@@ -188,6 +192,7 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         v2_body,
         "b9040000-0003-4000-8000-000000000003",
         false,
+        "content-kek-v2",
     )
     .await;
 
@@ -424,12 +429,14 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .unwrap()
         .unwrap();
     assert_eq!(v1_metadata.object.object_id, object_v1);
+    assert_eq!(v1_metadata.wrapped_key_id, "content-kek-v1");
     let v2_metadata = b
         .encrypted_chapter(pinned(chapter, v2))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(v2_metadata.object.object_id, object_v2);
+    assert_eq!(v2_metadata.wrapped_key_id, "content-kek-v2");
     assert_ne!(v1_metadata.aad, v2_metadata.aad);
 
     let version_mutation =

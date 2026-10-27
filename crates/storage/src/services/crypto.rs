@@ -70,20 +70,29 @@ impl fmt::Debug for ContentKek {
 pub struct ContentKeyring {
     v1: Arc<ContentKek>,
     v2: Option<Arc<ContentKek>>,
+    active_kek_id: &'static str,
 }
 
 #[cfg(any(feature = "pg", test))]
 impl ContentKeyring {
     /// Preserve all existing v1 callers without activating key rotation.
     pub fn v1_only(v1: Arc<ContentKek>) -> Self {
-        Self { v1, v2: None }
+        Self {
+            v1,
+            v2: None,
+            active_kek_id: KEK_ID,
+        }
     }
 
     pub fn with_v2(v1: Arc<ContentKek>, v2: Arc<ContentKek>) -> Result<Self, CryptoError> {
         if v1.0[..] == v2.0[..] {
             return Err(CryptoError::InvalidMaterial);
         }
-        Ok(Self { v1, v2: Some(v2) })
+        Ok(Self {
+            v1,
+            v2: Some(v2),
+            active_kek_id: KEK_ID,
+        })
     }
 
     /// Missing V2 means the old safe V1-only reader. A present but invalid V2
@@ -95,14 +104,41 @@ impl ContentKeyring {
     /// G can retain its already loaded V1 without copying key bytes.
     /// Optional V2 comes from the same operator-owned secret environment.
     pub fn from_v1_and_optional_v2_environment(v1: Arc<ContentKek>) -> Result<Self, CryptoError> {
-        match std::env::var("TOR_CONTENT_KEK_V2") {
+        let ring = match std::env::var("TOR_CONTENT_KEK_V2") {
             Ok(_) => Self::with_v2(
                 v1,
                 Arc::new(ContentKek::from_named_environment("TOR_CONTENT_KEK_V2")?),
-            ),
-            Err(std::env::VarError::NotPresent) => Ok(Self::v1_only(v1)),
+            )?,
+            Err(std::env::VarError::NotPresent) => Self::v1_only(v1),
+            Err(_) => return Err(CryptoError::UnavailableKey),
+        };
+        match std::env::var("TOR_CONTENT_ACTIVE_KEK_ID") {
+            Ok(id) => ring.with_active_id(&id),
+            Err(std::env::VarError::NotPresent) => Ok(ring),
             Err(_) => Err(CryptoError::UnavailableKey),
         }
+    }
+
+    /// Only trusted server configuration can select the KEK used for new
+    /// immutable objects. V1 is the default even when V2 is available to read.
+    /// Unknown IDs, a missing V2 key and blank configuration all fail closed.
+    pub fn with_active_id(mut self, id: &str) -> Result<Self, CryptoError> {
+        let selected = match id {
+            KEK_ID => KEK_ID,
+            KEK_ID_V2 => KEK_ID_V2,
+            _ => return Err(CryptoError::UnavailableKey),
+        };
+        self.for_id(selected)?;
+        self.active_kek_id = selected;
+        Ok(self)
+    }
+
+    pub fn active_id(&self) -> &'static str {
+        self.active_kek_id
+    }
+
+    fn active_key(&self) -> Result<&ContentKek, CryptoError> {
+        self.for_id(self.active_kek_id)
     }
 
     fn for_id(&self, id: &str) -> Result<&ContentKek, CryptoError> {
@@ -226,6 +262,29 @@ pub fn seal_chapter(
     markdown: &str,
     kek: &ContentKek,
 ) -> Result<EncryptedChapter, CryptoError> {
+    seal_chapter_with_selected_key(version, object_id, markdown, kek, KEK_ID)
+}
+
+/// New paid publications select a key only through a trusted versioned
+/// keyring. The active ID is server-owned and never comes from an author body.
+#[cfg(any(feature = "pg", test))]
+pub fn seal_chapter_with_keyring(
+    version: ChapterVersionRef,
+    object_id: ObjectId,
+    markdown: &str,
+    keyring: &ContentKeyring,
+) -> Result<EncryptedChapter, CryptoError> {
+    let key = keyring.active_key()?;
+    seal_chapter_with_selected_key(version, object_id, markdown, key, keyring.active_id())
+}
+
+fn seal_chapter_with_selected_key(
+    version: ChapterVersionRef,
+    object_id: ObjectId,
+    markdown: &str,
+    kek: &ContentKek,
+    selected_kek_id: &'static str,
+) -> Result<EncryptedChapter, CryptoError> {
     let normalized = Zeroizing::new(markdown.replace("\r\n", "\n").replace('\r', "\n"));
     if normalized.is_empty()
         || normalized.len() > MAX_CHAPTER_UTF8_BYTES
@@ -252,10 +311,17 @@ pub fn seal_chapter(
         plaintext_sha256,
         wrap_nonce,
         wrapped_dek,
-        kek_id: KEK_ID,
+        kek_id: selected_kek_id,
     };
-    // Verify newly wrapped DEK before the object can be registered or uploaded.
-    if unwrap_scoped_dek(&sealed, kek)?[..] != dek[..] {
+    // Authenticate the wrapper with the exact selected key. This validation
+    // deliberately does not assume the legacy V1-only public seal interface.
+    let checked = unwrap_bytes(
+        &sealed.object_id,
+        &sealed.wrapped_dek,
+        &sealed.wrap_nonce,
+        kek,
+    )?;
+    if checked[..] != dek[..] {
         return Err(CryptoError::AuthenticationFailed);
     }
     Ok(sealed)
@@ -323,6 +389,7 @@ pub fn verify_ciphertext(encrypted: &EncryptedChapter, bytes: &[u8]) -> bool {
 
 /// G-internal only. Caller must have a freshly verified D entitlement and
 /// exact B version/object membership before this key can be used in a grant.
+#[cfg(any(feature = "pg", test))]
 pub(crate) fn unwrap_scoped_dek(
     encrypted: &EncryptedChapter,
     kek: &ContentKek,

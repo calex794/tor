@@ -4,15 +4,24 @@
 
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, Row};
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tor_contracts::paid_delivery::{
-    ChapterVersionRef, ObjectId, ObjectRef, PositiveId, SecretValue,
+    ChapterVersionRef, ContentCodec, EncryptedObjectRef, ObjectId, ObjectRef, PositiveId,
+    PrivateObjectDeliveryPort, SecretValue,
 };
 use tor_storage::{
     domain::provider::StorageError,
-    repositories::registry::{ObjectState, PgStorageRegistry, RegistryError},
+    repositories::{
+        paid_delivery::PgPrivateDelivery,
+        registry::{ObjectState, PgStorageRegistry, RegistryError},
+    },
     services::{
-        crypto::{seal_chapter, sha256_bytes, ContentKek},
+        crypto::{
+            seal_chapter, seal_chapter_with_keyring, sha256_bytes, ContentKek, ContentKeyring,
+        },
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
@@ -70,10 +79,14 @@ impl PrivateObjectStore for FakePrivateS3 {
 
     async fn presign_verified(
         &self,
-        _object: &ObjectRef,
-        _ttl: Duration,
+        object: &ObjectRef,
+        ttl: Duration,
     ) -> Result<SecretValue, StorageError> {
-        Err(StorageError::Unavailable)
+        if ttl != Duration::from_secs(90) || !self.head_verified(object).await? {
+            return Err(StorageError::Unavailable);
+        }
+        SecretValue::new("https://private-s3.example.invalid/s334-signed".to_owned())
+            .map_err(|_| StorageError::Unavailable)
     }
 }
 
@@ -233,6 +246,176 @@ async fn g_09_s3_08_pending_verified_ready_immutability_and_retention() {
         .await
         .is_err(),
         "attached edition cannot be reaped by GC"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 TEST_DATABASE_URL ending /tor_ci"]
+async fn s334_new_v2_envelope_is_registered_and_read_alongside_old_v1() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("PG18 CI fixture");
+    assert!(url.ends_with("/tor_ci"), "never operate on production");
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&url)
+        .await
+        .unwrap();
+    let registry = PgStorageRegistry::new(pool.clone());
+    let old = Arc::new(ContentKek::from_bytes([0x81; 32]));
+    let next = Arc::new(ContentKek::from_bytes([0x82; 32]));
+    let old_keyring = ContentKeyring::with_v2(old.clone(), next.clone()).unwrap();
+    let new_keyring = ContentKeyring::with_v2(old.clone(), next)
+        .unwrap()
+        .with_active_id("content-kek-v2")
+        .unwrap();
+    let chapter_id = PositiveId::new(340).unwrap();
+    let v1 = ChapterVersionRef {
+        chapter_id,
+        version_id: PositiveId::new(341).unwrap(),
+    };
+    let v2 = ChapterVersionRef {
+        chapter_id,
+        version_id: PositiveId::new(342).unwrap(),
+    };
+    let old_id = ObjectId::parse("c009c009-0001-4001-8001-000000000341").unwrap();
+    let new_id = ObjectId::parse("c009c009-0001-4001-8001-000000000342").unwrap();
+    let old_sealed = seal_chapter_with_keyring(
+        v1,
+        old_id.clone(),
+        "Купленная историческая V1",
+        &old_keyring,
+    )
+    .unwrap();
+    let new_sealed =
+        seal_chapter_with_keyring(v2, new_id.clone(), "Новое платное издание V2", &new_keyring)
+            .unwrap();
+    assert_eq!(old_sealed.kek_id, "content-kek-v1");
+    assert_eq!(new_sealed.kek_id, "content-kek-v2");
+    assert_eq!(
+        registry
+            .reserve_pending_with_keyring(&new_sealed, &old_keyring, "tor-private-chapter-ci")
+            .await,
+        Err(RegistryError::Invalid),
+        "V1-active writer may not insert a V2 record"
+    );
+    assert_eq!(
+        registry
+            .reserve_pending_with_keyring(&old_sealed, &new_keyring, "tor-private-chapter-ci")
+            .await,
+        Err(RegistryError::Invalid),
+        "V2-active writer may not silently fall back to V1"
+    );
+    assert_eq!(
+        registry
+            .reserve_pending(&new_sealed, &old, "tor-private-chapter-ci")
+            .await,
+        Err(RegistryError::Invalid),
+        "legacy V1 method never admits V2"
+    );
+
+    let old_object = registry
+        .reserve_pending_with_keyring(&old_sealed, &old_keyring, "tor-private-chapter-ci")
+        .await
+        .unwrap();
+    let snapshot: (String, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT kek_id,encrypted_dek,sha256_ciphertext
+         FROM storage_objects WHERE id=$1::uuid",
+    )
+    .bind(old_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let new_object = registry
+        .reserve_pending_with_keyring(&new_sealed, &new_keyring, "tor-private-chapter-ci")
+        .await
+        .unwrap();
+    let old_store = FakePrivateS3::default();
+    let new_store = FakePrivateS3::default();
+    let old_receipt = upload_and_verify(&old_store, &old_object, &old_sealed.ciphertext)
+        .await
+        .unwrap();
+    let new_receipt = upload_and_verify(&new_store, &new_object, &new_sealed.ciphertext)
+        .await
+        .unwrap();
+    registry.mark_ready(&old_receipt).await.unwrap();
+    registry.mark_ready(&new_receipt).await.unwrap();
+
+    // B normally performs the owner/purchase authorization and attachment;
+    // this storage-level test switches state only to exercise the scoped G
+    // signer. Full author and purchase policy belongs to B and D tests.
+    for object_id in [&old_id, &new_id] {
+        sqlx::query(
+            "UPDATE storage_objects SET state='attached',attached_at=now(),
+             delete_after=NULL WHERE id=$1::uuid",
+        )
+        .bind(object_id.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let after: (String, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT kek_id,encrypted_dek,sha256_ciphertext
+         FROM storage_objects WHERE id=$1::uuid",
+    )
+    .bind(old_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(snapshot, after, "V1 encrypted material never changes");
+    let persisted_id: String =
+        sqlx::query_scalar("SELECT kek_id FROM storage_objects WHERE id=$1::uuid")
+            .bind(new_id.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(persisted_id, "content-kek-v2");
+
+    let old_encrypted = EncryptedObjectRef {
+        object: old_object,
+        nonce: old_sealed.object_nonce,
+        aad: old_sealed.aad.clone(),
+        wrapped_key_id: old_sealed.kek_id.to_owned(),
+        codec: ContentCodec::Gzip,
+    };
+    let new_encrypted = EncryptedObjectRef {
+        object: new_object,
+        nonce: new_sealed.object_nonce,
+        aad: new_sealed.aad.clone(),
+        wrapped_key_id: new_sealed.kek_id.to_owned(),
+        codec: ContentCodec::Gzip,
+    };
+    let old_signer = PgPrivateDelivery::with_keyring(
+        pool.clone(),
+        old_store,
+        Arc::new(old_keyring),
+        "tor-private-chapter-ci".to_owned(),
+    )
+    .unwrap();
+    let new_signer = PgPrivateDelivery::with_keyring(
+        pool.clone(),
+        new_store,
+        Arc::new(new_keyring),
+        "tor-private-chapter-ci".to_owned(),
+    )
+    .unwrap();
+    let old_grant = old_signer
+        .grant_verified_object(&old_encrypted, Duration::from_secs(90))
+        .await
+        .unwrap();
+    let new_grant = new_signer
+        .grant_verified_object(&new_encrypted, Duration::from_secs(90))
+        .await
+        .unwrap();
+    let old_grant = serde_json::to_value(old_grant).unwrap();
+    let new_grant = serde_json::to_value(new_grant).unwrap();
+    assert_ne!(old_grant["dek_b64u"], new_grant["dek_b64u"]);
+    assert_eq!(
+        old_grant["object_sha256"],
+        hex::encode(old_sealed.ciphertext_sha256)
+    );
+    assert_eq!(
+        new_grant["object_sha256"],
+        hex::encode(new_sealed.ciphertext_sha256)
     );
     pool.close().await;
 }
