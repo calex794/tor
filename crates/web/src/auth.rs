@@ -42,6 +42,7 @@ mod checkout;
 mod complete_chapter;
 mod library_actions;
 mod login_limiter;
+mod paid_completion;
 mod rankings;
 mod sync_actions;
 
@@ -114,8 +115,7 @@ pub(crate) fn router_with_cover_uploads(
     router_inner(accounts, reader, secure, origin, Some(storage), false)
 }
 
-/// Enable purchased-library navigation only when an actual A/D/B/G reader
-/// route is mounted. Other account constructors must not show dead links.
+/// Enable purchased-library navigation only when an authorized reader is mounted.
 pub(crate) fn router_with_paid_reader(
     accounts: PgAccounts,
     reader: PgReader,
@@ -193,6 +193,10 @@ fn router_inner(
         .route(
             "/api/v1/me/progress/purchased",
             get(sync_actions::get_purchased).put(sync_actions::put_purchased),
+        )
+        .route(
+            "/api/v1/me/progress/purchased/complete",
+            get(paid_completion::get).post(paid_completion::post),
         )
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/library/{id}/save", post(library_actions::browser_add))
@@ -417,8 +421,7 @@ async fn author_book(
     )
 }
 
-/// Dedicated NEwBOO-style owner cover settings. Script access is restricted
-/// to this page and to one local picker file; no inline scripts are permitted.
+/// NEwBOO owner cover settings, restricted script; no inline scripts.
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
@@ -470,8 +473,7 @@ async fn cover_settings(
     response
 }
 
-/// Interactive reading is private to a verified account. Public free reading
-/// continues to be served separately at /reader/{id}.
+/// Private verified reader; public free chapters use /reader/{id}.
 async fn private_reader(
     State(state): State<AuthState>,
     Path(id): Path<u64>,

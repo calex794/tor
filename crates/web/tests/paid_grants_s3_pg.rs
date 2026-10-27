@@ -146,6 +146,44 @@ async fn post_grant(
         .unwrap()
 }
 
+async fn request_completion(
+    app: &Router,
+    method: &str,
+    edition: (i64, i64, i64),
+    session: &str,
+    csrf: &str,
+    body: Option<Value>,
+) -> Response {
+    let (chapter, purchase, version) = edition;
+    let url = format!(
+        "/api/v1/me/progress/purchased/complete?chapter_id={chapter}&purchase_id={purchase}&version_id={version}"
+    );
+    let mut request = Request::builder()
+        .uri(if method == "GET" {
+            url.as_str()
+        } else {
+            "/api/v1/me/progress/purchased/complete"
+        })
+        .method(method)
+        .header(header::ORIGIN, ORIGIN)
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+        )
+        .header("x-csrf-token", csrf);
+    if method == "POST" {
+        request = request.header(header::CONTENT_TYPE, "application/json");
+    }
+    app.clone()
+        .oneshot(
+            request
+                .body(Body::from(body.map_or_else(String::new, |v| v.to_string())))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
 async fn decode(response: Response) -> Value {
     serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap()
 }
@@ -651,6 +689,112 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let still_v1 = decode(preserved).await;
     assert_eq!(still_v1["version_id"], v1.to_string());
     assert!(!still_v1.to_string().contains(MARKDOWN));
+    // A D purchase stays readable even while an author hides the work,
+    // but F's visible private ranking deliberately excludes unpublished
+    // books. Re-publish after exercising D's hidden V1 rights so the next
+    // assertion tests F eligibility instead of violating its visibility rule.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET visibility='public' WHERE id={book}; \
+             UPDATE chapters SET visibility='public' WHERE id={chapter}"
+        ),
+    );
+
+    // C/F-05: A grant, downloaded ciphertext or bookmark alone does not
+    // create a ranking fact. The owner explicitly finishes the sealed V1.
+    let before_finish = request_completion(
+        &app,
+        "GET",
+        (chapter, purchase_id, v1),
+        &buyer_cookie,
+        &csrf,
+        None,
+    )
+    .await;
+    assert_eq!(before_finish.status(), StatusCode::OK);
+    let state = decode(before_finish).await;
+    assert_eq!(state["available"], true);
+    assert_eq!(state["completed"], false);
+    let sha = hex::encode(sealed.plaintext_sha256);
+    let final_block = MARKDOWN.split("\n\n").last().unwrap();
+    let command = json!({
+        "purchase_id": purchase_id.to_string(),
+        "chapter_id": chapter.to_string(),
+        "version_id": v1.to_string(),
+        "block_id": 2,
+        "char_offset": final_block.encode_utf16().count(),
+        "expected_revision": 0,
+        "plaintext_sha256": sha,
+    });
+    let denied = request_completion(
+        &app,
+        "POST",
+        (chapter, purchase_id, v1),
+        &stranger_cookie,
+        &csrf,
+        Some(command.clone()),
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+    let mut fake = command.clone();
+    fake["char_offset"] = json!(1);
+    let fake_response = request_completion(
+        &app,
+        "POST",
+        (chapter, purchase_id, v1),
+        &buyer_cookie,
+        &csrf,
+        Some(fake),
+    )
+    .await;
+    assert_eq!(fake_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let rank_before = private_get(&app, "/api/v1/me/rankings", Some(&buyer_cookie)).await;
+    assert!(!decode(rank_before)
+        .await
+        .to_string()
+        .contains(&book.to_string()));
+    let done = request_completion(
+        &app,
+        "POST",
+        (chapter, purchase_id, v1),
+        &buyer_cookie,
+        &csrf,
+        Some(command.clone()),
+    )
+    .await;
+    assert_eq!(done.status(), StatusCode::OK);
+    assert_eq!(decode(done).await["status"], "completed");
+    let duplicate = request_completion(
+        &app,
+        "POST",
+        (chapter, purchase_id, v1),
+        &buyer_cookie,
+        &csrf,
+        Some(command.clone()),
+    )
+    .await;
+    assert_eq!(duplicate.status(), StatusCode::OK);
+    assert_eq!(decode(duplicate).await["status"], "already_completed");
+    let after = decode(private_get(&app, "/api/v1/me/rankings", Some(&buyer_cookie)).await).await;
+    assert!(after.to_string().contains(&book.to_string()));
+    assert!(
+        !after.to_string().contains(MARKDOWN),
+        "ranking may not reveal paid body"
+    );
+    let completed_state = decode(
+        request_completion(
+            &app,
+            "GET",
+            (chapter, purchase_id, v1),
+            &buyer_cookie,
+            &csrf,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(completed_state["completed"], true);
 
     // Save a real server-rendered page, not a hand-written copy of its HTML.
     // Buyer owns V1 after V2/creator-hide, but a stranger cannot open the page.
@@ -774,6 +918,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    let revoked_finish = request_completion(
+        &app,
+        "POST",
+        (chapter, purchase_id, v1),
+        &buyer_cookie,
+        &csrf,
+        Some(command),
+    )
+    .await;
+    assert_eq!(revoked_finish.status(), StatusCode::NOT_FOUND);
     // Previous signed links remain bearer credentials until TTL; the Node
     // follow-up consumes this just-issued URL and validates its real S3 GET.
     pool.close().await;
