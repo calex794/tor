@@ -275,3 +275,46 @@ async fn bkr96_two_edit_tabs_conflict_and_reverted_text_reuses_old_version() {
     assert_eq!(first_release, initial.version_id);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "only disposable PostgreSQL 18 TEST_DATABASE_URL ending /tor_ci"]
+async fn bkr96_legacy_published_free_revision_zero_is_editable_without_second_release() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated CI PostgreSQL");
+    assert!(url.ends_with("/tor_ci"), "never write production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let (author, owner, _stranger, book, initial) = fixture(&pool, "legacy").await;
+    // Imported free versions can have edit_revision=0 before author editing.
+    sqlx::query("UPDATE chapters SET edit_revision=0 WHERE id=$1")
+        .bind(initial.chapter_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let old = author
+        .owned_published_free_chapter(owner, book, initial.chapter_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(old.revision, 0);
+    let payload = update(
+        book,
+        initial.chapter_id,
+        0,
+        "Первая правка после переноса",
+        "Старая редакция сохранена",
+        &"h".repeat(43),
+    );
+    let changed = author
+        .edit_published_free_chapter(owner, &payload)
+        .await
+        .unwrap();
+    assert_eq!(changed.revision, 1);
+    assert_ne!(changed.version_id, initial.version_id);
+    let original: String =
+        sqlx::query_scalar("SELECT body_markdown FROM chapter_versions WHERE id=$1")
+            .bind(initial.version_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(original, "Оригинальный текст V1 😀");
+    pool.close().await;
+}
