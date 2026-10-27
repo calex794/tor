@@ -64,6 +64,47 @@ impl PgReadingSync {
             return Err(SyncError::Invalid);
         }
         checked_place(place, expected_revision)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        // Lock exactly the published free version and its access gate until
+        // both progress and completion/outbox have committed.
+        let edition = sqlx::query(
+            "SELECT chapter.book_id, edition.body_markdown
+             FROM chapters AS chapter
+             JOIN books AS book ON book.id=chapter.book_id
+             JOIN chapter_publications AS publication ON publication.chapter_id=chapter.id
+             JOIN chapter_versions AS edition
+               ON edition.id=publication.version_id AND edition.chapter_id=chapter.id
+             WHERE chapter.id=$1 AND publication.version_id=$2
+               AND book.visibility='public' AND NOT book.admin_hold AND NOT book.is_deleted
+               AND chapter.visibility='public' AND chapter.access_level='free'
+               AND NOT chapter.admin_hold AND NOT chapter.is_deleted
+               AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())
+             FOR SHARE OF chapter,book,publication,edition",
+        )
+        .bind(chapter_id)
+        .bind(version_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| SyncError::Unavailable)?
+        .ok_or(SyncError::Conflict)?;
+        let book_id: i64 = edition
+            .try_get("book_id")
+            .map_err(|_| SyncError::Unavailable)?;
+        let body: String = edition
+            .try_get("body_markdown")
+            .map_err(|_| SyncError::Unavailable)?;
+        if !crate::domain::renderer::valid_reader_length(&body) {
+            return Err(SyncError::Invalid);
+        }
+        let blocks = crate::services::progress::reader_blocks(&body);
+        if crate::services::progress::valid_text_place(place, &blocks).is_err() {
+            return Err(SyncError::Invalid);
+        }
+        let finished = crate::services::progress::is_completed_place(place, &blocks);
         let row = sqlx::query(
             "INSERT INTO reader_book_positions AS saved \
                (user_id, book_id, chapter_id, chapter_no, chapter_revision, \
@@ -115,12 +156,46 @@ impl PgReadingSync {
         .bind(place.block_index)
         .bind(place.char_offset)
         .bind(expected_revision)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|_| SyncError::Unavailable)?;
-        row.map(parse_receipt)
+        let receipt = row
+            .map(parse_receipt)
             .transpose()?
-            .ok_or(SyncError::Conflict)
+            .ok_or(SyncError::Conflict)?;
+        if finished {
+            // One successful CAS + one unique C completion + one durable
+            // outbox event. A V2 replay or a second device cannot duplicate it.
+            sqlx::query(
+                "WITH committed AS (
+                    INSERT INTO reader_chapter_completions
+                        (user_id,book_id,chapter_id,first_version_id,source_event_id)
+                    VALUES($1,$2,$3,$4,gen_random_uuid())
+                    ON CONFLICT(user_id,book_id,chapter_id) DO NOTHING
+                    RETURNING source_event_id
+                )
+                INSERT INTO outbox_events(
+                    id,event_type,schema_version,aggregate_kind,aggregate_id,
+                    dedupe_key,payload,required_consumers
+                )
+                SELECT source_event_id,'ChapterCompletedV1',1,'chapter',$3,
+                    concat('chapter-completed:', $1, ':', $3),
+                    jsonb_build_object('user_id',$1,'book_id',$2,
+                        'chapter_id',$3,'version_id',$4,
+                        'authority','C-verified-free-position'),
+                    ARRAY['ranking-eligibility-v1']
+                FROM committed",
+            )
+            .bind(actor)
+            .bind(book_id)
+            .bind(chapter_id)
+            .bind(version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        }
+        tx.commit().await.map_err(|_| SyncError::Unavailable)?;
+        Ok(receipt)
     }
 
     /// D-owned permission function, including immutable pinned edition and

@@ -45,6 +45,20 @@ pub fn valid_text_place(place: ReadingPlace, blocks: &[String]) -> Result<(), Pr
     Ok(())
 }
 
+/// Only the exact end of the last non-blank, server-parsed readable block
+/// is an eligible completion position. This is not proof of human attention.
+pub fn is_completed_place(place: ReadingPlace, blocks: &[String]) -> bool {
+    blocks
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, block)| !block.trim().is_empty())
+        .is_some_and(|(index, block)| {
+            place.block_index == (index + 1) as i32
+                && usize::try_from(place.char_offset).ok() == Some(block.encode_utf16().count())
+        })
+}
+
 #[derive(Clone, Debug)]
 pub struct ContinueReading {
     pub book_id: i64,
@@ -139,6 +153,47 @@ mod tests {
             ),
             Err(ProgressError::Invalid)
         );
+    }
+
+    #[test]
+    fn completion_requires_exact_last_readable_utf16_offset() {
+        let blocks = reader_blocks("Начало\n\nКонец😀\n\n");
+        assert_eq!(blocks.len(), 3);
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 6
+            },
+            &blocks
+        ));
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 2,
+                char_offset: 6
+            },
+            &blocks
+        ));
+        assert!(is_completed_place(
+            ReadingPlace {
+                block_index: 2,
+                char_offset: 7
+            },
+            &blocks
+        ));
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 3,
+                char_offset: 0
+            },
+            &blocks
+        ));
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 0
+            },
+            &reader_blocks("  ")
+        ));
     }
 
     #[test]
