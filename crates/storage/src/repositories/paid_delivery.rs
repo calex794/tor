@@ -15,8 +15,8 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sqlx::{PgPool, Row};
 use std::{sync::Arc, time::Duration};
 use tor_contracts::paid_delivery::{
-    validate_signed_get_ttl, ContentCodec, DeliveryError, EncryptedObjectKind,
-    EncryptedObjectRef, GrantedContent, PrivateObjectDeliveryPort, SecretValue,
+    validate_signed_get_ttl, ContentCodec, DeliveryError, EncryptedObjectKind, EncryptedObjectRef,
+    GrantedContent, PrivateObjectDeliveryPort, SecretValue,
 };
 
 pub struct PgPrivateDelivery<S> {

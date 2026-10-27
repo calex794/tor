@@ -62,10 +62,8 @@ impl PrivateObjectStore for FakeSignedS3 {
         if self.unavailable.load(Ordering::SeqCst) {
             return Err(StorageError::Unavailable);
         }
-        SecretValue::new(
-            "https://private-s3.example.invalid/V1?X-Amz-Signature=SECRET".to_owned(),
-        )
-        .map_err(|_| StorageError::Unavailable)
+        SecretValue::new("https://private-s3.example.invalid/V1?X-Amz-Signature=SECRET".to_owned())
+            .map_err(|_| StorageError::Unavailable)
     }
 }
 
@@ -144,11 +142,13 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
             "{state} is NOT a B attached release"
         );
         if state == "pending" {
-            sqlx::query("UPDATE storage_objects SET state='ready',verified_at=now() WHERE id=$1::uuid")
-                .bind(object_id.as_str())
-                .execute(&pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "UPDATE storage_objects SET state='ready',verified_at=now() WHERE id=$1::uuid",
+            )
+            .bind(object_id.as_str())
+            .execute(&pool)
+            .await
+            .unwrap();
         }
     }
     assert_eq!(s3.calls.load(Ordering::SeqCst), 0);
@@ -164,14 +164,12 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
     .execute(&mut *tx)
     .await
     .unwrap();
-    sqlx::query(
-        "UPDATE chapter_versions SET storage_object_id=$2::uuid WHERE id=$1",
-    )
-    .bind(version)
-    .bind(object_id.as_str())
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE chapter_versions SET storage_object_id=$2::uuid WHERE id=$1")
+        .bind(version)
+        .bind(object_id.as_str())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
 
     let granted = grant
@@ -179,8 +177,14 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
         .await
         .unwrap();
     assert_eq!(s3.calls.load(Ordering::SeqCst), 1);
-    assert_eq!(granted.object_sha256, hex::encode(encrypted.object.sha256_ciphertext));
-    assert_eq!(granted.nonce_b64u, URL_SAFE_NO_PAD.encode(sealed.object_nonce));
+    assert_eq!(
+        granted.object_sha256,
+        hex::encode(encrypted.object.sha256_ciphertext)
+    );
+    assert_eq!(
+        granted.nonce_b64u,
+        URL_SAFE_NO_PAD.encode(sealed.object_nonce)
+    );
     assert_eq!(granted.aad_b64u, URL_SAFE_NO_PAD.encode(&sealed.aad));
     let debug = format!("{granted:?}");
     assert!(!debug.contains("SECRET"), "never log signed URL or key");
@@ -209,29 +213,44 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
     let mut wrong = encrypted.clone();
     wrong.nonce[0] ^= 1;
     assert_eq!(
-        grant.grant_verified_object(&wrong, Duration::from_secs(90)).await.unwrap_err(),
+        grant
+            .grant_verified_object(&wrong, Duration::from_secs(90))
+            .await
+            .unwrap_err(),
         DeliveryError::Unavailable
     );
     wrong = encrypted.clone();
     wrong.aad[0] ^= 1;
     assert_eq!(
-        grant.grant_verified_object(&wrong, Duration::from_secs(90)).await.unwrap_err(),
+        grant
+            .grant_verified_object(&wrong, Duration::from_secs(90))
+            .await
+            .unwrap_err(),
         DeliveryError::Unavailable
     );
     wrong = encrypted.clone();
     wrong.object.sha256_ciphertext[0] ^= 1;
     assert_eq!(
-        grant.grant_verified_object(&wrong, Duration::from_secs(90)).await.unwrap_err(),
+        grant
+            .grant_verified_object(&wrong, Duration::from_secs(90))
+            .await
+            .unwrap_err(),
         DeliveryError::Unavailable
     );
     wrong = encrypted.clone();
     wrong.object.kind = EncryptedObjectKind::ChapterAsset;
     assert_eq!(
-        grant.grant_verified_object(&wrong, Duration::from_secs(90)).await.unwrap_err(),
+        grant
+            .grant_verified_object(&wrong, Duration::from_secs(90))
+            .await
+            .unwrap_err(),
         DeliveryError::Invalid
     );
     assert_eq!(
-        grant.grant_verified_object(&encrypted, Duration::from_secs(121)).await.unwrap_err(),
+        grant
+            .grant_verified_object(&encrypted, Duration::from_secs(121))
+            .await
+            .unwrap_err(),
         DeliveryError::Invalid
     );
     assert_eq!(s3.calls.load(Ordering::SeqCst), 1);
@@ -252,7 +271,10 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
 
     s3.unavailable.store(true, Ordering::SeqCst);
     assert_eq!(
-        grant.grant_verified_object(&encrypted, Duration::from_secs(90)).await.unwrap_err(),
+        grant
+            .grant_verified_object(&encrypted, Duration::from_secs(90))
+            .await
+            .unwrap_err(),
         DeliveryError::Unavailable
     );
     assert_eq!(s3.calls.load(Ordering::SeqCst), 2);
