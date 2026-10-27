@@ -232,6 +232,8 @@ pub fn paid_reader_shell(
                  <button class="reader-topbar__settings" type="button" data-paid-settings-open
                    aria-controls="paid-reader-settings" aria-expanded="false"
                    aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+                 <button class="reader-topbar__theme" type="button" data-paid-theme-cycle
+                   aria-label="Сменить тему" title="Сменить тему"><span aria-hidden="true">☾</span></button>
                </div>
              </header>
            <div class="container reader-width">
@@ -509,6 +511,8 @@ mod tests {
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
+        assert!(body.contains("data-paid-theme-cycle"));
+        assert!(body.contains("aria-label=\"Сменить тему\""));
         let toolbar = body.find("<header class=\"reader-topbar\"").unwrap();
         let reader_column = body.find("<div class=\"container reader-width\"").unwrap();
         assert!(toolbar < reader_column, "NEwBOO toolbar must be full width, outside text column");
