@@ -371,7 +371,6 @@ pub fn router_with_postgres_reading_auth(
     )
 }
 
-
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
