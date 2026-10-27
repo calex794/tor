@@ -100,31 +100,43 @@ async fn f_05_c_verified_completion_outbox_to_ranked_books_is_once_and_recoverab
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-        )
-        .bind(99520 + i)
-        .bind(99530 + i)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+            .bind(99520 + i)
+            .bind(99530 + i)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 
     let rank = PgRanking::new(pool.clone());
     let sync = PgReadingSync::new(pool.clone());
-    assert!(rank.pending_completion_event_ids().await.unwrap().is_empty());
+    assert!(rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(rank.snapshot(99501).await.unwrap().revision, 0);
     assert_eq!(
         sync.save_free(
-            99501, 99520, 99530,
-            ReadingPlace { block_index: 1, char_offset: 3 }, 0,
+            99501,
+            99520,
+            99530,
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 3
+            },
+            0,
         )
         .await
         .unwrap()
         .revision,
         1
     );
-    assert!(rank.pending_completion_event_ids().await.unwrap().is_empty());
+    assert!(rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .is_empty());
 
     // A validated final progress save produces one C fact and one outbox row.
     let completed = ReadingPlace {
@@ -145,7 +157,11 @@ async fn f_05_c_verified_completion_outbox_to_ranked_books_is_once_and_recoverab
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(rank.pending_completion_event_ids().await.unwrap().contains(&first));
+    assert!(rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&first));
     assert!(rank.accept_completed_chapter(&first).await.unwrap());
     assert!(!rank.accept_completed_chapter(&first).await.unwrap());
     let snap = PgRanking::new(pool.clone()).snapshot(99501).await.unwrap();
@@ -160,7 +176,11 @@ async fn f_05_c_verified_completion_outbox_to_ranked_books_is_once_and_recoverab
     let active = rank.snapshot(99501).await.unwrap();
     assert_eq!(active.placement.as_ref().unwrap().placing_book_id, 99511);
     let third = completion(&sync, &pool, 99522).await;
-    assert!(!rank.pending_completion_event_ids().await.unwrap().contains(&third));
+    assert!(!rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&third));
     assert_eq!(
         rank.accept_completed_chapter(&third).await,
         Err(RankingStoreError::Conflict),
@@ -192,7 +212,11 @@ async fn f_05_c_verified_completion_outbox_to_ranked_books_is_once_and_recoverab
         .status,
         Some(AnswerStatus::Ranked)
     );
-    assert!(rank.pending_completion_event_ids().await.unwrap().contains(&third));
+    assert!(rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&third));
     let other_worker = PgRanking::new(pool.clone());
     let (a, b) = tokio::join!(
         rank.accept_completed_chapter(&third),
