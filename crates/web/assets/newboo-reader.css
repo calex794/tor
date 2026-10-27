@@ -484,7 +484,7 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   z-index: 120;
   top: calc(100% + 8px);
   right: 0;
-  width: min(390px, calc(100vw - 32px));
+  width: min(520px, calc(100vw - 24px));
   max-height: min(65dvh, 530px);
   overflow: auto;
   overscroll-behavior: contain;
@@ -494,6 +494,22 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   color: var(--text-main);
   box-shadow: 0 18px 40px color-mix(in srgb, var(--text-main) 18%, transparent);
 }
+.reader-paid .reader-paid__toc-head {
+  display: grid;
+  gap: 3px;
+  padding: 16px 18px 11px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+.reader-paid .reader-paid__toc-head strong {
+  color: var(--text-main);
+  font-size: 16px;
+}
+.reader-paid .reader-paid__toc-head span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .reader-paid .reader-paid__toc-list {
   display: grid;
   gap: 3px;
@@ -501,8 +517,54 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   padding: 10px;
   list-style: none;
 }
+.reader-paid .reader-paid__toc-row {
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+.reader-paid .reader-paid__toc-row--locked {
+  background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+}
+.reader-paid .reader-paid__toc-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  margin-top: 7px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: .01em;
+}
+.reader-paid .reader-paid__toc-badge--owned {
+  background: color-mix(in srgb, var(--primary-color) 13%, var(--bg-surface));
+  color: var(--primary-color);
+}
+.reader-paid .reader-paid__toc-badge--free {
+  background: color-mix(in srgb, #238659 14%, var(--bg-surface));
+  color: var(--text-main);
+}
+.reader-paid .reader-paid__toc-badge--locked {
+  background: color-mix(in srgb, var(--text-muted) 13%, var(--bg-surface));
+  color: var(--text-muted);
+}
+.reader-paid .reader-paid__toc-title {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.reader-paid .reader-paid__toc-locked {
+  cursor: not-allowed;
+  opacity: .78;
+}
+.reader-paid .reader-paid__toc-list a:focus-visible .reader-paid__toc-title {
+  text-decoration: underline;
+}
+
 .reader-paid .reader-paid__toc-list a,
-.reader-paid .reader-paid__toc-list [aria-current="page"] {
+.reader-paid .reader-paid__toc-list [aria-current="page"],
+.reader-paid .reader-paid__toc-list .reader-paid__toc-locked {
   display: block;
   padding: 10px 11px;
   border-radius: var(--radius-sm);

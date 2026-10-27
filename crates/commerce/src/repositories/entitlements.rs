@@ -33,6 +33,35 @@ pub struct ReadableBookToc {
     pub truncated: bool,
 }
 
+/// A private reader's combined TOC. Only confirmed historical purchases
+/// and separately public chapter metadata can enter this result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MixedTocAccess {
+    Purchased {
+        purchase_id: i64,
+        version_id: i64,
+        version_no: i32,
+    },
+    PublicFree,
+    Locked {
+        price_minor: Option<i64>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MixedTocChapter {
+    pub chapter_id: i64,
+    pub chapter_no: i32,
+    pub title: String,
+    pub access: MixedTocAccess,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MixedBookToc {
+    pub chapters: Vec<MixedTocChapter>,
+    pub truncated: bool,
+}
+
 #[derive(Clone)]
 pub struct PgDirectEntitlements {
     pool: PgPool,
@@ -173,6 +202,115 @@ impl PgDirectEntitlements {
         }
         items.sort_by_key(|item| (item.chapter_no, item.purchase_id));
         Ok(ReadableBookToc { items, truncated })
+    }
+
+    /// NEwBOO's combined table of contents. Public rows follow B's actual
+    /// chapter visibility, release and publication predicates. Private rows
+    /// require an independent canonical D check for every pinned edition.
+    /// Unpublished rows without an owned purchase must never be enumerated.
+    pub async fn mixed_book_toc(
+        &self,
+        actor: PositiveId,
+        chapter_id: PositiveId,
+        purchase_id: PositiveId,
+    ) -> Result<MixedBookToc, DeliveryError> {
+        let rows = sqlx::query(
+            "WITH anchor AS (
+                SELECT c.book_id, c.chapter_no
+                FROM library_purchased_chapters l
+                JOIN chapter_purchase_facts p
+                  ON p.id=l.purchase_id AND p.user_id=l.user_id
+                 AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+                JOIN chapters c ON c.id=p.chapter_id
+                WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
+                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+            )
+            SELECT c.id AS chapter_id, c.chapter_no, c.title AS chapter_title,
+                   c.access_level, c.price_amount,
+                   owned.purchase_id, owned.version_id, owned.version_no
+            FROM anchor a
+            JOIN chapters c ON c.book_id=a.book_id
+            JOIN books b ON b.id=c.book_id
+            LEFT JOIN LATERAL (
+                SELECT p.id AS purchase_id, p.version_id, v.version_no
+                FROM library_purchased_chapters l
+                JOIN chapter_purchase_facts p
+                  ON p.id=l.purchase_id AND p.user_id=l.user_id
+                 AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+                JOIN chapter_versions v
+                  ON v.chapter_id=p.chapter_id AND v.id=p.version_id
+                WHERE l.user_id=$1 AND l.chapter_id=c.id
+                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+                LIMIT 1
+            ) owned ON TRUE
+            WHERE owned.purchase_id IS NOT NULL
+               OR (b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+                   AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
+                   AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+                   AND EXISTS (
+                     SELECT 1 FROM chapter_publications cp
+                     JOIN chapter_versions pv
+                       ON pv.chapter_id=cp.chapter_id AND pv.id=cp.version_id
+                     WHERE cp.chapter_id=c.id
+                   ))
+            ORDER BY ABS(c.chapter_no::BIGINT-a.chapter_no::BIGINT),
+                     c.chapter_no, c.id
+            LIMIT 101",
+        )
+        .bind(actor.get())
+        .bind(chapter_id.get())
+        .bind(purchase_id.get())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        let truncated = rows.len() > 100;
+        let mut chapters = Vec::with_capacity(rows.len().min(100));
+        for row in rows.into_iter().take(100) {
+            let owned_id: Option<i64> = row
+                .try_get("purchase_id")
+                .map_err(|_| DeliveryError::Unavailable)?;
+            let access = if let Some(purchase_id) = owned_id {
+                MixedTocAccess::Purchased {
+                    purchase_id,
+                    version_id: row
+                        .try_get("version_id")
+                        .map_err(|_| DeliveryError::Unavailable)?,
+                    version_no: row
+                        .try_get("version_no")
+                        .map_err(|_| DeliveryError::Unavailable)?,
+                }
+            } else {
+                let kind: String = row
+                    .try_get("access_level")
+                    .map_err(|_| DeliveryError::Unavailable)?;
+                if kind == "free" {
+                    MixedTocAccess::PublicFree
+                } else {
+                    MixedTocAccess::Locked {
+                        price_minor: row
+                            .try_get("price_amount")
+                            .map_err(|_| DeliveryError::Unavailable)?,
+                    }
+                }
+            };
+            chapters.push(MixedTocChapter {
+                chapter_id: row
+                    .try_get("chapter_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_no: row
+                    .try_get("chapter_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                title: row
+                    .try_get("chapter_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                access,
+            });
+        }
+        chapters.sort_by_key(|row| (row.chapter_no, row.chapter_id));
+        Ok(MixedBookToc {
+            chapters,
+            truncated,
+        })
     }
 
     /// D-owned list for the authenticated reader. A purchase ID is only a

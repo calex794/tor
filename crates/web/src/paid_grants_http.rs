@@ -281,16 +281,24 @@ async fn paid_reader(
     };
     let toc = match state
         .entitlement
-        .readable_book_toc(actor_id, chapter_id, purchase_id)
+        .mixed_book_toc(actor_id, chapter_id, purchase_id)
         .await
     {
         Ok(toc) => toc,
         Err(error) => return deny(status(error)),
     };
-    // The anchor must still be one of the actor's readable paid editions.
-    // Prevent TOC construction after a concurrent refund or hold.
-    if !toc.items.iter().any(|item| {
-        item.purchase_id == purchase_id.get() && item.version_id == pinned.version_id.get()
+    // Never allow free/public metadata to satisfy ownership. D must still
+    // confirm that the original pinned paid version is readable.
+    if !toc.chapters.iter().any(|row| {
+        row.chapter_id == chapter_id.get()
+            && matches!(
+                row.access,
+                tor_commerce::repositories::entitlements::MixedTocAccess::Purchased {
+                    purchase_id: id,
+                    version_id: version,
+                    ..
+                } if id == purchase_id.get() && version == pinned.version_id.get()
+            )
     }) {
         return deny(StatusCode::FORBIDDEN);
     }

@@ -30,7 +30,10 @@ use tor_books::repositories::{
 };
 use tor_commerce::{
     domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
-    repositories::checkout::PgCheckout,
+    repositories::{
+        checkout::PgCheckout,
+        entitlements::{MixedTocAccess, PgDirectEntitlements},
+    },
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 use tor_reading::repositories::PgReader;
@@ -44,6 +47,9 @@ use tor_storage::{
     },
 };
 use tower::ServiceExt;
+
+#[path = "paid_grants_s3_pg/toc_fixtures.rs"]
+mod toc_fixtures;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-private-chapter-ci";
@@ -220,7 +226,7 @@ fn save_ephemeral_fixture(
     reader_html: String,
     reader_csp: String,
     expiry_probe_url: Value,
-    toc_target: (i64, i64),
+    toc_target: (i64, i64, i64, i64, i64),
 ) {
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
@@ -248,6 +254,9 @@ fn save_ephemeral_fixture(
         "toc_second_chapter_id": toc_target.0.to_string(),
         "toc_second_purchase_id": toc_target.1.to_string(),
         "toc_second_title": CHAPTER_TWO_TITLE,
+        "toc_free_chapter_id": toc_target.2.to_string(),
+        "toc_locked_chapter_id": toc_target.3.to_string(),
+        "toc_draft_chapter_id": toc_target.4.to_string(),
     });
     file.write_all(payload.to_string().as_bytes()).unwrap();
     file.sync_all().unwrap();
@@ -556,6 +565,21 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(first["schema"], "tor.paid_delivery.v1");
     assert!(!first.to_string().contains(MARKDOWN), "no plaintext in API");
 
+    let (free_chapter, locked_chapter, draft_chapter) =
+        toc_fixtures::create_mixed_toc_fixtures(&url, book);
+    assert_eq!(
+        private_get(&app, &format!("/reader/{free_chapter}"), None)
+            .await
+            .status(),
+        StatusCode::OK,
+    );
+    assert_eq!(
+        private_get(&app, &format!("/reader/{locked_chapter}"), None)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+    );
+
     let v2 = scalar(
         &url,
         &format!(
@@ -567,6 +591,27 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
+    // Capture the actual Rust HTML before the author hides the book. CI
+    // screenshots exercise the mixed original NEwBOO-style free/paid/locked
+    // design while preserving a separate hidden-book entitlement check.
+    let visible_page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
+    assert_eq!(visible_page.status(), StatusCode::OK);
+    let visible_html = html_body(visible_page).await;
+    assert!(visible_html.contains("data-toc-state=\"free\""));
+    assert!(visible_html.contains("data-toc-state=\"owned\""));
+    assert!(visible_html.contains("data-toc-state=\"locked\""));
+    assert!(visible_html.contains(&format!("href=\"/reader/{free_chapter}\"")));
+    assert!(visible_html.contains(&format!(
+        "href=\"/read/paid/{chapter_two}?purchase_id={purchase_two_id}\""
+    )));
+    assert!(visible_html.contains("1,75 ₽"));
+    assert!(!visible_html.contains(&format!("href=\"/reader/{locked_chapter}\"")));
+    assert!(!visible_html.contains("Unpurchased body never in TOC"));
+    assert!(!visible_html.contains("SECRET_DRAFT_CHAPTER"));
+    assert!(!visible_html.contains("SECRET_FUTURE_CHAPTER"));
+    assert!(!visible_html.contains("<svg onload="));
+    assert!(!visible_html.contains("<img src=x"));
+
     pg(
         &url,
         &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
@@ -575,6 +620,65 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
     );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility FROM books WHERE id={book}")
+        ),
+        "draft",
+        "author-hide must persist before private TOC is rendered"
+    );
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapters c JOIN books b ON b.id=c.book_id
+                 WHERE c.book_id={book} AND b.visibility='public'
+                   AND c.visibility='public'"
+            ),
+        ),
+        0,
+        "B must not enumerate the author's hidden public chapter metadata"
+    );
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM library_purchased_chapters
+                 WHERE user_id={buyer} AND chapter_id={free_chapter}"
+            ),
+        ),
+        0,
+        "public free chapter must not accidentally become a paid entitlement"
+    );
+    let scoped_toc = PgDirectEntitlements::new(pool.clone())
+        .mixed_book_toc(
+            PositiveId::new(buyer).unwrap(),
+            PositiveId::new(chapter).unwrap(),
+            PositiveId::new(purchase_id).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        scoped_toc
+            .chapters
+            .iter()
+            .all(|row| matches!(row.access, MixedTocAccess::Purchased { .. })),
+        "hidden public metadata leaked from SQL query: {:?}",
+        scoped_toc
+            .chapters
+            .iter()
+            .map(|row| (row.chapter_id, &row.access))
+            .collect::<Vec<_>>()
+    );
+    // When the author hides the book, the real HTTP menu must match the
+    // already-checked D query: own pinned editions only, no public metadata.
+    let hidden_page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
+    assert_eq!(hidden_page.status(), StatusCode::OK);
+    let hidden_html = html_body(hidden_page).await;
+    assert!(hidden_html.contains("data-toc-state=\"current\""));
+    assert!(!hidden_html.contains("data-toc-state=\"free\""));
+    assert!(!hidden_html.contains("data-toc-state=\"locked\""));
     let preserved = post_grant(
         &app,
         chapter,
@@ -719,7 +823,11 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     .unwrap();
     assert!(reader_html.contains("data-paid-chapter-reader"));
     assert!(reader_html.contains("data-paid-toc"));
-    assert!(reader_html.contains("Оглавление купленных глав"));
+    assert!(reader_html.contains("Оглавление книги"));
+    // Main republished the book before the F-05 ranking scenario below.
+    // The reader should therefore show public metadata again.
+    assert!(reader_html.contains("data-toc-state=\"free\""));
+    assert!(reader_html.contains("data-toc-state=\"locked\""));
     assert!(reader_html.contains(&format!(
         "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
     )));
@@ -747,10 +855,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         still_v1,
         v1,
         purchase_id,
-        reader_html,
+        visible_html,
         reader_csp,
         expiry_probe_url,
-        (chapter_two, purchase_two_id),
+        (
+            chapter_two,
+            purchase_two_id,
+            free_chapter,
+            locked_chapter,
+            draft_chapter,
+        ),
     );
 
     pg(

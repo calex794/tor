@@ -4,7 +4,7 @@ use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_commerce::repositories::entitlements::{
-    ReadableBookToc, ReadablePurchase, ReadablePurchasesPage,
+    MixedBookToc, MixedTocAccess, ReadablePurchase, ReadablePurchasesPage,
 };
 
 /// NEwBOO's hide_site_chrome mode: keep only the reader topbar.
@@ -19,41 +19,87 @@ fn reader_layout(title: &str, description: &str, content: &str) -> Html<String> 
     )
 }
 
-/// All entries are already scoped to the owner and canonically checked by D.
-/// Never display public TOC items as though they were paid entitlements.
-fn paid_book_toc(edition: &ReadablePurchase, toc: &ReadableBookToc) -> String {
+/// NEwBOO-like mixed table of contents: paid purchases are D-scoped,
+/// free chapter links follow B's public rule, and locked chapters get no URL.
+fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
     let mut entries = String::new();
-    for chapter in &toc.items {
+    for chapter in &toc.chapters {
+        let title = escape_html(&chapter.title);
         let label = format!(
-            "Глава {}. {} · редакция {}",
-            chapter.chapter_no,
-            escape_html(&chapter.chapter_title),
-            chapter.version_no
+            "<span class=\"reader-paid__toc-title\">Глава {}. {title}</span>",
+            chapter.chapter_no
         );
-        if chapter.purchase_id == edition.purchase_id {
-            write!(
-                entries,
-                "<li class=\"reader-paid__toc-current\"><span aria-current=\"page\">{label}</span></li>"
-            )
-            .expect("write current item");
-        } else {
-            write!(
-                entries,
-                "<li><a data-paid-toc-link href=\"/read/paid/{}?purchase_id={}\">{label}</a></li>",
-                chapter.chapter_id, chapter.purchase_id,
-            )
-            .expect("write purchased chapter link");
+        match chapter.access {
+            MixedTocAccess::Purchased {
+                purchase_id,
+                version_no,
+                ..
+            } if chapter.chapter_id == edition.chapter_id && purchase_id == edition.purchase_id => {
+                write!(
+                    entries,
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--current\" data-toc-state=\"current\">
+                       <span aria-current=\"page\">{label}<span class=\"reader-paid__toc-badge reader-paid__toc-badge--owned\">Читаю · редакция {version_no}</span></span>
+                     </li>"
+                )
+                .expect("write current paid edition");
+            }
+            MixedTocAccess::Purchased {
+                purchase_id,
+                version_no,
+                ..
+            } => {
+                write!(
+                    entries,
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--owned\" data-toc-state=\"owned\">
+                       <a data-paid-toc-link href=\"/read/paid/{}?purchase_id={purchase_id}\">{label}
+                         <span class=\"reader-paid__toc-badge reader-paid__toc-badge--owned\">Куплено · редакция {version_no}</span>
+                       </a>
+                     </li>",
+                    chapter.chapter_id
+                )
+                .expect("write paid edition link");
+            }
+            MixedTocAccess::PublicFree => {
+                write!(
+                    entries,
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--free\" data-toc-state=\"free\">
+                       <a data-free-toc-link href=\"/reader/{}\">{label}
+                         <span class=\"reader-paid__toc-badge reader-paid__toc-badge--free\">Бесплатно</span>
+                       </a>
+                     </li>",
+                    chapter.chapter_id
+                )
+                .expect("write public free chapter link");
+            }
+            MixedTocAccess::Locked { price_minor } => {
+                let price = price_minor.map_or_else(String::new, |minor| {
+                    format!(" · {},{:02} ₽", minor / 100, minor % 100)
+                });
+                write!(
+                    entries,
+                    "<li class=\"reader-paid__toc-row reader-paid__toc-row--locked\" data-toc-state=\"locked\">
+                       <span class=\"reader-paid__toc-locked\" aria-disabled=\"true\">{label}
+                         <span class=\"reader-paid__toc-badge reader-paid__toc-badge--locked\">Не куплено{price}</span>
+                       </span>
+                     </li>"
+                )
+                .expect("write locked chapter metadata");
+            }
         }
     }
     let overflow = if toc.truncated {
-        "<p class=\"reader-paid__toc-more\">Показаны 100 ближайших купленных глав. Полный список — в <a href=\"/me/purchases\">библиотеке покупок</a>.</p>"
+        "<p class=\"reader-paid__toc-more\">Показаны 100 ближайших глав. Остальные — в <a href=\"/me/purchases\">моих покупках</a> и каталоге.</p>"
     } else {
         ""
     };
     format!(
         "<details class=\"reader-topbar__toc\" data-paid-toc>
-          <summary aria-label=\"Оглавление купленных глав\">Оглавление</summary>
-          <div class=\"reader-paid__toc-menu\" role=\"group\" aria-label=\"Купленные главы этой книги\">
+          <summary aria-label=\"Оглавление книги\">Оглавление</summary>
+          <div class=\"reader-paid__toc-menu\" role=\"group\" aria-label=\"Оглавление книги\">
+            <div class=\"reader-paid__toc-head\">
+              <strong>Главы книги</strong>
+              <span>Бесплатные, купленные и закрытые</span>
+            </div>
             <ol class=\"reader-paid__toc-list\">{entries}</ol>
             {overflow}
           </div>
@@ -63,7 +109,7 @@ fn paid_book_toc(edition: &ReadablePurchase, toc: &ReadableBookToc) -> String {
 
 pub fn paid_reader_shell(
     edition: &ReadablePurchase,
-    toc: &ReadableBookToc,
+    toc: &MixedBookToc,
     csrf: &str,
     private_s3_origin: &str,
 ) -> Html<String> {
@@ -215,8 +261,9 @@ mod tests {
     }
 
     #[test]
-    fn paid_book_toc_escapes_metadata_and_links_only_entitled_editions() {
-        let current = ReadablePurchase {
+    fn mixed_book_toc_displays_nevboo_states_without_granting_closed_pages() {
+        use tor_commerce::repositories::entitlements::MixedTocChapter;
+        let edition = ReadablePurchase {
             purchase_id: 31,
             chapter_id: 23,
             version_id: 40,
@@ -225,25 +272,60 @@ mod tests {
             book_title: "Book".to_owned(),
             chapter_title: "Current".to_owned(),
         };
-        let next = ReadablePurchase {
-            purchase_id: 32,
-            chapter_id: 24,
-            version_id: 42,
-            version_no: 1,
-            chapter_no: 3,
-            book_title: "Book".to_owned(),
-            chapter_title: "Следующая <script>x</script>".to_owned(),
-        };
-        let toc = ReadableBookToc {
-            items: vec![current.clone(), next],
+        let toc = MixedBookToc {
+            chapters: vec![
+                MixedTocChapter {
+                    chapter_id: 21,
+                    chapter_no: 1,
+                    title: "Бесплатная <img src=x>".to_owned(),
+                    access: MixedTocAccess::PublicFree,
+                },
+                MixedTocChapter {
+                    chapter_id: 23,
+                    chapter_no: 2,
+                    title: "Current".to_owned(),
+                    access: MixedTocAccess::Purchased {
+                        purchase_id: 31,
+                        version_id: 40,
+                        version_no: 1,
+                    },
+                },
+                MixedTocChapter {
+                    chapter_id: 24,
+                    chapter_no: 3,
+                    title: "Купленная <script>x</script>".to_owned(),
+                    access: MixedTocAccess::Purchased {
+                        purchase_id: 32,
+                        version_id: 42,
+                        version_no: 1,
+                    },
+                },
+                MixedTocChapter {
+                    chapter_id: 25,
+                    chapter_no: 4,
+                    title: "Платная, без доступа".to_owned(),
+                    access: MixedTocAccess::Locked {
+                        price_minor: Some(175),
+                    },
+                },
+            ],
             truncated: true,
         };
-        let html = paid_book_toc(&current, &toc);
+        let html = paid_book_toc(&edition, &toc);
         assert!(html.contains("aria-current=\"page\""));
         assert!(html.contains("href=\"/read/paid/24?purchase_id=32\""));
+        assert!(html.contains("href=\"/reader/21\""));
+        assert!(!html.contains("href=\"/read/paid/25"));
+        assert!(!html.contains("href=\"/reader/25\""));
         assert!(!html.contains("href=\"/read/paid/23?purchase_id=31\""));
+        assert!(html.contains("1,75 ₽"));
+        assert!(html.contains("Бесплатно"));
+        assert!(html.contains("Куплено"));
+        assert!(html.contains("Не куплено"));
         assert!(html.contains("&lt;script&gt;x&lt;/script&gt;"));
+        assert!(html.contains("&lt;img src=x&gt;"));
         assert!(!html.contains("<script>x</script>"));
+        assert!(!html.contains("<img src=x>"));
         assert!(html.contains("100 ближайших"));
         assert!(!html.contains("ciphertext_url"));
     }
@@ -259,8 +341,17 @@ mod tests {
             book_title: "Книга <script>опасно</script>".to_owned(),
             chapter_title: "Вторая \"глава\"".to_owned(),
         };
-        let toc = ReadableBookToc {
-            items: vec![edition.clone()],
+        let toc = MixedBookToc {
+            chapters: vec![tor_commerce::repositories::entitlements::MixedTocChapter {
+                chapter_id: 23,
+                chapter_no: 2,
+                title: "Вторая \"глава\"".to_owned(),
+                access: MixedTocAccess::Purchased {
+                    purchase_id: 31,
+                    version_id: 40,
+                    version_no: 1,
+                },
+            }],
             truncated: false,
         };
         let body = paid_reader_shell(
@@ -285,7 +376,7 @@ mod tests {
         assert!(body.contains("data-chapter-id=\"23\""));
         assert!(body.contains("Купленная редакция 1"));
         assert!(body.contains("data-paid-toc"));
-        assert!(body.contains("Оглавление купленных глав"));
+        assert!(body.contains("Оглавление книги"));
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
