@@ -110,15 +110,15 @@ fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
 /// Render only a verified edition or a separately public free chapter.
 /// Unpurchased paid neighbours are visible metadata, never navigable grants.
 fn paid_nav_item(chapter: Option<&MixedTocChapter>, previous: bool) -> String {
-    let (direction, arrow, rel) = if previous {
-        ("Предыдущая глава", "←", "prev")
+    let (direction, accessible, arrow, rel) = if previous {
+        ("Назад", "Предыдущая глава", "←", "prev")
     } else {
-        ("Следующая глава", "→", "next")
+        ("Дальше", "Следующая глава", "→", "next")
     };
     let state = if previous { "prev" } else { "next" };
     let Some(chapter) = chapter else {
         return format!(
-            "<span class=\"reader-paid__nav-card reader-paid__nav-card--disabled\" data-paid-nav-{state} aria-disabled=\"true\">
+            "<span class=\"reader-paid__nav-card reader-paid__nav-card--disabled\" data-paid-nav-{state} aria-disabled=\"true\" aria-label=\"{accessible}\">
                 <span class=\"reader-paid__nav-direction\">{arrow} {direction}</span>
                 <span class=\"reader-paid__nav-name\">Нет доступной главы</span>
              </span>"
@@ -142,14 +142,14 @@ fn paid_nav_item(chapter: Option<&MixedTocChapter>, previous: bool) -> String {
     };
     match href {
         Some(href) => format!(
-            "<a class=\"reader-paid__nav-card reader-paid__nav-card--active\" data-paid-nav-{state} rel=\"{rel}\" href=\"{href}\">
+            "<a class=\"reader-paid__nav-card reader-paid__nav-card--active\" data-paid-nav-{state} rel=\"{rel}\" href=\"{href}\" aria-label=\"{accessible}\">
                 <span class=\"reader-paid__nav-direction\">{arrow} {direction}</span>
                 <span class=\"reader-paid__nav-name\">{label}</span>
                 <span class=\"reader-paid__nav-badge\">{badge}</span>
              </a>"
         ),
         None => format!(
-            "<span class=\"reader-paid__nav-card reader-paid__nav-card--locked\" data-paid-nav-{state} aria-disabled=\"true\">
+            "<span class=\"reader-paid__nav-card reader-paid__nav-card--locked\" data-paid-nav-{state} aria-disabled=\"true\" aria-label=\"{accessible} — глава не куплена\">
                 <span class=\"reader-paid__nav-direction\">{arrow} {direction}</span>
                 <span class=\"reader-paid__nav-name\">{label}</span>
                 <span class=\"reader-paid__nav-badge\">{badge}</span>
