@@ -2,8 +2,8 @@
   <div class="container">
     <div class="auth-card author-chapter-card">
       <p class="eyebrow">Кабинет автора</p>
-      <h1>Новая бесплатная глава</h1>
-      <p>Глава сохраняется скрытой. Если книга уже опубликована, новая глава появится у читателей только после отдельного подтверждения автора.</p>
+      <h1><!--CHAPTER_HEADING--></h1>
+      <p><!--CHAPTER_INFO--></p>
       <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
@@ -11,9 +11,10 @@
         <input id="chapter-number" name="number" type="number" min="1" max="1000000" value="1" required>
         <label for="chapter-title">Название главы</label>
         <input id="chapter-title" name="title" type="text" maxlength="200" required>
+        <!--CHAPTER_ACCESS-->
         <label for="chapter-body">Текст главы (Markdown, до 50 000 символов)</label>
         <textarea id="chapter-body" name="body" rows="14" maxlength="50000" required></textarea>
-        <button class="button" type="submit">Сохранить главу</button>
+        <button class="button" type="submit"><!--SAVE_LABEL--></button>
       </form>
       <p class="auth-card__footer"><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
     </div>

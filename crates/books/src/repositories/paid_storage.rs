@@ -1,7 +1,7 @@
 //! B S3-09/11: owner-only atomic verified paid edition attachment and publish.
 //! No S3 call inside this transaction: G uploads/verifies before B commits.
 //! No entitlement is created here; D remains the sole rights authority.
-use crate::services::authoring::AuthorError;
+use crate::services::authoring::{valid_command_key, AuthorError, ChapterAccess, SaveChapter};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -17,6 +17,16 @@ pub enum PaidPublication {
     KeepCurrent,
     /// B-owned compare-and-swap of the published pointer. None = first release.
     Publish { expected_current: Option<i64> },
+}
+
+/// Durable B-owned draft, not visible until G verifies the ciphertext
+/// and the B attachment transaction commits. Identical command replays
+/// reuse the same chapter/version rather than creating another edition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PreparedPaidChapter {
+    pub chapter_id: i64,
+    pub version_id: i64,
+    pub published: bool,
 }
 
 fn map_write(error: sqlx::Error) -> AuthorError {
@@ -36,6 +46,160 @@ pub struct PgPaidStorage {
 impl PgPaidStorage {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// First half of author Save: reserve a paid chapter/version, still
+    /// hidden from readers. S3 encryption MUST happen only after this commit
+    /// because AAD needs the server-issued chapter and version identifiers.
+    /// Idempotency is owned by the same B command table as free authoring.
+    pub async fn prepare_new_paid_chapter(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<PreparedPaidChapter, AuthorError> {
+        if actor <= 0
+            || request.book_id <= 0
+            || request.chapter_id.is_some()
+            || request.expected_revision != 0
+            || request.number <= 0
+            || request.access != ChapterAccess::Paid
+            || request.price_amount <= 0
+            || !valid_command_key(&request.command_key)
+            || !(1..=200).contains(&request.title.chars().count())
+            || request.title.chars().any(char::is_control)
+            || !(1..=50_000).contains(&request.body.chars().count())
+            || (request.body.contains('\0') || request.body.contains('\r'))
+        {
+            return Err(AuthorError::Invalid);
+        }
+        let mut hasher = Sha256::new();
+        for field in [
+            "new-paid-chapter-v1".to_owned(),
+            request.book_id.to_string(),
+            request.number.to_string(),
+            request.title.clone(),
+            request.body.clone(),
+            request.access.as_str().to_owned(),
+            request.price_amount.to_string(),
+        ] {
+            hasher.update((field.len() as u64).to_be_bytes());
+            hasher.update(field.as_bytes());
+        }
+        let payload_hash: [u8; 32] = hasher.finalize().into();
+        let content_hash: [u8; 32] = Sha256::digest(request.body.as_bytes()).into();
+        let mut tx = self.pool.begin().await.map_err(map_write)?;
+        // Lock owner book before chapter creation; a non-owner cannot infer
+        // whether the book ID exists, and a draft book cannot publish a paid
+        // chapter with a publicly routable chapter URL.
+        let visibility: Option<String> = sqlx::query_scalar(
+            "SELECT visibility FROM books
+             WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
+             FOR UPDATE",
+        )
+        .bind(request.book_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        match visibility.as_deref() {
+            None => return Err(AuthorError::Missing),
+            Some("public") => {}
+            Some(_) => return Err(AuthorError::Conflict),
+        }
+        let claimed: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO chapter_save_commands(user_id,command_key,payload_hash)
+             VALUES($1,$2,$3) ON CONFLICT(user_id,command_key) DO NOTHING
+             RETURNING user_id",
+        )
+        .bind(actor)
+        .bind(&request.command_key)
+        .bind(payload_hash.as_slice())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        if claimed.is_none() {
+            let row = sqlx::query(
+                "SELECT payload_hash,chapter_id,version_id
+                 FROM chapter_save_commands
+                 WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
+            )
+            .bind(actor)
+            .bind(&request.command_key)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_write)?;
+            let prior: Vec<u8> = row
+                .try_get("payload_hash")
+                .map_err(|_| AuthorError::Unavailable)?;
+            if prior != payload_hash {
+                return Err(AuthorError::Conflict);
+            }
+            let chapter_id: i64 = row
+                .try_get::<Option<i64>, _>("chapter_id")
+                .map_err(|_| AuthorError::Unavailable)?
+                .ok_or(AuthorError::Conflict)?;
+            let version_id: i64 = row
+                .try_get::<Option<i64>, _>("version_id")
+                .map_err(|_| AuthorError::Unavailable)?
+                .ok_or(AuthorError::Conflict)?;
+            let published: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM chapter_publications
+                 WHERE chapter_id=$1 AND version_id=$2)",
+            )
+            .bind(chapter_id)
+            .bind(version_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_write)?;
+            return Ok(PreparedPaidChapter {
+                chapter_id,
+                version_id,
+                published,
+            });
+        }
+
+        // The chapter must not enter catalog/reader until B verifies an
+        // attached G object. Failed S3 leaves only an owner-visible draft.
+        let chapter_id: i64 = sqlx::query_scalar(
+            "INSERT INTO chapters(
+                 book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision
+             ) VALUES($1,$2,$3,'draft','paid',$4,1) RETURNING id",
+        )
+        .bind(request.book_id)
+        .bind(request.number)
+        .bind(&request.title)
+        .bind(request.price_amount)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        let version_id: i64 = sqlx::query_scalar(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+             VALUES($1,1,$2,$3) RETURNING id",
+        )
+        .bind(chapter_id)
+        .bind(&request.body)
+        .bind(content_hash.as_slice())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        sqlx::query(
+            "UPDATE chapter_save_commands
+             SET chapter_id=$3,version_id=$4,saved_revision=1
+             WHERE user_id=$1 AND command_key=$2",
+        )
+        .bind(actor)
+        .bind(&request.command_key)
+        .bind(chapter_id)
+        .bind(version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        tx.commit().await.map_err(map_write)?;
+        Ok(PreparedPaidChapter {
+            chapter_id,
+            version_id,
+            published: false,
+        })
     }
 
     /// The only B-owned path from a verified G ready object to a paid version.

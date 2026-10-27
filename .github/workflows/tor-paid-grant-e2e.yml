@@ -122,6 +122,7 @@ jobs:
           node --check tools/paid_grant_webcrypto_e2e.mjs
           node --check tools/paid_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
