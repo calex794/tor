@@ -67,9 +67,7 @@ pub(super) async fn seed_exhausted_proxy_counter(accounts: &PgAccounts) {
     // Nginx connects from 127.0.0.1 for all real website visitors.
     // A previously exhausted shared IP counter must not lock a real user out.
     // This fixture touches only the disposable tor_ci database.
-    let key = tor_accounts::services::security::session_token_digest(
-        "auth:login:peer:127.0.0.1",
-    );
+    let key = tor_accounts::services::security::session_token_digest("auth:login:peer:127.0.0.1");
     for _ in 0..61 {
         accounts
             .permit_auth_attempt(&key, 60, 600)
