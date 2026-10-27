@@ -32,7 +32,11 @@ impl PgKekRotation {
         v1: &ContentKek,
         v2: &ContentKek,
     ) -> Result<bool, RotationError> {
-        let mut tx = self.pool.begin().await.map_err(|_| RotationError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| RotationError::Unavailable)?;
         let role: String = sqlx::query_scalar("SELECT current_user")
             .fetch_one(&mut *tx)
             .await
@@ -61,17 +65,16 @@ impl PgKekRotation {
         let nonce: [u8; 12] = nonce.try_into().map_err(|_| RotationError::InvalidRecord)?;
         let new = rewrap_registered_v1_to_v2(object, &wrapped, &nonce, v1, v2)
             .map_err(|_| RotationError::KeyRejected)?;
-        let changed: bool = sqlx::query_scalar(
-            "SELECT rewrap_attached_storage_v1_to_v2($1::uuid,$2,$3,$4,$5)",
-        )
-        .bind(object.as_str())
-        .bind(&wrapped)
-        .bind(nonce.as_slice())
-        .bind(&new.wrapped_dek)
-        .bind(new.wrap_nonce.as_slice())
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| RotationError::Unavailable)?;
+        let changed: bool =
+            sqlx::query_scalar("SELECT rewrap_attached_storage_v1_to_v2($1::uuid,$2,$3,$4,$5)")
+                .bind(object.as_str())
+                .bind(&wrapped)
+                .bind(nonce.as_slice())
+                .bind(&new.wrapped_dek)
+                .bind(new.wrap_nonce.as_slice())
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|_| RotationError::Unavailable)?;
         if !changed {
             return Err(RotationError::Conflict);
         }
@@ -82,11 +85,9 @@ impl PgKekRotation {
     /// A V1 secret may not be retired while ANY pending or attached object
     /// still references it (not just the currently published version).
     pub async fn count_v1_references(&self) -> Result<i64, RotationError> {
-        sqlx::query_scalar(
-            "SELECT count(*) FROM storage_objects WHERE kek_id='content-kek-v1'",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| RotationError::Unavailable)
+        sqlx::query_scalar("SELECT count(*) FROM storage_objects WHERE kek_id='content-kek-v1'")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| RotationError::Unavailable)
     }
 }
