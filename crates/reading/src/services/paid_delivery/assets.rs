@@ -28,7 +28,7 @@ pub async fn issue_paid_asset_grant(
         .encrypted_asset(pinned, object_id)
         .await?
         .ok_or(DeliveryError::Hidden)?;
-    if encrypted.object.object_id != *object_id
+    if encrypted.object.object_id.as_str() != object_id.as_str()
         || encrypted.object.kind != EncryptedObjectKind::ChapterAsset
         || encrypted.codec != ContentCodec::None
         || encrypted.wrapped_key_id.is_empty()
