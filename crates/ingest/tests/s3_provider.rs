@@ -100,16 +100,22 @@ async fn h_web_10_s3_provider_put_head_get_and_private_corruption() {
         Err(CoverError::Invalid)
     );
     assert_eq!(
-        store.put_verified("staging/covers/../escape.webp", &bytes).await,
+        store
+            .put_verified("staging/covers/../escape.webp", &bytes)
+            .await,
         Err(CoverError::Invalid)
     );
     assert_eq!(
-        store.put_verified("staging/covers/unverified-source.webp", &bytes).await,
+        store
+            .put_verified("staging/covers/unverified-source.webp", &bytes)
+            .await,
         Err(CoverError::Invalid),
         "worker must never overwrite source object"
     );
     assert_eq!(
-        store.put_verified(CARD_KEY, &vec![0_u8; 8 * 1024 * 1024 + 1]).await,
+        store
+            .put_verified(CARD_KEY, &vec![0_u8; 8 * 1024 * 1024 + 1])
+            .await,
         Err(CoverError::Invalid)
     );
 
@@ -146,5 +152,8 @@ async fn h_web_10_s3_provider_put_head_get_and_private_corruption() {
         Ok(()),
         "correct retry restores verified object data"
     );
-    assert_eq!(rebuilt.get_bounded(CARD_KEY, bytes.len()).await.unwrap(), bytes);
+    assert_eq!(
+        rebuilt.get_bounded(CARD_KEY, bytes.len()).await.unwrap(),
+        bytes
+    );
 }
