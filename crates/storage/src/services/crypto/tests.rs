@@ -419,8 +419,8 @@ fn s334_new_paid_revision_uses_opted_in_v2_without_breaking_purchased_v1() {
             &active,
         )
         .unwrap();
-        let compressed = decrypt_raw(&dek, &sealed.object_nonce, &sealed.aad, &sealed.ciphertext)
-            .unwrap();
+        let compressed =
+            decrypt_raw(&dek, &sealed.object_nonce, &sealed.aad, &sealed.ciphertext).unwrap();
         assert_eq!(decode_gzip(&compressed), expected);
     }
     assert!(matches!(
