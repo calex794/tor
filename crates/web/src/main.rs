@@ -62,12 +62,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
+    let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
+            if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_ranking_consumer = Some(
+                    tor_recommendations::repositories::PgRanking::new(pool.clone()),
+                );
+            }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
             tor_web::start_ril_pg_background(&catalog);
@@ -145,6 +151,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    // C completion events remain durable if the server restarts.
+    // Only the authenticated PostgreSQL runtime consumes them.
+    let _ranking_consumer =
+        pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
