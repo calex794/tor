@@ -158,7 +158,7 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
 }
 
 #[tokio::test]
-#[ignore = "requires isolated PostgreSQL tor_ci, seeded fixtures, and migration 202610280006"]
+#[ignore = "requires isolated PostgreSQL tor_ci, seeded fixtures, and migration 202610280007"]
 async fn shadow_manual_opt_in_is_not_automatic_and_views_are_read_only() {
     use sqlx::Row;
     use tor_books::repositories::PgShadowCatalog;
