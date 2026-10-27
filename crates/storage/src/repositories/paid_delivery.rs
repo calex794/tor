@@ -9,7 +9,9 @@ use crate::{
         provider::{valid_ciphertext_size, valid_private_bucket},
     },
     services::{
-        crypto::{chapter_aad, unwrap_registered_dek_from_keyring, ContentKek, ContentKeyring},
+        crypto::{
+            asset_aad, chapter_aad, unwrap_registered_dek_from_keyring, ContentKek, ContentKeyring,
+        },
         provider::PrivateObjectStore,
     },
 };
@@ -64,7 +66,12 @@ impl<S: PrivateObjectStore> PgPrivateDelivery<S> {
     }
 }
 
-fn canonical_aad(aad: &[u8], id: &ObjectId, plaintext_sha256: &[u8]) -> bool {
+fn canonical_aad(
+    aad: &[u8],
+    id: &ObjectId,
+    plaintext_sha256: &[u8],
+    kind: EncryptedObjectKind,
+) -> bool {
     let Ok(digest) = <[u8; 32]>::try_from(plaintext_sha256) else {
         return false;
     };
@@ -72,7 +79,13 @@ fn canonical_aad(aad: &[u8], id: &ObjectId, plaintext_sha256: &[u8]) -> bool {
         return false;
     };
     let mut fields = text.split('\n');
-    if fields.next() != Some("tor.encrypted.chapter.v1") {
+    let namespace = fields.next();
+    if namespace
+        != Some(match kind {
+            EncryptedObjectKind::Chapter => "tor.encrypted.chapter.v1",
+            EncryptedObjectKind::ChapterAsset => "tor.encrypted.asset.v1",
+        })
+    {
         return false;
     }
     let parse_id = |raw: Option<&str>| {
@@ -83,14 +96,14 @@ fn canonical_aad(aad: &[u8], id: &ObjectId, plaintext_sha256: &[u8]) -> bool {
     else {
         return false;
     };
-    chapter_aad(
-        ChapterVersionRef {
-            chapter_id,
-            version_id,
-        },
-        id,
-        &digest,
-    ) == aad
+    let pinned = ChapterVersionRef {
+        chapter_id,
+        version_id,
+    };
+    match kind {
+        EncryptedObjectKind::Chapter => chapter_aad(pinned, id, &digest),
+        EncryptedObjectKind::ChapterAsset => asset_aad(pinned, id, &digest),
+    } == aad
 }
 
 #[async_trait]
@@ -100,9 +113,13 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
         encrypted: &EncryptedObjectRef,
         ttl: Duration,
     ) -> Result<GrantedContent, DeliveryError> {
+        let (kind, codec) = match (encrypted.object.kind, encrypted.codec) {
+            (EncryptedObjectKind::Chapter, ContentCodec::Gzip) => ("chapter", "gzip"),
+            (EncryptedObjectKind::ChapterAsset, ContentCodec::None) => ("chapter_asset", "none"),
+            _ => return Err(DeliveryError::Invalid),
+        };
         if validate_signed_get_ttl(ttl).is_err()
-            || encrypted.object.kind != EncryptedObjectKind::Chapter
-            || encrypted.codec != ContentCodec::Gzip
+            || (kind == "chapter_asset" && encrypted.object.size_bytes > 8 * 1024 * 1024)
             || !valid_ciphertext_size(&encrypted.object)
             || encrypted.aad.is_empty()
             || !matches!(
@@ -118,8 +135,8 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
         let row = sqlx::query(
             "SELECT encrypted_dek, wrap_nonce, bucket, object_key, plaintext_sha256
              FROM storage_objects
-             WHERE id=$1::uuid AND object_kind='chapter'
-               AND state='attached' AND codec='gzip'
+             WHERE id=$1::uuid AND object_kind=$7
+               AND state='attached' AND codec=$8
                AND size_bytes=$2 AND sha256_ciphertext=$3
                AND object_nonce=$4 AND object_aad=$5 AND kek_id=$6",
         )
@@ -129,6 +146,8 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
         .bind(encrypted.nonce.as_slice())
         .bind(&encrypted.aad)
         .bind(&encrypted.wrapped_key_id)
+        .bind(kind)
+        .bind(codec)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| DeliveryError::Unavailable)?
@@ -151,6 +170,7 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
                 &encrypted.aad,
                 &encrypted.object.object_id,
                 &plaintext_sha256,
+                encrypted.object.kind,
             )
         {
             return Err(DeliveryError::Unavailable);
@@ -210,13 +230,41 @@ mod tests {
             version_id: PositiveId::new(42).unwrap(),
         };
         let canonical = chapter_aad(pinned, &id, &digest);
-        assert!(canonical_aad(&canonical, &id, &digest));
-        assert!(!canonical_aad(&canonical, &id, &[0_u8; 32]));
+        assert!(canonical_aad(&canonical, &id, &digest, EncryptedObjectKind::Chapter));
+        assert!(!canonical_aad(
+            &canonical,
+            &id,
+            &[0_u8; 32],
+            EncryptedObjectKind::Chapter,
+        ));
         let swapped = ObjectId::parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb").unwrap();
-        assert!(!canonical_aad(&canonical, &swapped, &digest));
+        assert!(!canonical_aad(
+            &canonical,
+            &swapped,
+            &digest,
+            EncryptedObjectKind::Chapter,
+        ));
         let padded = String::from_utf8(canonical)
             .unwrap()
             .replace("\n41\n", "\n041\n");
-        assert!(!canonical_aad(padded.as_bytes(), &id, &digest));
+        assert!(!canonical_aad(
+            padded.as_bytes(),
+            &id,
+            &digest,
+            EncryptedObjectKind::Chapter,
+        ));
+        let image = asset_aad(pinned, &id, &digest);
+        assert!(canonical_aad(
+            &image,
+            &id,
+            &digest,
+            EncryptedObjectKind::ChapterAsset,
+        ));
+        assert!(!canonical_aad(
+            &image,
+            &id,
+            &digest,
+            EncryptedObjectKind::Chapter,
+        ));
     }
 }
