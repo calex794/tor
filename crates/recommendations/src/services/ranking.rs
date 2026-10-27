@@ -32,6 +32,8 @@ pub struct PlacementState {
     pub low_position: i32,
     pub high_position: i32,
     pub state_version: u64,
+    /// Revision when this placement started; scopes durable skip comparisons.
+    pub placement_epoch: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,6 +188,7 @@ impl RankingSnapshot {
             if s.placing_book_id <= 0
                 || ids.contains(&s.placing_book_id)
                 || s.state_version == 0
+                || s.placement_epoch == 0
                 || s.low_position < 0
                 || s.high_position < s.low_position
                 || s.high_position as usize >= groups.len()
@@ -275,6 +278,7 @@ impl RankingSnapshot {
                 .map_err(|_| RankingError::Invalid)?
                 - 1,
             state_version: 1,
+            placement_epoch: next.revision,
         });
         next.skipped_pairs.clear();
         Ok((next, AnswerStatus::Placing))
@@ -287,7 +291,9 @@ impl RankingSnapshot {
             return Err(RankingError::Invalid);
         }
         let mut next = self.clone();
-        next.deferred_books.remove(&book_id);
+        if next.deferred_books.remove(&book_id) {
+            next.revision = next.revision.checked_add(1).ok_or(RankingError::Invalid)?;
+        }
         Ok(next)
     }
 
@@ -331,6 +337,7 @@ impl RankingSnapshot {
         if outcome == Outcome::Skip {
             next.skipped_pairs
                 .insert(canonical_pair(q.book_a_id, q.book_b_id)?);
+            next.revision = next.revision.checked_add(1).ok_or(RankingError::Invalid)?;
             return Ok((next, AnswerStatus::Skipped));
         }
         if matches!(outcome, Outcome::DeferA | Outcome::DeferB) {
@@ -392,6 +399,7 @@ impl RankingSnapshot {
                     .state_version
                     .checked_add(1)
                     .ok_or(RankingError::Invalid)?,
+                placement_epoch: state.placement_epoch,
             });
             next.skipped_pairs.clear();
             return Ok((next, AnswerStatus::Placing));

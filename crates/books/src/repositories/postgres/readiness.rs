@@ -1,13 +1,13 @@
 //! Required PostgreSQL schema gate for this binary. A catalog-only readiness
 //! check would miss the F-03 public author/genre search schema.
-pub(super) const REQUIRED_MIGRATION: i64 = 202610270005;
+pub(super) const REQUIRED_MIGRATION: i64 = 202610270006;
 
 pub(super) fn require_latest_migration(version: Option<i64>) -> Result<(), sqlx::Error> {
     if version == Some(REQUIRED_MIGRATION) {
         Ok(())
     } else {
         Err(sqlx::Error::Protocol(
-            "TOR schema missing required F-02 taxonomy migration 202610270004".into(),
+            "TOR schema missing required F-05 personal ranking migration 202610270006".into(),
         ))
     }
 }
