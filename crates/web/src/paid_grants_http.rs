@@ -289,11 +289,9 @@ async fn paid_reader(
     };
     // The anchor must still be one of the actor's readable paid editions.
     // Prevent TOC construction after a concurrent refund or hold.
-    if !toc
-        .items
-        .iter()
-        .any(|item| item.purchase_id == purchase_id.get() && item.version_id == pinned.version_id.get())
-    {
+    if !toc.items.iter().any(|item| {
+        item.purchase_id == purchase_id.get() && item.version_id == pinned.version_id.get()
+    }) {
         return deny(StatusCode::FORBIDDEN);
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
