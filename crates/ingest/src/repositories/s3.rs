@@ -48,9 +48,19 @@ impl CoverObjectStore for S3CoverStore {
         sha256: &[u8; 32],
     ) -> Result<(), CoverError> {
         let actual: [u8; 32] = Sha256::digest(bytes).into();
+        // The HTTP layer also validates and decodes images, but direct
+        // callers must not be able to forge a stored source MIME either.
+        let mime_matches_bytes = match mime {
+            "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+            "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
+            "image/webp" => {
+                bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP"
+            }
+            _ => false,
+        };
         if !key.starts_with("staging/covers/sources/")
             || !Self::permitted(key)
-            || !matches!(mime, "image/png" | "image/jpeg" | "image/webp")
+            || !mime_matches_bytes
             || bytes.is_empty()
             || bytes.len() > 8 * 1024 * 1024
             || actual != *sha256
