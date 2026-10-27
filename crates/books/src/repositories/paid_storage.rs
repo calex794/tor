@@ -128,7 +128,9 @@ impl PgPaidStorage {
             .fetch_one(&mut *tx)
             .await
             .map_err(map_write)?;
-            let prior: Vec<u8> = row.try_get("payload_hash").map_err(|_| AuthorError::Unavailable)?;
+            let prior: Vec<u8> = row
+                .try_get("payload_hash")
+                .map_err(|_| AuthorError::Unavailable)?;
             if prior != payload_hash {
                 return Err(AuthorError::Conflict);
             }
