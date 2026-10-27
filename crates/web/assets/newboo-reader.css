@@ -630,22 +630,43 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   margin: -8px 0 20px;
 }
 .reader-paid .reader-paid__chapter-nav--bottom {
-  grid-template-columns: minmax(0, 1fr) minmax(96px, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr);
   align-items: center;
+  gap: 16px;
   margin-top: 24px;
   margin-bottom: 20px;
 }
 /* The original NEwBOO bottom row has a working TOC between both arrows. */
 .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc {
   justify-self: center;
-  min-width: 96px;
+  min-width: 220px;
+  width: 100%;
 }
 .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc > summary {
-  min-height: 72px;
+  min-height: 44px;
   width: 100%;
+  justify-content: center;
   text-align: center;
+  border-color: var(--text-main);
   border-radius: var(--radius-md);
-  background: var(--bg-surface);
+  background: var(--text-main);
+  color: var(--bg-surface);
+  font-weight: 700;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-name,
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-badge {
+  display: none;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-direction {
+  font-size: 14px;
+  color: inherit;
 }
 .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
   top: auto;
@@ -726,7 +747,7 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   }
   .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc > summary {
     min-width: 44px;
-    min-height: 88px;
+    min-height: 44px;
   }
   .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
     position: fixed;
@@ -742,6 +763,10 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
     padding: 11px;
     min-height: 88px;
     gap: 5px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-card {
+    min-height: 44px;
+    padding: 8px;
   }
   .reader-paid .reader-paid__nav-name {
     font-size: 13px;

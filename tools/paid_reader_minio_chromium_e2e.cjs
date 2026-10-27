@@ -327,6 +327,30 @@ async function run() {
         await footerToc.locator("summary").click();
         assert(!(await footerToc.evaluate((element) => element.open)),
           device + ": footer TOC does not close");
+        const footerStyles = await bottomNavigation.evaluate((element) => {
+          const toc = element.querySelector("[data-paid-toc-bottom]");
+          const prev = element.querySelector("[data-paid-nav-prev]");
+          const next = element.querySelector("[data-paid-nav-next]");
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            tocWidth: toc.getBoundingClientRect().width,
+            summaryHeight: toc.querySelector("summary").getBoundingClientRect().height,
+            previousHeight: prev.getBoundingClientRect().height,
+            nextHeight: next.getBoundingClientRect().height,
+            previousTitleDisplay: getComputedStyle(
+              prev.querySelector(".reader-paid__nav-name")).display,
+            nextTitleDisplay: getComputedStyle(
+              next.querySelector(".reader-paid__nav-name")).display,
+          };
+        });
+        assert(footerStyles.columns === 3 &&
+          footerStyles.tocWidth >= (device === "desktop" ? 220 : 44) &&
+          footerStyles.summaryHeight >= 44 &&
+          footerStyles.previousHeight >= 44 &&
+          footerStyles.nextHeight >= 44 &&
+          footerStyles.previousTitleDisplay === "none" &&
+          footerStyles.nextTitleDisplay === "none",
+          device + ": bottom arrows/TOC deviate from original NEwBOO layout");
         const navStyles = await topNavigation.evaluate((element) => {
           const next = element.querySelector("[data-paid-nav-next]");
           const prev = element.querySelector("[data-paid-nav-prev]");
