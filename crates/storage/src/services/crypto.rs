@@ -104,14 +104,41 @@ impl ContentKeyring {
     /// G can retain its already loaded V1 without copying key bytes.
     /// Optional V2 comes from the same operator-owned secret environment.
     pub fn from_v1_and_optional_v2_environment(v1: Arc<ContentKek>) -> Result<Self, CryptoError> {
-        match std::env::var("TOR_CONTENT_KEK_V2") {
+        let ring = match std::env::var("TOR_CONTENT_KEK_V2") {
             Ok(_) => Self::with_v2(
                 v1,
                 Arc::new(ContentKek::from_named_environment("TOR_CONTENT_KEK_V2")?),
-            ),
-            Err(std::env::VarError::NotPresent) => Ok(Self::v1_only(v1)),
+            )?,
+            Err(std::env::VarError::NotPresent) => Self::v1_only(v1),
+            Err(_) => return Err(CryptoError::UnavailableKey),
+        };
+        match std::env::var("TOR_CONTENT_ACTIVE_KEK_ID") {
+            Ok(id) => ring.with_active_id(&id),
+            Err(std::env::VarError::NotPresent) => Ok(ring),
             Err(_) => Err(CryptoError::UnavailableKey),
         }
+    }
+
+    /// Only trusted server configuration can select the KEK used for new
+    /// immutable objects. V1 is the default even when V2 is available to read.
+    /// Unknown IDs, a missing V2 key and blank configuration all fail closed.
+    pub fn with_active_id(mut self, id: &str) -> Result<Self, CryptoError> {
+        let selected = match id {
+            KEK_ID => KEK_ID,
+            KEK_ID_V2 => KEK_ID_V2,
+            _ => return Err(CryptoError::UnavailableKey),
+        };
+        self.for_id(selected)?;
+        self.active_kek_id = selected;
+        Ok(self)
+    }
+
+    pub fn active_id(&self) -> &'static str {
+        self.active_kek_id
+    }
+
+    fn active_key(&self) -> Result<&ContentKek, CryptoError> {
+        self.for_id(self.active_kek_id)
     }
 
     fn for_id(&self, id: &str) -> Result<&ContentKek, CryptoError> {
