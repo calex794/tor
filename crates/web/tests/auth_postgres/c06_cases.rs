@@ -53,6 +53,7 @@ pub(super) async fn purchased_version_http_journey(
     // The test user was registered through the public HTTP form beforehand.
     // Settlement facts are inserted only into the disposable PG database;
     // the public product has no enabled payment or paid-delivery route.
+    eprintln!("C06 checkpoint: start fixture");
     test_sql(
         r#"BEGIN;
            INSERT INTO users(id,email_normalized,display_name,password_hash)
@@ -108,6 +109,7 @@ pub(super) async fn purchased_version_http_journey(
     let csrf_b = csrf_token(&body_of(page_b).await).to_owned();
     let cookies_b = format!("{second_session}; {cookie_b}");
 
+    eprintln!("C06 checkpoint: purchase owner checks done");
     let initial = purchase_request(3, 1, 0); // A + surrogate pair: 3 UTF-16 units.
     for (cookies, origin, csrf) in [
         (first_session, ORIGIN, csrf_a.as_str()),
@@ -132,6 +134,7 @@ pub(super) async fn purchased_version_http_journey(
     assert_eq!(invalid_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body_of(invalid_response).await.is_empty());
 
+    eprintln!("C06 checkpoint: first paid cursor save");
     let saved = send(
         app,
         json_request("PUT", SAVE, &initial, &cookies_a, ORIGIN, &csrf_a),
@@ -150,6 +153,7 @@ pub(super) async fn purchased_version_http_journey(
 
     let left = purchase_request(1, 2, 1);
     let right = purchase_request(2, 2, 1);
+    eprintln!("C06 checkpoint: competing paid cursor saves");
     let (one, two) = tokio::join!(
         send(
             app,
@@ -174,6 +178,7 @@ pub(super) async fn purchased_version_http_journey(
     assert!(current.contains(r#""block_id":2"#));
 
     // A V2 publication must not erase the V1 purchase or move its cursor.
+    eprintln!("C06 checkpoint: pinned V1 after V2");
     test_sql("UPDATE chapter_publications SET version_id=95832 WHERE chapter_id=95820");
     let preserved = owned_get(app, first_session, GET_V1, StatusCode::OK).await;
     assert!(preserved.contains(r#""version_id":"95831""#));
@@ -197,7 +202,41 @@ pub(super) async fn purchased_version_http_journey(
         "pinned purchase does not make the public reader reveal paid bytes"
     );
 
+    // F-05: finishing the still-owned pinned V1 after V2 release must
+    // create a C event and immediately make this book privately rankable.
+    // A mid-chapter progress PUT above did not create any C completion.
+    let final_offset = "C06-PRIVATE-PAID-MARKER".encode_utf16().count() as i32;
+    let final_save = purchase_request(final_offset, 2, 2);
+    eprintln!("C06 checkpoint: paid V1 completion");
+    let completed = send(
+        app,
+        json_request("PUT", SAVE, &final_save, &cookies_a, ORIGIN, &csrf_a),
+    )
+    .await;
+    assert_eq!(completed.status(), StatusCode::OK);
+    let completed_body = body_of(completed).await;
+    assert!(completed_body.contains(r#""revision":3"#));
+    assert!(!completed_body.contains(SECRET));
+    eprintln!("C06 checkpoint: read paid ranking");
+    let ranking = send(
+        app,
+        request("GET", "/api/v1/me/rankings", "", first_session, ORIGIN),
+    )
+    .await;
+    assert_eq!(ranking.status(), StatusCode::OK);
+    let ranked_json = body_of(ranking).await;
+    assert!(ranked_json.contains("Private test book"));
+    assert!(!ranked_json.contains(SECRET));
+    // A second device trying to submit the same end is stale, not a new rank.
+    let repeat = send(
+        app,
+        json_request("PUT", SAVE, &final_save, &cookies_b, ORIGIN, &csrf_b),
+    )
+    .await;
+    assert_eq!(repeat.status(), StatusCode::CONFLICT);
+
     // A refund revokes both reads and subsequent saves immediately.
+    eprintln!("C06 checkpoint: revoke purchase");
     test_sql(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
          VALUES (95840,'ci-c06-refund','refund')",

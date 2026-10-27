@@ -1,4 +1,4 @@
-//! F-05: consume only C-owned, durable ChapterCompletedV1 facts.
+//! F-05: consume only C-owned, durable free or D-checked pinned paid V1 facts.
 //! A GET, bookmark, unverified client flag or arbitrary outbox payload is
 //! never allowed to start a personal placement.
 use super::postgres::{load_snapshot, persist, PgRanking, RankingStoreError};
@@ -20,7 +20,21 @@ impl PgRanking {
              LEFT JOIN user_book_ranking_state AS active ON active.user_id=c.user_id
              WHERE e.event_type='ChapterCompletedV1' AND e.schema_version=1
                AND e.aggregate_kind='chapter' AND e.aggregate_id=c.chapter_id
-               AND e.payload->>'authority'='C-verified-free-position'
+               AND (
+                   (c.purchase_id IS NULL
+                       AND e.payload->>'authority'='C-verified-free-position'
+                       AND NOT (e.payload ? 'purchase_id'))
+                   OR (c.purchase_id IS NOT NULL
+                       AND e.payload->>'authority'='C-verified-purchased-position'
+                       AND e.payload->>'purchase_id'=c.purchase_id::text
+                       AND EXISTS (
+                           SELECT 1 FROM chapter_purchase_facts AS purchase
+                           WHERE purchase.id=c.purchase_id
+                             AND purchase.user_id=c.user_id
+                             AND purchase.chapter_id=c.chapter_id
+                             AND purchase.version_id=c.first_version_id
+                       ))
+               )
                AND e.payload->>'user_id'=c.user_id::text
                AND e.payload->>'book_id'=c.book_id::text
                AND e.payload->>'chapter_id'=c.chapter_id::text
@@ -64,7 +78,21 @@ impl PgRanking {
              WHERE e.id=$1::uuid AND e.event_type='ChapterCompletedV1'
                AND e.schema_version=1 AND e.aggregate_kind='chapter'
                AND e.aggregate_id=c.chapter_id
-               AND e.payload->>'authority'='C-verified-free-position'
+               AND (
+                   (c.purchase_id IS NULL
+                       AND e.payload->>'authority'='C-verified-free-position'
+                       AND NOT (e.payload ? 'purchase_id'))
+                   OR (c.purchase_id IS NOT NULL
+                       AND e.payload->>'authority'='C-verified-purchased-position'
+                       AND e.payload->>'purchase_id'=c.purchase_id::text
+                       AND EXISTS (
+                           SELECT 1 FROM chapter_purchase_facts AS purchase
+                           WHERE purchase.id=c.purchase_id
+                             AND purchase.user_id=c.user_id
+                             AND purchase.chapter_id=c.chapter_id
+                             AND purchase.version_id=c.first_version_id
+                       ))
+               )
                AND e.payload->>'user_id'=c.user_id::text
                AND e.payload->>'book_id'=c.book_id::text
                AND e.payload->>'chapter_id'=c.chapter_id::text
