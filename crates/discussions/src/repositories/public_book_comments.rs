@@ -23,6 +23,12 @@ pub struct PublicComment {
     pub body: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ListCommentsError {
+    Invalid,
+    Unavailable,
+}
+
 impl PgPublicBookComments {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -110,13 +116,10 @@ impl PgPublicBookComments {
             }
             Err(_) => CreateResult::Unavailable,
         };
-        match result {
-            CreateResult::Created(_) | CreateResult::Replayed(_) => {
-                if tx.commit().await.is_err() {
-                    return CreateResult::Unavailable;
-                }
-            }
-            _ => {}
+        if matches!(result, CreateResult::Created(_) | CreateResult::Replayed(_))
+            && tx.commit().await.is_err()
+        {
+            return CreateResult::Unavailable;
         }
         result
     }
@@ -127,9 +130,9 @@ impl PgPublicBookComments {
         book_id: i64,
         after_id: Option<i64>,
         limit: u16,
-    ) -> Result<Option<Vec<PublicComment>>, ()> {
+    ) -> Result<Option<Vec<PublicComment>>, ListCommentsError> {
         if book_id <= 0 || limit == 0 || limit > 100 || after_id.is_some_and(|n| n <= 0) {
-            return Err(());
+            return Err(ListCommentsError::Invalid);
         }
         let visible = sqlx::query_scalar::<_, i64>(
             "SELECT id FROM books WHERE id=$1
@@ -138,7 +141,7 @@ impl PgPublicBookComments {
         .bind(book_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| ())?;
+        .map_err(|_| ListCommentsError::Unavailable)?;
         if visible.is_none() {
             return Ok(None);
         }
@@ -157,7 +160,7 @@ impl PgPublicBookComments {
         .bind(i64::from(limit))
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| ())?;
+        .map_err(|_| ListCommentsError::Unavailable)?;
         Ok(Some(
             rows.into_iter()
                 .map(|(id, author_user_id, body)| PublicComment {
