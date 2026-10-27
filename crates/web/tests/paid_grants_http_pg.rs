@@ -193,7 +193,11 @@ async fn s065_alternate_reader_access_matrix(
         for session in [buyer, outsider] {
             let response = read_page(browser, &path, Some(session)).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
-            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "no-store",
+                "{path}"
+            );
             let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
             assert!(bytes.is_empty(), "paid read leaked on {path}");
         }
@@ -216,10 +220,16 @@ async fn s065_alternate_reader_access_matrix(
             let response = read_page(browser, &path, Some(session)).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
             let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
-            assert!(!bytes.windows(BODY.len()).any(|part| part == BODY.as_bytes()),
-                "paid plaintext in disabled compatibility route {path}");
-            assert!(!bytes.windows(15).any(|part| part == b"X-Amz-Signature"),
-                "signed S3 credential in disabled compatibility route {path}");
+            assert!(
+                !bytes
+                    .windows(BODY.len())
+                    .any(|part| part == BODY.as_bytes()),
+                "paid plaintext in disabled compatibility route {path}"
+            );
+            assert!(
+                !bytes.windows(15).any(|part| part == b"X-Amz-Signature"),
+                "signed S3 credential in disabled compatibility route {path}"
+            );
         }
     }
 
@@ -232,7 +242,9 @@ async fn s065_alternate_reader_access_matrix(
     assert_eq!(owned.status(), StatusCode::OK);
     assert_eq!(owned.headers()[header::CACHE_CONTROL], "no-store");
     let bytes = to_bytes(owned.into_body(), 8192).await.unwrap();
-    assert!(!bytes.windows(BODY.len()).any(|part| part == BODY.as_bytes()));
+    assert!(!bytes
+        .windows(BODY.len())
+        .any(|part| part == BODY.as_bytes()));
 
     for path in [
         owned_query,
@@ -249,7 +261,8 @@ async fn s065_alternate_reader_access_matrix(
         browser,
         &format!("/api/v1/me/progress/free?chapter_id={chapter}"),
         Some(buyer),
-    ).await;
+    )
+    .await;
     assert_eq!(free.status(), StatusCode::NOT_FOUND);
     assert_eq!(free.headers()[header::CACHE_CONTROL], "no-store");
     assert!(to_bytes(free.into_body(), 8192).await.unwrap().is_empty());
@@ -505,8 +518,11 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &author_csrf,
     )
     .await;
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 0,
-        "alternate reader or progress routes must not sign G objects");
+    assert_eq!(
+        fake.signed.load(Ordering::SeqCst),
+        0,
+        "alternate reader or progress routes must not sign G objects"
+    );
     for invalid in [
         r#"{"version_id":"2"}"#,
         r#"{"bucket":"public"}"#,
