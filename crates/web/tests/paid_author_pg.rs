@@ -2,6 +2,7 @@
 //! chapter, without a public paid plaintext route or a second release step.
 #![cfg(feature = "s3-paid")]
 
+use async_trait::async_trait;
 use aws_sdk_s3::{
     config::{retry::RetryConfig, BehaviorVersion, Credentials, Region},
     Client,
@@ -16,12 +17,17 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
-use tor_books::repositories::{paid_storage::PgPaidStorage, PgCatalog};
+use tor_books::{
+    repositories::{paid_storage::PgPaidStorage, PgCatalog},
+    services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
+};
 use tor_contracts::paid_delivery::{
-    ChapterVersionPort, ChapterVersionRef, PositiveId, PrivateObjectDeliveryPort,
+    ChapterVersionPort, ChapterVersionRef, ObjectRef, PositiveId, PrivateObjectDeliveryPort,
+    SecretValue,
 };
 use tor_reading::repositories::PgReader;
 use tor_storage::{
+    domain::provider::StorageError,
     repositories::{paid_delivery::PgPrivateDelivery, s3::S3PrivateStore},
     services::{
         crypto::{ContentKek, ContentKeyring},
@@ -34,6 +40,30 @@ use tower::ServiceExt;
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const BUCKET: &str = "tor-private-author-creation-ci";
+
+/// CI failure injection: no private S3 upload is possible; B must remain
+/// hidden and a replay with the original command key must recover safely.
+struct UnavailableStore;
+
+#[async_trait]
+impl PrivateObjectStore for UnavailableStore {
+    async fn put_immutable(&self, _object: &ObjectRef, _bytes: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unavailable)
+    }
+    async fn head_verified(&self, _object: &ObjectRef) -> Result<bool, StorageError> {
+        Err(StorageError::Unavailable)
+    }
+    async fn get_verified(&self, _object: &ObjectRef) -> Result<Vec<u8>, StorageError> {
+        Err(StorageError::Unavailable)
+    }
+    async fn presign_verified(
+        &self,
+        _object: &ObjectRef,
+        _ttl: Duration,
+    ) -> Result<SecretValue, StorageError> {
+        Err(StorageError::Unavailable)
+    }
+}
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
@@ -221,7 +251,7 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     assert!(!page.contains("<option value=\"paid\">"));
 
     let author =
-        PgPaidAuthorPublisher::new(catalog.clone(), store.clone(), ring, BUCKET.to_owned())
+        PgPaidAuthorPublisher::new(catalog.clone(), store.clone(), ring.clone(), BUCKET.to_owned())
             .unwrap();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
         catalog,
@@ -317,5 +347,74 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         .grant_verified_object(&encrypted, Duration::from_secs(90))
         .await
         .is_ok());
+    // Simulate a failed private upload. An owner-visible draft is durable,
+    // but readers see no published pointer until a replay verifies real S3.
+    let outage_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:paid-author-outage','ru','Private outage','public',{owner}) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let outage_key = generate_session_token();
+    let draft = save_chapter(SaveChapterRequest {
+        book_id: outage_book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Retry",
+        body: "Text must never leak after a failed upload",
+        access: "paid",
+        price_amount: 100,
+        command_key: &outage_key,
+    })
+    .unwrap();
+    let failed = PgPaidAuthorPublisher::new(
+        PgCatalog::new(pool.clone()),
+        UnavailableStore,
+        ring.clone(),
+        BUCKET.to_owned(),
+    )
+    .unwrap();
+    assert_eq!(failed.publish(owner, &draft).await, Err(AuthorError::Unavailable));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapters c JOIN chapter_publications p
+                 ON p.chapter_id=c.id WHERE c.book_id={outage_book}"
+            ),
+        ),
+        "0"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility FROM chapters WHERE book_id={outage_book}"),
+        ),
+        "draft"
+    );
+    let recovered = PgPaidAuthorPublisher::new(
+        PgCatalog::new(pool.clone()),
+        store.clone(),
+        ring,
+        BUCKET.to_owned(),
+    )
+    .unwrap();
+    recovered.publish(owner, &draft).await.unwrap();
+    recovered.publish(owner, &draft).await.unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapters c JOIN chapter_publications p
+                 ON p.chapter_id=c.id WHERE c.book_id={outage_book}"
+            ),
+        ),
+        "1",
+        "recovery must publish once, even when the response is retried"
+    );
     pool.close().await;
 }
