@@ -78,6 +78,15 @@ To stage a candidate, run [tor VPS staged release](https://github.com/calex794/t
 
 For `install=true`, supply `confirm_sha` equal to the **full 40-character `main` SHA of this workflow run**. The validation fails before checkout/build/SSH if the value differs, is truncated, or if a stage-only run supplied a confirmation. The existing root-verified SQLx schema and PG activation markers, healthy previous service, current-main recheck, rollback verification and HTTPS checks still apply. A missing migration marker prevents activation, even with correct confirmation.
 
+The root-only go-live now also compares its pinned SHA with GitHub's exact
+`refs/heads/main` **before migrating anything** and again before changing
+the systemd service. This requires `python3` and access to
+`https://api.github.com` on the VPS; verification fails closed if they are
+missing or GitHub main has changed. If main changes *after* SQLx ran, the
+old binary stays active but the added migrations persist: do not mistake
+a refused switch for a database rollback. A fresh staging run is required
+for the new main SHA.
+
 The operator's version-pinned `go-live-postgres-vps.sh` remains the only procedure for applying new migrations. To advance an existing PostgreSQL schema, first perform backup and root-only migration/proof, then manually dispatch installation against the exact approved `main` SHA. Do not use `TOR_AUTO_DEPLOY=true`; it is ignored by the current workflow.
 
 **Next engineering task:** integrate the migration upgrade process
