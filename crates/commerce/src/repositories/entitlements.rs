@@ -35,6 +35,63 @@ impl PgDirectEntitlements {
         Self { pool }
     }
 
+    /// Resolve only display metadata for a confirmed, still-readable
+    /// purchase. No historical or public visibility bypass, body, or S3 key.
+    /// The caller must also check D entitlement before rendering the page.
+    pub async fn readable_purchase_detail(
+        &self,
+        actor: PositiveId,
+        chapter_id: PositiveId,
+        purchase_id: PositiveId,
+    ) -> Result<Option<ReadablePurchase>, DeliveryError> {
+        let row = sqlx::query(
+            "SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+                    v.version_no, c.chapter_no,
+                    b.title AS book_title, c.title AS chapter_title
+             FROM library_purchased_chapters l
+             JOIN chapter_purchase_facts p
+               ON p.id=l.purchase_id AND p.user_id=l.user_id
+              AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+             JOIN chapters c ON c.id=p.chapter_id
+             JOIN books b ON b.id=c.book_id
+             JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=p.version_id
+             WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
+               AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)",
+        )
+        .bind(actor.get())
+        .bind(chapter_id.get())
+        .bind(purchase_id.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        row.map(|row| {
+            Ok(ReadablePurchase {
+                purchase_id: row
+                    .try_get("purchase_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_id: row
+                    .try_get("chapter_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                version_id: row
+                    .try_get("version_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                version_no: row
+                    .try_get("version_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_no: row
+                    .try_get("chapter_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                book_title: row
+                    .try_get("book_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_title: row
+                    .try_get("chapter_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+            })
+        })
+        .transpose()
+    }
+
     /// D-owned list for the authenticated reader. A purchase ID is only a
     /// navigation cursor, never an entitlement, and is never client-scoped.
     /// The same canonical SQL policy guards both this list and paid grants.
