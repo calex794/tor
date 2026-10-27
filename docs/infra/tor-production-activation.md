@@ -89,16 +89,19 @@ SHA and signature are verified independently by the root-owned helper.
   disaster recovery use the pinned root procedures below, after verifying
   the backup and the actual VPS state.
 
-## Verified current VPS state
+## Последняя подтверждённая работающая версия TOR
 
-- PostgreSQL 18.6 running, 127.0.0.1:5432 only; 1 vCPU / 961 MiB RAM.
-- DB tor owned by tor_migrator; tor_app / tor_migrator have connection
-  limits 6 / 3 and neither is a superuser, createdb or createrole.
-- /etc/tor/tor-app.env and tor-migrator.env are 0600 root:root.
-- Last owner verification: **0 public domain tables**, still RAM demo
-  in systemd; ~562 MiB MemAvailable. The server is not yet PG-backed.
-- In GitHub TOR: nine canonical SQLx migrations, tor-migrate binary,
-  PgCatalog, PgReader, PgAccounts, and the real PostgreSQL 18 CI suite.
+Оператор проверил на выделенном VPS 28 октября 2026 года:
+
+- /opt/tor/current → `8cba88cf471c20df669f953557ff5d0c1630f74b`.
+- Корневой маркер SQLx → `202610260007`.
+- `systemctl is-active tor-web.service` → `active`.
+- `http://127.0.0.1:3000/readyz` → `ok`.
+
+Это **последняя подтверждённая версия сервера**, не утверждение о текущем
+GitHub main. На VPS ещё не проверялась первая выкладка через новую кнопку.
+Разделы старого ручного перехода ниже — исторические инструкции 26–27
+октября, не обычный путь обновления.
 
 ## One-time switch to production
 
