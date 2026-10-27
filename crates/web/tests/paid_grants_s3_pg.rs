@@ -680,6 +680,39 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         0,
         "B must not enumerate the author's hidden public chapter metadata"
     );
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM library_purchased_chapters
+                 WHERE user_id={buyer} AND chapter_id={free_chapter}"
+            ),
+        ),
+        0,
+        "public free chapter must not accidentally become a paid entitlement"
+    );
+    let scoped_toc = tor_commerce::repositories::entitlements::PgDirectEntitlements::new(
+        pool.clone(),
+    )
+    .mixed_book_toc(
+        PositiveId::new(buyer).unwrap(),
+        PositiveId::new(chapter).unwrap(),
+        PositiveId::new(purchase_id).unwrap(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        scoped_toc.chapters.iter().all(|row| matches!(
+            row.access,
+            tor_commerce::repositories::entitlements::MixedTocAccess::Purchased { .. }
+        )),
+        "hidden public metadata leaked from SQL query: {:?}",
+        scoped_toc
+            .chapters
+            .iter()
+            .map(|row| (row.chapter_id, &row.access))
+            .collect::<Vec<_>>()
+    );
     let preserved = post_grant(
         &app,
         chapter,
