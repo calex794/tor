@@ -9,7 +9,7 @@ use crate::{
         provider::{valid_ciphertext_size, valid_private_bucket},
     },
     services::{
-        crypto::{chapter_aad, unwrap_registered_dek, ContentKek},
+        crypto::{chapter_aad, unwrap_registered_dek_from_keyring, ContentKek, ContentKeyring},
         provider::PrivateObjectStore,
     },
 };
@@ -26,7 +26,7 @@ use tor_contracts::paid_delivery::{
 pub struct PgPrivateDelivery<S> {
     pool: PgPool,
     store: S,
-    kek: Arc<ContentKek>,
+    keyring: Arc<ContentKeyring>,
     private_bucket: String,
 }
 
@@ -39,13 +39,29 @@ impl<S: PrivateObjectStore> PgPrivateDelivery<S> {
         kek: Arc<ContentKek>,
         private_bucket: String,
     ) -> Result<Self, DeliveryError> {
+        Self::with_keyring(
+            pool,
+            store,
+            Arc::new(ContentKeyring::v1_only(kek)),
+            private_bucket,
+        )
+    }
+
+    /// G reads the trusted row's KEK identifier; a missing historical key
+    /// denies the grant before any signed S3 URL is issued.
+    pub fn with_keyring(
+        pool: PgPool,
+        store: S,
+        keyring: Arc<ContentKeyring>,
+        private_bucket: String,
+    ) -> Result<Self, DeliveryError> {
         if !valid_private_bucket(&private_bucket) {
             return Err(DeliveryError::Invalid);
         }
         Ok(Self {
             pool,
             store,
-            kek,
+            keyring,
             private_bucket,
         })
     }
@@ -92,7 +108,7 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             || encrypted.codec != ContentCodec::Gzip
             || !valid_ciphertext_size(&encrypted.object)
             || encrypted.aad.is_empty()
-            || encrypted.wrapped_key_id != "content-kek-v1"
+            || !matches!(encrypted.wrapped_key_id.as_str(), "content-kek-v1" | "content-kek-v2")
         {
             return Err(DeliveryError::Invalid);
         }
@@ -150,12 +166,12 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             .try_into()
             .map_err(|_| DeliveryError::Unavailable)?;
 
-        let scoped_dek = unwrap_registered_dek(
+        let scoped_dek = unwrap_registered_dek_from_keyring(
             &encrypted.object.object_id,
             &wrapped,
             &wrap_nonce,
             &encrypted.wrapped_key_id,
-            &self.kek,
+            &self.keyring,
         )
         .map_err(|_| DeliveryError::Unavailable)?;
 
