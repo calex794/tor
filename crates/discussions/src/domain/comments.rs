@@ -192,7 +192,10 @@ impl Comment {
         if author_user_id <= 0 {
             return Err(CommentError::InvalidId);
         }
-        if anchor.as_ref().is_some_and(|anchor| !anchor.matches_target(target)) {
+        if anchor
+            .as_ref()
+            .is_some_and(|anchor| !anchor.matches_target(target))
+        {
             return Err(CommentError::InvalidAnchor);
         }
         Ok(Self {
@@ -246,7 +249,11 @@ pub struct UserRelation {
 }
 
 impl UserRelation {
-    pub fn new(actor_user_id: i64, subject_user_id: i64, kind: RelationKind) -> Result<Self, CommentError> {
+    pub fn new(
+        actor_user_id: i64,
+        subject_user_id: i64,
+        kind: RelationKind,
+    ) -> Result<Self, CommentError> {
         if actor_user_id <= 0 || subject_user_id <= 0 || actor_user_id == subject_user_id {
             return Err(CommentError::InvalidRelation);
         }
