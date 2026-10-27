@@ -261,30 +261,42 @@ async fn f_05_pg_visible_ranked_list_excludes_blocked_books_and_unrelated_users(
     let (repo, pool, uid, ids) = fixture("ranked-list").await;
     let before = seeded(&repo, uid, &ids).await;
     let question = before.next_question().unwrap().unwrap();
-    let placed = repo.apply(
-        uid,
-        before.revision,
-        RankingCommand::Answer {
-            expected_state_version: question.state_version,
-            comparison_id: question.comparison_id,
-            outcome: Outcome::Tie,
-        },
-    ).await.unwrap();
+    let placed = repo
+        .apply(
+            uid,
+            before.revision,
+            RankingCommand::Answer {
+                expected_state_version: question.state_version,
+                comparison_id: question.comparison_id,
+                outcome: Outcome::Tie,
+            },
+        )
+        .await
+        .unwrap();
     assert_eq!(placed.status, Some(AnswerStatus::Ranked));
     let ranked = repo.visible_ranks(uid).await.unwrap();
     assert_eq!(ranked.len(), 2);
     assert_eq!(ranked[0].tier, ranked[1].tier);
     assert_eq!(
-        ranked.iter().map(|row| row.book_id).collect::<std::collections::BTreeSet<_>>(),
+        ranked
+            .iter()
+            .map(|row| row.book_id)
+            .collect::<std::collections::BTreeSet<_>>(),
         [ids[0], ids[1]].into_iter().collect()
     );
     assert!(ranked.iter().all(|row| row.title.starts_with("Книга ")));
 
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
-        .bind(ids[0]).execute(&pool).await.unwrap();
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
     let after_hold = repo.visible_ranks(uid).await.unwrap();
     assert_eq!(after_hold.len(), 1);
     assert_eq!(after_hold[0].book_id, ids[1]);
-    assert_eq!(repo.visible_ranks(0).await.unwrap_err(), RankingStoreError::Invalid);
+    assert_eq!(
+        repo.visible_ranks(0).await.unwrap_err(),
+        RankingStoreError::Invalid
+    );
     assert!(repo.visible_ranks(i64::MAX).await.unwrap().is_empty());
 }

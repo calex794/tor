@@ -97,7 +97,11 @@ fn csrf_header(headers: &HeaderMap) -> Option<&str> {
 
 async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode> {
     let snapshot = state.rankings.snapshot(user_id).await.map_err(status)?;
-    let visible = state.rankings.visible_ranks(user_id).await.map_err(status)?;
+    let visible = state
+        .rankings
+        .visible_ranks(user_id)
+        .await
+        .map_err(status)?;
     // Visible tiers are ranked, not chronological. A tied pair shares a place.
     let mut place = 0;
     let mut previous_tier = None;
@@ -108,7 +112,9 @@ async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode
             previous_tier = Some(rank.tier);
         }
         let tied = index > 0 && visible[index - 1].tier == rank.tier
-            || visible.get(index + 1).is_some_and(|next| next.tier == rank.tier);
+            || visible
+                .get(index + 1)
+                .is_some_and(|next| next.tier == rank.tier);
         ranked_books.push(RankedBookView {
             book_id: rank.book_id.to_string(),
             title: rank.title.clone(),

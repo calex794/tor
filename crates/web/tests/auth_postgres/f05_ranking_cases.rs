@@ -140,12 +140,10 @@ async fn f_05_http_private_csrf_and_duplicate_fencing() {
     assert_eq!(value["state"], "ranked");
     let list = value["ranked_books"].as_array().unwrap();
     assert_eq!(list.len(), 2);
-    assert!(list.iter().all(|row| row["place"] == 1 && row["tied"] == true));
-    let page = send(
-        &app,
-        request("GET", "/me/rankings", "", &cookies, ORIGIN),
-    )
-    .await;
+    assert!(list
+        .iter()
+        .all(|row| row["place"] == 1 && row["tied"] == true));
+    let page = send(&app, request("GET", "/me/rankings", "", &cookies, ORIGIN)).await;
     let html = body_of(page).await;
     assert!(html.contains("Мои книги") && html.contains("Равнозначны"));
     assert!(!html.contains("Пока нет книг для сравнения"));

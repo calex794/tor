@@ -95,10 +95,7 @@ impl PgRanking {
 
     /// Private and currently public ranks only. One bounded SQL request
     /// instead of one query per book.
-    pub async fn visible_ranks(
-        &self,
-        user_id: i64,
-    ) -> Result<Vec<VisibleRank>, RankingStoreError> {
+    pub async fn visible_ranks(&self, user_id: i64) -> Result<Vec<VisibleRank>, RankingStoreError> {
         if user_id <= 0 {
             return Err(RankingStoreError::Invalid);
         }
