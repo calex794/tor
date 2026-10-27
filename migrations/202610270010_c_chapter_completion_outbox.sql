@@ -40,7 +40,7 @@ CREATE TABLE reader_chapter_completions (
     source_event_id UUID NOT NULL UNIQUE,
     PRIMARY KEY (user_id,book_id,chapter_id),
     FOREIGN KEY (chapter_id,first_version_id)
-        REFERENCES chapter_versions(chapter_id,id) ON DELETE RESTRICT
+        REFERENCES chapter_versions(chapter_id,id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX reader_chapter_completions_book
     ON reader_chapter_completions(user_id,book_id,completed_at DESC);
