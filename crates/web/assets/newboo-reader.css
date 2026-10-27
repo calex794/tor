@@ -214,25 +214,42 @@
 }
 
 
-/* H/S034: paid reader uses the existing NEwBOO header and reading surfaces. */
+/* H/S065: pinned paid-reader chrome follows NEwBOO's original reader
+   topbar. No nonfunctional settings, TOC or next-version links. */
+.reader-paid {
+  padding-block: 0 56px;
+}
 .reader-paid .reader-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
   position: sticky;
   top: 0;
   z-index: 80;
-  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 14px;
   margin: 0 0 24px;
   border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  border-radius: var(--radius-md);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--text-main) 6%, transparent);
+  backdrop-filter: blur(14px);
 }
 .reader-paid .reader-topbar__title {
   min-width: 0;
-  flex: 1;
   overflow: hidden;
+}
+.reader-paid .reader-topbar__book,
+.reader-paid .reader-topbar__chapter {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-paid .reader-page__title {
+  overflow-wrap: anywhere;
 }
 .reader-paid .reader-page__header {
   text-align: center;
@@ -283,11 +300,17 @@
 }
 @media (max-width: 640px) {
   .reader-paid .reader-topbar {
-    flex-wrap: wrap;
-    gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
   }
   .reader-paid .reader-topbar__back {
     min-width: 0;
+    padding-inline: 10px;
+  }
+  .reader-paid .reader-topbar__title {
+    justify-items: start;
+    text-align: left;
   }
   .reader-paid .reader-paid__content {
     padding: 15px 12px;

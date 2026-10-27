@@ -3,29 +3,33 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_commerce::repositories::entitlements::ReadablePurchasesPage;
+use tor_commerce::repositories::entitlements::{ReadablePurchase, ReadablePurchasesPage};
 
 pub fn paid_reader_shell(
-    chapter_id: &str,
-    purchase_id: &str,
+    edition: &ReadablePurchase,
     csrf: &str,
     private_s3_origin: &str,
 ) -> Html<String> {
+    // D already authorized the pinned edition. Never render paid Markdown,
+    // scoped S3 links, DEKs or a client-supplied title in this HTML shell.
+    let book = escape_html(&edition.book_title);
+    let chapter = escape_html(&edition.chapter_title);
+    let chapter_label = format!("Глава {}. {chapter}", edition.chapter_no);
     let body = format!(
         r#"<section class="section reader-page reader-private reader-paid" data-paid-chapter-reader
-             data-chapter-id="{}" data-purchase-id="{}" data-csrf-token="{}"
-             data-s3-origin="{}" aria-labelledby="reader-title">
+             data-chapter-id="{chapter_id}" data-purchase-id="{purchase_id}" data-csrf-token="{csrf}"
+             data-s3-origin="{s3_origin}" aria-labelledby="reader-title">
            <div class="container reader-width">
              <header class="reader-topbar" aria-label="Панель чтения">
                <a class="reader-topbar__back" href="/me/purchases"><span aria-hidden="true">←</span> К купленным главам</a>
                <div class="reader-topbar__title">
-                 <span class="reader-topbar__book">Оплаченная книга</span>
-                 <span class="reader-topbar__chapter">Глава {}</span>
+                 <span class="reader-topbar__book" title="{book}">{book}</span>
+                 <span class="reader-topbar__chapter" title="{chapter_label}">{chapter_label}</span>
                </div>
              </header>
              <div class="reader-page__header">
-               <p class="reader-page__meta">Приватная купленная редакция</p>
-               <h1 id="reader-title" class="reader-page__title">Глава {}</h1>
+               <p class="reader-page__meta">Купленная редакция {version_no}</p>
+               <h1 id="reader-title" class="reader-page__title">{chapter_label}</h1>
                <p class="reader-page__subtitle" data-paid-status role="status">
                  Подготавливаем зашифрованную главу…
                </p>
@@ -37,16 +41,17 @@ pub fn paid_reader_shell(
            </div>
            <script type="module" src="/assets/newboo-paid-reader.mjs"></script>
          </section>"#,
-        escape_html(chapter_id),
-        escape_html(purchase_id),
-        escape_html(csrf),
-        escape_html(private_s3_origin),
-        escape_html(chapter_id),
-        escape_html(chapter_id),
+        chapter_id = edition.chapter_id,
+        purchase_id = edition.purchase_id,
+        csrf = escape_html(csrf),
+        s3_origin = escape_html(private_s3_origin),
+        book = book,
+        chapter_label = chapter_label,
+        version_no = edition.version_no,
     );
     layout(
-        "Купленная глава",
-        "Чтение оплаченной редакции после проверки доступа.",
+        &format!("{} — {}", edition.chapter_title, edition.book_title),
+        "Чтение закреплённой купленной редакции после проверки доступа.",
         &body,
     )
 }
@@ -115,9 +120,17 @@ mod tests {
 
     #[test]
     fn h_paid_shell_contains_no_grant_or_plaintext_but_a_real_reader() {
+        let edition = ReadablePurchase {
+            purchase_id: 31,
+            chapter_id: 23,
+            version_id: 40,
+            version_no: 1,
+            chapter_no: 2,
+            book_title: "Книга <script>опасно</script>".to_owned(),
+            chapter_title: "Вторая \"глава\"".to_owned(),
+        };
         let body = paid_reader_shell(
-            "23",
-            "31",
+            &edition,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "https://private.storage.example",
         )
@@ -126,6 +139,12 @@ mod tests {
         assert!(body.contains("data-paid-chapter-reader"));
         assert!(body.contains("newboo-paid-reader.mjs"));
         assert!(body.contains("data-purchase-id=\"31\""));
+        assert!(body.contains("data-chapter-id=\"23\""));
+        assert!(body.contains("Купленная редакция 1"));
+        assert!(body.contains("Глава 2. Вторая &quot;глава&quot;"));
+        assert!(body.contains("Книга &lt;script&gt;опасно&lt;/script&gt;"));
+        assert!(!body.contains("<script>опасно</script>"));
+        assert!(!body.contains("Оплаченная книга"));
         assert!(!body.contains("dek_b64u"));
         assert!(!body.contains("ciphertext_url"));
     }

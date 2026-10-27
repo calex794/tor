@@ -251,12 +251,12 @@ async fn paid_reader(
     ) else {
         return deny(StatusCode::NOT_FOUND);
     };
-    match state
+    let pinned = match state
         .entitlement
         .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, Some(purchase_id))
         .await
     {
-        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
+        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => pinned,
         Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
         Ok(EntitlementDecision::Denied { reason }) => {
             return deny(status(match reason {
@@ -266,10 +266,22 @@ async fn paid_reader(
             }));
         }
         Err(error) => return deny(status(error)),
-    }
+    };
+    // Metadata is also scoped by D's canonical SQL policy. A concurrent
+    // refund/hold between checks must not expose stale paid-page details.
+    let details = match state
+        .entitlement
+        .readable_purchase_detail(actor_id, chapter_id, purchase_id)
+        .await
+    {
+        Ok(Some(details)) if details.version_id == pinned.version_id.get() => details,
+        Ok(Some(_)) => return deny(StatusCode::CONFLICT),
+        Ok(None) => return deny(StatusCode::FORBIDDEN),
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        pages::paid_reader_shell(&chapter_id.wire(), &purchase_id.wire(), &csrf, s3_origin),
+        pages::paid_reader_shell(&details, &csrf, s3_origin),
         &cookies,
     );
     let csp = format!(
