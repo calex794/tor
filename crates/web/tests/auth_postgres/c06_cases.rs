@@ -197,6 +197,37 @@ pub(super) async fn purchased_version_http_journey(
         "pinned purchase does not make the public reader reveal paid bytes"
     );
 
+    // F-05: finishing the still-owned pinned V1 after V2 release must
+    // create a C event and immediately make this book privately rankable.
+    // A mid-chapter progress PUT above did not create any C completion.
+    let final_offset = "C06-PRIVATE-PAID-MARKER".encode_utf16().count() as i32;
+    let final_save = purchase_request(final_offset, 2, 2);
+    let completed = send(
+        app,
+        json_request("PUT", SAVE, &final_save, &cookies_a, ORIGIN, &csrf_a),
+    )
+    .await;
+    assert_eq!(completed.status(), StatusCode::OK);
+    let completed_body = body_of(completed).await;
+    assert!(completed_body.contains(r#""revision":3"#));
+    assert!(!completed_body.contains(SECRET));
+    let ranking = send(
+        app,
+        request("GET", "/api/v1/me/rankings", "", first_session, ORIGIN),
+    )
+    .await;
+    assert_eq!(ranking.status(), StatusCode::OK);
+    let ranked_json = body_of(ranking).await;
+    assert!(ranked_json.contains("Private test book"));
+    assert!(!ranked_json.contains(SECRET));
+    // A second device trying to submit the same end is stale, not a new rank.
+    let repeat = send(
+        app,
+        json_request("PUT", SAVE, &final_save, &cookies_b, ORIGIN, &csrf_b),
+    )
+    .await;
+    assert_eq!(repeat.status(), StatusCode::CONFLICT);
+
     // A refund revokes both reads and subsequent saves immediately.
     test_sql(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
