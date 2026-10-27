@@ -20,8 +20,16 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
     let result = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .expect("PostgreSQL client is required for isolated PG fixture");
@@ -113,30 +121,50 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         "number=2&title=New+chapter&body=Immediate%20free%20text&access=free&price_amount=0&command_key={command}&csrf_token={csrf}"
     );
     assert_eq!(
-        send(&app, "POST", &path, &body, None, &csrf, ORIGIN).await.0,
+        send(&app, "POST", &path, &body, None, &csrf, ORIGIN)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        send(&app, "POST", &path, &body, Some(&token), &csrf, "https://evil.example").await.0,
+        send(
+            &app,
+            "POST",
+            &path,
+            &body,
+            Some(&token),
+            &csrf,
+            "https://evil.example"
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
     let malformed = body.replace(&format!("csrf_token={csrf}"), "csrf_token=wrong");
     assert_eq!(
-        send(&app, "POST", &path, &malformed, Some(&token), &csrf, ORIGIN).await.0,
+        send(&app, "POST", &path, &malformed, Some(&token), &csrf, ORIGIN)
+            .await
+            .0,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(&app, "POST", &path, &body, Some(&token), &csrf, ORIGIN).await.0,
+        send(&app, "POST", &path, &body, Some(&token), &csrf, ORIGIN)
+            .await
+            .0,
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        send(&app, "POST", &path, &body, Some(&token), &csrf, ORIGIN).await.0,
+        send(&app, "POST", &path, &body, Some(&token), &csrf, ORIGIN)
+            .await
+            .0,
         StatusCode::SEE_OTHER,
         "same Save can safely replay"
     );
     let altered = body.replace("Immediate%20free%20text", "Changed%20text");
     assert_eq!(
-        send(&app, "POST", &path, &altered, Some(&token), &csrf, ORIGIN).await.0,
+        send(&app, "POST", &path, &altered, Some(&token), &csrf, ORIGIN)
+            .await
+            .0,
         StatusCode::CONFLICT
     );
     let row = pg(
