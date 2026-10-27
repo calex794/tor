@@ -251,6 +251,18 @@ pub trait ChapterVersionPort: Send + Sync {
     ) -> Result<Option<EncryptedObjectRef>, DeliveryError>;
 }
 
+/// B alone resolves an image UUID from an immutable purchased edition.
+/// This is an association check, never a reader entitlement; C MUST call D
+/// before and after signing and may not choose a version from the client.
+#[async_trait]
+pub trait ChapterAssetPort: Send + Sync {
+    async fn encrypted_asset(
+        &self,
+        pinned: ChapterVersionRef,
+        object_id: &ObjectId,
+    ) -> Result<Option<EncryptedObjectRef>, DeliveryError>;
+}
+
 /// G checks attached private object state before signing; never accepts an
 /// arbitrary browser-provided object key, host, bucket or version.
 #[async_trait]
