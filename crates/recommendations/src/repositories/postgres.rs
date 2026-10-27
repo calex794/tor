@@ -64,7 +64,7 @@ impl From<sqlx::Error> for RankingStoreError {
 }
 
 #[derive(Clone, Debug)]
-struct AnswerEvidence {
+pub(super) struct AnswerEvidence {
     epoch: i64,
     version: i64,
     comparison_id: String,
