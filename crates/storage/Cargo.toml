@@ -15,10 +15,12 @@ sha2 = "0.10"
 zeroize = "1"
 tokio = { workspace = true, features = ["io-util"] }
 aws-sdk-s3 = { version = "1", optional = true }
+sqlx = { workspace = true, optional = true }
 
 [features]
 default = []
 s3 = ["dep:aws-sdk-s3"]
+pg = ["dep:sqlx"]
 
 [dev-dependencies]
 tokio.workspace = true
