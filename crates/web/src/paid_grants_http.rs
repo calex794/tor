@@ -1,7 +1,10 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
-use crate::{auth_cookies::{private_response, CookiePolicy}, pages};
+use crate::{
+    auth_cookies::{private_response, CookiePolicy},
+    pages,
+};
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
@@ -88,13 +91,13 @@ pub(crate) fn valid_reader_s3_origin(origin: &str) -> bool {
     };
     let host = uri.host().unwrap_or("");
     let secure = uri.scheme_str() == Some("https");
-    let local_http = uri.scheme_str() == Some("http")
-        && (host == "127.0.0.1" || host == "localhost");
+    let local_http =
+        uri.scheme_str() == Some("http") && (host == "127.0.0.1" || host == "localhost");
     (secure || local_http)
         && !host.is_empty()
-        && host.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-'
-        })
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
         && !authority.as_str().contains('@')
         && uri.path_and_query().is_none_or(|path| path.as_str() == "/")
 }
@@ -244,15 +247,10 @@ async fn paid_reader(
     };
     match state
         .entitlement
-        .resolve_entitlement(
-            Actor { user_id: actor_id },
-            chapter_id,
-            Some(purchase_id),
-        )
+        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, Some(purchase_id))
         .await
     {
-        Ok(EntitlementDecision::Allowed { pinned })
-            if pinned.chapter_id == chapter_id => {}
+        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
         Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
         Ok(EntitlementDecision::Denied { reason }) => {
             return deny(status(match reason {
@@ -265,12 +263,7 @@ async fn paid_reader(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        pages::paid_reader_shell(
-            &chapter_id.wire(),
-            &purchase_id.wire(),
-            &csrf,
-            s3_origin,
-        ),
+        pages::paid_reader_shell(&chapter_id.wire(), &purchase_id.wire(), &csrf, s3_origin),
         &cookies,
     );
     let csp = format!(
@@ -363,9 +356,13 @@ mod tests {
             assert!(valid_reader_s3_origin(accepted), "{accepted}");
         }
         for denied in [
-            "", "http://external.example", "https://host.example/path",
-            "https://host.example/", "https://user@host.example",
-            "https://host.example/?q=1", "javascript:alert(1)",
+            "",
+            "http://external.example",
+            "https://host.example/path",
+            "https://host.example/",
+            "https://user@host.example",
+            "https://host.example/?q=1",
+            "javascript:alert(1)",
         ] {
             assert!(!valid_reader_s3_origin(denied), "{denied}");
         }

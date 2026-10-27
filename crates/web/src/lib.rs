@@ -35,6 +35,11 @@ mod operator_overview;
 mod operator_traces;
 mod pages;
 mod paid_grants_http;
+mod paid_reader_router;
+pub use paid_reader_router::{
+    router_with_postgres_reading_auth_paid_grants,
+    router_with_postgres_reading_auth_paid_grants_browser,
+};
 mod password_jobs;
 pub mod ranking_consumer;
 mod ril;
@@ -366,115 +371,6 @@ pub fn router_with_postgres_reading_auth(
     )
 }
 
-/// S034 opt-in: the grant API remains independent from the browser reader.
-/// Other demo/PG constructors remain default-off.
-pub fn router_with_postgres_reading_auth_paid_grants(
-    catalog: PgCatalog,
-    reader: PgReader,
-    accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
-    paid_storage: Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
-    cover: Option<(
-        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
-        bool,
-    )>,
-) -> Router {
-    paid_grants_router(
-        catalog,
-        reader,
-        accounts,
-        secure,
-        public_origin,
-        (paid_storage, None),
-        cover,
-    )
-    .expect("API-only grant constructor has no browser S3 origin")
-}
-
-/// Enable the actual H reader only with an explicitly validated S3 origin.
-/// It shares the same rights and signed-grant route as the API-only variant.
-pub fn router_with_postgres_reading_auth_paid_grants_browser(
-    catalog: PgCatalog,
-    reader: PgReader,
-    accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
-    paid: (
-        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
-        String,
-    ),
-    cover: Option<(
-        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
-        bool,
-    )>,
-) -> Result<Router, &'static str> {
-    paid_grants_router(
-        catalog,
-        reader,
-        accounts,
-        secure,
-        public_origin,
-        (paid.0, Some(paid.1)),
-        cover,
-    )
-}
-
-fn paid_grants_router(
-    catalog: PgCatalog,
-    reader: PgReader,
-    accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
-    paid: (
-        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
-        Option<String>,
-    ),
-    cover: Option<(
-        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
-        bool,
-    )>,
-) -> Result<Router, &'static str> {
-    let (cover_storage, enable_cover_uploads) = match cover {
-        Some((store, enabled)) => (Some(store), enabled),
-        None => (None, false),
-    };
-    let auth_reader = reader.clone();
-    let cookies = auth_cookies::CookiePolicy {
-        secure,
-        origin: public_origin.clone(),
-    };
-    let grants = if let Some(s3_origin) = paid.1 {
-        paid_grants_http::router_with_reader(accounts.clone(), cookies, paid.0, s3_origin)?
-    } else {
-        paid_grants_http::router(accounts.clone(), cookies, paid.0)
-    };
-    let author = if enable_cover_uploads {
-        match cover_storage.as_ref() {
-            Some(store) => auth::router_with_cover_uploads(
-                accounts,
-                auth_reader,
-                secure,
-                public_origin,
-                store.clone(),
-            ),
-            None => auth::router(accounts, auth_reader, secure, public_origin),
-        }
-    } else {
-        auth::router(accounts, auth_reader, secure, public_origin)
-    };
-    Ok(ril::instrument(
-        make_router(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_storage,
-        )
-        .merge(author)
-        .merge(grants),
-    ))
-}
 
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
@@ -494,7 +390,10 @@ fn make_router(
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
-        .route("/assets/newboo-paid-reader.mjs", get(pages::paid_reader_script))
+        .route(
+            "/assets/newboo-paid-reader.mjs",
+            get(pages::paid_reader_script),
+        )
         .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),

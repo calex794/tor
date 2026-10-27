@@ -369,21 +369,25 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
     assert_eq!(page.headers()[header::REFERRER_POLICY], "no-referrer");
     assert_eq!(page.headers()["x-robots-tag"], "noindex");
-    assert!(
-        page.headers()["content-security-policy"]
-            .to_str()
+    assert!(page.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .contains("connect-src 'self' http://127.0.0.1:9000"));
+    let html = String::from_utf8(
+        to_bytes(page.into_body(), 128 * 1024)
+            .await
             .unwrap()
-            .contains("connect-src 'self' http://127.0.0.1:9000")
-    );
-    let html = String::from_utf8(to_bytes(page.into_body(), 128 * 1024).await.unwrap().to_vec())
-        .unwrap();
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains("data-paid-chapter-reader"));
     assert!(html.contains("newboo-paid-reader.mjs"));
     assert!(html.contains(&format!("data-purchase-id=\"{purchase_id}\"")));
-    assert!(!html.contains(BODY), "S034 raw plaintext must not enter SSR HTML");
+    assert!(
+        !html.contains(BODY),
+        "S034 raw plaintext must not enter SSR HTML"
+    );
     assert!(!html.contains("dek_b64u"), "S034 no scoped DEK in SSR HTML");
-
-
     for invalid in [
         r#"{"version_id":"2"}"#,
         r#"{"bucket":"public"}"#,
