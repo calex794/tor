@@ -39,6 +39,7 @@ use tor_reading::{
 mod account_form_http;
 mod behavior_consent;
 mod checkout;
+mod complete_chapter;
 mod library_actions;
 mod login_limiter;
 mod rankings;
@@ -195,6 +196,7 @@ fn router_inner(
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
+        .route("/read/{id}/complete", post(complete_chapter::complete))
         .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(4096))
@@ -478,8 +480,22 @@ async fn private_reader(
         Ok(saved) => saved,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    // A completion form uses the current per-book CAS revision, not a
+    // client-invented one. A late second device will receive 409.
+    let revision = match state.sync.free_state(actor, chapter_id).await {
+        Ok(Some(progress)) => progress.receipt.revision,
+        Ok(None) => 0,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let completed = match state.sync.completion_event_id(actor, chapter_id).await {
+        Ok(event) => event.is_some(),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::private_reader(id, &chapter, &csrf, saved), &cookies)
+    private_response(
+        pages::private_reader(id, &chapter, &csrf, saved, revision, completed),
+        &cookies,
+    )
 }
 
 /// Manual place save checks session, Origin, CSRF, published version and visibility.
