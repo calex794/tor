@@ -286,5 +286,5 @@ async fn f_05_pg_visible_ranked_list_excludes_blocked_books_and_unrelated_users(
     assert_eq!(after_hold.len(), 1);
     assert_eq!(after_hold[0].book_id, ids[1]);
     assert_eq!(repo.visible_ranks(0).await.unwrap_err(), RankingStoreError::Invalid);
-    assert!(repo.visible_ranks(uid + 1).await.unwrap().is_empty());
+    assert!(repo.visible_ranks(i64::MAX).await.unwrap().is_empty());
 }
