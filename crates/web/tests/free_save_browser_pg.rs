@@ -124,7 +124,7 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         send(&app, "POST", &path, &body, None, &csrf, ORIGIN)
             .await
             .0,
-        StatusCode::UNAUTHORIZED
+        StatusCode::FORBIDDEN
     );
     assert_eq!(
         send(
