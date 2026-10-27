@@ -614,17 +614,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     );
     let scoped_toc = PgDirectEntitlements::new(pool.clone())
         .mixed_book_toc(
-        PositiveId::new(buyer).unwrap(),
-        PositiveId::new(chapter).unwrap(),
-        PositiveId::new(purchase_id).unwrap(),
-    )
-    .await
-    .unwrap();
+            PositiveId::new(buyer).unwrap(),
+            PositiveId::new(chapter).unwrap(),
+            PositiveId::new(purchase_id).unwrap(),
+        )
+        .await
+        .unwrap();
     assert!(
-        scoped_toc.chapters.iter().all(|row| matches!(
-            row.access,
-            MixedTocAccess::Purchased { .. }
-        )),
+        scoped_toc
+            .chapters
+            .iter()
+            .all(|row| matches!(row.access, MixedTocAccess::Purchased { .. })),
         "hidden public metadata leaked from SQL query: {:?}",
         scoped_toc
             .chapters
