@@ -283,7 +283,6 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         "a released reader manifest must not be edited in place"
     );
 
-
     // Even a forged G-ready object with the wrong plaintext SHA rolls back.
     assert_eq!(
         b.attach_verified_and_publish(
@@ -308,7 +307,10 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(invalid_manifest_count, 0, "bad ciphertext may not mint a reader manifest");
+    assert_eq!(
+        invalid_manifest_count, 0,
+        "bad ciphertext may not mint a reader manifest"
+    );
 
     assert_eq!(
         b.attach_verified_and_publish(
@@ -355,7 +357,10 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(manifests, 2, "V2 must never erase purchased V1 parser metadata");
+    assert_eq!(
+        manifests, 2,
+        "V2 must never erase purchased V1 parser metadata"
+    );
 
     let current: i64 =
         sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
