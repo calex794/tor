@@ -575,6 +575,31 @@ async function run() {
         await control.click();
         assert(await panel.isVisible(), device + ": settings button does not open panel");
         assert.equal(await control.getAttribute("aria-expanded"), "true");
+        // NEwBOO's original topbar also provides one-tap theme cycling.
+        // Test computed colors and synchronization with the Aa panel.
+        const quick = page.locator("[data-paid-theme-cycle]");
+        const quickRect = await quick.boundingBox();
+        assert(quickRect && quickRect.width >= 44 && quickRect.height >= 44,
+          device + ": quick theme touch target smaller than 44px");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "light", device + ": dark system theme should cycle to light");
+        const quickLight = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(quickLight, darkBackground, device + ": quick light has no visual effect");
+        assert.equal(await page.getByRole("button", { name: "Светлая" })
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await quick.getAttribute("aria-label"), "Сменить тему. Сейчас: светлая");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "sepia", device + ": quick sepia step missing");
+        assert.equal(await page.getByRole("button", { name: "Сепия" })
+          .getAttribute("aria-pressed"), "true");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "dark", device + ": quick dark step missing");
+        assert.equal(await page.getByRole("button", { name: "Тёмная" })
+          .getAttribute("aria-pressed"), "true");
         const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
           (element) => Number.parseFloat(getComputedStyle(element).fontSize));
         await page.locator("[data-paid-font-scale]").evaluate((input) => {
@@ -650,6 +675,36 @@ async function run() {
           await section.getByText("Глава уже отмечена прочитанной.").waitFor();
           assert.equal(await page.getByRole("button", { name: "Глава прочитана" }).count(), 0);
           assert.equal(completionPosts, 1, "reopening does not duplicate completion");
+          // 320px is smaller than our standard 390px fixture and catches
+          // crowding between TOC, Aa, theme and the clipped book title.
+          await page.setViewportSize({ width: 320, height: 720 });
+          const compact = await page.evaluate(() => {
+            const toolbar = document.querySelector(".reader-topbar").getBoundingClientRect();
+            const actions = document.querySelector(".reader-topbar__actions").getBoundingClientRect();
+            const title = document.querySelector(".reader-topbar__title").getBoundingClientRect();
+            const buttons = [...document.querySelectorAll(
+              ".reader-topbar__actions > button, .reader-topbar__actions summary",
+            )].map((element) => {
+              const rect = element.getBoundingClientRect();
+              return { width: rect.width, height: rect.height };
+            });
+            return {
+              overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+              toolbarWidth: toolbar.width,
+              actionsRight: actions.right,
+              titleRight: title.right,
+              buttons,
+            };
+          });
+          assert(!compact.overflow && compact.toolbarWidth <= 321 &&
+            compact.actionsRight <= 321 && compact.titleRight <= 321 &&
+            compact.buttons.length === 3 &&
+            compact.buttons.every((button) => button.width >= 44 && button.height >= 44),
+            "320px topbar overlaps, overflows or hides a touch target");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-quick-theme-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
         }
       } finally {
         await page.close();
