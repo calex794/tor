@@ -3,9 +3,7 @@
 //! This test never connects to a production database or external payment service.
 use sqlx::PgPool;
 use tor_commerce::{
-    domain::money::{
-        CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
-    },
+    domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
     repositories::{checkout::PgCheckout, entitlements::PgDirectEntitlements},
 };
 use tor_contracts::paid_delivery::{
@@ -101,7 +99,10 @@ async fn s034_checkout_paid_v1_restore_position_and_enforce_revocation() {
 
     let rights = PgDirectEntitlements::new(pool.clone());
     assert_eq!(
-        rights.resolve_entitlement(actor, target, None).await.unwrap(),
+        rights
+            .resolve_entitlement(actor, target, None)
+            .await
+            .unwrap(),
         EntitlementDecision::Allowed {
             pinned: receipt.pinned
         }
@@ -161,7 +162,10 @@ async fn s034_checkout_paid_v1_restore_position_and_enforce_revocation() {
         .await
         .unwrap());
     assert_eq!(
-        rights.resolve_entitlement(actor, target, None).await.unwrap(),
+        rights
+            .resolve_entitlement(actor, target, None)
+            .await
+            .unwrap(),
         EntitlementDecision::Allowed {
             pinned: receipt.pinned
         }
@@ -173,7 +177,10 @@ async fn s034_checkout_paid_v1_restore_position_and_enforce_revocation() {
         .await
         .unwrap();
     assert_eq!(
-        rights.resolve_entitlement(actor, target, None).await.unwrap(),
+        rights
+            .resolve_entitlement(actor, target, None)
+            .await
+            .unwrap(),
         EntitlementDecision::Denied {
             reason: DenialReason::Locked
         }
@@ -199,7 +206,10 @@ async fn s034_checkout_paid_v1_restore_position_and_enforce_revocation() {
     .await
     .unwrap();
     assert_eq!(
-        rights.resolve_entitlement(actor, target, None).await.unwrap(),
+        rights
+            .resolve_entitlement(actor, target, None)
+            .await
+            .unwrap(),
         EntitlementDecision::Denied {
             reason: DenialReason::Refunded
         }
