@@ -435,7 +435,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
                 WalletId::new(buyer).unwrap(),
                 pinned_two,
                 MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}5", "Y".repeat(42))).unwrap(),
+                IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap(),
             )
             .unwrap(),
         )
