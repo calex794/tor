@@ -160,6 +160,20 @@ mod tests {
             image
         );
         assert!(!format!("{first:?}").contains(&hex::encode(&image)));
+        let secret = unwrap_bytes(&id, &first.wrapped_dek, &first.wrap_nonce, &kek).unwrap();
+        let swapped_version = asset_aad(pin(12), &id, &first.plaintext_sha256);
+        assert_eq!(
+            decrypt_raw(&secret, &first.object_nonce, &swapped_version, &first.ciphertext),
+            Err(CryptoError::AuthenticationFailed),
+            "V1 ciphertext is not valid with the V2 AAD",
+        );
+        let mut corrupt = first.ciphertext.clone();
+        let last = corrupt.len() - 1;
+        corrupt[last] ^= 1;
+        assert_eq!(
+            decrypt_raw(&secret, &first.object_nonce, &first.aad, &corrupt),
+            Err(CryptoError::AuthenticationFailed),
+        );
     }
 
     #[test]
