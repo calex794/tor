@@ -77,8 +77,14 @@ mod tests {
     #[test]
     fn loopback_reverse_proxy_does_not_share_a_global_limit() {
         let headers = HeaderMap::new();
-        assert_eq!(rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, false), None);
-        assert_eq!(rate_limit_ip(Ipv6Addr::LOCALHOST.into(), &headers, false), None);
+        assert_eq!(
+            rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, false),
+            None
+        );
+        assert_eq!(
+            rate_limit_ip(Ipv6Addr::LOCALHOST.into(), &headers, false),
+            None
+        );
     }
 
     #[test]
@@ -88,7 +94,10 @@ mod tests {
         headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.42"));
         let remote = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10));
         assert_eq!(rate_limit_ip(remote, &headers, true), Some(remote));
-        assert_eq!(rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, false), None);
+        assert_eq!(
+            rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, false),
+            None
+        );
     }
 
     #[test]
@@ -100,15 +109,26 @@ mod tests {
             Some(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 41)))
         );
         headers.append("x-real-ip", HeaderValue::from_static("198.51.100.99"));
-        assert_eq!(rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, true), None);
+        assert_eq!(
+            rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, true),
+            None
+        );
     }
 
     #[test]
     fn invalid_or_loopback_proxy_header_cannot_be_used_as_a_shared_key() {
         let mut headers = HeaderMap::new();
-        for raw in ["127.0.0.1", "0.0.0.0", "not-an-ip", "198.51.100.41, 127.0.0.1"] {
+        for raw in [
+            "127.0.0.1",
+            "0.0.0.0",
+            "not-an-ip",
+            "198.51.100.41, 127.0.0.1",
+        ] {
             headers.insert("x-real-ip", HeaderValue::from_str(raw).unwrap());
-            assert_eq!(rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, true), None);
+            assert_eq!(
+            rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, true),
+            None
+        );
         }
     }
 }
