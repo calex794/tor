@@ -962,3 +962,15 @@ img.home-spotlight-card__cover {
 .ranking-actions .ui-button { flex: 1 1 160px; }
 .ranking-info { color: var(--text-secondary); margin-top: 16px; }
 @media (max-width: 640px) { .ranking-pair { grid-template-columns: minmax(0,1fr); } .ranking-pair__book { padding: 18px; } }
+
+/* F-05 personal ranks: tied items share one numbered place. */
+.ranking-history { margin: 30px 0 64px; }
+.ranking-history h2 { margin: 0 0 16px; }
+.ranking-books { padding: 0; margin: 0; list-style: none; display: grid; gap: 10px; }
+.ranking-book { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px 18px;
+  min-width: 0; padding: 14px 18px; border: 1px solid var(--border-color);
+  background: var(--bg-surface); border-radius: var(--radius-lg); }
+.ranking-book a { overflow-wrap: anywhere; font-weight: 700; }
+.ranking-book__place, .ranking-book__tie { color: var(--text-muted); font-size: 13px; }
+.ranking-book__tie { border: 1px solid var(--border-color); padding: 2px 7px; border-radius: 20px; }
+@media (max-width: 640px) { .ranking-book { padding: 12px 14px; } }

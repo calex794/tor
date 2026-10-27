@@ -86,8 +86,13 @@ async function screenshot(page, name) {
         viewport + ': question was not explicitly resumed');
       await page.getByRole('button', { name: 'Равнозначны' }).click();
       await page.waitForURL('**/me/rankings');
-      assert(await page.getByText('Пока нет книг для сравнения').isVisible(),
-        viewport + ': placed books still require a question');
+      await page.getByRole('heading', { name: 'Мои книги' }).waitFor();
+      const savedBooks = page.locator('.ranking-books .ranking-book');
+      assert(await savedBooks.count() === 2, viewport + ': both tied books must be visible');
+      assert(await page.locator('.ranking-book__tie').count() === 2,
+        viewport + ': tie group not marked');
+      assert((await page.locator('.ranking-book__place').allTextContents())
+        .every(label => label === 'Место 1'), viewport + ': tied books got different places');
       assert(pg('SELECT count(*) FROM user_book_comparison WHERE user_id=' + uid) === '2',
         viewport + ': skip and tie were not recorded once each');
       await screenshot(page, viewport + '-placed');
