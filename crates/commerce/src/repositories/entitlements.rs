@@ -35,7 +35,7 @@ pub struct ReadableBookToc {
 
 /// A private reader's combined TOC. Only confirmed historical purchases
 /// and separately public chapter metadata can enter this result.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MixedTocAccess {
     Purchased {
         purchase_id: i64,
