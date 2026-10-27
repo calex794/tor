@@ -93,6 +93,8 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 let grantCalls = 0;
 let saved = null;
+let markedComplete = false;
+let completionPosts = 0;
 const server = http.createServer(async (req, reply) => {
   try {
     const uri = new URL(req.url, SITE);
@@ -123,6 +125,33 @@ const server = http.createServer(async (req, reply) => {
       assert.deepEqual(JSON.parse(await readBody(req)), { purchase_id: purchase });
       grantCalls++;
       send(reply, 200, JSON.stringify(grant), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
+      req.method === "GET") {
+      assert.equal(uri.searchParams.get("chapter_id"), chapter);
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      assert.equal(uri.searchParams.get("version_id"), grant.version_id);
+      send(reply, 200, JSON.stringify({
+        available: true, completed: markedComplete,
+      }), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
+      req.method === "POST") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      const body = JSON.parse(await readBody(req));
+      assert.equal(body.purchase_id, purchase);
+      assert.equal(body.chapter_id, chapter);
+      assert.equal(body.version_id, grant.version_id);
+      assert.equal(body.expected_revision, 1);
+      assert.equal(body.block_id, fixture.expected_markdown.split("\n\n").length);
+      assert.equal(body.char_offset, fixture.expected_markdown.split("\n\n").at(-1).length);
+      const aad = Buffer.from(grant.content.aad_b64u, "base64url").toString("utf8").split("\n");
+      assert.equal(body.plaintext_sha256, aad[4]);
+      completionPosts++;
+      const old = markedComplete;
+      markedComplete = true;
+      send(reply, 200, JSON.stringify({
+        status: old ? "already_completed" : "completed",
+      }), "application/json");
     } else if (uri.pathname === "/api/v1/me/progress/purchased" &&
       req.method === "GET") {
       assert.equal(uri.searchParams.get("chapter_id"), chapter);
@@ -356,6 +385,19 @@ async function run() {
           chapter_id: chapter, purchase_id: purchase, version_id: grant.version_id,
           block_id: 1, char_offset: first.length, expected_revision: 0,
         });
+        const section = page.locator("[data-paid-completion]");
+        assert(await section.isVisible(), device + ": missing completion UI");
+        if (device === "desktop") {
+          await page.getByRole("button", { name: "Глава прочитана" }).click();
+          await section.getByText("Глава отмечена прочитанной.", { exact: false })
+            .waitFor({ timeout: 10000 });
+          assert.equal(completionPosts, 1, "only explicit click completes a chapter");
+          assert.equal(await section.locator('a[href="/me/rankings"]').count(), 1);
+        } else {
+          await section.getByText("Глава уже отмечена прочитанной.").waitFor();
+          assert.equal(await page.getByRole("button", { name: "Глава прочитана" }).count(), 0);
+          assert.equal(completionPosts, 1, "reopening does not duplicate completion");
+        }
       } finally {
         await page.close();
       }
