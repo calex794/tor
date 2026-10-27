@@ -235,19 +235,21 @@ async fn s334_rotates_only_authenticated_wrapper_and_keeps_historical_dek() {
     assert_eq!(prior["aad_b64u"], renewed["aad_b64u"]);
 
     // No direct rewind or rewriting S3 metadata under a migrator role.
-    assert!(sqlx::query("UPDATE storage_objects SET kek_id='content-kek-v1' WHERE id=$1::uuid")
-        .bind(id.as_str())
-        .execute(&mig)
-        .await
-        .is_err());
-    assert!(sqlx::query(
-        "UPDATE storage_objects SET sha256_ciphertext=$2 WHERE id=$1::uuid",
-    )
-    .bind(id.as_str())
-    .bind(vec![0x44_u8; 32])
-    .execute(&mig)
-    .await
-    .is_err());
+    assert!(
+        sqlx::query("UPDATE storage_objects SET kek_id='content-kek-v1' WHERE id=$1::uuid",)
+            .bind(id.as_str())
+            .execute(&mig)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("UPDATE storage_objects SET sha256_ciphertext=$2 WHERE id=$1::uuid",)
+            .bind(id.as_str())
+            .bind(vec![0x44_u8; 32])
+            .execute(&mig)
+            .await
+            .is_err()
+    );
     app.close().await;
     mig.close().await;
 }
