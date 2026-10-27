@@ -1,26 +1,8 @@
 name: TOR private S3 cover compile
 on:
   pull_request:
-    paths:
-      - 'crates/web/Cargo.toml'
-      - 'crates/web/src/main.rs'
-      - 'crates/web/src/cover_delivery.rs'
-      - 'crates/web/src/cover_http.rs'
-      - 'crates/ingest/Cargo.toml'
-      - 'crates/ingest/src/repositories/s3.rs'
-      - 'crates/ingest/tests/s3_provider.rs'
-      - '.github/workflows/tor-cover-s3.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/web/Cargo.toml'
-      - 'crates/web/src/main.rs'
-      - 'crates/web/src/cover_delivery.rs'
-      - 'crates/web/src/cover_http.rs'
-      - 'crates/ingest/Cargo.toml'
-      - 'crates/ingest/src/repositories/s3.rs'
-      - 'crates/ingest/tests/s3_provider.rs'
-      - '.github/workflows/tor-cover-s3.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,7 +10,13 @@ concurrency:
   group: tor-private-cover-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: cover_s3
   s3-cover-build:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

@@ -1,38 +1,8 @@
 name: TOR author cover real browser
 on:
   pull_request:
-    paths:
-      - 'crates/web/src/auth.rs'
-      - 'crates/web/src/author_cover_http.rs'
-      - 'crates/web/src/author_chapter_pages.rs'
-      - 'crates/web/src/cover_worker.rs'
-      - 'crates/web/src/cover_http.rs'
-      - 'crates/web/src/main.rs'
-      - 'crates/web/templates/author_cover_settings.html'
-      - 'crates/web/assets/newboo-cover-picker.css'
-      - 'crates/web/assets/newboo-cover-picker.js'
-      - 'crates/ingest/**'
-      - 'crates/books/src/repositories/cover_slots.rs'
-      - 'migrations/**'
-      - 'tools/author_cover_pg_visual_smoke.cjs'
-      - '.github/workflows/tor-cover-browser.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/web/src/auth.rs'
-      - 'crates/web/src/author_cover_http.rs'
-      - 'crates/web/src/author_chapter_pages.rs'
-      - 'crates/web/src/cover_worker.rs'
-      - 'crates/web/src/cover_http.rs'
-      - 'crates/web/src/main.rs'
-      - 'crates/web/templates/author_cover_settings.html'
-      - 'crates/web/assets/newboo-cover-picker.css'
-      - 'crates/web/assets/newboo-cover-picker.js'
-      - 'crates/ingest/**'
-      - 'crates/books/src/repositories/cover_slots.rs'
-      - 'migrations/**'
-      - 'tools/author_cover_pg_visual_smoke.cjs'
-      - '.github/workflows/tor-cover-browser.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -40,7 +10,13 @@ concurrency:
   group: tor-cover-browser-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: cover_browser
   author-cover:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_browser":true}').cover_browser) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     services:

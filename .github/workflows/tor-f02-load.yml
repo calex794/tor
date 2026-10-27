@@ -1,14 +1,19 @@
 name: TOR F-02 PostgreSQL 100k
 on:
   pull_request:
-    paths:
-      - 'crates/search/tests/f02_load_pg.rs'
-      - '.github/workflows/tor-f02-load.yml'
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: search_load
   f02-100k:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"search_load":true}').search_load) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
