@@ -12,6 +12,7 @@ axum.workspace = true
 tokio = { workspace = true, features = ["time"] }
 tor-books = { path = "../books" }
 tor-search = { path = "../search" }
+tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
 aws-config = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true }
