@@ -4,6 +4,8 @@ use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
 use tor_search::repositories::catalog::TaxonomyOptions;
 
+mod catalog_active_filters;
+
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
     pub id: u64,
@@ -219,7 +221,8 @@ pub fn catalog(books: &[PublicBookCard]) -> Html<String> {
             "<!--PUBLIC_BOOKS-->",
             &book_cards(books, false, "", &HashSet::new()),
         )
-        .replace("<!--SEARCH_FORM-->", "");
+        .replace("<!--SEARCH_FORM-->", "")
+        .replace("<!--ACTIVE_FILTERS-->", "");
     layout(
         "Каталог",
         "Опубликованные книги и переводы на Пандаолейт.",
@@ -257,6 +260,7 @@ pub fn catalog_search_with_covers(
     request: CatalogPageQuery<'_>,
     covers: &HashSet<u64>,
 ) -> Html<String> {
+    let active_filters = catalog_active_filters::render(&request);
     let CatalogPageQuery {
         query,
         language,
@@ -359,7 +363,8 @@ pub fn catalog_search_with_covers(
                 book_cards(books, false, "", covers)
             },
         )
-        .replace("<!--SEARCH_FORM-->", &format!("{controls}{count_markup}"));
+        .replace("<!--SEARCH_FORM-->", &controls)
+        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"));
     layout(
         "Каталог",
         "Поиск опубликованных книг на Пандаолейт.",
