@@ -8,10 +8,11 @@ default = []
 s3-covers = ["tor-ingest/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
-axum.workspace = true
+axum = { workspace = true, features = ["multipart"] }
 tokio = { workspace = true, features = ["time"] }
 tor-books = { path = "../books" }
 tor-search = { path = "../search" }
+tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
 aws-config = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true }
@@ -28,6 +29,7 @@ base64 = "0.22"
 sha2 = "0.10"
 
 [dev-dependencies]
+serde_json = "1"
 tower = { version = "0.5", features = ["util"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }

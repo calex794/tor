@@ -28,3 +28,45 @@ pub trait PrivateObjectStore: Send + Sync {
         ttl: Duration,
     ) -> Result<SecretValue, StorageError>;
 }
+
+/// A G-only receipt produced after an actual bounded ciphertext GET and
+/// SHA-256 comparison. No arbitrary caller can instantiate this receipt.
+#[derive(Clone, Debug)]
+pub struct VerifiedObject {
+    object: ObjectRef,
+}
+
+impl VerifiedObject {
+    pub fn object(&self) -> &ObjectRef {
+        &self.object
+    }
+}
+
+/// Reserve pending in PostgreSQL first, then call this after the S3 PUT.
+/// On crash after a successful PUT, a retry may receive Conflict; it must
+/// re-read and compare bytes, not overwrite the immutable S3 key.
+pub async fn upload_and_verify(
+    store: &impl PrivateObjectStore,
+    object: &ObjectRef,
+    ciphertext: &[u8],
+) -> Result<VerifiedObject, StorageError> {
+    use crate::services::crypto::sha256_bytes;
+
+    if ciphertext.len() as u64 != object.size_bytes
+        || sha256_bytes(ciphertext) != object.sha256_ciphertext
+    {
+        return Err(StorageError::Invalid);
+    }
+    match store.put_immutable(object, ciphertext).await {
+        Ok(()) | Err(StorageError::Conflict) => {}
+        Err(error) => return Err(error),
+    }
+    let actual = store.get_verified(object).await?;
+    if actual.len() as u64 != object.size_bytes || sha256_bytes(&actual) != object.sha256_ciphertext
+    {
+        return Err(StorageError::Corrupt);
+    }
+    Ok(VerifiedObject {
+        object: object.clone(),
+    })
+}

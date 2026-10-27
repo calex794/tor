@@ -139,6 +139,20 @@ impl PgRanking {
             let question = before
                 .next_question()?
                 .ok_or(RankingStoreError::Exhausted)?;
+            // Lock both visible book rows until commit: revocation cannot race
+            // with an accepted comparison on a hidden/held/deleted book.
+            let allowed: Vec<i64> = sqlx::query_scalar(
+                "SELECT id FROM books WHERE id IN ($1,$2)
+                 AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+                 FOR SHARE",
+            )
+            .bind(question.book_a_id)
+            .bind(question.book_b_id)
+            .fetch_all(&mut *tx)
+            .await?;
+            if allowed.len() != 2 {
+                return Err(RankingStoreError::Conflict);
+            }
             Some(AnswerEvidence {
                 epoch: db_u64(state.placement_epoch)?,
                 version: db_u64(state.state_version)?,

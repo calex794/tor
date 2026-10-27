@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 49);
+    assert_eq!(unique.len(), 58);
 }
 
 #[test]
@@ -149,4 +149,55 @@ fn passports_cannot_embed_query_or_user_values() {
     assert!(!s.contains("presigned"));
     assert!(!s.contains("book_slug"));
     assert_eq!(p.route_family, "/books/");
+}
+
+#[test]
+fn f_05_private_ranking_routes_are_known_bounded_and_not_catalog_events() {
+    for (template, method, surface, cost) in [
+        (
+            "/me/rankings",
+            "GET",
+            TrafficSurface::PublicPage,
+            CostClass::CheapRead,
+        ),
+        (
+            "/me/rankings/choice",
+            "POST",
+            TrafficSurface::PublicPage,
+            CostClass::Write,
+        ),
+        (
+            "/me/rankings/resume",
+            "POST",
+            TrafficSurface::PublicPage,
+            CostClass::Write,
+        ),
+        (
+            "/api/v1/me/rankings",
+            "GET",
+            TrafficSurface::Api,
+            CostClass::CheapRead,
+        ),
+        (
+            "/api/v1/me/rankings/choice",
+            "POST",
+            TrafficSurface::Api,
+            CostClass::Write,
+        ),
+        (
+            "/api/v1/me/rankings/resume",
+            "POST",
+            TrafficSurface::Api,
+            CostClass::Write,
+        ),
+    ] {
+        let route = classify(Some(template), method);
+        assert!(route.route_known, "{template} must have RIL taxonomy");
+        assert_eq!(route.product_area, ProductArea::Recommendations);
+        assert_eq!(route.traffic_surface, surface);
+        assert_eq!(route.cost_class, cost);
+        assert_eq!(route.risk_hint, RiskHint::Normal);
+        assert_ne!(route.route_family, "/unknown/");
+    }
+    assert!(!classify(Some("/api/v1/me/rankings"), "POST").route_known);
 }

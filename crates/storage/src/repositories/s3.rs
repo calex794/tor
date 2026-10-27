@@ -9,7 +9,7 @@ use tor_contracts::paid_delivery::{validate_signed_get_ttl, ObjectRef, SecretVal
 use crate::{
     domain::{
         object_keys::{PrivateObjectKey, ENCRYPTED_CONTENT_TYPE},
-        provider::{valid_ciphertext_size, StorageError},
+        provider::{valid_ciphertext_size, valid_private_bucket, StorageError},
     },
     services::{crypto::sha256_bytes, provider::PrivateObjectStore},
 };
@@ -24,16 +24,7 @@ impl S3PrivateStore {
     /// This fixed private bucket comes from trusted G configuration, never
     /// a user-supplied chapter request. Only legal DNS-compatible names.
     pub fn new(client: Client, private_bucket: String) -> Result<Self, StorageError> {
-        let bytes = private_bucket.as_bytes();
-        if !(3..=63).contains(&bytes.len())
-            || !bytes[0].is_ascii_lowercase()
-            || !bytes[bytes.len() - 1].is_ascii_alphanumeric()
-            || !bytes
-                .iter()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
-            || private_bucket.contains("--")
-            || private_bucket.starts_with("public")
-        {
+        if !valid_private_bucket(&private_bucket) {
             return Err(StorageError::Invalid);
         }
         Ok(Self {

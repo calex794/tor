@@ -101,9 +101,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let accounts = PgAccounts::from_pool(pool);
                 accounts.probe().await?;
                 if let Some(store) = cover_store {
-                    tor_web::router_with_postgres_reading_auth_covers(
-                        catalog, reader, accounts, secure, origin, store,
-                    )
+                    if cover_worker_enabled {
+                        tor_web::router_with_postgres_reading_auth_cover_uploads(
+                            catalog, reader, accounts, secure, origin, store,
+                        )
+                    } else {
+                        tor_web::router_with_postgres_reading_auth_covers(
+                            catalog, reader, accounts, secure, origin, store,
+                        )
+                    }
                 } else {
                     tor_web::router_with_postgres_reading_auth(
                         catalog, reader, accounts, secure, origin,

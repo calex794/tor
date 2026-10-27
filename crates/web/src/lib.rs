@@ -20,12 +20,14 @@ mod auth;
 mod auth_cookies;
 mod author_chapter_http;
 mod author_chapter_pages;
+mod author_cover_http;
 mod author_pages;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
 pub use cover_http::{
-    router_with_postgres_reading_auth_covers, router_with_postgres_reading_covers,
+    router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
+    router_with_postgres_reading_covers,
 };
 pub mod cover_worker;
 mod observability;
@@ -380,6 +382,10 @@ fn make_router(
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
+        .route(
+            "/assets/newboo-cover-picker.js",
+            get(pages::cover_picker_script),
+        )
         .route(
             "/assets/brand/pandaolate-header.png",
             get(pages::brand_logo),

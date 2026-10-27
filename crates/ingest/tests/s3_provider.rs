@@ -59,6 +59,41 @@ async fn h_web_10_s3_provider_put_head_get_and_private_corruption() {
     let store = S3CoverStore::new(client.clone(), BUCKET.into()).unwrap();
 
     let bytes = webp();
+    let source_sha = digest(&bytes);
+    let source_key = "staging/covers/sources/provider-owner-42.webp";
+    store
+        .put_source_verified(source_key, &bytes, "image/webp", &source_sha)
+        .await
+        .expect("signed upload+HEAD+bounded hash-checked GET of author source");
+    assert_eq!(
+        store.get_bounded(source_key, bytes.len()).await.unwrap(),
+        bytes
+    );
+    assert_eq!(
+        store
+            .put_source_verified(source_key, &bytes, "image/png", &source_sha)
+            .await,
+        Err(CoverError::Invalid),
+        "client MIME cannot override actual source rules"
+    );
+    assert_eq!(
+        store
+            .put_source_verified(source_key, &bytes, "image/webp", &[0_u8; 32])
+            .await,
+        Err(CoverError::Invalid),
+        "forged digest cannot be registered"
+    );
+    assert_eq!(
+        store
+            .put_source_verified(
+                "staging/covers/variants/no-source.webp",
+                &bytes,
+                "image/webp",
+                &source_sha,
+            )
+            .await,
+        Err(CoverError::Invalid)
+    );
     assert!(bytes.starts_with(b"RIFF"));
     assert_eq!(bytes.get(8..12), Some(&b"WEBP"[..]));
     let sha = digest(&bytes);
