@@ -1,6 +1,8 @@
 //! B S3-09/11: owner-only atomic verified paid edition attachment and publish.
 //! No S3 call inside this transaction: G uploads/verifies before B commits.
 //! No entitlement is created here; D remains the sole rights authority.
+mod assets;
+
 use crate::services::authoring::{valid_command_key, AuthorError, ChapterAccess, SaveChapter};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
