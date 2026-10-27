@@ -39,12 +39,9 @@ impl<S: PrivateObjectStore> PgPrivateDelivery<S> {
         kek: Arc<ContentKek>,
         private_bucket: String,
     ) -> Result<Self, DeliveryError> {
-        Self::with_keyring(
-            pool,
-            store,
-            Arc::new(ContentKeyring::v1_only(kek)),
-            private_bucket,
-        )
+        let keyring = ContentKeyring::from_v1_and_optional_v2_environment(kek)
+            .map_err(|_| DeliveryError::Unavailable)?;
+        Self::with_keyring(pool, store, Arc::new(keyring), private_bucket)
     }
 
     /// G reads the trusted row's KEK identifier; a missing historical key
