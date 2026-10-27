@@ -125,7 +125,13 @@ fn encrypt_raw(
 ) -> Result<Vec<u8>, CryptoError> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidMaterial)?;
     cipher
-        .encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
+        .encrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .map_err(|_| CryptoError::AuthenticationFailed)
 }
 
@@ -137,7 +143,13 @@ fn decrypt_raw(
 ) -> Result<Vec<u8>, CryptoError> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| CryptoError::InvalidMaterial)?;
     cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+        .decrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
         .map_err(|_| CryptoError::AuthenticationFailed)
 }
 
