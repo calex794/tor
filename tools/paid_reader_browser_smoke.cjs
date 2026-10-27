@@ -6,6 +6,7 @@ const { createCipheriv, createHash } = require("node:crypto");
 const { gzipSync } = require("node:zlib");
 const fs = require("node:fs");
 const path = require("node:path");
+const { URL: URLClass } = require("node:url");
 
 const SITE = "http://127.0.0.1:3098";
 const S3 = "http://127.0.0.1:9000";
@@ -119,10 +120,10 @@ async function testDevice(browser, name, width, height, tamper) {
   });
   await page.route("**/api/v1/me/progress/purchased**", async (route) => {
     const request = route.request();
-    if (new URL(request.url()).pathname.endsWith("/complete")) {
+    if (new URLClass(request.url()).pathname.endsWith("/complete")) {
       if (request.method() === "GET") {
         completionGets++;
-        const query = new URL(request.url()).searchParams;
+        const query = new URLClass(request.url()).searchParams;
         assert.equal(query.get("chapter_id"), "103");
         assert.equal(query.get("purchase_id"), "501");
         assert.equal(query.get("version_id"), "201");
