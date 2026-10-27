@@ -202,9 +202,23 @@ undo() {
 }
 trap undo ERR
 
-# One-time systemd override: same loopback port, but *real* database and auth.
-# PID 1 loads root-only EnvironmentFile before dropping privileges to tor-deploy.
-cat > "$dropin" <<'SYSTEMD'
+# Do not overwrite a working production environment with a bootstrap-only
+# template on every upgrade: S3/other future settings may live here.
+# Validate mandatory security invariants and retain the operator's settings.
+if [[ -f "$dropin" ]]; then
+  for line in \
+    'Environment=TOR_DEMO_MODE=0' \
+    'Environment=TOR_AUTH_ENABLED=1' \
+    'Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru' \
+    'EnvironmentFile=/etc/tor/tor-app.env'; do
+    grep -Fxq "$line" "$dropin" || {
+      echo "Refusing unsafe production systemd override" >&2
+      false
+    }
+  done
+else
+  # First-time PostgreSQL activation only; PIN 1 reads the root-only secret.
+  cat > "$dropin" <<'SYSTEMD'
 [Unit]
 Description=TOR Rust + PostgreSQL website
 After=postgresql@18-main.service
@@ -216,7 +230,8 @@ Environment=TOR_AUTH_ENABLED=1
 Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru
 EnvironmentFile=/etc/tor/tor-app.env
 SYSTEMD
-chmod 0644 "$dropin"
+  chmod 0644 "$dropin"
+fi
 
 
 tmp="/opt/tor/.go-live-$$"
