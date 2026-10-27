@@ -5,7 +5,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: tor-vps-one-click-release
+  group: tor-vps-staging-single-flight
   cancel-in-progress: false
 
 jobs:
