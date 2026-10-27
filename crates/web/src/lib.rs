@@ -33,8 +33,8 @@ pub mod cover_worker;
 mod observability;
 mod operator_overview;
 mod operator_traces;
-mod paid_grants_http;
 mod pages;
+mod paid_grants_http;
 mod password_jobs;
 mod ril;
 mod worker_health;
@@ -535,7 +535,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reply.status(), StatusCode::NOT_FOUND);
-
     }
     #[tokio::test]
     async fn operator_summary_must_reject_site_account_cookie_without_staff_secret() {

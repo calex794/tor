@@ -16,15 +16,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, Semaphore};
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::paid_storage::PgPaidStorage;
 use tor_commerce::repositories::entitlements::PgDirectEntitlements;
-use tor_contracts::paid_delivery::{
-    Actor, DeliveryError, PositiveId, PrivateObjectDeliveryPort,
-};
+use tor_contracts::paid_delivery::{Actor, DeliveryError, PositiveId, PrivateObjectDeliveryPort};
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
 
 const WINDOW: Duration = Duration::from_secs(60);
@@ -79,7 +74,9 @@ fn positive(raw: &str) -> Option<PositiveId> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    raw.parse::<i64>().ok().and_then(|value| PositiveId::new(value).ok())
+    raw.parse::<i64>()
+        .ok()
+        .and_then(|value| PositiveId::new(value).ok())
 }
 
 fn status(error: DeliveryError) -> StatusCode {
@@ -217,7 +214,10 @@ mod tests {
         }
         assert_eq!(positive("42").unwrap().get(), 42);
         assert_eq!(status(DeliveryError::Denied), StatusCode::FORBIDDEN);
-        assert_eq!(status(DeliveryError::Unavailable), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            status(DeliveryError::Unavailable),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
     #[test]

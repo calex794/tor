@@ -4,8 +4,8 @@ use tor_books::{
     repositories::{InMemoryCatalog, PgCatalog},
     services::PublicBookRepository,
 };
-use tor_reading::repositories::PgReader;
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
+use tor_reading::repositories::PgReader;
 
 /// No schema changes happen during HTTP startup.
 #[tokio::main]

@@ -24,11 +24,9 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
-use tor_books::{
-    repositories::{
-        paid_storage::{PaidPublication, PgPaidStorage},
-        PgCatalog,
-    },
+use tor_books::repositories::{
+    paid_storage::{PaidPublication, PgPaidStorage},
+    PgCatalog,
 };
 use tor_commerce::{
     domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
@@ -221,9 +219,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         version_id: PositiveId::new(version).unwrap(),
     };
     let digest = hex(&Sha256::digest(BODY.as_bytes()));
-    let aad = format!(
-        "tor.encrypted.chapter.v1\n{chapter}\n{version}\n{UUID}\n{digest}\n"
-    );
+    let aad = format!("tor.encrypted.chapter.v1\n{chapter}\n{version}\n{UUID}\n{digest}\n");
     let sha = hex(&[4_u8; 32]);
     pg(
         &url,
@@ -362,7 +358,10 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     )
     .await;
     assert_eq!(success.status(), StatusCode::OK);
-    assert_eq!(success.headers()[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(
+        success.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
     assert_eq!(success.headers()[header::REFERRER_POLICY], "no-referrer");
     assert_eq!(success.headers()["x-robots-tag"], "noindex");
     let body = json_body(success).await;
@@ -381,11 +380,12 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     );
     pg(
         &url,
-        &format!(
-            "UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"
-        ),
+        &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
-    pg(&url, &format!("UPDATE books SET visibility='draft' WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
+    );
     pg(
         &url,
         &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
