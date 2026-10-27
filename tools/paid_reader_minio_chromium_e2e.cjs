@@ -53,11 +53,15 @@ assert(screenshotRoot && path.resolve(screenshotRoot).startsWith(
 ), "Visual screenshots must remain in the disposable CI temp directory");
 fs.mkdirSync(screenshotRoot, { recursive: true });
 assert(data.includes('<html lang="ru">') &&
+  data.includes('<body class="reader-standalone">') &&
+  data.includes('<main id="main" class="reader-standalone__main">') &&
   data.includes('<link rel="stylesheet" href="/assets/site.css">') &&
   data.includes('<link rel="stylesheet" href="/assets/newboo.css">') &&
-  data.includes('class="site-logo"') &&
-  data.includes("data-paid-chapter-reader"),
-"Actual Rust page must include the full NEwBOO site shell and styles");
+  data.includes("data-paid-chapter-reader") &&
+  !data.includes('class="site-header"') &&
+  !data.includes('class="site-footer"') &&
+  !data.includes('class="site-logo"'),
+"Actual Rust reader must use NEwBOO standalone chrome, without global header/footer");
 assert(data.includes("data-paid-chapter-reader") &&
   !data.includes(fixture.expected_markdown) && !data.includes(grant.content.dek_b64u));
 assert(csp.includes("script-src 'self'") && csp.includes(S3));
@@ -221,17 +225,23 @@ async function run() {
         assert(!state.overflow && !state.xss && !state.local &&
           !state.caches && !state.indexed, device + ": unsafe reader state");
 
-        for (const resource of ["/assets/site.css", "/assets/newboo.css",
-          "/assets/brand/pandaolate-header.png"]) {
-          assert(loadedAssets.has(resource), device + ": missing real NEwBOO asset " + resource);
+        for (const resource of ["/assets/site.css", "/assets/newboo.css"]) {
+          assert(loadedAssets.has(resource), device + ": missing reader stylesheet " + resource);
         }
+        assert.equal(await page.locator(".site-header, .site-footer, .site-logo").count(), 0,
+          device + ": unrelated site navigation exposed inside paid reader");
+        assert.equal(await page.locator("main#main").count(), 1,
+          device + ": reader document has no main landmark");
+        assert.equal(await page.locator(".reader-topbar__back").getAttribute("href"),
+          "/me/purchases", device + ": buyer has no safe way out");
+
         const metrics = await page.evaluate(() => {
           const readerWidth = document.querySelector(".reader-paid .reader-width");
           const content = document.querySelector(".reader-paid__content");
           const body = getComputedStyle(document.body);
           const textStyle = getComputedStyle(document.querySelector(".reader-piece__text"));
           const contentStyle = getComputedStyle(content);
-          const logoStyle = getComputedStyle(document.querySelector(".site-logo"));
+          const topbarStyle = getComputedStyle(document.querySelector(".reader-topbar"));
           return {
             bodyMargin: body.marginTop,
             background: body.backgroundColor,
@@ -241,7 +251,8 @@ async function run() {
             lineHeight: Number.parseFloat(textStyle.lineHeight),
             padding: Number.parseFloat(contentStyle.paddingLeft),
             border: contentStyle.borderTopStyle,
-            logoImage: logoStyle.backgroundImage,
+            topbarPosition: topbarStyle.position,
+            topbarTop: Number.parseFloat(topbarStyle.top),
             stylesheets: document.styleSheets.length,
           };
         });
@@ -254,8 +265,8 @@ async function run() {
           device + ": reader typography lost");
         assert(metrics.padding >= 12 && metrics.border === "solid",
           device + ": paid reading surface lost its padding/border");
-        assert(metrics.logoImage.includes("pandaolate-header.png"),
-          device + ": authentic site logo CSS absent");
+        assert(metrics.topbarPosition === "sticky" && metrics.topbarTop === 0,
+          device + ": standalone NEwBOO reader topbar not sticky");
         assert(metrics.stylesheets >= 2, device + ": layout stylesheets missing");
 
         // Render the real Rust HTML + exact production CSS on two viewports.
