@@ -1,0 +1,11 @@
+[package]
+name = "tor-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+tor-contracts = { path = "../contracts" }
+
+[dev-dependencies]
+tokio.workspace = true
