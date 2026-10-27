@@ -21,7 +21,7 @@ fn reader_layout(title: &str, description: &str, content: &str) -> Html<String> 
 
 /// NEwBOO-like mixed table of contents: paid purchases are D-scoped,
 /// free chapter links follow B's public rule, and locked chapters get no URL.
-fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
+fn paid_book_toc_for(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: bool) -> String {
     let mut entries = String::new();
     for chapter in &toc.chapters {
         let title = escape_html(&chapter.title);
@@ -92,8 +92,18 @@ fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
     } else {
         ""
     };
+    let position = if bottom {
+        "reader-topbar__toc--bottom"
+    } else {
+        "reader-topbar__toc--top"
+    };
+    let toc_attr = if bottom {
+        "data-paid-toc-bottom"
+    } else {
+        "data-paid-toc"
+    };
     format!(
-        "<details class=\"reader-topbar__toc\" data-paid-toc>
+        "<details class=\"reader-topbar__toc {position}\" {toc_attr}>
           <summary aria-label=\"Оглавление книги\">Оглавление</summary>
           <div class=\"reader-paid__toc-menu\" role=\"group\" aria-label=\"Оглавление книги\">
             <div class=\"reader-paid__toc-head\">
@@ -105,6 +115,10 @@ fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
           </div>
          </details>"
     )
+}
+
+fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
+    paid_book_toc_for(edition, toc, false)
 }
 
 /// Render only a verified edition or a separately public free chapter.
@@ -175,10 +189,16 @@ fn paid_chapter_nav(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: bool
     let next = toc.chapters.get(index + 1);
     let region = if bottom { "внизу" } else { "вверху" };
     let position = if bottom { "bottom" } else { "top" };
+    let bottom_toc = if bottom {
+        paid_book_toc_for(edition, toc, true)
+    } else {
+        String::new()
+    };
     format!(
         "<nav class=\"reader-paid__chapter-nav reader-paid__chapter-nav--{position}\"
               data-paid-chapter-nav aria-label=\"Переход между главами {region}\">
             {}
+            {bottom_toc}
             {}
          </nav>",
         paid_nav_item(previous, true),
@@ -423,6 +443,11 @@ mod tests {
             chapter_title: "Next".to_owned(),
         };
         let blocked = paid_chapter_nav(&next_edition, &toc, true);
+        assert_eq!(blocked.matches("data-paid-toc-bottom").count(), 1);
+        assert!(blocked.contains("reader-topbar__toc--bottom"));
+        assert!(blocked.contains("href=\"/reader/21\""));
+        assert!(blocked.contains("href=\"/read/paid/24?purchase_id=32\""));
+        assert!(!blocked.contains("href=\"/reader/25\""));
         assert!(blocked.contains("data-paid-nav-next aria-disabled=\"true\""));
         assert!(blocked.contains("Не куплено"));
         assert!(!blocked.contains("href=\"/read/paid/25"));
@@ -477,6 +502,8 @@ mod tests {
         assert!(body.contains("data-paid-toc"));
         assert!(body.contains("Оглавление книги"));
         assert_eq!(body.matches("data-paid-chapter-nav").count(), 2);
+        assert_eq!(body.matches("data-paid-toc-bottom").count(), 1);
+        assert_eq!(body.matches("data-paid-toc>").count(), 1);
         assert!(body.contains("data-paid-nav-next aria-disabled=\"true\""));
         assert!(body.contains("data-paid-nav-prev aria-disabled=\"true\""));
         assert!(body.contains("aria-current=\"page\""));

@@ -288,6 +288,45 @@ async function run() {
           assert((await next.textContent()).includes("Вторая купленная глава"),
             device + ": next card has wrong real chapter title");
         }
+        // The original NEwBOO footer has a real TOC between previous and
+        // next. It must duplicate only safe B/D-scoped navigation metadata.
+        const footerToc = bottomNavigation.locator("[data-paid-toc-bottom]");
+        assert.equal(await footerToc.count(), 1,
+          device + ": NEwBOO footer TOC missing");
+        await footerToc.locator("summary").click();
+        assert(await footerToc.evaluate((element) => element.open),
+          device + ": footer TOC cannot open");
+        assert.equal(await footerToc.locator("a[data-paid-toc-link]").count(), 1,
+          device + ": paid V1 missing from footer TOC");
+        assert.equal(await footerToc.locator("a[data-free-toc-link]").count(), 1,
+          device + ": public free chapter missing from footer TOC");
+        assert.equal(await footerToc.locator('[data-toc-state="locked"] a').count(), 0,
+          device + ": locked chapter clickable in footer TOC");
+        assert.equal(await footerToc.locator('[aria-current="page"]').count(), 1,
+          device + ": footer TOC lost selected edition");
+        const footerGeometry = await footerToc.locator(".reader-paid__toc-menu")
+          .evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            return {
+              left: bounds.left,
+              right: bounds.right,
+              bottom: bounds.bottom,
+              viewportWidth: document.documentElement.clientWidth,
+              viewportHeight: window.innerHeight,
+            };
+          });
+        assert(footerGeometry.left >= 0 &&
+          footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
+          footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
+          device + ": footer menu clips beyond viewport");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-bottom-toc-" + device + ".png"),
+          fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+        await footerToc.locator("summary").click();
+        assert(!(await footerToc.evaluate((element) => element.open)),
+          device + ": footer TOC does not close");
         const navStyles = await topNavigation.evaluate((element) => {
           const next = element.querySelector("[data-paid-nav-next]");
           const prev = element.querySelector("[data-paid-nav-prev]");
