@@ -385,14 +385,15 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .execute(&pool)
         .await
         .unwrap();
-    let still_allowed: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
-        .bind(buyer)
-        .bind(purchase)
-        .bind(chapter)
-        .bind(v1)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let still_allowed: bool =
+        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+            .bind(buyer)
+            .bind(purchase)
+            .bind(chapter)
+            .bind(v1)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(still_allowed, "creator-hide never revokes the paid V1");
     assert_eq!(
         b.encrypted_chapter(pinned(chapter, v1))
