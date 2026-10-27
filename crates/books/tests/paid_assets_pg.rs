@@ -54,12 +54,7 @@ async fn ready_asset(pool: &PgPool, pinned: ChapterVersionRef, id: &str) -> Obje
     object
 }
 
-async fn ready_chapter(
-    pool: &PgPool,
-    pinned: ChapterVersionRef,
-    body: &str,
-    id: &str,
-) -> ObjectId {
+async fn ready_chapter(pool: &PgPool, pinned: ChapterVersionRef, body: &str, id: &str) -> ObjectId {
     let object = ObjectId::parse(id).unwrap();
     let plaintext_sha = digest(body.as_bytes());
     let aad = format!(
@@ -157,18 +152,8 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
     .unwrap();
     let v1 = pinned(chapter, v1);
     let v2 = pinned(chapter, v2);
-    let image_v1 = ready_asset(
-        &pool,
-        v1,
-        "b0b0a500-0001-4000-8000-000000000001",
-    )
-    .await;
-    let image_other = ready_asset(
-        &pool,
-        v1,
-        "b0b0a500-0002-4000-8000-000000000002",
-    )
-    .await;
+    let image_v1 = ready_asset(&pool, v1, "b0b0a500-0001-4000-8000-000000000001").await;
+    let image_other = ready_asset(&pool, v1, "b0b0a500-0002-4000-8000-000000000002").await;
 
     assert_eq!(
         assets
@@ -196,7 +181,10 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
             .await,
         Err(AuthorError::Invalid)
     );
-    assert_eq!(assets.encrypted_for_pinned(v1, &image_v1).await.unwrap(), None);
+    assert_eq!(
+        assets.encrypted_for_pinned(v1, &image_v1).await.unwrap(),
+        None
+    );
 
     assert_eq!(
         assets
@@ -218,13 +206,12 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
         Err(AuthorError::Conflict),
         "immutable ordinal cannot be changed"
     );
-    let state: (String, bool) = sqlx::query_as(
-        "SELECT state,delete_after IS NULL FROM storage_objects WHERE id=$1::uuid",
-    )
-    .bind(image_v1.as_str())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let state: (String, bool) =
+        sqlx::query_as("SELECT state,delete_after IS NULL FROM storage_objects WHERE id=$1::uuid")
+            .bind(image_v1.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(state, ("attached".to_owned(), true));
     assert_eq!(
         assets.encrypted_for_pinned(v1, &image_v1).await.unwrap(),
@@ -232,13 +219,7 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
         "an unpublished image cannot be resolved as a readable version"
     );
 
-    let chapter_v1 = ready_chapter(
-        &pool,
-        v1,
-        first,
-        "b0b0a500-0003-4000-8000-000000000003",
-    )
-    .await;
+    let chapter_v1 = ready_chapter(&pool, v1, first, "b0b0a500-0003-4000-8000-000000000003").await;
     versions
         .attach_verified_and_publish(
             owner,
@@ -263,7 +244,10 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
     );
     assert_eq!(reference.codec, ContentCodec::None);
     assert_eq!(reference.object.object_id, image_v1);
-    assert_eq!(assets.encrypted_for_pinned(v2, &image_v1).await.unwrap(), None);
+    assert_eq!(
+        assets.encrypted_for_pinned(v2, &image_v1).await.unwrap(),
+        None
+    );
     assert_eq!(
         assets
             .attach_prepared(owner, v1, 2, "image/png", &image_other)
@@ -293,13 +277,7 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
             .is_err(),
         "an accepted image cannot be deleted from purchased V1"
     );
-    let chapter_v2 = ready_chapter(
-        &pool,
-        v2,
-        second,
-        "b0b0a500-0004-4000-8000-000000000004",
-    )
-    .await;
+    let chapter_v2 = ready_chapter(&pool, v2, second, "b0b0a500-0004-4000-8000-000000000004").await;
     versions
         .attach_verified_and_publish(
             owner,
@@ -313,9 +291,16 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
         .await
         .unwrap();
     assert!(
-        assets.encrypted_for_pinned(v1, &image_v1).await.unwrap().is_some(),
+        assets
+            .encrypted_for_pinned(v1, &image_v1)
+            .await
+            .unwrap()
+            .is_some(),
         "V2 publication must not revoke verified V1 image membership"
     );
-    assert_eq!(assets.encrypted_for_pinned(v2, &image_v1).await.unwrap(), None);
+    assert_eq!(
+        assets.encrypted_for_pinned(v2, &image_v1).await.unwrap(),
+        None
+    );
     pool.close().await;
 }
