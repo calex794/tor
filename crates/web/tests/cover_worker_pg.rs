@@ -12,7 +12,6 @@ use std::{
     io::Cursor,
     sync::{Arc, Mutex},
     time::Duration,
-    time::Duration,
 };
 use tor_books::repositories::{
     cover_slots::{PgCoverSlots, PublicCoverKind},
@@ -343,7 +342,6 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap()
         .is_none());
 
-
     // OBS-08: the private S3 provider disappears after trusted registration.
     // The scheduled runner must keep the job pending, with no public image.
     // Then abort it (simulated process restart), restore the object, and verify
@@ -389,7 +387,10 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
     .expect("S3 outage must be reported by the actual background worker");
     original.abort();
     let stopped = original.await.unwrap_err();
-    assert!(stopped.is_cancelled(), "simulated restart must stop the first runner");
+    assert!(
+        stopped.is_cancelled(),
+        "simulated restart must stop the first runner"
+    );
     let first = original_monitor.snapshot();
     assert_eq!(first.attached, 0);
     assert!(first.retried_or_quarantined >= 1);
@@ -439,7 +440,10 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         Some((interrupted_job, 1)),
         "replay after restart must attach the exact job once"
     );
-    assert_eq!(jobs.existing_variants(interrupted_job).await.unwrap().len(), 2);
+    assert_eq!(
+        jobs.existing_variants(interrupted_job).await.unwrap().len(),
+        2
+    );
     let image = fetch(&app, "/covers/904/card.webp").await;
     assert_eq!(image.status(), StatusCode::OK);
     assert_eq!(image.headers()["content-type"], "image/webp");
