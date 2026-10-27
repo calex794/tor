@@ -97,7 +97,8 @@ fn tier_for_insert(ranks: &mut [BookRank], position: usize) -> Result<i64, Ranki
     } else {
         let lower = groups[position - 1].0;
         let upper = groups[position].0;
-        (upper - lower > 1).then_some(lower + (upper - lower) / 2)
+        ((upper as i128 - lower as i128) > 1)
+            .then_some((lower as i128 + (upper as i128 - lower as i128) / 2) as i64)
     };
     if let Some(tier) = tier { return Ok(tier); }
     // A rare full rebalance is preferable to precision loss or tier overflow.
@@ -192,7 +193,7 @@ impl RankingSnapshot {
         next.placement = Some(PlacementState {
             placing_book_id:book_id, low_position:0,
             high_position:i32::try_from(tier_groups(&next.ranks).len()).map_err(|_| RankingError::Invalid)?-1,
-            state_version:next.revision,
+            state_version:1,
         });
         next.skipped_pairs.clear();
         Ok((next,AnswerStatus::Placing))
@@ -214,7 +215,8 @@ impl RankingSnapshot {
         }
         let mut next = self.clone();
         next.revision = next.revision.checked_add(1).ok_or(RankingError::Invalid)?;
-        next.placement.as_mut().ok_or(RankingError::Invalid)?.state_version = next.revision;
+        let state = next.placement.as_mut().ok_or(RankingError::Invalid)?;
+        state.state_version = state.state_version.checked_add(1).ok_or(RankingError::Invalid)?;
         next.skipped_pairs.clear();
         Ok(next)
     }
@@ -267,7 +269,7 @@ impl RankingSnapshot {
         if low <= high {
             next.placement = Some(PlacementState {
                 placing_book_id: state.placing_book_id,
-                low_position: low, high_position: high, state_version:next.revision,
+                low_position: low, high_position: high, state_version:state.state_version.checked_add(1).ok_or(RankingError::Invalid)?,
             });
             next.skipped_pairs.clear();
             return Ok((next,AnswerStatus::Placing));
