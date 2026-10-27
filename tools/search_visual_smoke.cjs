@@ -143,8 +143,11 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).count() === 0, viewport + ': draft leaked to HTML');
         assert(!(await apiHas(guest, id, filters)), viewport + ': draft leaked to JSON');
+        // The searched URL can echo its explicitly supplied selection. Check
+        // the unfiltered public taxonomy, not the caller's own query string.
+        await guest.goto(base + '/catalog', { waitUntil: 'networkidle' });
         assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 0,
-          viewport + ': private tag leaked to options');
+          viewport + ': private tag leaked to public options');
 
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await page.waitForURL(base + '/books/' + id);
