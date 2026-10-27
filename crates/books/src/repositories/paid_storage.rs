@@ -196,8 +196,7 @@ impl PgPaidStorage {
         .fetch_one(&mut *tx)
         .await
         .map_err(map_write)?;
-        let manifest = ReaderVersionManifestV1::from_markdown(&body)
-            .ok_or(AuthorError::Invalid)?;
+        let manifest = ReaderVersionManifestV1::from_markdown(&body).ok_or(AuthorError::Invalid)?;
         let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
         let digest: [u8; 32] = Sha256::digest(normalized.as_bytes()).into();
         sqlx::query(
