@@ -60,7 +60,11 @@ async fn unconfigured_storage_never_returns_a_signed_url_or_dek() {
         codec: ContentCodec::Gzip,
     };
     let adapter = UnconfiguredPrivateDelivery;
-    for ttl in [Duration::from_secs(30), Duration::from_secs(90), Duration::from_secs(120)] {
+    for ttl in [
+        Duration::from_secs(30),
+        Duration::from_secs(90),
+        Duration::from_secs(120),
+    ] {
         let result = adapter.grant_verified_object(&encrypted, ttl).await;
         assert!(matches!(result, Err(DeliveryError::Unavailable)));
     }
