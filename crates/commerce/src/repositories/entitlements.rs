@@ -25,6 +25,14 @@ pub struct ReadablePurchasesPage {
     pub next_after: Option<i64>,
 }
 
+/// Bounded navigation for versions actually owned in this same book.
+/// A public TOC is deliberately not used to infer paid access.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadableBookToc {
+    pub items: Vec<ReadablePurchase>,
+    pub truncated: bool,
+}
+
 #[derive(Clone)]
 pub struct PgDirectEntitlements {
     pool: PgPool,
@@ -90,6 +98,81 @@ impl PgDirectEntitlements {
             })
         })
         .transpose()
+    }
+
+    /// Only chapters of the anchor purchase's book that still have D rights.
+    /// Nearest 100 purchased chapters keep the current edition in the list
+    /// even when the book contains hundreds of chapters. No progress grants.
+    pub async fn readable_book_toc(
+        &self,
+        actor: PositiveId,
+        chapter_id: PositiveId,
+        purchase_id: PositiveId,
+    ) -> Result<ReadableBookToc, DeliveryError> {
+        let mut rows = sqlx::query(
+            "WITH anchor AS (
+                SELECT c.book_id, c.chapter_no
+                FROM library_purchased_chapters l
+                JOIN chapter_purchase_facts p
+                  ON p.id=l.purchase_id AND p.user_id=l.user_id
+                 AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+                JOIN chapters c ON c.id=p.chapter_id
+                WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
+                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+            )
+            SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+                   v.version_no, c.chapter_no,
+                   b.title AS book_title, c.title AS chapter_title
+            FROM anchor a
+            JOIN chapters c ON c.book_id=a.book_id
+            JOIN books b ON b.id=c.book_id
+            JOIN chapter_purchase_facts p ON p.chapter_id=c.id
+            JOIN library_purchased_chapters l
+              ON l.purchase_id=p.id AND l.user_id=p.user_id
+             AND l.chapter_id=p.chapter_id AND l.active_version_id=p.version_id
+            JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=p.chapter_id
+            WHERE l.user_id=$1
+              AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+            ORDER BY ABS(c.chapter_no::BIGINT-a.chapter_no::BIGINT),
+                     c.chapter_no, p.id
+            LIMIT 101",
+        )
+        .bind(actor.get())
+        .bind(chapter_id.get())
+        .bind(purchase_id.get())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        let truncated = rows.len() > 100;
+        rows.truncate(100);
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            items.push(ReadablePurchase {
+                purchase_id: row
+                    .try_get("purchase_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_id: row
+                    .try_get("chapter_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                version_id: row
+                    .try_get("version_id")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                version_no: row
+                    .try_get("version_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_no: row
+                    .try_get("chapter_no")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                book_title: row
+                    .try_get("book_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+                chapter_title: row
+                    .try_get("chapter_title")
+                    .map_err(|_| DeliveryError::Unavailable)?,
+            });
+        }
+        items.sort_by_key(|item| (item.chapter_no, item.purchase_id));
+        Ok(ReadableBookToc { items, truncated })
     }
 
     /// D-owned list for the authenticated reader. A purchase ID is only a
