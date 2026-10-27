@@ -13,12 +13,14 @@ use std::{
 use tor_observability::{
     domain::{RouteGroup, StatusGroup},
     services::{
+        auth::{LoginMetrics, LoginOutcome, LoginSnapshot},
         trace::{RequestTrace, SqlEvidence, TraceBuffer},
         HttpMetrics,
     },
 };
 
 static METRICS: OnceLock<HttpMetrics> = OnceLock::new();
+static LOGIN_METRICS: OnceLock<LoginMetrics> = OnceLock::new();
 static TRACES: OnceLock<TraceBuffer> = OnceLock::new();
 static TRACE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(unix)]
@@ -96,6 +98,15 @@ pub(crate) fn record_http(family: &str, status: u16, elapsed: Duration) {
     );
 }
 
+/// One low-cost counter per completed login attempt, never a user dimension.
+pub(crate) fn record_login_outcome(outcome: LoginOutcome) {
+    LOGIN_METRICS.get_or_init(LoginMetrics::default).record(outcome);
+}
+
+pub(crate) fn login_summary() -> LoginSnapshot {
+    LOGIN_METRICS.get_or_init(LoginMetrics::default).snapshot()
+}
+
 fn equal_secret(a: &[u8], b: &[u8]) -> bool {
     // Constant work over bounded, validated token sizes.
     if a.len() != b.len() || a.len() < 32 || a.len() > 256 {
@@ -125,6 +136,7 @@ fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
 
 fn collected_metrics(metrics: &HttpMetrics) -> String {
     let mut text = metrics.prometheus();
+    text.push_str(&LOGIN_METRICS.get_or_init(LoginMetrics::default).prometheus());
     #[cfg(unix)]
     {
         let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();
