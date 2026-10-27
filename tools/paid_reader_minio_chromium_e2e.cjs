@@ -275,6 +275,14 @@ async function run() {
           assert.equal(await next.getAttribute("rel"), "next");
           assert.equal(await previous.getAttribute("aria-disabled"), "true",
             device + ": do not invent a previous purchase");
+          assert.equal(await next.getAttribute("aria-label"), "Следующая глава",
+            device + ": accessible next label differs from NEwBOO");
+          assert.equal(await previous.getAttribute("aria-label"), "Предыдущая глава",
+            device + ": accessible previous label differs from NEwBOO");
+          assert.equal(await next.locator(".reader-paid__nav-direction").textContent(),
+            "→ Дальше", device + ": original NEwBOO action wording lost");
+          assert.equal(await previous.locator(".reader-paid__nav-direction").textContent(),
+            "← Назад", device + ": original NEwBOO action wording lost");
           assert.equal(await previous.locator("a").count(), 0,
             device + ": disabled previous must not link to a locked chapter");
           assert((await next.textContent()).includes("Вторая купленная глава"),
@@ -289,11 +297,18 @@ async function run() {
             disabledBorder: getComputedStyle(prev).borderStyle,
             width: element.getBoundingClientRect().width,
             viewport: document.documentElement.clientWidth,
+            minHeight: Number.parseFloat(getComputedStyle(next).minHeight),
+            gap: Number.parseFloat(getComputedStyle(element).columnGap),
+            nameClamp: getComputedStyle(next.querySelector(".reader-paid__nav-name"))
+              .webkitLineClamp,
           };
         });
         assert(navStyles.columns === 2 && navStyles.nextBorder === "solid" &&
           navStyles.disabledBorder === "dashed" &&
-          navStyles.width <= navStyles.viewport,
+          navStyles.width <= navStyles.viewport &&
+          navStyles.minHeight >= 44 && navStyles.minHeight <= 90 &&
+          navStyles.gap >= 8 && navStyles.gap <= 12 &&
+          navStyles.nameClamp === "2",
           device + ": NEwBOO previous/next card design regression");
         await page.screenshot({
           path: path.join(screenshotRoot, "s065-reader-prev-next-" + device + ".png"),
