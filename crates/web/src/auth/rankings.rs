@@ -87,7 +87,10 @@ fn csrf_header(headers: &HeaderMap) -> Option<&str> {
 
 async fn view(state: &AuthState, user_id: i64) -> Result<RankingView, StatusCode> {
     let snapshot = state.rankings.snapshot(user_id).await.map_err(status)?;
-    let Some(question) = snapshot.next_question().map_err(|error| status(error.into()))? else {
+    let Some(question) = snapshot
+        .next_question()
+        .map_err(|error| status(error.into()))?
+    else {
         return Ok(RankingView {
             revision: snapshot.revision,
             state: if snapshot.placement.is_some() {
@@ -182,7 +185,11 @@ async fn resume(
     }
     let result = state
         .rankings
-        .apply(user, form.expected_revision, RankingCommand::ResumeExhausted)
+        .apply(
+            user,
+            form.expected_revision,
+            RankingCommand::ResumeExhausted,
+        )
         .await
         .map_err(status)?;
     Ok(MutationReceipt {
@@ -191,10 +198,7 @@ async fn resume(
     })
 }
 
-pub(super) async fn api_state(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-) -> Response {
+pub(super) async fn api_state(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let user = match actor(&state, &headers).await {
         Ok(user) => user,
         Err(error) => return deny(error),

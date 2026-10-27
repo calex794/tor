@@ -22,10 +22,10 @@ mod b06_cases;
 mod c06_cases;
 #[path = "auth_postgres/c11_cases.rs"]
 mod c11_cases;
-#[path = "auth_postgres/h_account_cases.rs"]
-mod h_account_cases;
 #[path = "auth_postgres/f05_ranking_cases.rs"]
 mod f05_ranking_cases;
+#[path = "auth_postgres/h_account_cases.rs"]
+mod h_account_cases;
 
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
