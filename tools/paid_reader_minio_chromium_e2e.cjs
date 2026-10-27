@@ -422,8 +422,21 @@ async function run() {
           const body = getComputedStyle(document.body);
           const textStyle = getComputedStyle(document.querySelector(".reader-piece__text"));
           const contentStyle = getComputedStyle(content);
-          const topbarStyle = getComputedStyle(document.querySelector(".reader-topbar"));
+          const topbar = document.querySelector(".reader-paid .reader-topbar");
+          const topbarStyle = getComputedStyle(topbar);
+          const topbarRect = topbar.getBoundingClientRect();
+          const columnRect = readerWidth.getBoundingClientRect();
+          const titleRect = topbar.querySelector(".reader-topbar__title").getBoundingClientRect();
+          const actionsRect = topbar.querySelector(".reader-topbar__actions").getBoundingClientRect();
           return {
+            toolbarLeft: topbarRect.left,
+            toolbarWidth: topbarRect.width,
+            viewportWidth: document.documentElement.clientWidth,
+            titleWithinToolbar: titleRect.left >= topbarRect.left &&
+              titleRect.right <= topbarRect.right,
+            actionsWithinToolbar: actionsRect.left >= topbarRect.left &&
+              actionsRect.right <= topbarRect.right,
+            columnWidth: columnRect.width,
             bodyMargin: body.marginTop,
             background: body.backgroundColor,
             readerWidth: readerWidth.getBoundingClientRect().width,
@@ -448,6 +461,13 @@ async function run() {
           device + ": paid reading surface lost its padding/border");
         assert(metrics.topbarPosition === "sticky" && metrics.topbarTop === 0,
           device + ": standalone NEwBOO reader topbar not sticky");
+        // The original has a full-width toolbar; body text stays in a
+        // bounded column. Mobile controls may never spill out of the toolbar.
+        assert(Math.abs(metrics.toolbarLeft) < 2 &&
+          Math.abs(metrics.toolbarWidth - metrics.viewportWidth) < 2 &&
+          metrics.toolbarWidth > metrics.columnWidth &&
+          metrics.titleWithinToolbar && metrics.actionsWithinToolbar,
+          device + ": NEwBOO reader toolbar must span the viewport without clipping");
         assert(metrics.stylesheets >= 2, device + ": layout stylesheets missing");
 
         // Render the real Rust HTML + exact production CSS on two viewports.
