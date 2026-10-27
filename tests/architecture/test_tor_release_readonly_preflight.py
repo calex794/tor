@@ -69,7 +69,7 @@ import json
 import os
 import sys
 url = sys.argv[-1]
-if os.environ.get("TOR_TEST_NETWORK") == "offline":
+if os.environ.get("TOR_TEST_NETWORK") == "offline" and "api.github.com" in url:
     sys.exit(7)
 if url.endswith("/readyz"):
     print("ok")
