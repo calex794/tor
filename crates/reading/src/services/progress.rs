@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn completion_requires_exact_last_readable_utf16_offset() {
-        let blocks = reader_blocks("Начало\\n\\nКонец😀\\n\\n");
+        let blocks = reader_blocks("Начало\n\nКонец😀\n\n");
         assert_eq!(blocks.len(), 3);
         assert!(!is_completed_place(
             ReadingPlace {
