@@ -100,32 +100,32 @@ $tor_migrations_smoke$;
 -- bodies or unpublished content. This is run on fresh and upgraded databases.
 DO $shadow_smoke$
 DECLARE
-    book_id bigint;
+    selected_book_id bigint;
     chapter_id bigint;
     version_id bigint;
     visible_count integer;
 BEGIN
-    SELECT id INTO book_id FROM books WHERE source_identity='ci-public-book';
-    IF (SELECT shadow_enabled FROM books WHERE id=book_id) <> FALSE
-       OR (SELECT seo_index_owner FROM books WHERE id=book_id) <> 'pandaolate' THEN
+    SELECT id INTO selected_book_id FROM books WHERE source_identity='ci-public-book';
+    IF (SELECT shadow_enabled FROM books WHERE id=selected_book_id) <> FALSE
+       OR (SELECT seo_index_owner FROM books WHERE id=selected_book_id) <> 'pandaolate' THEN
         RAISE EXCEPTION 'Shadow default-off / SEO owner invariant failed';
     END IF;
 
-    SELECT count(*) INTO visible_count FROM shadow_public_books WHERE id=book_id;
+    SELECT count(*) INTO visible_count FROM shadow_public_books WHERE id=selected_book_id;
     IF visible_count <> 0 THEN
         RAISE EXCEPTION 'Shadow leaked a default-off book';
     END IF;
 
     BEGIN
-        UPDATE books SET seo_index_owner='shadow' WHERE id=book_id;
+        UPDATE books SET seo_index_owner='shadow' WHERE id=selected_book_id;
         RAISE EXCEPTION 'Shadow SEO owner accepted without opt-in';
     EXCEPTION WHEN check_violation THEN
         NULL;
     END;
 
     UPDATE books SET shadow_enabled=TRUE, seo_index_owner='shadow'
-      WHERE id=book_id;
-    IF (SELECT count(*) FROM shadow_public_books WHERE id=book_id) <> 1 THEN
+      WHERE id=selected_book_id;
+    IF (SELECT count(*) FROM shadow_public_books WHERE id=selected_book_id) <> 1 THEN
         RAISE EXCEPTION 'Shadow manually enabled book is missing';
     END IF;
     IF (SELECT count(*) FROM shadow_public_books WHERE source_identity='ci-hidden-book') <> 0 THEN
@@ -133,7 +133,7 @@ BEGIN
     END IF;
 
     INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-      VALUES(book_id,3,'Paid metadata allowed','public','paid',150)
+      VALUES(selected_book_id,3,'Paid metadata allowed','public','paid',150)
       RETURNING id INTO chapter_id;
     INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
       VALUES(chapter_id,1,'SECRET-PAID-MARKER')
@@ -152,9 +152,9 @@ BEGIN
     END IF;
 
     UPDATE books SET shadow_enabled=FALSE,seo_index_owner='pandaolate'
-      WHERE id=book_id;
-    IF EXISTS(SELECT 1 FROM shadow_public_books WHERE id=book_id)
-       OR EXISTS(SELECT 1 FROM shadow_public_chapters AS sc WHERE sc.book_id=$shadow_smoke$.book_id) THEN
+      WHERE id=selected_book_id;
+    IF EXISTS(SELECT 1 FROM shadow_public_books WHERE id=selected_book_id)
+       OR EXISTS(SELECT 1 FROM shadow_public_chapters AS sc WHERE sc.book_id=selected_book_id) THEN
         RAISE EXCEPTION 'Shadow manual withdrawal leaked a book or chapters';
     END IF;
 END
