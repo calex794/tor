@@ -1,0 +1,8 @@
+[package]
+name = "tor-discussions"
+version.workspace = true
+edition.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+sqlx.workspace = true
