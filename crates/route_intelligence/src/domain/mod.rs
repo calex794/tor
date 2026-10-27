@@ -92,8 +92,6 @@ impl RouteRegistration {
     }
 }
 
-// Indexes below are deliberately shared with classify(), and checked by unit tests.
-// These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
@@ -385,9 +383,7 @@ const ROUTES: [RouteRegistration; 52] = [
         System,
         Free,
     ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
     RouteRegistration::new(
         "/ops/traces",
         "GET",
@@ -406,7 +402,6 @@ const ROUTES: [RouteRegistration; 52] = [
         ProductArea::Admin,
         Read,
     ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
     RouteRegistration::new(
         "/covers/{id}/{variant}",
         "GET",
@@ -445,7 +440,6 @@ const ROUTES: [RouteRegistration; 52] = [
     ), // 51
 ];
 
-/// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
 }
