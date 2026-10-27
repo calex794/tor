@@ -5,9 +5,7 @@ use tor_books::{
     repositories::paid_storage::{PaidPublication, PgPaidStorage},
     services::authoring::AuthorError,
 };
-use tor_contracts::paid_delivery::{
-    ChapterVersionPort, ChapterVersionRef, ObjectId, PositiveId,
-};
+use tor_contracts::paid_delivery::{ChapterVersionPort, ChapterVersionRef, ObjectId, PositiveId};
 
 fn pinned(chapter: i64, version: i64) -> ChapterVersionRef {
     ChapterVersionRef {
@@ -85,7 +83,10 @@ async fn object_state(pool: &PgPool, id: &ObjectId) -> String {
 #[ignore = "requires isolated PG18 TEST_DATABASE_URL ending /tor_ci"]
 async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     let url = std::env::var("TEST_DATABASE_URL").expect("CI disposable database");
-    assert!(url.ends_with("/tor_ci"), "never connect production database");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "never connect production database"
+    );
     let pool = PgPool::connect(&url).await.unwrap();
     let b = PgPaidStorage::new(pool.clone());
     let owner: i64 = sqlx::query_scalar(
@@ -280,14 +281,16 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         Ok(())
     );
     assert_eq!(object_state(&pool, &object_v2).await, "attached");
-    assert_eq!(stored_object(&pool, v2).await.as_deref(), Some(object_v2.as_str()));
-    let current: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    assert_eq!(
+        stored_object(&pool, v2).await.as_deref(),
+        Some(object_v2.as_str())
+    );
+    let current: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(current, v2);
     let event: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM chapter_encrypted_release_events
@@ -329,36 +332,41 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     );
 
     // D's historical purchase remains exact V1, independent of current V2.
-    let still_owned: bool =
-        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
-            .bind(buyer)
-            .bind(purchase)
-            .bind(chapter)
-            .bind(v1)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let still_owned: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+        .bind(buyer)
+        .bind(purchase)
+        .bind(chapter)
+        .bind(v1)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(still_owned);
-    let v1_metadata = b.encrypted_chapter(pinned(chapter, v1)).await.unwrap().unwrap();
+    let v1_metadata = b
+        .encrypted_chapter(pinned(chapter, v1))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(v1_metadata.object.object_id, object_v1);
-    let v2_metadata = b.encrypted_chapter(pinned(chapter, v2)).await.unwrap().unwrap();
+    let v2_metadata = b
+        .encrypted_chapter(pinned(chapter, v2))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(v2_metadata.object.object_id, object_v2);
     assert_ne!(v1_metadata.aad, v2_metadata.aad);
 
-    let version_mutation = sqlx::query(
-        "UPDATE chapter_versions SET body_markdown='tampered' WHERE id=$1",
-    )
-    .bind(v1)
-    .execute(&pool)
-    .await;
+    let version_mutation =
+        sqlx::query("UPDATE chapter_versions SET body_markdown='tampered' WHERE id=$1")
+            .bind(v1)
+            .execute(&pool)
+            .await;
     assert!(version_mutation.is_err());
-    let object_mutation = sqlx::query(
-        "UPDATE chapter_versions SET storage_object_id=$2::uuid WHERE id=$1",
-    )
-    .bind(v1)
-    .bind(object_v2.as_str())
-    .execute(&pool)
-    .await;
+    let object_mutation =
+        sqlx::query("UPDATE chapter_versions SET storage_object_id=$2::uuid WHERE id=$1")
+            .bind(v1)
+            .bind(object_v2.as_str())
+            .execute(&pool)
+            .await;
     assert!(object_mutation.is_err());
     let deletion = sqlx::query("DELETE FROM storage_objects WHERE id=$1::uuid")
         .bind(object_v1.as_str())
@@ -372,7 +380,11 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(b.encrypted_chapter(pinned(chapter, v1)).await.unwrap().is_none());
+    assert!(b
+        .encrypted_chapter(pinned(chapter, v1))
+        .await
+        .unwrap()
+        .is_none());
     sqlx::query("UPDATE chapters SET admin_hold=FALSE WHERE id=$1")
         .bind(chapter)
         .execute(&pool)

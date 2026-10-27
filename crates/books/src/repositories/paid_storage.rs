@@ -19,10 +19,7 @@ pub enum PaidPublication {
 
 fn map_write(error: sqlx::Error) -> AuthorError {
     if let sqlx::Error::Database(ref db) = error {
-        if matches!(
-            db.code().as_deref(),
-            Some("23503" | "23505" | "23514")
-        ) {
+        if matches!(db.code().as_deref(), Some("23503" | "23505" | "23514")) {
             return AuthorError::Conflict;
         }
     }
@@ -112,7 +109,10 @@ impl PgPaidStorage {
         let Some(previous_object) = existing else {
             return Err(AuthorError::Missing);
         };
-        if previous_object.as_deref().is_some_and(|id| id != object_id.as_str()) {
+        if previous_object
+            .as_deref()
+            .is_some_and(|id| id != object_id.as_str())
+        {
             return Err(AuthorError::Conflict);
         }
         let current: Option<i64> = sqlx::query_scalar(
@@ -275,12 +275,24 @@ impl ChapterVersionPort for PgPaidStorage {
         let Some(row) = row else {
             return Ok(None);
         };
-        let uuid: String = row.try_get("object_id").map_err(|_| DeliveryError::Unavailable)?;
-        let size: i64 = row.try_get("size_bytes").map_err(|_| DeliveryError::Unavailable)?;
-        let digest: Vec<u8> = row.try_get("sha256_ciphertext").map_err(|_| DeliveryError::Unavailable)?;
-        let nonce: Vec<u8> = row.try_get("object_nonce").map_err(|_| DeliveryError::Unavailable)?;
-        let aad: Vec<u8> = row.try_get("object_aad").map_err(|_| DeliveryError::Unavailable)?;
-        let kek_id: String = row.try_get("kek_id").map_err(|_| DeliveryError::Unavailable)?;
+        let uuid: String = row
+            .try_get("object_id")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let size: i64 = row
+            .try_get("size_bytes")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let digest: Vec<u8> = row
+            .try_get("sha256_ciphertext")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let nonce: Vec<u8> = row
+            .try_get("object_nonce")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let aad: Vec<u8> = row
+            .try_get("object_aad")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let kek_id: String = row
+            .try_get("kek_id")
+            .map_err(|_| DeliveryError::Unavailable)?;
         let object_id = ObjectId::parse(&uuid).map_err(|_| DeliveryError::Unavailable)?;
         let object = ObjectRef::new(
             object_id,
