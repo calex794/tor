@@ -1,6 +1,7 @@
 //! Browser author publishing, only for authenticated owner, no URL collectors.
 #![forbid(unsafe_code)]
 
+use async_trait::async_trait;
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, StatusCode},
@@ -8,14 +9,15 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use async_trait::async_trait;
 use serde::Deserialize;
 use std::sync::Arc;
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest},
+    services::authoring::{
+        save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest,
+    },
 };
 
 use crate::auth_cookies::{private_response, CookiePolicy};
@@ -130,7 +132,10 @@ async fn new_chapter(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let paid_enabled = if state.paid_author.is_some() {
-        matches!(state.authoring.owned_book_is_public(actor, id).await, Ok(true))
+        matches!(
+            state.authoring.owned_book_is_public(actor, id).await,
+            Ok(true)
+        )
     } else {
         false
     };
@@ -185,7 +190,10 @@ async fn create_chapter(
     if request.access == ChapterAccess::Paid {
         let Some(publisher) = &state.paid_author else {
             return private_response(
-                (StatusCode::SERVICE_UNAVAILABLE, "Платная публикация пока не включена."),
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Платная публикация пока не включена.",
+                ),
                 &[],
             );
         };
