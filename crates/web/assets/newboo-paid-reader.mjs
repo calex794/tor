@@ -164,7 +164,14 @@ export async function decryptPaidGrant(
   }
   const text = await decompressBounded(zipped);
   requireValue(text.length <= 200000);
-  return { versionId: grant.version_id, text };
+  // Bind the displayed plaintext to G's authenticated immutable AAD.
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const plain = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode(normalized)
+  ));
+  const plainHex = Array.from(plain, (b) => b.toString(16).padStart(2, "0")).join("");
+  requireValue(plainHex === parts[4]);
+  return { versionId: grant.version_id, text, plaintextSha256: plainHex };
 }
 
 export function renderPaidBlocks(container, text, onSave) {
@@ -298,7 +305,8 @@ export async function startPaidReader(root) {
   const status = root.querySelector("[data-paid-status]");
   const article = root.querySelector("[data-paid-content]");
   const resume = root.querySelector("[data-paid-resume]");
-  requireValue(status && article && resume);
+  const completion = root.querySelector("[data-paid-completion]");
+  requireValue(status && article && resume && completion);
   status.textContent = "Проверяем покупку и загружаем защищённую версию…";
   const grant = await api(
     "/api/v1/reader/chapters/" + chapter + "/delivery-grants",
@@ -308,7 +316,7 @@ export async function startPaidReader(root) {
       body: JSON.stringify({ purchase_id: purchase }),
     }
   );
-  const { versionId, text } = await decryptPaidGrant(grant, chapter, s3Origin);
+  const { versionId, text, plaintextSha256 } = await decryptPaidGrant(grant, chapter, s3Origin);
   let revision = 0;
   const url = "/api/v1/me/progress/purchased";
   const lookup = new URLSearchParams({
@@ -316,7 +324,7 @@ export async function startPaidReader(root) {
   });
   const stored = await api(url + "?" + lookup.toString());
   revision = stored.revision;
-  renderPaidBlocks(article, text, async (blockId, charOffset) => {
+  const blocks = renderPaidBlocks(article, text, async (blockId, charOffset) => {
     try {
       const saved = await api(url, {
         method: "PUT",
@@ -339,6 +347,53 @@ export async function startPaidReader(root) {
     resume.replaceChildren(anchor);
   } else {
     resume.textContent = "Место ещё не сохранено.";
+  }
+  // A bookmark or download is not proof of completion. Only this separate,
+  // user-initiated action may request a C completion from a G-sealed anchor.
+  const finishUrl = "/api/v1/me/progress/purchased/complete";
+  const capability = await api(finishUrl + "?" + lookup.toString());
+  completion.hidden = false;
+  if (capability.completed) {
+    completion.textContent = "Глава уже отмечена прочитанной.";
+  } else if (!capability.available) {
+    completion.textContent = "Для этой редакции отметка прочтения пока недоступна.";
+  } else {
+    let last = -1;
+    blocks.forEach((block, index) => { if (block.trim()) last = index; });
+    requireValue(last >= 0);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button reader-paid__finish";
+    button.textContent = "Глава прочитана";
+    const message = document.createElement("span");
+    message.setAttribute("role", "status");
+    message.setAttribute("aria-live", "polite");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      message.textContent = "Сохраняем прочтение…";
+      try {
+        const result = await api(finishUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify({
+            chapter_id: chapter, purchase_id: purchase, version_id: versionId,
+            block_id: last + 1, char_offset: blocks[last].length,
+            expected_revision: revision, plaintext_sha256: plaintextSha256,
+          }),
+        });
+        requireValue(result.status === "completed" || result.status === "already_completed");
+        completion.replaceChildren(document.createTextNode("Глава отмечена прочитанной. "));
+        const ranking = document.createElement("a");
+        ranking.href = "/me/rankings";
+        ranking.textContent = "Открыть мой рейтинг";
+        ranking.className = "text-link";
+        completion.append(ranking);
+      } catch {
+        button.disabled = false;
+        message.textContent = "Не удалось отметить главу. Проверьте доступ и повторите.";
+      }
+    });
+    completion.replaceChildren(button, message);
   }
   status.textContent = "Оплаченная версия " + versionId + " · Защищённая загрузка завершена";
 }
