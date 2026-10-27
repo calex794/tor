@@ -100,7 +100,9 @@ pub(crate) fn record_http(family: &str, status: u16, elapsed: Duration) {
 
 /// One low-cost counter per completed login attempt, never a user dimension.
 pub(crate) fn record_login_outcome(outcome: LoginOutcome) {
-    LOGIN_METRICS.get_or_init(LoginMetrics::default).record(outcome);
+    LOGIN_METRICS
+        .get_or_init(LoginMetrics::default)
+        .record(outcome);
 }
 
 pub(crate) fn login_summary() -> LoginSnapshot {
@@ -136,7 +138,11 @@ fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
 
 fn collected_metrics(metrics: &HttpMetrics) -> String {
     let mut text = metrics.prometheus();
-    text.push_str(&LOGIN_METRICS.get_or_init(LoginMetrics::default).prometheus());
+    text.push_str(
+        &LOGIN_METRICS
+            .get_or_init(LoginMetrics::default)
+            .prometheus(),
+    );
     #[cfg(unix)]
     {
         let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();
@@ -240,12 +246,8 @@ mod tests {
         let response = endpoint(headers(&secret), Some(&secret), &metrics);
         let body = to_bytes(response.into_body(), 100_000).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(text.contains(
-            "tor_auth_login_outcomes_total{outcome=\"lookup_unavailable\"}"
-        ));
-        assert!(text.contains(
-            "tor_auth_login_outcomes_total{outcome=\"rate_limited\"}"
-        ));
+        assert!(text.contains("tor_auth_login_outcomes_total{outcome=\"lookup_unavailable\"}"));
+        assert!(text.contains("tor_auth_login_outcomes_total{outcome=\"rate_limited\"}"));
         for forbidden in ["email=", "user_id", "cookie=", "request_id", "sql_text"] {
             assert!(!text.contains(forbidden), "{forbidden}");
         }
