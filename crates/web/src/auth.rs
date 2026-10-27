@@ -281,10 +281,12 @@ async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        pages::my_library_with_purchases(&books, &saved, &csrf, state.paid_reader_available),
-        &cookies,
-    )
+    let page = if state.paid_reader_available {
+        pages::my_library_with_purchases(&books, &saved, &csrf, true)
+    } else {
+        pages::my_library(&books, &saved, &csrf)
+    };
+    private_response(page, &cookies)
 }
 
 /// Resolve actor from the session database, never client-supplied user IDs.
