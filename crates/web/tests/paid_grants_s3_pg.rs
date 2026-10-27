@@ -404,8 +404,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         version_id: PositiveId::new(version_two).unwrap(),
     };
     let object_two = ObjectId::parse(OBJECT_ID_SECOND).unwrap();
-    let sealed_two = seal_chapter(pinned_two, object_two.clone(), "Second paid edition content", &kek)
-        .unwrap();
+    let sealed_two = seal_chapter(
+        pinned_two,
+        object_two.clone(),
+        "Second paid edition content",
+        &kek,
+    )
+    .unwrap();
     let reference_two = registry
         .reserve_pending(&sealed_two, &kek, BUCKET)
         .await
@@ -442,9 +447,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
     assert!(second_html.contains("data-paid-toc"));
-    assert!(second_html.contains(&format!(
-        "/read/paid/{chapter}?purchase_id={purchase_id}"
-    )));
+    assert!(second_html.contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
     assert!(!second_html.contains("<script>опасно</script>"));
 
     let stranger_list = private_get(&app, "/me/purchases", Some(&stranger_cookie)).await;
