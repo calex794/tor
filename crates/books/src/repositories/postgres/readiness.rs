@@ -7,7 +7,8 @@ pub(super) fn require_latest_migration(version: Option<i64>) -> Result<(), sqlx:
         Ok(())
     } else {
         Err(sqlx::Error::Protocol(
-            "TOR schema missing required C verified completion and outbox migration 202610270010".into(),
+            "TOR schema missing required C verified completion and outbox migration 202610270010"
+                .into(),
         ))
     }
 }
