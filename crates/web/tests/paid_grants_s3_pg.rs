@@ -150,6 +150,27 @@ async fn paid_page(app: &Router, chapter: i64, purchase: i64, session: &str) -> 
     app.clone().oneshot(request).await.unwrap()
 }
 
+async fn private_get(app: &Router, uri: &str, session: Option<&str>) -> Response {
+    let mut request = Request::builder().method("GET").uri(uri);
+    if let Some(session) = session {
+        request = request.header(header::COOKIE, format!("tor-dev-session={session}"));
+    }
+    app.clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
+async fn html_body(response: Response) -> String {
+    String::from_utf8(
+        to_bytes(response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
 fn save_ephemeral_fixture(
     grant: Value,
     version: i64,
@@ -306,6 +327,20 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         "buyer may not receive bytes before the payment commits"
     );
     assert_eq!(
+        private_get(&app, "/me/purchases", None).await.status(),
+        StatusCode::UNAUTHORIZED,
+    );
+    assert_eq!(
+        private_get(&app, "/me/purchases?after=-2", Some(&buyer_cookie))
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    let empty = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
+    assert_eq!(empty.status(), StatusCode::OK);
+    assert!(!html_body(empty).await.contains("Читать купленную редакцию"));
+
+    assert_eq!(
         post_grant(&app, chapter, None, None, ORIGIN, "{}")
             .await
             .status(),
@@ -326,6 +361,25 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
     let purchase_id = purchase.purchase_id.get();
+    let stranger_list = private_get(&app, "/me/purchases", Some(&stranger_cookie)).await;
+    assert_eq!(stranger_list.status(), StatusCode::OK);
+    assert!(
+        !html_body(stranger_list).await.contains(&format!("purchase_id={purchase_id}")),
+        "another account cannot enumerate purchases"
+    );
+    let owned_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
+    assert_eq!(owned_list.status(), StatusCode::OK);
+    assert_eq!(owned_list.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(owned_list.headers()[header::REFERRER_POLICY], "no-referrer");
+    assert_eq!(owned_list.headers()["x-robots-tag"], "noindex");
+    assert!(html_body(owned_list)
+        .await
+        .contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
+    let ordinary_library = private_get(&app, "/me/library", Some(&buyer_cookie)).await;
+    assert_eq!(ordinary_library.status(), StatusCode::OK);
+    assert!(html_body(ordinary_library)
+        .await
+        .contains("href=\"/me/purchases\""));
     assert_eq!(
         post_grant(
             &app,
@@ -403,6 +457,11 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .await;
     assert_eq!(preserved.status(), StatusCode::OK);
+    let historical_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
+    assert_eq!(historical_list.status(), StatusCode::OK);
+    assert!(html_body(historical_list)
+        .await
+        .contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
     let still_v1 = decode(preserved).await;
     assert_eq!(still_v1["version_id"], v1.to_string());
     assert!(!still_v1.to_string().contains(MARKDOWN));
@@ -447,6 +506,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
     );
+    let held_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
+    assert!(!html_body(held_list)
+        .await
+        .contains(&format!("purchase_id={purchase_id}")));
     assert_eq!(
         post_grant(
             &app,
@@ -471,6 +534,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
              VALUES({purchase_id},'ci:s034-minio-refund','refund')"
         ),
     );
+    let refunded_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
+    assert!(!html_body(refunded_list)
+        .await
+        .contains(&format!("purchase_id={purchase_id}")));
     assert_eq!(
         post_grant(
             &app,
