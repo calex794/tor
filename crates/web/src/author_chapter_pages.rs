@@ -27,7 +27,7 @@ pub fn detail_with_covers(
                 ChapterAccess::Paid => "Платная",
             };
             let pending = published && !chapter.published;
-            let edit_action = if chapter.access == ChapterAccess::Free && (!published || pending) {
+            let edit_action = if chapter.access == ChapterAccess::Free {
                 format!(
                     " <a href=\"/me/books/{}/chapters/{}/edit\">Редактировать</a>",
                     book.id, chapter.id
@@ -224,7 +224,40 @@ pub fn edit_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, false)
+}
+
+/// A published free chapter uses the same NEwBOO-style editor and save action,
+/// but its new version is made readable atomically on the first POST.
+pub fn edit_published_chapter(
+    book_id: i64,
+    chapter_id: i64,
+    chapter: &OwnedChapter,
+    csrf: &str,
+    command_key: &str,
+) -> Html<String> {
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true)
+}
+
+fn edit_chapter_mode(
+    book_id: i64,
+    chapter_id: i64,
+    chapter: &OwnedChapter,
+    csrf: &str,
+    command_key: &str,
+    published: bool,
+) -> Html<String> {
+    let description = if published {
+        "Сохранение сразу обновит опубликованную редакцию. Предыдущая версия останется в истории."
+    } else {
+        "Редакция остаётся закрытой до выпуска книги или главы."
+    };
     let html = include_str!("../templates/author_edit_chapter.html")
+        .replace(
+            "<!--EDIT_EYEBROW-->",
+            if published { "редактирование опубликованной главы" } else { "редактирование черновика" },
+        )
+        .replace("<!--EDIT_DESCRIPTION-->", description)
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CHAPTER_ID-->", &chapter_id.to_string())
         .replace("<!--REVISION-->", &chapter.revision.to_string())
@@ -356,6 +389,42 @@ mod tests {
         assert!(page.0.contains("&lt;/pre&gt;"));
         assert!(!page.0.contains("<script>bad()"));
     }
+    #[test]
+    fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
+        let published_book = OwnedBook {
+            id: 42,
+            title: "Книга".to_owned(),
+        };
+        let summary = OwnedChapterSummary {
+            id: 55,
+            number: 1,
+            title: "Редакция".to_owned(),
+            access: ChapterAccess::Free,
+            published: true,
+        };
+        let detail_page = detail_with_covers(
+            &published_book,
+            true,
+            &[summary],
+            "csrf",
+            false,
+            None,
+        ).0;
+        assert!(detail_page.contains("/me/books/42/chapters/55/edit"));
+        let chapter = OwnedChapter {
+            number: 1,
+            title: "Новая глава".to_owned(),
+            body: "Содержание".to_owned(),
+            access: ChapterAccess::Free,
+            price_amount: 0,
+            revision: 3,
+        };
+        let page = edit_published_chapter(42, 55, &chapter, "csrf", "command").0;
+        assert!(page.contains("Сохранение сразу обновит опубликованную редакцию"));
+        assert!(page.contains("name=\"expected_revision\" value=\"3\""));
+        assert!(!page.contains("<!--EDIT_DESCRIPTION-->"));
+    }
+
     #[test]
     fn edit_form_escapes_title_and_textarea_breakout() {
         let chapter = OwnedChapter {
