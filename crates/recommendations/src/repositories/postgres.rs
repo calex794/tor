@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone)]
 pub struct PgRanking {
-    pool: PgPool,
+    pub(super) pool: PgPool,
 }
 
 #[derive(Clone, Debug)]
@@ -235,7 +235,7 @@ impl PgRanking {
     }
 }
 
-async fn load_snapshot(
+pub(super) async fn load_snapshot(
     tx: &mut Transaction<'_, Postgres>,
     user_id: i64,
     revision: i64,
@@ -325,7 +325,7 @@ async fn load_snapshot(
     Ok(result)
 }
 
-async fn persist(
+pub(super) async fn persist(
     tx: &mut Transaction<'_, Postgres>,
     old: &RankingSnapshot,
     next: &RankingSnapshot,
