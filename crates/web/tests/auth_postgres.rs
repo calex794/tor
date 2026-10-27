@@ -72,9 +72,18 @@ fn cookie(reply: &Response, prefix: &str) -> String {
         })
         .expect("Set-Cookie")
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "Requires TEST_DATABASE_URL on isolated PostgreSQL tor_ci"]
 async fn registration_login_logout_origin_csrf_and_private_profile() {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        registration_login_logout_origin_csrf_and_private_profile_impl(),
+    )
+    .await
+    .expect("auth PostgreSQL integration exceeded 180 seconds; review last checkpoint");
+}
+
+async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test database URL");
     let catalog = PgCatalog::connect(&url).await.expect("role and schema");
     let pool = catalog.pool();
@@ -947,7 +956,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     c11_cases::stale_second_session_cannot_overwrite(&app, &second_session).await;
     c11_cases::concurrent_sessions_one_progress_winner(&app, &second_session).await;
     c11_cases::reader_v2_html_flow(&app, &second_session, public_chapter_id).await;
-    c06_cases::purchased_version_http_journey(&app, &session, &second_session).await;
+    eprintln!("auth_pg checkpoint: start C06 paid journey");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        c06_cases::purchased_version_http_journey(&app, &session, &second_session),
+    )
+    .await
+    .expect("C06 paid HTTP journey exceeded 90 seconds");
 
     let logout_csrf = csrf_token(&private_html);
     let combined_cookies = format!("{session}; {new_csrf_cookie}");
