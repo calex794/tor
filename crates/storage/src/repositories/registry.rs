@@ -1,6 +1,8 @@
 //! G/S3-08 PostgreSQL registry for immutable ciphertext, never paid plaintext.
 //! A ready row is NOT a B published chapter or a D entitlement.
 //! The only ready transition requires a G-owned verified GET/hash receipt.
+mod assets;
+
 use crate::{
     domain::{
         object_keys::PrivateObjectKey,
