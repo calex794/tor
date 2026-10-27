@@ -447,6 +447,10 @@ impl PgReadingSync {
     }
 }
 
+#[path = "sync_s3_completion.rs"]
+mod s3_completion;
+pub use s3_completion::PurchasedFinish;
+
 fn parse_receipt(row: PgRow) -> Result<SyncReceipt, SyncError> {
     Ok(SyncReceipt {
         revision: row
