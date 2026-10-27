@@ -1,5 +1,6 @@
 pub mod cover_slots;
 pub mod paid_storage;
+pub mod paid_assets;
 pub mod postgres;
 pub use postgres::PgCatalog;
 
