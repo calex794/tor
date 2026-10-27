@@ -100,6 +100,24 @@ pub(super) async fn reader_and_progress_share_access_policy(
         assert_eq!(reply.status(), StatusCode::NOT_FOUND, "{chapter}");
         assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store");
         assert!(body_of(reply).await.is_empty());
+
+        let completed = format!("{place}&expected_revision=0");
+        let reply = send(
+            app,
+            request(
+                "POST",
+                &format!("/read/{chapter}/complete"),
+                &completed,
+                csrf_cookies,
+                ORIGIN,
+            ),
+        )
+        .await;
+        assert_eq!(reply.status(), StatusCode::NOT_FOUND, "{chapter}");
+        assert!(
+            body_of(reply).await.is_empty(),
+            "completion leaked hidden chapter"
+        );
     }
 
     // A bookmark, forged purchase ID or preview query grants no reading rights.
