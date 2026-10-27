@@ -220,16 +220,30 @@ pub(crate) fn unwrap_scoped_dek(
     encrypted: &EncryptedChapter,
     kek: &ContentKek,
 ) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
-    if encrypted.kek_id != KEK_ID {
+    unwrap_registered_dek(
+        &encrypted.object_id,
+        &encrypted.wrapped_dek,
+        &encrypted.wrap_nonce,
+        encrypted.kek_id,
+        kek,
+    )
+}
+
+/// G-only. Unwrap the exact persisted object key after a trusted attached
+/// registry lookup. Never expose this method through HTTP or accept a user
+/// supplied object reference. The result is always zeroized on drop.
+pub(crate) fn unwrap_registered_dek(
+    object_id: &ObjectId,
+    wrapped_dek: &[u8],
+    wrap_nonce: &[u8; 12],
+    kek_id: &str,
+    kek: &ContentKek,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    if kek_id != KEK_ID || wrapped_dek.len() != 48 {
         return Err(CryptoError::UnavailableKey);
     }
-    let aad = wrap_aad(&encrypted.object_id);
-    let bytes = Zeroizing::new(decrypt_raw(
-        &kek.0,
-        &encrypted.wrap_nonce,
-        &aad,
-        &encrypted.wrapped_dek,
-    )?);
+    let aad = wrap_aad(object_id);
+    let bytes = Zeroizing::new(decrypt_raw(&kek.0, wrap_nonce, &aad, wrapped_dek)?);
     if bytes.len() != 32 {
         return Err(CryptoError::InvalidMaterial);
     }
