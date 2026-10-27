@@ -1,0 +1,67 @@
+<!-- Adapted from NEwBOO backend/app/web/templates/books/settings.html covers tab. -->
+<section class="book-settings-page">
+  <div class="book-settings-shell">
+    <header class="ui-page-header book-settings-header">
+      <div class="ui-page-header__content">
+        <p class="ui-page-header__kicker">Управление книгой</p>
+        <h1 class="ui-page-header__title">Обложки книги</h1>
+        <p class="ui-page-header__text"><!--BOOK_TITLE--></p>
+      </div>
+      <div class="ui-page-header__actions">
+        <a class="ui-button ui-button--ghost" href="/me/books/<!--BOOK_ID-->">К книге</a>
+      </div>
+    </header>
+    <nav class="book-settings-tabs" aria-label="Настройки книги">
+      <a href="/me/books/<!--BOOK_ID-->">Главы</a>
+      <a href="/me/books/<!--BOOK_ID-->/settings/covers" aria-current="page">Обложки</a>
+    </nav>
+    <form
+      class="book-settings-card book-settings-card--wide book-covers-form"
+      method="post"
+      action="/me/books/<!--BOOK_ID-->/cover"
+      enctype="multipart/form-data"
+      data-cover-slots-form
+    >
+      <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+      <div class="book-settings-card__head">
+        <h2>Обложки</h2>
+        <p>Выберите карточку, укажите изображение и нажмите кнопку загрузки.</p>
+        <p>В TOR сейчас доступна одна обложка. В NEwBOO было четыре.</p>
+      </div>
+      <p class="book-covers-status" role="status"><!--COVER_STATUS--></p>
+      <div class="book-covers-grid book-covers-grid--single">
+        <label class="book-cover-picker" data-cover-picker>
+          <input
+            class="book-cover-picker__input"
+            type="file"
+            name="cover"
+            accept="image/jpeg,image/png,image/webp"
+            data-cover-picker-input
+            required
+          >
+          <span class="book-cover-picker__frame">
+            <!--COVER_IMAGE-->
+            <span
+              class="book-cover-picker__placeholder"
+              data-cover-picker-placeholder
+              <!--PLACEHOLDER_HIDDEN-->
+            >
+              <span class="book-cover-picker__plus">+</span>
+              <span>Выбрать файл</span>
+            </span>
+            <span class="book-cover-picker__change"><!--CHANGE_LABEL--></span>
+          </span>
+          <span class="book-cover-picker__meta">
+            <strong>Обложка 1</strong>
+            <small data-cover-picker-filename><!--FILE_LABEL--></small>
+          </span>
+          <span class="book-cover-picker__error" role="alert" data-cover-picker-error></span>
+        </label>
+      </div>
+      <div class="book-settings-actions book-covers-actions">
+        <button type="submit" class="ui-button ui-button--primary">Загрузить обложку</button>
+      </div>
+    </form>
+  </div>
+</section>
+<script src="/assets/newboo-cover-picker.js" defer></script>
