@@ -125,7 +125,10 @@ fn f_08_seo_01_book_visibility_and_content_are_strict() {
         SeoVisibility::Scheduled,
         SeoVisibility::Unknown,
     ] {
-        let facts = SeoBookFacts { visibility, ..book() };
+        let facts = SeoBookFacts {
+            visibility,
+            ..book()
+        };
         let decision = open.decide(SeoPage::Book {
             book: facts,
             view: SeoBookView::Canonical,
@@ -135,7 +138,13 @@ fn f_08_seo_01_book_visibility_and_content_are_strict() {
         assert!(!decision.sitemap_included);
     }
     for (facts, reason) in [
-        (SeoBookFacts { book_id: 0, ..book() }, SeoReason::InvalidIdentity),
+        (
+            SeoBookFacts {
+                book_id: 0,
+                ..book()
+            },
+            SeoReason::InvalidIdentity,
+        ),
         (
             SeoBookFacts {
                 has_public_content: false,
@@ -164,8 +173,11 @@ fn f_08_seo_01_paid_scheduled_unpublished_chapters_are_excluded() {
         SeoChapterAccess::Unknown,
     ] {
         assert_eq!(
-            open.decide(SeoPage::Chapter(SeoChapterFacts { access, ..chapter() }))
-                .reason,
+            open.decide(SeoPage::Chapter(SeoChapterFacts {
+                access,
+                ..chapter()
+            }))
+            .reason,
             SeoReason::ChapterNotFree
         );
     }
@@ -206,9 +218,14 @@ fn f_08_seo_01_paid_scheduled_unpublished_chapters_are_excluded() {
 #[test]
 fn f_08_seo_01_pilot_only_includes_explicitly_approved_books() {
     let pilot = policy(SeoSite::Pandaolate, SeoMode::Pilot);
-    assert_eq!(pilot.decide(SeoPage::Home).reason, SeoReason::PilotNotApproved);
     assert_eq!(
-        pilot.decide(SeoPage::Catalog(SeoCatalogView::Canonical)).reason,
+        pilot.decide(SeoPage::Home).reason,
+        SeoReason::PilotNotApproved
+    );
+    assert_eq!(
+        pilot
+            .decide(SeoPage::Catalog(SeoCatalogView::Canonical))
+            .reason,
         SeoReason::PilotNotApproved
     );
     assert!(!pilot

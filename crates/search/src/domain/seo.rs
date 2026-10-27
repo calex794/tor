@@ -71,7 +71,10 @@ pub enum SeoBookView {
 pub enum SeoPage {
     Home,
     Catalog(SeoCatalogView),
-    Book { book: SeoBookFacts, view: SeoBookView },
+    Book {
+        book: SeoBookFacts,
+        view: SeoBookView,
+    },
     Chapter(SeoChapterFacts),
     Private,
     Api,

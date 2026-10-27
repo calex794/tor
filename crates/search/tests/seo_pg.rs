@@ -45,7 +45,10 @@ async fn actual_book_facts(tx: &mut Transaction<'_, Postgres>, book_id: i64) -> 
     }
 }
 
-async fn decision(tx: &mut Transaction<'_, Postgres>, book_id: i64) -> tor_search::domain::seo::SeoDecision {
+async fn decision(
+    tx: &mut Transaction<'_, Postgres>,
+    book_id: i64,
+) -> tor_search::domain::seo::SeoDecision {
     SeoPolicy::new(SeoSite::Pandaolate, SeoMode::Public).decide(SeoPage::Book {
         book: actual_book_facts(tx, book_id).await,
         view: SeoBookView::Canonical,
@@ -109,7 +112,10 @@ async fn f_08_seo_01_pg_publication_and_withdrawal_fail_closed() {
 
     let visible = decision(&mut tx, book_id).await;
     assert!(visible.indexable());
-    assert_eq!(visible.canonical_path.as_deref(), Some(format!("/books/{book_id}").as_str()));
+    assert_eq!(
+        visible.canonical_path.as_deref(),
+        Some(format!("/books/{book_id}").as_str())
+    );
 
     sqlx::query("UPDATE chapters SET reader_released_at=now()+interval '1 day' WHERE id=$1")
         .bind(chapter_id)
@@ -131,14 +137,20 @@ async fn f_08_seo_01_pg_publication_and_withdrawal_fail_closed() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    assert_eq!(decision(&mut tx, book_id).await.reason, SeoReason::BookNotPublic);
+    assert_eq!(
+        decision(&mut tx, book_id).await.reason,
+        SeoReason::BookNotPublic
+    );
 
     sqlx::query("UPDATE books SET admin_hold=FALSE, is_deleted=TRUE WHERE id=$1")
         .bind(book_id)
         .execute(&mut *tx)
         .await
         .unwrap();
-    assert_eq!(decision(&mut tx, book_id).await.reason, SeoReason::BookNotPublic);
+    assert_eq!(
+        decision(&mut tx, book_id).await.reason,
+        SeoReason::BookNotPublic
+    );
 
     tx.rollback().await.unwrap();
 }

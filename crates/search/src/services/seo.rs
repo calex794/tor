@@ -1,10 +1,10 @@
 //! Pure SEO policy. Rendering, SQL and access control belong to other layers.
 
+use crate::domain::seo::SeoChapterAccess;
 use crate::domain::seo::{
     SeoBookFacts, SeoBookView, SeoCatalogView, SeoDecision, SeoMode, SeoPage, SeoReason, SeoRobots,
     SeoSite, SeoVisibility,
 };
-use crate::domain::seo::SeoChapterAccess;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SeoPolicy {
