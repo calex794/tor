@@ -94,3 +94,68 @@ BEGIN
     END IF;
 END
 $tor_migrations_smoke$;
+
+
+-- Shadow opt-in must remain disabled for old books and must not expose chapter
+-- bodies or unpublished content. This is run on fresh and upgraded databases.
+DO $shadow_smoke$
+DECLARE
+    book_id bigint;
+    chapter_id bigint;
+    version_id bigint;
+    visible_count integer;
+BEGIN
+    SELECT id INTO book_id FROM books WHERE source_identity='ci-public-book';
+    IF (SELECT shadow_enabled FROM books WHERE id=book_id) <> FALSE
+       OR (SELECT seo_index_owner FROM books WHERE id=book_id) <> 'pandaolate' THEN
+        RAISE EXCEPTION 'Shadow default-off / SEO owner invariant failed';
+    END IF;
+
+    SELECT count(*) INTO visible_count FROM shadow_public_books WHERE id=book_id;
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'Shadow leaked a default-off book';
+    END IF;
+
+    BEGIN
+        UPDATE books SET seo_index_owner='shadow' WHERE id=book_id;
+        RAISE EXCEPTION 'Shadow SEO owner accepted without opt-in';
+    EXCEPTION WHEN check_violation THEN
+        NULL;
+    END;
+
+    UPDATE books SET shadow_enabled=TRUE, seo_index_owner='shadow'
+      WHERE id=book_id;
+    IF (SELECT count(*) FROM shadow_public_books WHERE id=book_id) <> 1 THEN
+        RAISE EXCEPTION 'Shadow manually enabled book is missing';
+    END IF;
+    IF (SELECT count(*) FROM shadow_public_books WHERE source_identity='ci-hidden-book') <> 0 THEN
+        RAISE EXCEPTION 'Shadow leaked a draft';
+    END IF;
+
+    INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+      VALUES(book_id,3,'Paid metadata allowed','public','paid',150)
+      RETURNING id INTO chapter_id;
+    INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+      VALUES(chapter_id,1,'SECRET-PAID-MARKER')
+      RETURNING id INTO version_id;
+    INSERT INTO chapter_publications(chapter_id,version_id)
+      VALUES(chapter_id,version_id);
+    IF (SELECT count(*) FROM shadow_public_chapters WHERE id=chapter_id) <> 1 THEN
+        RAISE EXCEPTION 'Paid metadata incorrectly vetoed manual Shadow opt-in';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name='shadow_public_chapters'
+          AND column_name IN ('body_markdown','price_amount','access_level')
+    ) THEN
+        RAISE EXCEPTION 'Shadow chapter view exposes restricted data';
+    END IF;
+
+    UPDATE books SET shadow_enabled=FALSE,seo_index_owner='pandaolate'
+      WHERE id=book_id;
+    IF EXISTS(SELECT 1 FROM shadow_public_books WHERE id=book_id)
+       OR EXISTS(SELECT 1 FROM shadow_public_chapters WHERE book_id=book_id) THEN
+        RAISE EXCEPTION 'Shadow manual withdrawal leaked a book or chapters';
+    END IF;
+END
+$shadow_smoke$;
