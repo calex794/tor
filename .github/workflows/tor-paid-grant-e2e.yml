@@ -4,6 +4,12 @@ on:
     paths:
       - 'crates/web/src/paid_grants_http.rs'
       - 'crates/web/src/main.rs'
+      - 'crates/web/src/paid_author_publish.rs'
+      - 'crates/web/src/paid_reader_router.rs'
+      - 'crates/web/src/author_chapter_http.rs'
+      - 'crates/web/src/author_chapter_pages.rs'
+      - 'crates/web/templates/author_new_chapter.html'
+      - 'crates/web/tests/paid_author_pg.rs'
       - 'crates/web/tests/paid_grants_s3_pg.rs'
       - 'crates/reading/src/services/paid_delivery.rs'
       - 'crates/books/src/repositories/paid_storage.rs'
@@ -27,6 +33,12 @@ on:
     paths:
       - 'crates/web/src/paid_grants_http.rs'
       - 'crates/web/src/main.rs'
+      - 'crates/web/src/paid_author_publish.rs'
+      - 'crates/web/src/paid_reader_router.rs'
+      - 'crates/web/src/author_chapter_http.rs'
+      - 'crates/web/src/author_chapter_pages.rs'
+      - 'crates/web/templates/author_new_chapter.html'
+      - 'crates/web/tests/paid_author_pg.rs'
       - 'crates/web/tests/paid_grants_s3_pg.rs'
       - 'crates/reading/src/services/paid_delivery.rs'
       - 'crates/books/src/repositories/paid_storage.rs'
@@ -157,6 +169,7 @@ jobs:
           node --check tools/paid_grant_webcrypto_e2e.mjs
           node --check tools/paid_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)

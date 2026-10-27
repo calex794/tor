@@ -34,8 +34,14 @@ mod observability;
 mod operator_overview;
 mod operator_traces;
 mod pages;
+#[cfg(feature = "s3-paid")]
+pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
+#[cfg(feature = "s3-paid")]
+pub use paid_author_publish::PgPaidAuthorPublisher;
+#[cfg(feature = "s3-paid")]
+pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_author;
 pub use paid_reader_router::{
     router_with_postgres_reading_auth_paid_grants,
     router_with_postgres_reading_auth_paid_grants_browser,

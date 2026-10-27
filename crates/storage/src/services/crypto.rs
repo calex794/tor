@@ -208,6 +208,25 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], CryptoError> {
     Ok(bytes)
 }
 
+/// A fresh, unguessable UUID v4 for an immutable private chapter
+/// object. Never accept a bucket path or object ID from a browser form.
+#[cfg(feature = "pg")]
+pub fn fresh_private_object_id() -> Result<ObjectId, CryptoError> {
+    let mut bytes = random_bytes::<16>()?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let raw = hex::encode(bytes);
+    ObjectId::parse(&format!(
+        "{}-{}-{}-{}-{}",
+        &raw[..8],
+        &raw[8..12],
+        &raw[12..16],
+        &raw[16..20],
+        &raw[20..]
+    ))
+    .map_err(|_| CryptoError::InvalidMaterial)
+}
+
 fn encrypt_raw(
     key: &[u8; 32],
     nonce: &[u8; 12],

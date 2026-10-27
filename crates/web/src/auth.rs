@@ -46,55 +46,8 @@ mod paid_completion;
 mod rankings;
 mod sync_actions;
 
-#[derive(Clone)]
-struct AuthState {
-    accounts: PgAccounts,
-    checkout: tor_commerce::repositories::checkout::PgCheckout,
-    paid_checkout_enabled: bool,
-    paid_reader_available: bool,
-    authoring: PgAuthoring,
-    progress: PgReadingProgress,
-    sync: PgReadingSync,
-    bookmarks: PgLibrary,
-    reader: PgReader,
-    rankings: tor_recommendations::repositories::PgRanking,
-    cookies: CookiePolicy,
-    password_jobs: PasswordJobs,
-    ril_signer: Option<RilSubjectSigner>,
-    cover_jobs: Option<PgCoverJobs>,
-    cover_upload_enabled: bool,
-}
-
-#[derive(Deserialize)]
-struct LogoutForm {
-    csrf_token: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct SavePlaceForm {
-    csrf_token: Option<String>,
-    version_id: u64,
-    block_index: i32,
-    char_offset: i32,
-}
-
-#[derive(Default, Deserialize)]
-struct LibraryQuery {
-    after: Option<i64>,
-    limit: Option<u16>,
-}
-
-#[derive(Deserialize)]
-struct NewBookForm {
-    title: String,
-    target_language: String,
-    author_name: Option<String>,
-    genres: Option<String>,
-    tags: Option<String>,
-    fandoms: Option<String>,
-    command_key: String,
-    csrf_token: Option<String>,
-}
+mod types;
+use types::*;
 
 pub(crate) fn router(
     accounts: PgAccounts,
@@ -102,7 +55,7 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, None, false)
+    router_inner(accounts, reader, secure, origin, None, false, None)
 }
 
 pub(crate) fn router_with_cover_uploads(
@@ -112,7 +65,7 @@ pub(crate) fn router_with_cover_uploads(
     origin: String,
     storage: Arc<dyn CoverObjectStore>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, Some(storage), false)
+    router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
 
 /// Enable purchased-library navigation only when an authorized reader is mounted.
@@ -123,7 +76,36 @@ pub(crate) fn router_with_paid_reader(
     origin: String,
     cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, cover_upload_storage, true)
+    router_inner(
+        accounts,
+        reader,
+        secure,
+        origin,
+        cover_upload_storage,
+        true,
+        None,
+    )
+}
+
+/// Only the private, explicitly enabled paid-author router provides a writer.
+/// The existing grant-only constructor never changes author capabilities.
+pub(crate) fn router_with_paid_reader_author(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
+    author: Arc<dyn author_chapter_http::PaidChapterPublisher>,
+) -> Router {
+    router_inner(
+        accounts,
+        reader,
+        secure,
+        origin,
+        cover_upload_storage,
+        true,
+        Some(author),
+    )
 }
 
 fn router_inner(
@@ -133,9 +115,11 @@ fn router_inner(
     origin: String,
     storage: Option<Arc<dyn CoverObjectStore>>,
     paid_reader_available: bool,
+    paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
-    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
+    let chapter_routes =
+        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
