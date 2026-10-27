@@ -579,21 +579,19 @@ async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_v
         Ok(prepared),
         "retry must retain the same chapter/version identifiers"
     );
-    let chapter: (String, String, i64) = sqlx::query_as(
-        "SELECT visibility,access_level,price_amount FROM chapters WHERE id=$1",
-    )
-    .bind(prepared.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let chapter: (String, String, i64) =
+        sqlx::query_as("SELECT visibility,access_level,price_amount FROM chapters WHERE id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(chapter, ("draft".to_owned(), "paid".to_owned(), 100));
-    let visible: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM chapter_publications WHERE chapter_id=$1)",
-    )
-    .bind(prepared.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let visible: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM chapter_publications WHERE chapter_id=$1)")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(!visible, "S3 is not verified: no publication pointer");
 
     let changed = save_chapter(SaveChapterRequest {
@@ -643,21 +641,19 @@ async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_v
     assert_eq!(again.chapter_id, prepared.chapter_id);
     assert_eq!(again.version_id, prepared.version_id);
     assert!(again.published);
-    let version_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_versions WHERE chapter_id=$1",
-    )
-    .bind(prepared.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let version_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_versions WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(version_count, 1);
-    let current: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(prepared.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let current: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(current, prepared.version_id);
     pool.close().await;
 }
