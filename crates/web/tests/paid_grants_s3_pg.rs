@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use std::os::unix::fs::OpenOptionsExt;
 use std::{
     env, fs::OpenOptions, io::Write, num::NonZeroU32, path::Path, process::Command, sync::Arc,
+    time::Duration,
 };
 use tor_accounts::{
     repositories::PgAccounts,
@@ -39,7 +40,7 @@ use tor_storage::{
     },
     services::{
         crypto::{seal_chapter, ContentKek},
-        provider::upload_and_verify,
+        provider::{upload_and_verify, PrivateObjectStore},
     },
 };
 use tower::ServiceExt;
@@ -139,7 +140,24 @@ async fn decode(response: Response) -> Value {
     serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap()
 }
 
-fn save_ephemeral_fixture(grant: Value, version: i64) {
+async fn paid_page(app: &Router, chapter: i64, purchase: i64, session: &str) -> Response {
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("/read/paid/{chapter}?purchase_id={purchase}"))
+        .header(header::COOKIE, format!("tor-dev-session={session}"))
+        .body(Body::empty())
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap()
+}
+
+fn save_ephemeral_fixture(
+    grant: Value,
+    version: i64,
+    purchase: i64,
+    reader_html: String,
+    reader_csp: String,
+    expiry_probe_url: Value,
+) {
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
     assert!(
@@ -154,6 +172,10 @@ fn save_ephemeral_fixture(grant: Value, version: i64) {
     let payload = json!({
         "grant": grant,
         "purchased_version_id": version.to_string(),
+        "purchase_id": purchase.to_string(),
+        "reader_html": reader_html,
+        "reader_csp": reader_csp,
+        "expiry_probe_url": expiry_probe_url,
         "expected_markdown": MARKDOWN,
     });
     file.write_all(payload.to_string().as_bytes()).unwrap();
@@ -257,16 +279,18 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
 
+    let short_store = s3.clone();
     let signer = PgPrivateDelivery::new(pool.clone(), s3, kek, BUCKET.to_owned()).unwrap();
-    let app = tor_web::router_with_postgres_reading_auth_paid_grants(
+    let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
         catalog,
         reader,
         accounts,
         false,
         ORIGIN.to_owned(),
-        Arc::new(signer),
+        (Arc::new(signer), ENDPOINT.to_owned()),
         None,
-    );
+    )
+    .unwrap();
     assert_eq!(
         post_grant(
             &app,
@@ -382,7 +406,42 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let still_v1 = decode(preserved).await;
     assert_eq!(still_v1["version_id"], v1.to_string());
     assert!(!still_v1.to_string().contains(MARKDOWN));
-    save_ephemeral_fixture(still_v1, v1);
+
+    // Save a real server-rendered page, not a hand-written copy of its HTML.
+    // Buyer owns V1 after V2/creator-hide, but a stranger cannot open the page.
+    let stranger = paid_page(&app, chapter, purchase_id, &stranger_cookie).await;
+    assert_eq!(stranger.status(), StatusCode::FORBIDDEN);
+    let page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let reader_csp = page.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let reader_html = String::from_utf8(
+        to_bytes(page.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(reader_html.contains("data-paid-chapter-reader"));
+    assert!(!reader_html.contains(MARKDOWN));
+    assert!(!reader_html.contains("dek_b64u"));
+    let expiry_probe_url = serde_json::to_value(
+        short_store
+            .presign_verified(&reference, Duration::from_secs(30))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    save_ephemeral_fixture(
+        still_v1,
+        v1,
+        purchase_id,
+        reader_html,
+        reader_csp,
+        expiry_probe_url,
+    );
 
     pg(
         &url,
