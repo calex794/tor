@@ -154,12 +154,42 @@ fn passports_cannot_embed_query_or_user_values() {
 #[test]
 fn f_05_private_ranking_routes_are_known_bounded_and_not_catalog_events() {
     for (template, method, surface, cost) in [
-        ("/me/rankings", "GET", TrafficSurface::PublicPage, CostClass::CheapRead),
-        ("/me/rankings/choice", "POST", TrafficSurface::PublicPage, CostClass::Write),
-        ("/me/rankings/resume", "POST", TrafficSurface::PublicPage, CostClass::Write),
-        ("/api/v1/me/rankings", "GET", TrafficSurface::Api, CostClass::CheapRead),
-        ("/api/v1/me/rankings/choice", "POST", TrafficSurface::Api, CostClass::Write),
-        ("/api/v1/me/rankings/resume", "POST", TrafficSurface::Api, CostClass::Write),
+        (
+            "/me/rankings",
+            "GET",
+            TrafficSurface::PublicPage,
+            CostClass::CheapRead,
+        ),
+        (
+            "/me/rankings/choice",
+            "POST",
+            TrafficSurface::PublicPage,
+            CostClass::Write,
+        ),
+        (
+            "/me/rankings/resume",
+            "POST",
+            TrafficSurface::PublicPage,
+            CostClass::Write,
+        ),
+        (
+            "/api/v1/me/rankings",
+            "GET",
+            TrafficSurface::Api,
+            CostClass::CheapRead,
+        ),
+        (
+            "/api/v1/me/rankings/choice",
+            "POST",
+            TrafficSurface::Api,
+            CostClass::Write,
+        ),
+        (
+            "/api/v1/me/rankings/resume",
+            "POST",
+            TrafficSurface::Api,
+            CostClass::Write,
+        ),
     ] {
         let route = classify(Some(template), method);
         assert!(route.route_known, "{template} must have RIL taxonomy");

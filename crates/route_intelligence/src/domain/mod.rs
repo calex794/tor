@@ -2,11 +2,11 @@
 //! The explicit match is constant-shape; no linear scan or allocated lookup per request.
 mod cost_map;
 mod routes;
-pub use routes::{classify, registry};
 pub use cost_map::{
     attach_sql_evidence, rank_route_costs, route_cost_family, CostMapError, RouteCostBucket,
     RouteCostRanking, RouteSqlEvidence, COST_MAP_VERSION, COST_ROUTE_COUNT,
 };
+pub use routes::{classify, registry};
 
 use std::time::Duration;
 

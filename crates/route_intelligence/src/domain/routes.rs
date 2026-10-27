@@ -326,31 +326,65 @@ const ROUTES: [RouteRegistration; 55] = [
         CostClass::ExpensiveRead,
     ), // 48
     RouteRegistration::new(
-        "/me/rankings", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read,
+        "/me/rankings",
+        "GET",
+        "/me/",
+        Exact,
+        Page,
+        ProductArea::Recommendations,
+        Read,
     ), // 49
     RouteRegistration::new(
-        "/me/rankings/choice", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write,
+        "/me/rankings/choice",
+        "POST",
+        "/me/",
+        Exact,
+        Page,
+        ProductArea::Recommendations,
+        Write,
     ), // 50
     RouteRegistration::new(
-        "/me/rankings/resume", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write,
+        "/me/rankings/resume",
+        "POST",
+        "/me/",
+        Exact,
+        Page,
+        ProductArea::Recommendations,
+        Write,
     ), // 51
     RouteRegistration::new(
-        "/api/v1/me/rankings", "GET", "/api/v1/me/rankings/", Exact, Api, ProductArea::Recommendations, Read,
+        "/api/v1/me/rankings",
+        "GET",
+        "/api/v1/me/rankings/",
+        Exact,
+        Api,
+        ProductArea::Recommendations,
+        Read,
     ), // 52
     RouteRegistration::new(
-        "/api/v1/me/rankings/choice", "POST", "/api/v1/me/rankings/", Exact, Api, ProductArea::Recommendations, Write,
+        "/api/v1/me/rankings/choice",
+        "POST",
+        "/api/v1/me/rankings/",
+        Exact,
+        Api,
+        ProductArea::Recommendations,
+        Write,
     ), // 53
     RouteRegistration::new(
-        "/api/v1/me/rankings/resume", "POST", "/api/v1/me/rankings/", Exact, Api, ProductArea::Recommendations, Write,
+        "/api/v1/me/rankings/resume",
+        "POST",
+        "/api/v1/me/rankings/",
+        Exact,
+        Api,
+        ProductArea::Recommendations,
+        Write,
     ), // 54
 ];
-
 
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
 }
-
 
 /// Takes Axum's MatchedPath template, NEVER a raw request path.
 /// The registry is indexed by a fixed match, not scanned per request.
@@ -419,4 +453,3 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         .map(|i| RoutePassport::from_route(&ROUTES[i]))
         .unwrap_or_else(RoutePassport::unknown)
 }
-
