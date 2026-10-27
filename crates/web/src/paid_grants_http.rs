@@ -77,6 +77,12 @@ struct ReaderQuery {
     purchase_id: String,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct PurchaseListQuery {
+    after: Option<String>,
+}
+
 /// Only operator-owned HTTPS origins can reach CSP/connect-src. Loopback HTTP
 /// is allowed exclusively for isolated browser tests and local development.
 pub(crate) fn valid_reader_s3_origin(origin: &str) -> bool {
@@ -286,6 +292,54 @@ async fn paid_reader(
     response
 }
 
+/// The only entry point to the paid reader. It never derives a grant from
+/// history/progress and shows only purchases still approved by canonical D.
+async fn purchased_library(
+    State(state): State<GrantState>,
+    Query(query): Query<PurchaseListQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if state.reader_s3_origin.is_none() {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let Some(session) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&session))
+        .await
+    {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let Ok(actor_id) = PositiveId::new(actor) else {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let after = match query.after {
+        Some(raw) => match positive(&raw) {
+            Some(id) => Some(id),
+            None => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+        },
+        None => None,
+    };
+    let owned = match state.entitlement.readable_purchases(actor_id, after).await {
+        Ok(owned) => owned,
+        Err(error) => return deny(status(error)),
+    };
+    let mut response = private_response(pages::purchased_chapters_page(&owned), &[]);
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex"),
+    );
+    response
+}
+
 /// Mount this router ONLY after explicit operator enablement and valid
 /// private S3 + separate content KEK configuration. No demo or default route.
 pub(crate) fn router(
@@ -337,7 +391,9 @@ fn router_inner(
         post(grant),
     );
     if state.reader_s3_origin.is_some() {
-        app = app.route("/read/paid/{chapter_id}", get(paid_reader));
+        app = app
+            .route("/read/paid/{chapter_id}", get(paid_reader))
+            .route("/me/purchases", get(purchased_library));
     }
     app.layer(DefaultBodyLimit::max(512)).with_state(state)
 }
