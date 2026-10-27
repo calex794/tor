@@ -108,7 +108,10 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             || encrypted.codec != ContentCodec::Gzip
             || !valid_ciphertext_size(&encrypted.object)
             || encrypted.aad.is_empty()
-            || !matches!(encrypted.wrapped_key_id.as_str(), "content-kek-v1" | "content-kek-v2")
+            || !matches!(
+                encrypted.wrapped_key_id.as_str(),
+                "content-kek-v1" | "content-kek-v2"
+            )
         {
             return Err(DeliveryError::Invalid);
         }
