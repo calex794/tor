@@ -51,7 +51,7 @@ impl<S: PrivateObjectStore> PgPrivateDelivery<S> {
 }
 
 fn canonical_aad(aad: &[u8], id: &ObjectId, plaintext_sha256: &[u8]) -> bool {
-    let Ok(digest): Result<[u8; 32], _> = plaintext_sha256.try_into() else {
+    let Ok(digest) = <[u8; 32]>::try_from(plaintext_sha256) else {
         return false;
     };
     let Ok(text) = std::str::from_utf8(aad) else {
