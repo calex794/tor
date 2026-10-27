@@ -58,7 +58,7 @@ struct PositionResponse {
     updated_at: Option<String>,
 }
 
-fn status(error: SyncError) -> StatusCode {
+pub(super) fn status(error: SyncError) -> StatusCode {
     match error {
         SyncError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         SyncError::NotFound => StatusCode::NOT_FOUND,
@@ -67,11 +67,11 @@ fn status(error: SyncError) -> StatusCode {
     }
 }
 
-fn id(raw: &str) -> Result<i64, StatusCode> {
+pub(super) fn id(raw: &str) -> Result<i64, StatusCode> {
     positive_id(raw).map_err(status)
 }
 
-fn csrf(state: &AuthState, headers: &HeaderMap) -> bool {
+pub(super) fn csrf(state: &AuthState, headers: &HeaderMap) -> bool {
     state.cookies.same_origin(headers)
         && headers
             .get("x-csrf-token")
