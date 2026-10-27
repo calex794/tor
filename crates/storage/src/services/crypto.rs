@@ -315,13 +315,8 @@ fn seal_chapter_with_selected_key(
     };
     // Authenticate the wrapper with the exact selected key. This validation
     // deliberately does not assume the legacy V1-only public seal interface.
-    if unwrap_bytes(
-        &sealed.object_id,
-        &sealed.wrapped_dek,
-        &sealed.wrap_nonce,
-        kek,
-    )?[..] != dek[..]
-    {
+    let checked = unwrap_bytes(&sealed.object_id, &sealed.wrapped_dek, &sealed.wrap_nonce, kek)?;
+    if checked[..] != dek[..] {
         return Err(CryptoError::AuthenticationFailed);
     }
     Ok(sealed)
