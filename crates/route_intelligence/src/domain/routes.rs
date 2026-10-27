@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 58] = [
+const ROUTES: [RouteRegistration; 66] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -406,6 +406,80 @@ const ROUTES: [RouteRegistration; 58] = [
         System,
         Free,
     ), // 57
+    RouteRegistration::new(
+        "/api/v1/purchases",
+        "POST",
+        "/api/v1/purchases/",
+        Exact,
+        Api,
+        ProductArea::Billing,
+        Write,
+    ), // 58
+    // Signed, scoped paid content grant. Performs PG rights checks and S3 HEAD.
+    RouteRegistration::new(
+        "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
+        "POST",
+        "/api/v1/reader/chapters/",
+        Prefix,
+        Api,
+        Reading,
+        CostClass::ExpensiveRead,
+    ), // 59
+    RouteRegistration::new(
+        "/read/{id}/complete",
+        "POST",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 60
+    RouteRegistration::new(
+        "/read/paid/{chapter_id}",
+        "GET",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 61
+    RouteRegistration::new(
+        "/assets/newboo-paid-reader.mjs",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 62
+    // Only an authenticated, entitled actor can enumerate owned purchases.
+    RouteRegistration::new(
+        "/me/purchases",
+        "GET",
+        "/me/library/",
+        Exact,
+        Page,
+        Reading,
+        Read,
+    ), // 63
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased/complete",
+        "GET",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Read,
+    ), // 64
+    RouteRegistration::new(
+        "/api/v1/me/progress/purchased/complete",
+        "POST",
+        "/api/v1/me/progress/",
+        Exact,
+        Api,
+        Reading,
+        Write,
+    ), // 65
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -477,6 +551,14 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/cover"), "POST") => Some(55),
         (Some("/me/books/{id}/settings/covers"), "GET") => Some(56),
         (Some("/assets/newboo-cover-picker.js"), "GET") => Some(57),
+        (Some("/api/v1/purchases"), "POST") => Some(58),
+        (Some("/api/v1/reader/chapters/{chapter_id}/delivery-grants"), "POST") => Some(59),
+        (Some("/read/{id}/complete"), "POST") => Some(60),
+        (Some("/read/paid/{chapter_id}"), "GET") => Some(61),
+        (Some("/assets/newboo-paid-reader.mjs"), "GET") => Some(62),
+        (Some("/me/purchases"), "GET") => Some(63),
+        (Some("/api/v1/me/progress/purchased/complete"), "GET") => Some(64),
+        (Some("/api/v1/me/progress/purchased/complete"), "POST") => Some(65),
         _ => None,
     };
     index

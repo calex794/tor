@@ -68,6 +68,7 @@ jobs:
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
         run: |
           cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
           cargo clippy -p tor-storage --features s3 --all-targets -- -D warnings
       - name: MinIO diagnostics without signed URL on failure
         if: failure()

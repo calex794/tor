@@ -130,6 +130,23 @@ async fn f_05_http_private_csrf_and_duplicate_fencing() {
     .await;
     assert_eq!(accepted.status(), StatusCode::OK);
     assert!(body_of(accepted).await.contains(r#""status":"saved""#));
+    let ranked = send(
+        &app,
+        request("GET", "/api/v1/me/rankings", "", &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(ranked.status(), StatusCode::OK);
+    let value: serde_json::Value = serde_json::from_str(&body_of(ranked).await).unwrap();
+    assert_eq!(value["state"], "ranked");
+    let list = value["ranked_books"].as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    assert!(list
+        .iter()
+        .all(|row| row["place"] == 1 && row["tied"] == true));
+    let page = send(&app, request("GET", "/me/rankings", "", &cookies, ORIGIN)).await;
+    let html = body_of(page).await;
+    assert!(html.contains("Мои книги") && html.contains("Равнозначны"));
+    assert!(!html.contains("Пока нет книг для сравнения"));
     let retry = send(
         &app,
         json_request(
@@ -227,4 +244,165 @@ async fn f_05_http_hidden_book_denied_without_writing_comparison() {
     .await;
     assert_eq!(denied.status(), StatusCode::CONFLICT);
     assert_eq!(repo.snapshot(uid).await.unwrap(), before);
+}
+
+fn completion_field(page: &str, field: &str) -> String {
+    let section = page
+        .split("action=\"/read/101/complete\"")
+        .nth(1)
+        .expect("one explicit completion form")
+        .split("</form>")
+        .next()
+        .unwrap();
+    section
+        .split(&format!("name=\"{field}\" value=\""))
+        .nth(1)
+        .expect("server-supplied completion field")
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL fixtures and psql client"]
+async fn f_05_http_reader_finish_form_to_personal_ranking() {
+    let (app, repo, uid, session) = fixture("complete").await;
+    let initial = send(&app, request("GET", "/read/101", "", &session, ORIGIN)).await;
+    assert_eq!(initial.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&initial, "tor-dev-csrf=");
+    let page = body_of(initial).await;
+    assert_eq!(page.matches("action=\"/read/101/complete\"").count(), 1);
+    assert!(page.contains("Глава прочитана"));
+    assert_eq!(completion_field(&page, "expected_revision"), "0");
+    let csrf = completion_field(&page, "csrf_token");
+    let version = completion_field(&page, "version_id");
+    let cookies = format!("{session}; {csrf_cookie}");
+    assert_eq!(repo.snapshot(uid).await.unwrap().ranks.len(), 0);
+
+    // Saving a position with the legacy button never adds a book to the ranking.
+    let saved = format!("csrf_token={csrf}&version_id={version}&block_index=1&char_offset=0");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/read/101/place", &saved, &cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert!(repo.snapshot(uid).await.unwrap().ranks.is_empty());
+
+    // A stale tab cannot assert chapter completion using the old revision.
+    let reloaded = send(&app, request("GET", "/read/101", "", &session, ORIGIN)).await;
+    assert_eq!(reloaded.status(), StatusCode::OK);
+    let fresh_html = body_of(reloaded).await;
+    assert_eq!(completion_field(&fresh_html, "expected_revision"), "1");
+    let last_block = completion_field(&fresh_html, "block_index");
+    let last_offset = completion_field(&fresh_html, "char_offset");
+    assert_ne!(last_offset, "0");
+    let fresh = format!(
+        "csrf_token={csrf}&version_id={version}&block_index={last_block}&char_offset={last_offset}&expected_revision=1"
+    );
+    let stale = fresh.replace("expected_revision=1", "expected_revision=0");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/read/101/complete", &stale, &cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/read/101/complete",
+                &fresh,
+                &cookies,
+                "https://evil.example"
+            )
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let wrong_offset = fresh.replace(&format!("char_offset={last_offset}"), "char_offset=0");
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/read/101/complete",
+                &wrong_offset,
+                &cookies,
+                ORIGIN
+            )
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert!(repo.snapshot(uid).await.unwrap().ranks.is_empty());
+
+    let completed = send(
+        &app,
+        request("POST", "/read/101/complete", &fresh, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(completed.status(), StatusCode::SEE_OTHER);
+    assert_eq!(completed.headers()[header::LOCATION], "/me/rankings");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/read/101/complete", &fresh, &cookies, ORIGIN)
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "repeat form must not create a second completion event"
+    );
+
+    // Integration runner has PostgreSQL client; fetch the C-owned event ID,
+    // then execute exactly the same F consumer as the background worker.
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    assert!(url.ends_with("/tor_ci"), "never run against production");
+    let sql = format!(
+        "SELECT source_event_id FROM reader_chapter_completions WHERE user_id={uid} AND chapter_id=101"
+    );
+    let output = std::process::Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1"])
+        .args(["-d", &url, "-c", &sql])
+        .output()
+        .expect("psql available in integration CI");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let event = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+    assert_eq!(event.len(), 36);
+    // The HTML POST invokes F's trusted consumer before redirecting. The
+    // persistent outbox receipt also prevents the background worker replay.
+    assert!(repo.snapshot(uid).await.unwrap().ranks.len() == 1);
+    assert!(!repo
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&event));
+    assert!(!repo.accept_completed_chapter(&event).await.unwrap());
+
+    let reopened = send(&app, request("GET", "/read/101", "", &session, ORIGIN)).await;
+    let reopened_html = body_of(reopened).await;
+    assert!(reopened_html.contains("Глава уже отмечена прочитанной"));
+    assert!(!reopened_html.contains("action=\"/read/101/complete\""));
+
+    let result = send(&app, request("GET", "/me/rankings", "", &session, ORIGIN)).await;
+    assert_eq!(result.status(), StatusCode::OK);
+    let html = body_of(result).await;
+    assert!(html.contains("Мои книги"));
+    assert!(html.contains("Место 1"));
+    assert_eq!(repo.snapshot(uid).await.unwrap().ranks.len(), 1);
 }

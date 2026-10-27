@@ -18,7 +18,27 @@ jobs:
     needs: select
     if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-obs09-pg
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-obs09-pg
+      TEST_DATABASE_URL: postgresql://tor_app:tor-obs09-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-obs09-migrator@127.0.0.1:5432/tor_ci
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,6 +86,54 @@ jobs:
           cargo fmt --all -- --check
           cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
           cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
+      - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO users(id,email_normalized,display_name,password_hash)
+          OVERRIDING SYSTEM VALUE VALUES
+          (950,'obs09-owner@example.invalid','Test cover owner','$argon2id$test');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
+          VALUES (950,'ci:obs09:950','ru','CI signed private cover','public',950);
+          SQL
+      - name: Run signed MinIO and restricted PG whole-cover user scenario
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+        run: |
+          cargo test -p tor-web --features s3-covers --test cover_s3_pg -- --ignored --test-threads=1
+          cargo clippy -p tor-web --features s3-covers --test cover_s3_pg -- -D warnings
+      - name: Deny anonymous S3 access to actual PG-attached WebP cover
+        run: |
+          set -euo pipefail
+          key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
+            -c "SELECT v.storage_key FROM cover_variants v \
+                JOIN cover_variant_jobs j ON j.id=v.job_id \
+                WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
+          [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:9000/tor-private-obs09-ci/$key")"
+          test "$status" = 403
       - name: Assert direct anonymous URL cannot read the private cover
         run: |
           code=$(curl --silent --output /dev/null --write-out '%{http_code}' \

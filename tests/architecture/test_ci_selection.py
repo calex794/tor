@@ -43,7 +43,8 @@ class SelectionTests(unittest.TestCase):
 
     def test_real_dependency_reaches_browser_for_recommendation_source(self):
         result = select(ROOT, ["crates/recommendations/src/services/ranking.rs"])
-        self.assertTrue({"rust", "postgres", "reader_browser", "visual", "cover_browser"} <= enabled(result))
+        self.assertTrue({"rust", "postgres", "reader_browser", "visual", "cover_browser",
+                         "paid_e2e", "backup_recovery", "purchased_recovery"} <= enabled(result))
         self.assertIn("tor-web", result["packages"])
         self.assertNotIn("crypto", enabled(result))
         self.assertNotIn("image", enabled(result))
@@ -61,10 +62,27 @@ class SelectionTests(unittest.TestCase):
             "tools/author_cover_pg_visual_smoke.cjs": {"cover_browser"},
             "crates/storage/tests/crypto_webcrypto.mjs": {"crypto"},
             "crates/search/tests/f02_load_pg.rs": {"rust", "search_load"},
+            "tools/paid_reader_browser_smoke.cjs": {"reader_browser"},
+            "tools/paid_reader_minio_chromium_e2e.cjs": {"paid_e2e"},
+            "tools/paid_grant_webcrypto_e2e.mjs": {"paid_e2e", "purchased_recovery"},
+            "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
+            "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
+            "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
+            "tools/checkout_http_pg_smoke.py": {"postgres"},
+            "tools/tor_pg_restart_smoke.sh": {"postgres"},
+            "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(enabled(select(ROOT, [path])), expected)
+
+    def test_paid_browser_and_recovery_reports_include_their_actual_groups(self):
+        paid = select(ROOT, ["tools/paid_reader_minio_chromium_e2e.cjs"])
+        self.assertTrue(paid["groups"]["browser"])
+        self.assertTrue(paid["groups"]["postgres"])
+        backup = select(ROOT, ["tools/tor_dr_archive_crypto.cjs"])
+        self.assertTrue(backup["groups"]["postgres"])
+        self.assertFalse(backup["groups"]["browser"])
 
     def test_allowlisted_prose_runs_mandatory_rules_only(self):
         result = select(ROOT, ["README.md", "docs/ci/selection.md"])

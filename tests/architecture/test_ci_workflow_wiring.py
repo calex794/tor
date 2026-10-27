@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/"tools"))
-from ci_test_map import SUITES, TEST_SUITES, workflow_gate
+from ci_test_map import MANUAL_WORKFLOWS, SUITES, TEST_SUITES, workflow_gate
 
 
 def problems(text, suite):
@@ -47,11 +47,14 @@ class WorkflowWiringTests(unittest.TestCase):
         rules = (ROOT/".github/workflows/rules.yml").read_text()
         self.assertNotIn("needs: select", rules)
         self.assertIn("python3 -m unittest discover -s tests/architecture -v", rules)
-        deploy = (ROOT/".github/workflows/tor-vps-staging.yml").read_text()
-        self.assertNotIn("ci-selection", deploy)
-        self.assertNotIn("  push:", deploy)
-        self.assertNotIn("  pull_request:", deploy)
-        self.assertNotIn("  workflow_run:", deploy)
+        for filename in MANUAL_WORKFLOWS:
+            with self.subTest(workflow=filename):
+                deploy = (ROOT/".github/workflows"/filename).read_text()
+                self.assertNotIn("ci-selection", deploy)
+                self.assertNotIn("  push:", deploy)
+                self.assertNotIn("  pull_request:", deploy)
+                self.assertNotIn("  workflow_run:", deploy)
+                self.assertIn("  workflow_dispatch:", deploy)
 
     def test_reusable_planner_uses_complete_history_and_no_secrets(self):
         text = (ROOT/".github/workflows/ci-selection.yml").read_text()
@@ -63,7 +66,7 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("python3 tools/select_feature_tests.py", text)
 
     def test_no_unknown_automatic_suite_or_missing_harness_in_registry(self):
-        known = {filename for filename, _ in SUITES.values()} | {"rules.yml", "ci-selection.yml", "tor-vps-staging.yml"}
+        known = {filename for filename, _ in SUITES.values()} | {"rules.yml", "ci-selection.yml"} | MANUAL_WORKFLOWS
         self.assertEqual({p.name for p in (ROOT/".github/workflows").glob("*.yml")}, known)
         for path, suites in TEST_SUITES.items():
             with self.subTest(path=path):

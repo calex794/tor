@@ -11,7 +11,8 @@ import subprocess
 import tomllib
 
 from ci_test_map import (
-    CRITICAL_PACKAGES, KNOWN_PACKAGES, PROSE_FILES, PROSE_PREFIXES,
+    BROWSER_SUITES, CRITICAL_PACKAGES, KNOWN_PACKAGES, POSTGRES_SUITES,
+    PROSE_FILES, PROSE_PREFIXES,
     SUITES, TEST_SUITES,
 )
 
@@ -76,8 +77,9 @@ def report(paths, selected, reasons, packages=(), full=False):
         "schema_version": 1,
         "mode": "full" if full else "feature" if any(suites.values()) else "cheap",
         "groups": {
-            "cheap": True, "feature": suites["rust"], "postgres": suites["postgres"],
-            "browser": any(suites[s] for s in ("reader_browser", "visual", "cover_browser")),
+            "cheap": True, "feature": suites["rust"],
+            "postgres": any(suites[s] for s in POSTGRES_SUITES),
+            "browser": any(suites[s] for s in BROWSER_SUITES),
             "full": full,
         },
         "suites": suites, "packages": sorted(packages),

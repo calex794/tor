@@ -34,7 +34,14 @@ mod observability;
 mod operator_overview;
 mod operator_traces;
 mod pages;
+mod paid_grants_http;
+mod paid_reader_router;
+pub use paid_reader_router::{
+    router_with_postgres_reading_auth_paid_grants,
+    router_with_postgres_reading_auth_paid_grants_browser,
+};
 mod password_jobs;
+pub mod ranking_consumer;
 mod ril;
 mod worker_health;
 
@@ -383,6 +390,10 @@ fn make_router(
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
+            "/assets/newboo-paid-reader.mjs",
+            get(pages::paid_reader_script),
+        )
+        .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),
         )
@@ -474,6 +485,18 @@ mod tests {
     #[tokio::test]
     async fn demo_must_not_advertise_unimplemented_reader() {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
+        let app = router(Arc::new(InMemoryCatalog::demo()));
+        let reply = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/reader/chapters/1/delivery-grants")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), StatusCode::NOT_FOUND);
     }
     #[tokio::test]
     async fn operator_summary_must_reject_site_account_cookie_without_staff_secret() {

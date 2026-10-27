@@ -13,8 +13,9 @@
 ## Когда выполняется полный набор
 
 - Каждый `push` в `main` и каждый ручной `workflow_dispatch` выполняют все
-  11 существующих наборов, включая PostgreSQL 18, оба S3-провайдера,
-  Rust/WebCrypto, три браузерных набора и PostgreSQL 100k.
+  14 существующих наборов, включая PostgreSQL 18, оба S3-провайдера,
+  Rust/WebCrypto, четыре браузерных набора, PostgreSQL 100k и восстановление
+  зашифрованных резервных копий и купленной V1.
 - Общие Cargo-файлы, SQL, контракты, CI, ACL, деньги, публикация и доставка
   выбирают полный набор. Неизвестный путь, новая предметная область,
   отсутствующая история, пустой diff или ошибка чтения зависимостей — тоже.
@@ -22,8 +23,9 @@
   поведение `needs`: условие каждого задания явно запускает его при сбое
   селектора. Отмена workflow остаётся отменой, а не успешной проверкой.
 
-Деплой `tor-vps-staging.yml` в селектор не включён и остаётся только ручным,
-с отдельным подтверждением SHA. Полный CI не разрешает выкладку.
+Деплой `tor-vps-staging.yml` и `tor-one-click-release.yml` в селектор не включён
+и остаётся только ручным, с собственными проверками выбранного SHA.
+Полный CI не запускает выкладку.
 
 ## Как выбираются проверки PR
 
@@ -49,8 +51,11 @@
 | `README.md` | Нет тяжёлых заданий |
 | `crates/ingest/tests/image_pipeline.rs` | Rust и image pipeline |
 | `tools/visual-smoke.cjs` | Visual smoke |
-| `crates/recommendations/src/services/ranking.rs` | Rust, PG, reader browser, visual, cover browser и cover S3 через зависимости web |
-| `crates/contracts/src/paid_delivery.rs`, миграция, `Cargo.lock`, неизвестный файл | Все 11 наборов |
+| `tools/paid_reader_minio_chromium_e2e.cjs` | Paid S3 grant E2E с настоящим Chromium |
+| `tools/paid_grant_webcrypto_e2e.mjs` | Paid S3 grant E2E и восстановление купленной V1 |
+| `tools/tor_dr_archive_crypto.cjs` | Оба набора восстановления, использующие общий helper |
+| `crates/recommendations/src/services/ranking.rs` | Rust, PG и все потребители web, включая paid E2E и оба набора восстановления |
+| `crates/contracts/src/paid_delivery.rs`, миграция, `Cargo.lock`, неизвестный файл | Все 14 наборов |
 
 Для каждого запуска сохраняется JSON `tor-ci-selection-<suite>`: SHA базы и
 проверяемого коммита, все изменённые пути, причины, затронутые Cargo-пакеты и

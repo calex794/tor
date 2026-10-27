@@ -13,7 +13,18 @@ SUITES = {
     "storage_s3": ("storage-s3.yml", ("tor-storage",)),
     "cover_s3": ("tor-cover-s3.yml", ("tor-web", "tor-ingest")),
     "search_load": ("tor-f02-load.yml", ("tor-search", "tor-migrations")),
+    "paid_e2e": ("tor-paid-grant-e2e.yml", ("tor-web", "tor-migrations")),
+    "backup_recovery": ("tor-disaster-recovery.yml", ("tor-web", "tor-migrations")),
+    "purchased_recovery": ("tor-s334-restore.yml", ("tor-web", "tor-migrations")),
 }
+
+# These workflows contact the live VPS and must never be invoked by selection.
+MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
+POSTGRES_SUITES = {
+    "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
+    "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
+}
+BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 
 # These production areas can change access, money, publication, or delivery.
 # They must run the complete available B/C/D/G/H/I pack regardless of the graph.
@@ -51,6 +62,15 @@ TEST_SUITES = {
     "tools/search_visual_smoke.cjs": {"reader_browser"},
     "tools/ranking_visual_smoke.cjs": {"reader_browser"},
     "tools/author_cover_pg_visual_smoke.cjs": {"cover_browser"},
+    "tools/paid_reader_browser_smoke.cjs": {"reader_browser"},
+    "tools/paid_reader_minio_chromium_e2e.cjs": {"paid_e2e"},
+    "tools/paid_grant_webcrypto_e2e.mjs": {"paid_e2e", "purchased_recovery"},
+    "tools/checkout_http_pg_smoke.py": {"postgres"},
+    "tools/tor_pg_restart_smoke.sh": {"postgres"},
+    "tools/tor_pg_backup_restore_smoke.sh": {"postgres"},
+    "tools/tor_dr_archive_crypto.cjs": {"backup_recovery", "purchased_recovery"},
+    "tools/tor_dr_s3_backup_smoke.sh": {"backup_recovery"},
+    "tools/tor_s334_paid_restore_smoke.sh": {"purchased_recovery"},
 }
 
 # Only prose in these locations is cheap. Contracts/fixtures/configuration are not.

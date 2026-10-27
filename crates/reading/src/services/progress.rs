@@ -1,19 +1,8 @@
 //! A reading place is a private cursor, never a purchase or an access grant.
 #![forbid(unsafe_code)]
 
-/// At most 200 stable anchors per immutable chapter version. Splitting and
-/// grouping is deterministic and does not depend on viewport dimensions.
-pub fn reader_blocks(text: &str) -> Vec<String> {
-    // HTML parsers normalize CRLF and bare CR. Match the browser DOM text
-    // before computing or validating its UTF-16 character offsets.
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let paragraphs: Vec<&str> = normalized.split("\n\n").collect();
-    let group_size = paragraphs.len().div_ceil(200);
-    paragraphs
-        .chunks(group_size)
-        .map(|group| group.join("\n\n"))
-        .collect()
-}
+/// Use the exact versioned B/I parser contract, not a duplicate grammar.
+pub use tor_contracts::reader_manifest::reader_blocks;
 
 /// Reading position in UTF-16 code units, matching the browser DOM Text.offset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,6 +32,20 @@ pub fn valid_text_place(place: ReadingPlace, blocks: &[String]) -> Result<(), Pr
         return Err(ProgressError::Invalid);
     }
     Ok(())
+}
+
+/// Only the exact end of the last non-blank, server-parsed readable block
+/// is an eligible completion position. This is not proof of human attention.
+pub fn is_completed_place(place: ReadingPlace, blocks: &[String]) -> bool {
+    blocks
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, block)| !block.trim().is_empty())
+        .is_some_and(|(index, block)| {
+            place.block_index == (index + 1) as i32
+                && usize::try_from(place.char_offset).ok() == Some(block.encode_utf16().count())
+        })
 }
 
 #[derive(Clone, Debug)]
@@ -139,6 +142,47 @@ mod tests {
             ),
             Err(ProgressError::Invalid)
         );
+    }
+
+    #[test]
+    fn completion_requires_exact_last_readable_utf16_offset() {
+        let blocks = reader_blocks("Начало\n\nКонец😀\n\n");
+        assert_eq!(blocks.len(), 3);
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 6
+            },
+            &blocks
+        ));
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 2,
+                char_offset: 6
+            },
+            &blocks
+        ));
+        assert!(is_completed_place(
+            ReadingPlace {
+                block_index: 2,
+                char_offset: 7
+            },
+            &blocks
+        ));
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 3,
+                char_offset: 0
+            },
+            &blocks
+        ));
+        assert!(!is_completed_place(
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 0
+            },
+            &reader_blocks("  ")
+        ));
     }
 
     #[test]

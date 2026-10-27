@@ -71,6 +71,7 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -140,6 +141,9 @@ jobs:
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
@@ -147,13 +151,71 @@ jobs:
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-books --test chapter_release_pg -- --ignored
+          cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
+          cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored
+          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
+
+      - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3098
+          TOR_AUTH_ENABLED: '1'
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
+        run: |
+          set -euo pipefail
+          cargo build -p tor-web
+          TOR_PAID_CHECKOUT_ENABLED=0 ./target/debug/tor-web > "$RUNNER_TEMP/tor-d04-disabled.log" 2>&1 &
+          disabled_pid=$!
+          enabled_pid=""
+          trap 'kill "$disabled_pid" "${enabled_pid:-}" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$disabled_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/tor-d04-disabled.log"; exit 1; fi
+          python3 tools/checkout_http_pg_smoke.py --mode disabled
+          kill "$disabled_pid"
+          wait "$disabled_pid" || true
+          TOR_PAID_CHECKOUT_ENABLED=1 ./target/debug/tor-web > "$RUNNER_TEMP/tor-d04-enabled.log" 2>&1 &
+          enabled_pid=$!
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$enabled_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/tor-d04-enabled.log"; exit 1; fi
+          python3 tools/checkout_http_pg_smoke.py --mode enabled
+      - name: I-11 PostgreSQL outage, restart and durable public data
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_restart_smoke.sh
+      - name: I-11 PostgreSQL 18 backup and clean restore drill
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_backup_restore_smoke.sh
+      - name: D-04 diagnostic HTTP logs
+        if: failure()
+        run: |
+          tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
+          tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
