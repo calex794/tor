@@ -974,3 +974,14 @@ img.home-spotlight-card__cover {
 .ranking-book__place, .ranking-book__tie { color: var(--text-muted); font-size: 13px; }
 .ranking-book__tie { border: 1px solid var(--border-color); padding: 2px 7px; border-radius: 20px; }
 @media (max-width: 640px) { .ranking-book { padding: 12px 14px; } }
+
+/* H-10: NEwBOO catalogue active filters, with one-click removal and mobile wrapping. */
+.catalog-active-filters { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px 14px; margin: -7px 0 18px; }
+.catalog-active-filters__label { padding-top: 7px; color: var(--text-muted); font-size: 13px; font-weight: 700; }
+.catalog-active-filters__list { display: flex; flex: 1 1 250px; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.catalog-active-filters .ui-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 34px; padding: 6px 11px; border: 1px solid var(--border-dark); border-radius: 999px; background: var(--bg-surface); color: var(--text-main); font-size: 13px; line-height: 1.35; text-decoration: none; }
+.catalog-active-filters .ui-chip:hover { border-color: var(--primary-color); }
+.catalog-active-filters .ui-chip:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.catalog-active-filters .ui-chip__key { color: var(--text-muted); }
+.catalog-active-filters .ui-chip__value { min-width: 0; overflow-wrap: anywhere; font-weight: 700; }
+.catalog-active-filters .ui-chip__remove { flex: none; margin-left: 2px; font-size: 18px; line-height: 1; }
