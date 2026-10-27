@@ -126,9 +126,9 @@ mod tests {
         ] {
             headers.insert("x-real-ip", HeaderValue::from_str(raw).unwrap());
             assert_eq!(
-            rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, true),
-            None
-        );
+                rate_limit_ip(Ipv4Addr::LOCALHOST.into(), &headers, true),
+                None
+            );
         }
     }
 }
