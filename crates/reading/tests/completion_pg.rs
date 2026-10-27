@@ -54,7 +54,7 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
     .unwrap();
     sqlx::query(
         "INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
-         VALUES(98431,98420,1,'Первая часть\\n\\nКонец😀'),
+         VALUES(98431,98420,1,E'Первая часть\\n\\nКонец😀'),
                (98432,98420,2,'Новая редакция')",
     )
     .execute(&pool)
