@@ -303,6 +303,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-cover-picker.css"));
         css
     });
     (
@@ -311,6 +313,17 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         CSS.as_str(),
+    )
+}
+
+/// Local cover-selection preview, based on NEwBOO book-settings.js.
+pub async fn cover_picker_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-cover-picker.js"),
     )
 }
 
