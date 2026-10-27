@@ -10,6 +10,7 @@ use axum::{
 use std::{fmt::Write, time::Duration};
 use tor_ingest::repositories::cover_jobs::{CoverQueueCounts, PgCoverJobs};
 use tor_observability::services::{
+    auth::{LoginOutcome, LoginSnapshot},
     process::{self, ProcessSnapshot},
     publisher::PublisherCounts,
     HttpSummary,
@@ -29,6 +30,7 @@ enum PgHealth {
 struct Overview {
     pg: PgHealth,
     http: HttpSummary,
+    login: LoginSnapshot,
     process: ProcessSnapshot,
     ril_dropped: Option<(u64, u64)>,
     trace_store_configured: bool,
@@ -43,6 +45,7 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
     let mut state = Overview {
         pg: PgHealth::NotConfigured,
         http: observability::http_summary(),
+        login: observability::login_summary(),
         process: process::capture(),
         ril_dropped: ril::dropped_telemetry_counters(),
         trace_store_configured: std::env::var_os("TOR_TRACE_STORE_SOCKET")
@@ -165,6 +168,19 @@ fn render(snapshot: &Overview) -> Html<String> {
             "<dl><dt>Потеряно технических событий</dt><dd>{ordinary}</dd><dt>Потеряно событий путей</dt><dd>{path}</dd></dl>"
         ))
         .unwrap_or_else(|| format!("<p>{}</p>", unmeasured()));
+    let mut login_rows = String::from("<dl>");
+    for outcome in LoginOutcome::ALL {
+        write!(
+            login_rows,
+            "<dt>{}</dt><dd>{}</dd>",
+            outcome.operator_label(),
+            snapshot.login.count(outcome)
+        )
+        .expect("write String");
+    }
+    login_rows.push_str("</dl>");
+    let login_total = snapshot.login.total();
+
     let mut exporters = format!(
         "<p>Архив SQLite: {}</p>",
         if snapshot.trace_store_configured {
@@ -189,6 +205,7 @@ fn render(snapshot: &Overview) -> Html<String> {
         <section class=\"card\" aria-labelledby=\"pg\"><h2 id=\"pg\">PostgreSQL</h2><p>{pg_text}</p><p class=\"muted\">Проверяется фактическая схема и доступность данных сайта. Это не измерение задержек всех запросов.</p></section>
         <section class=\"card\" aria-labelledby=\"system\"><h2 id=\"system\">Ресурсы процесса TOR</h2><dl><dt>Оперативная память (RSS)</dt><dd>{resident}</dd><dt>Накопленное время CPU</dt><dd>{cpu}</dd><dt>Загрузка CPU между просмотрами</dt><dd>{cpu_share}</dd></dl><p class=\"muted\">Только процесс сайта, не весь сервер. На системах без /proc данные недоступны; 100% означает одно полностью занятое ядро.</p></section>
         <section class=\"card\" aria-labelledby=\"http\"><h2 id=\"http\">HTTP с запуска процесса</h2><dl><dt>Завершено запросов</dt><dd>{}</dd><dt>Ответы 4xx</dt><dd>{}</dd><dt>Ответы 5xx</dt><dd>{}</dd><dt>Медленнее одной секунды</dt><dd>{}</dd></dl><p class=\"muted\">Коды 4xx могут быть обычными отказами доступа; это не обязательно ошибка сервера.</p></section>
+        <section class=\"card\" aria-labelledby=\"auth\"><h2 id=\"auth\">Вход: причины ответов</h2><p>Всего попыток с запуска: {login_total}</p>{login_rows}<p class=\"muted\">Только агрегированные исходы POST /login без адресов почты, IP, идентификаторов пользователей или текстов ошибок базы. Счётчики сбрасываются при перезапуске; это не текущий статус каждой учётной записи.</p></section>
         <section class=\"card\" aria-labelledby=\"ril\"><h2 id=\"ril\">RIL: маршруты и потери</h2><dl><dt>Известных методов маршрутов</dt><dd>{}</dd><dt>Версия классификации</dt><dd>{}</dd></dl>{ril_telemetry}<p class=\"muted\">RIL классифицирует маршруты, но не выдаёт права доступа. Потери событий не означают потерю HTTP-запросов.</p></section>
         <section class=\"card\" aria-labelledby=\"jobs\"><h2 id=\"jobs\">Очередь аналитики RIL</h2><p role=\"{pump_role}\">{pump_text}</p>{pump_metrics}{ril_queue}<p class=\"muted\">Нет завершённого цикла 90 секунд — возможная остановка. Просрочка очереди: больше 5 минут после поступления и наступления срока запуска. Активность сборщика относится только к этому веб-процессу.</p></section>
         <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2><p role=\"{cover_role}\">{cover_text}</p>{cover_metrics}{covers}<p class=\"muted\">Показатели исполнителя относятся только к процессу TOR. Просроченная аренда не доказывает остановку другого процесса.</p></section>
@@ -283,6 +300,7 @@ mod tests {
                 client_errors: 1,
                 slower_than_one_second: 3,
             },
+            login: LoginSnapshot::default(),
             process: ProcessSnapshot::default(),
             ril_dropped: Some((0, 0)),
             trace_store_configured: false,
@@ -305,6 +323,8 @@ mod tests {
         assert!(text.contains("Очередь обработки обложек"));
         assert!(text.contains("В работе</dt><dd>2"));
         assert!(text.contains("HTTP с запуска процесса"));
+        assert!(text.contains("Вход: причины ответов"));
+        assert!(text.contains("Сбой поиска учётной записи"));
         assert!(text.contains("Нет измерения"));
         assert!(!text.contains("secret"));
     }
