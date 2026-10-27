@@ -163,7 +163,7 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     let (status, reader_html) = send(
         &app,
         "GET",
-        &format!("/read/{chapter_id}"),
+        &format!("/reader/{chapter_id}"),
         "",
         None,
         &csrf,
