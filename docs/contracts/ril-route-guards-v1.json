@@ -421,6 +421,13 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::cover_picker_script",
       "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/purchases",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::buy",
+      "policy": "session"
     }
   ]
 }

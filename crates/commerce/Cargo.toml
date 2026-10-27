@@ -1,0 +1,13 @@
+[package]
+name = "tor-commerce"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+sha2 = "0.10"
+sqlx.workspace = true
+tor-contracts = { path = "../contracts" }
+
+[dev-dependencies]
+tokio.workspace = true

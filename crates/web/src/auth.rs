@@ -38,6 +38,7 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod checkout;
 mod library_actions;
 mod login_limiter;
 mod rankings;
@@ -46,6 +47,8 @@ mod sync_actions;
 #[derive(Clone)]
 struct AuthState {
     accounts: PgAccounts,
+    checkout: tor_commerce::repositories::checkout::PgCheckout,
+    paid_checkout_enabled: bool,
     authoring: PgAuthoring,
     progress: PgReadingProgress,
     sync: PgReadingSync,
@@ -126,12 +129,16 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
+    let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
+    let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         accounts,
+        checkout,
+        paid_checkout_enabled,
         authoring,
         progress,
         sync,
@@ -162,6 +169,7 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
+        .route("/api/v1/purchases", post(checkout::buy))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
