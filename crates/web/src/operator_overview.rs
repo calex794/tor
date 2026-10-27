@@ -292,6 +292,8 @@ mod tests {
 
     #[test]
     fn combined_view_distinguishes_known_zero_and_unknown() {
+        let logins = tor_observability::services::auth::LoginMetrics::default();
+        logins.record(LoginOutcome::LookupUnavailable);
         let data = Overview {
             pg: PgHealth::Unavailable,
             http: HttpSummary {
@@ -300,7 +302,7 @@ mod tests {
                 client_errors: 1,
                 slower_than_one_second: 3,
             },
-            login: LoginSnapshot::default(),
+            login: logins.snapshot(),
             process: ProcessSnapshot::default(),
             ril_dropped: Some((0, 0)),
             trace_store_configured: false,
@@ -324,7 +326,7 @@ mod tests {
         assert!(text.contains("В работе</dt><dd>2"));
         assert!(text.contains("HTTP с запуска процесса"));
         assert!(text.contains("Вход: причины ответов"));
-        assert!(text.contains("Сбой поиска учётной записи"));
+        assert!(text.contains("Сбой поиска учётной записи</dt><dd>1"));
         assert!(text.contains("Нет измерения"));
         assert!(!text.contains("secret"));
     }
