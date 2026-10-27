@@ -215,13 +215,21 @@ mod tests {
     #[test]
     fn paid_book_toc_escapes_metadata_and_links_only_entitled_editions() {
         let current = ReadablePurchase {
-            purchase_id: 31, chapter_id: 23, version_id: 40, version_no: 1,
-            chapter_no: 2, book_title: "Book".to_owned(),
+            purchase_id: 31,
+            chapter_id: 23,
+            version_id: 40,
+            version_no: 1,
+            chapter_no: 2,
+            book_title: "Book".to_owned(),
             chapter_title: "Current".to_owned(),
         };
         let next = ReadablePurchase {
-            purchase_id: 32, chapter_id: 24, version_id: 42, version_no: 1,
-            chapter_no: 3, book_title: "Book".to_owned(),
+            purchase_id: 32,
+            chapter_id: 24,
+            version_id: 42,
+            version_no: 1,
+            chapter_no: 3,
+            book_title: "Book".to_owned(),
             chapter_title: "Следующая <script>x</script>".to_owned(),
         };
         let toc = ReadableBookToc {
