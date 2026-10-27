@@ -240,6 +240,7 @@ pub(crate) fn unwrap_scoped_dek(
 
 /// Unwrap the immutable PostgreSQL G envelope after verifying B's exact
 /// object reference. Never returns an unprotected key and never logs it.
+#[cfg(feature = "pg")]
 pub(crate) fn unwrap_registered_dek(
     object_id: &ObjectId,
     kek_id: &str,
