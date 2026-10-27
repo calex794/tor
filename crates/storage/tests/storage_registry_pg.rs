@@ -4,15 +4,19 @@
 
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, Row};
-use std::{sync::Mutex, time::Duration};
+use std::{sync::{Arc, Mutex}, time::Duration};
 use tor_contracts::paid_delivery::{
-    ChapterVersionRef, ObjectId, ObjectRef, PositiveId, SecretValue,
+    ChapterVersionRef, ContentCodec, EncryptedObjectRef, ObjectId, ObjectRef, PositiveId,
+    PrivateObjectDeliveryPort, SecretValue,
 };
 use tor_storage::{
     domain::provider::StorageError,
-    repositories::registry::{ObjectState, PgStorageRegistry, RegistryError},
+    repositories::{
+        paid_delivery::PgPrivateDelivery,
+        registry::{ObjectState, PgStorageRegistry, RegistryError},
+    },
     services::{
-        crypto::{seal_chapter, sha256_bytes, ContentKek},
+        crypto::{seal_chapter, seal_chapter_with_keyring, sha256_bytes, ContentKek, ContentKeyring},
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
@@ -70,10 +74,14 @@ impl PrivateObjectStore for FakePrivateS3 {
 
     async fn presign_verified(
         &self,
-        _object: &ObjectRef,
-        _ttl: Duration,
+        object: &ObjectRef,
+        ttl: Duration,
     ) -> Result<SecretValue, StorageError> {
-        Err(StorageError::Unavailable)
+        if ttl != Duration::from_secs(90) || !self.head_verified(object).await? {
+            return Err(StorageError::Unavailable);
+        }
+        SecretValue::new("https://private-s3.example.invalid/s334-signed".to_owned())
+            .map_err(|_| StorageError::Unavailable)
     }
 }
 
