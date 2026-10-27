@@ -84,6 +84,8 @@ pub fn paid_reader_shell(
              <div class="reader-resume" data-paid-resume aria-live="polite"></div>
              <article class="chapter-content reader-markdown reader-paid__content"
                  data-paid-content aria-label="Текст купленной главы"></article>
+             <div class="reader-resume reader-paid__completion" data-paid-completion
+                  aria-live="polite" hidden></div>
              <p class="reader-page__return"><a class="text-link" href="/me/purchases">К купленным главам</a></p>
            </div>
            <script type="module" src="/assets/newboo-paid-reader.mjs"></script>
