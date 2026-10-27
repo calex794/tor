@@ -50,6 +50,7 @@ struct AuthState {
     accounts: PgAccounts,
     checkout: tor_commerce::repositories::checkout::PgCheckout,
     paid_checkout_enabled: bool,
+    paid_reader_available: bool,
     authoring: PgAuthoring,
     progress: PgReadingProgress,
     sync: PgReadingSync,
@@ -100,7 +101,7 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, None)
+    router_inner(accounts, reader, secure, origin, None, false)
 }
 
 pub(crate) fn router_with_cover_uploads(
@@ -110,7 +111,19 @@ pub(crate) fn router_with_cover_uploads(
     origin: String,
     storage: Arc<dyn CoverObjectStore>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, Some(storage))
+    router_inner(accounts, reader, secure, origin, Some(storage), false)
+}
+
+/// Enable purchased-library navigation only when an actual A/D/B/G reader
+/// route is mounted. Other account constructors must not show dead links.
+pub(crate) fn router_with_paid_reader(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
+) -> Router {
+    router_inner(accounts, reader, secure, origin, cover_upload_storage, true)
 }
 
 fn router_inner(
@@ -119,6 +132,7 @@ fn router_inner(
     secure: bool,
     origin: String,
     storage: Option<Arc<dyn CoverObjectStore>>,
+    paid_reader_available: bool,
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
     let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
@@ -140,6 +154,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        paid_reader_available,
         authoring,
         progress,
         sync,
@@ -266,7 +281,10 @@ async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_library(&books, &saved, &csrf), &cookies)
+    private_response(
+        pages::my_library_with_purchases(&books, &saved, &csrf, state.paid_reader_available),
+        &cookies,
+    )
 }
 
 /// Resolve actor from the session database, never client-supplied user IDs.
