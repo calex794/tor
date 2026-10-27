@@ -199,6 +199,12 @@ jobs:
         run: |
           cargo build -p tor-web
           bash tools/tor_pg_restart_smoke.sh
+      - name: I-11 PostgreSQL 18 backup and clean restore drill
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_backup_restore_smoke.sh
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |
