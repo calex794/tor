@@ -5,6 +5,7 @@ use std::{collections::HashSet, fmt::Write};
 use tor_search::repositories::catalog::TaxonomyOptions;
 
 mod catalog_active_filters;
+mod catalog_taxonomy_selects;
 
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
@@ -297,20 +298,7 @@ pub fn catalog_search_with_covers(
             1,
         );
     }
-    if let Some(options) = options {
-        for (id, values) in [
-            ("catalog-genres", &options.genres),
-            ("catalog-tags", &options.tags),
-            ("catalog-fandoms", &options.fandoms),
-        ] {
-            write!(controls, "<datalist id=\"{id}\">").expect("String write");
-            for value in values {
-                write!(controls, "<option value=\"{}\">", escape_html(value))
-                    .expect("String write");
-            }
-            controls.push_str("</datalist>");
-        }
-    }
+    controls = catalog_taxonomy_selects::apply(controls, options, genre, tag, fandom);
     if let Some(cursor) = cursor {
         let language_param = language
             .filter(|value| !value.is_empty())

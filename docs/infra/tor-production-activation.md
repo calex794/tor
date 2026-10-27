@@ -5,6 +5,41 @@ at https://pandaolate.ru. The zero-traffic site is not an excuse to keep an
 in-memory demonstration. We retain only production essentials: least-privilege
 roles, durable schema, real HTTPS, readiness, and a working rollback.
 
+## A/S002 — login requests behind Nginx (28 October 2026)
+
+On the actual VPS, Nginx connects to TOR via `127.0.0.1:3000`.
+The original address-based login limiter used the TCP peer, so all website
+visitors shared `auth:login:peer:127.0.0.1` and could collectively reach
+the limit of 60 requests in 10 minutes. **This does not prove the precise
+HTTP failure reported by the operator**, because a 503 from PostgreSQL or
+session storage previously displayed the same generic error as a 429.
+
+The application now enforces an eight-attempt account-key limit even when
+the client IP is unknown, but deliberately does not enforce a shared
+address-key limit on loopback proxy traffic. Direct non-loopback clients
+still have an address limit. To enable both account and real-IP limits
+behind Nginx **later**, first verify Nginx explicitly overwrites the
+untrusted incoming header in the actual TOR vhost:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+Only after verifying that rule (not merely forwarding a client-supplied
+`X-Real-IP`) enable `TOR_AUTH_TRUST_NGINX_REAL_IP=1` on the service.
+The application trusts that header only when the direct TCP peer is
+loopback; it ignores `X-Forwarded-For` and refuses ambiguous headers.
+The opt-in is **not required** for the immediate login fix.
+
+If an operator sees the login error again, distinguish the actual status:
+`429` now shows **«Слишком много попыток входа»** and includes
+`Retry-After: 600`. `503` still shows **«Вход временно недоступен»**;
+it writes a static, non-sensitive `TOR_AUTH_LOGIN_UNAVAILABLE stage=...`
+or `TOR_AUTH_UNAVAILABLE stage=...` to the local systemd journal.
+Never paste real passwords, cookies, raw SQL parameters or user identities
+into reports. Live authentication POSTs were not tested with real credentials
+by the release workflow, which previously checked only GET /login.
+
 ## One-click release (28 October 2026) — current operator path
 
 **Normal updates now need one action:** open
