@@ -148,6 +148,7 @@ jobs:
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-search --test search_pg -- --ignored
+          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
