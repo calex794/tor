@@ -262,6 +262,29 @@ pub fn seal_chapter(
     markdown: &str,
     kek: &ContentKek,
 ) -> Result<EncryptedChapter, CryptoError> {
+    seal_chapter_with_selected_key(version, object_id, markdown, kek, KEK_ID)
+}
+
+/// New paid publications select a key only through a trusted versioned
+/// keyring. The active ID is server-owned and never comes from an author body.
+#[cfg(any(feature = "pg", test))]
+pub fn seal_chapter_with_keyring(
+    version: ChapterVersionRef,
+    object_id: ObjectId,
+    markdown: &str,
+    keyring: &ContentKeyring,
+) -> Result<EncryptedChapter, CryptoError> {
+    let key = keyring.active_key()?;
+    seal_chapter_with_selected_key(version, object_id, markdown, key, keyring.active_id())
+}
+
+fn seal_chapter_with_selected_key(
+    version: ChapterVersionRef,
+    object_id: ObjectId,
+    markdown: &str,
+    kek: &ContentKek,
+    selected_kek_id: &'static str,
+) -> Result<EncryptedChapter, CryptoError> {
     let normalized = Zeroizing::new(markdown.replace("\r\n", "\n").replace('\r', "\n"));
     if normalized.is_empty()
         || normalized.len() > MAX_CHAPTER_UTF8_BYTES
@@ -288,10 +311,17 @@ pub fn seal_chapter(
         plaintext_sha256,
         wrap_nonce,
         wrapped_dek,
-        kek_id: KEK_ID,
+        kek_id: selected_kek_id,
     };
-    // Verify newly wrapped DEK before the object can be registered or uploaded.
-    if unwrap_scoped_dek(&sealed, kek)?[..] != dek[..] {
+    // Authenticate the wrapper with the exact selected key. This validation
+    // deliberately does not assume the legacy V1-only public seal interface.
+    if unwrap_bytes(
+        &sealed.object_id,
+        &sealed.wrapped_dek,
+        &sealed.wrap_nonce,
+        kek,
+    )?[..] != dek[..]
+    {
         return Err(CryptoError::AuthenticationFailed);
     }
     Ok(sealed)
