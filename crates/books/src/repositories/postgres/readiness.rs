@@ -7,8 +7,7 @@ pub(super) fn require_latest_migration(version: Option<i64>) -> Result<(), sqlx:
         Ok(())
     } else {
         Err(sqlx::Error::Protocol(
-            "TOR schema missing B verified ReaderVersionManifest migration 202610280004"
-                .into(),
+            "TOR schema missing B verified ReaderVersionManifest migration 202610280004".into(),
         ))
     }
 }
