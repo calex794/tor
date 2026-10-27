@@ -278,3 +278,81 @@ fn s334_rewrap_rejects_wrong_old_key_tampering_wrong_object_and_fake_rotation() 
         Err(CryptoError::UnavailableKey)
     ));
 }
+
+#[test]
+fn s334_read_keyring_fails_closed_without_matching_v2_or_with_fake_id() {
+    let old = Arc::new(ContentKek::from_bytes([0x72; 32]));
+    let next = Arc::new(ContentKek::from_bytes([0x73; 32]));
+    let sealed = seal_chapter(version(), object_id(), "Purchased V1", &old).unwrap();
+    let prior = unwrap_registered_dek(
+        &sealed.object_id,
+        &sealed.wrapped_dek,
+        &sealed.wrap_nonce,
+        "content-kek-v1",
+        &old,
+    )
+    .unwrap();
+    let updated = rewrap_registered_v1_to_v2(
+        &sealed.object_id,
+        &sealed.wrapped_dek,
+        &sealed.wrap_nonce,
+        &old,
+        &next,
+    )
+    .unwrap();
+
+    let single = ContentKeyring::v1_only(old.clone());
+    assert!(matches!(
+        unwrap_registered_dek_from_keyring(
+            &sealed.object_id,
+            &updated.wrapped_dek,
+            &updated.wrap_nonce,
+            "content-kek-v2",
+            &single,
+        ),
+        Err(CryptoError::UnavailableKey)
+    ));
+    assert!(matches!(
+        ContentKeyring::with_v2(old.clone(), old.clone()),
+        Err(CryptoError::InvalidMaterial)
+    ));
+    let both = ContentKeyring::with_v2(old, next).unwrap();
+    let v1 = unwrap_registered_dek_from_keyring(
+        &sealed.object_id,
+        &sealed.wrapped_dek,
+        &sealed.wrap_nonce,
+        "content-kek-v1",
+        &both,
+    )
+    .unwrap();
+    let v2 = unwrap_registered_dek_from_keyring(
+        &sealed.object_id,
+        &updated.wrapped_dek,
+        &updated.wrap_nonce,
+        updated.kek_id,
+        &both,
+    )
+    .unwrap();
+    assert_eq!(&v1[..], &prior[..]);
+    assert_eq!(&v2[..], &prior[..]);
+    assert!(matches!(
+        unwrap_registered_dek_from_keyring(
+            &sealed.object_id,
+            &updated.wrapped_dek,
+            &updated.wrap_nonce,
+            "content-kek-v99",
+            &both,
+        ),
+        Err(CryptoError::UnavailableKey)
+    ));
+    assert!(matches!(
+        unwrap_registered_dek_from_keyring(
+            &sealed.object_id,
+            &updated.wrapped_dek,
+            &updated.wrap_nonce,
+            "content-kek-v1",
+            &both,
+        ),
+        Err(CryptoError::AuthenticationFailed)
+    ));
+}
