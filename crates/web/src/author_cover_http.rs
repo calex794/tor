@@ -113,9 +113,12 @@ async fn upload_cover(
                     Ok(value) if value.len() <= 128 => value,
                     _ => return deny(StatusCode::BAD_REQUEST),
                 };
+                if !state.cookies.valid_csrf(&headers, &value) {
+                    return deny(StatusCode::FORBIDDEN);
+                }
                 csrf = Some(value);
             }
-            Some("cover") if source.is_none() => {
+            Some("cover") if source.is_none() && csrf.is_some() => {
                 let mime = match field.content_type() {
                     Some("image/jpeg") => "image/jpeg",
                     Some("image/png") => "image/png",
@@ -184,7 +187,7 @@ async fn upload_cover(
         .enqueue(source_id, id, actor, expected_revision, RECIPE_VERSION)
         .await
     {
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}/settings/covers")), &[]),
         Err(CoverError::Conflict) => deny(StatusCode::CONFLICT),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
