@@ -943,6 +943,17 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let bad_login =
         format!("email=tor_ci_account%40example.com&password=badpass&csrf_token={login_csrf}");
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
+    // Reverse-proxy regression: the trusted TCP peer of all Nginx visitors
+    // is 127.0.0.1. A prior 60+ unrelated attempts must not prevent a valid
+    // account from signing in. Keep this fixture in disposable tor_ci only.
+    let loopback_peer_key =
+        tor_accounts::services::security::session_token_digest("auth:login:peer:127.0.0.1");
+    for _ in 0..61 {
+        lookup
+            .permit_auth_attempt(&loopback_peer_key, 60, 600)
+            .await
+            .expect("seed shared reverse-proxy counter");
+    }
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
     let logged = send(
         &app,
