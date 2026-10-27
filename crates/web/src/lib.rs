@@ -35,6 +35,11 @@ mod operator_overview;
 mod operator_traces;
 mod pages;
 mod paid_grants_http;
+mod paid_reader_router;
+pub use paid_reader_router::{
+    router_with_postgres_reading_auth_paid_grants,
+    router_with_postgres_reading_auth_paid_grants_browser,
+};
 mod password_jobs;
 pub mod ranking_consumer;
 mod ril;
@@ -366,60 +371,6 @@ pub fn router_with_postgres_reading_auth(
     )
 }
 
-/// S034 opt-in. This is the only constructor that mounts a paid grant route.
-/// Other demo/PG and legacy authentication constructors remain default-off.
-pub fn router_with_postgres_reading_auth_paid_grants(
-    catalog: PgCatalog,
-    reader: PgReader,
-    accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
-    paid_storage: Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
-    cover: Option<(
-        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
-        bool,
-    )>,
-) -> Router {
-    let (cover_storage, enable_cover_uploads) = match cover {
-        Some((store, enabled)) => (Some(store), enabled),
-        None => (None, false),
-    };
-    let auth_reader = reader.clone();
-    let grants = paid_grants_http::router(
-        accounts.clone(),
-        auth_cookies::CookiePolicy {
-            secure,
-            origin: public_origin.clone(),
-        },
-        paid_storage,
-    );
-    let author = if enable_cover_uploads {
-        match cover_storage.as_ref() {
-            Some(store) => auth::router_with_cover_uploads(
-                accounts,
-                auth_reader,
-                secure,
-                public_origin,
-                store.clone(),
-            ),
-            None => auth::router(accounts, auth_reader, secure, public_origin),
-        }
-    } else {
-        auth::router(accounts, auth_reader, secure, public_origin)
-    };
-    ril::instrument(
-        make_router(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_storage,
-        )
-        .merge(author)
-        .merge(grants),
-    )
-}
-
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
@@ -438,6 +389,10 @@ fn make_router(
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
+        .route(
+            "/assets/newboo-paid-reader.mjs",
+            get(pages::paid_reader_script),
+        )
         .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),

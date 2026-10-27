@@ -154,15 +154,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 #[cfg(not(feature = "s3-paid"))]
                 let paid_storage: Option<Arc<dyn PrivateObjectDeliveryPort>> = None;
                 if let Some(paid) = paid_storage {
-                    tor_web::router_with_postgres_reading_auth_paid_grants(
+                    // The browser receives only this server-owned allowed S3
+                    // origin. No signed host or bucket comes from a visitor.
+                    let s3_origin = env::var("TOR_PAID_S3_PUBLIC_ORIGIN")?;
+                    tor_web::router_with_postgres_reading_auth_paid_grants_browser(
                         catalog,
                         reader,
                         accounts,
                         secure,
                         origin,
-                        paid,
+                        (paid, s3_origin),
                         cover_store.map(|store| (store, cover_worker_enabled)),
                     )
+                    .map_err(|reason| -> Box<dyn Error> { reason.into() })?
                 } else if let Some(store) = cover_store {
                     if cover_worker_enabled {
                         tor_web::router_with_postgres_reading_auth_cover_uploads(
