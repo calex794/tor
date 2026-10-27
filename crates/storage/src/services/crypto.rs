@@ -41,9 +41,7 @@ impl ContentKek {
     }
 
     fn from_named_environment(name: &str) -> Result<Self, CryptoError> {
-        let encoded = Zeroizing::new(
-            std::env::var(name).map_err(|_| CryptoError::UnavailableKey)?,
-        );
+        let encoded = Zeroizing::new(std::env::var(name).map_err(|_| CryptoError::UnavailableKey)?);
         let decoded = Zeroizing::new(
             URL_SAFE_NO_PAD
                 .decode(encoded.as_bytes())
