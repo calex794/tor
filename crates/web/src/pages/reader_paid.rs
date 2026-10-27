@@ -228,17 +228,21 @@ pub fn paid_reader_shell(
                  <span class="reader-topbar__chapter" title="{chapter_label}">{chapter_label}</span>
                </div>
                <div class="reader-topbar__actions">
-                 {toc_menu}
                  <button class="reader-topbar__settings" type="button" data-paid-settings-open
                    aria-controls="paid-reader-settings" aria-expanded="false"
-                   aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+                   aria-haspopup="dialog" aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+                 {toc_menu}
                  <button class="reader-topbar__theme" type="button" data-paid-theme-cycle
                    aria-label="Сменить тему" title="Сменить тему"><span aria-hidden="true">☾</span></button>
                </div>
              </header>
            <div class="container reader-width">
-             <section id="paid-reader-settings" class="reader-paid__settings"
-               data-paid-reader-settings aria-labelledby="paid-reader-settings-title" hidden>
+             <div id="paid-reader-settings" class="reader-paid__settings"
+               data-paid-reader-settings hidden>
+               <button type="button" class="reader-paid__settings-backdrop"
+                 data-paid-settings-close aria-label="Закрыть настройки чтения"></button>
+               <section class="reader-paid__settings-panel" role="dialog" aria-modal="true"
+                 aria-labelledby="paid-reader-settings-title" tabindex="-1">
                <div class="reader-paid__settings-head">
                  <h2 id="paid-reader-settings-title">Настройки чтения</h2>
                  <button type="button" data-paid-settings-close aria-label="Закрыть настройки">Закрыть</button>
@@ -266,7 +270,8 @@ pub fn paid_reader_shell(
                  </label>
                </div>
                <button type="button" data-paid-settings-reset>Сбросить настройки</button>
-             </section>
+               </section>
+             </div>
              <div class="reader-page__header">
                <p class="reader-page__meta">Купленная редакция {version_no}</p>
                <h1 id="reader-title" class="reader-page__title">{chapter_label}</h1>
@@ -511,6 +516,9 @@ mod tests {
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
+        assert!(body.contains("class=\"reader-paid__settings-panel\" role=\"dialog\" aria-modal=\"true\""));
+        assert!(body.contains("data-paid-settings-close aria-label=\"Закрыть настройки чтения\""));
+        assert!(body.contains("aria-haspopup=\"dialog\""));
         assert!(body.contains("data-paid-theme-cycle"));
         assert!(body.contains("aria-label=\"Сменить тему\""));
         let toolbar = body.find("<header class=\"reader-topbar\"").unwrap();
