@@ -175,11 +175,45 @@ pub fn cover_settings(
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
 }
 
-pub fn new_chapter(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
+pub fn new_chapter(
+    book_id: i64,
+    csrf: &str,
+    command_key: &str,
+    paid_enabled: bool,
+) -> Html<String> {
+    // No paid-control is presented unless the private S3 writer and
+    // owner-only publishing flow are explicitly enabled for this book.
+    let access_fields = if paid_enabled {
+        r#"<label for="chapter-access">Доступ к главе</label>
+        <select id="chapter-access" name="access">
+          <option value="free">Бесплатная</option>
+          <option value="paid">Платная</option>
+        </select>
+        <label for="chapter-price">Стоимость главы (для бесплатной — 0)</label>
+        <input id="chapter-price" name="price_amount" type="number" min="0" step="1" value="0" required>
+        <p class="account-profile__hint">Платная глава будет опубликована только после проверки зашифрованного файла в закрытом хранилище. При ошибке сохранения повторите отправку той же формы.</p>"#
+    } else {
+        r#"<input type="hidden" name="access" value="free">
+        <input type="hidden" name="price_amount" value="0">"#
+    };
     let html = include_str!("../templates/author_new_chapter.html")
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
-        .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
+        .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
+        .replace("<!--CHAPTER_ACCESS-->", access_fields)
+        .replace(
+            "<!--CHAPTER_HEADING-->",
+            if paid_enabled { "Новая глава" } else { "Новая бесплатная глава" },
+        )
+        .replace(
+            "<!--CHAPTER_INFO-->",
+            if paid_enabled {
+                "Платная глава публикуется сразу после защищённого сохранения. Для бесплатных глав пока действует отдельное подтверждение выпуска."
+            } else {
+                "Бесплатная глава сначала сохраняется скрытой. В опубликованной книге для неё пока требуется отдельное подтверждение."
+            },
+        )
+        .replace("<!--SAVE_LABEL-->", "Сохранить главу");
     layout("Добавить главу", "Публикация главы автором", &html)
 }
 
@@ -255,6 +289,18 @@ pub fn detail(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paid_controls_only_appear_in_enabled_author_pages() {
+        let disabled = new_chapter(42, "csrf", "command", false).0;
+        assert!(!disabled.contains("<option value=\"paid\">"));
+        assert!(disabled.contains("name=\"access\" value=\"free\""));
+        let enabled = new_chapter(42, "csrf", "command", true).0;
+        assert!(enabled.contains("<option value=\"paid\">"));
+        assert!(enabled.contains("name=\"price_amount\""));
+        assert!(enabled.contains("сразу после защищённого сохранения"));
+        assert!(!enabled.contains("<!--CHAPTER_ACCESS-->"));
+    }
+
     #[test]
     fn author_title_is_always_escaped() {
         let page = detail(
