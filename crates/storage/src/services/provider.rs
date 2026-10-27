@@ -8,8 +8,11 @@ use crate::domain::provider::StorageError;
 #[async_trait]
 pub trait PrivateObjectStore: Send + Sync {
     /// S3 put-if-absent. Repeated publication may not replace immutable bytes.
-    async fn put_immutable(&self, object: &ObjectRef, ciphertext: &[u8])
-        -> Result<(), StorageError>;
+    async fn put_immutable(
+        &self,
+        object: &ObjectRef,
+        ciphertext: &[u8],
+    ) -> Result<(), StorageError>;
 
     /// HEAD metadata checks are a preflight, not evidence of actual S3 bytes.
     async fn head_verified(&self, object: &ObjectRef) -> Result<bool, StorageError>;

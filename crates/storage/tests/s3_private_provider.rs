@@ -8,7 +8,9 @@ use aws_sdk_s3::{
     Client,
 };
 use std::{process::Command, time::Duration};
-use tor_contracts::paid_delivery::{ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef, PositiveId};
+use tor_contracts::paid_delivery::{
+    ChapterVersionRef, EncryptedObjectKind, ObjectId, ObjectRef, PositiveId,
+};
 use tor_storage::{
     domain::provider::StorageError,
     repositories::s3::S3PrivateStore,
@@ -44,7 +46,14 @@ fn version() -> ChapterVersionRef {
 
 fn curl_status(url: &str) -> String {
     let result = Command::new("curl")
-        .args(["--silent", "--output", "/dev/null", "--write-out", "%{http_code}", url])
+        .args([
+            "--silent",
+            "--output",
+            "/dev/null",
+            "--write-out",
+            "%{http_code}",
+            url,
+        ])
         .output()
         .expect("curl installed in CI");
     assert!(result.status.success(), "HTTP probe failed");
@@ -56,8 +65,7 @@ fn curl_status(url: &str) -> String {
 async fn g_09_private_s3_immutable_signed_get_and_integrity() {
     let endpoint = std::env::var("TOR_TEST_S3_ENDPOINT").expect("MinIO URL");
     assert!(
-        endpoint.starts_with("http://127.0.0.1:")
-            || endpoint.starts_with("http://localhost:"),
+        endpoint.starts_with("http://127.0.0.1:") || endpoint.starts_with("http://localhost:"),
         "this test cannot run against production S3"
     );
     let key = std::env::var("TOR_TEST_S3_ACCESS_KEY").expect("test-only access");
@@ -97,9 +105,7 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         encrypted.ciphertext
     );
 
-    let public_url = format!(
-        "{endpoint}/{BUCKET}/private/chapter-versions/{ID}.enc"
-    );
+    let public_url = format!("{endpoint}/{BUCKET}/private/chapter-versions/{ID}.enc");
     assert_eq!(
         curl_status(&public_url),
         "403",
@@ -125,7 +131,10 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         encrypted.ciphertext
     );
     assert_eq!(store.head_verified(&forged).await, Ok(false));
-    assert_eq!(store.get_verified(&forged).await, Err(StorageError::Corrupt));
+    assert_eq!(
+        store.get_verified(&forged).await,
+        Err(StorageError::Corrupt)
+    );
 
     for ttl in [
         Duration::ZERO,
@@ -181,7 +190,10 @@ async fn g_09_private_s3_immutable_signed_get_and_integrity() {
         .await
         .expect("simulate corrupted private object with test-only owner");
     assert_eq!(store.head_verified(&record).await, Ok(true));
-    assert_eq!(store.get_verified(&record).await, Err(StorageError::Corrupt));
+    assert_eq!(
+        store.get_verified(&record).await,
+        Err(StorageError::Corrupt)
+    );
 }
 
 #[test]
@@ -189,7 +201,13 @@ fn private_bucket_cannot_be_selected_from_client_controlled_paths() {
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new("never-used", "never-used", None, None, "unit"))
+        .credentials_provider(Credentials::new(
+            "never-used",
+            "never-used",
+            None,
+            None,
+            "unit",
+        ))
         .build();
     for bucket in [
         "",

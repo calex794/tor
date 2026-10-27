@@ -4,9 +4,7 @@ use async_trait::async_trait;
 use aws_sdk_s3::{presigning::PresigningConfig, primitives::ByteStream, Client};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
-use tor_contracts::paid_delivery::{
-    validate_signed_get_ttl, ObjectRef, SecretValue,
-};
+use tor_contracts::paid_delivery::{validate_signed_get_ttl, ObjectRef, SecretValue};
 
 use crate::{
     domain::{
@@ -30,7 +28,9 @@ impl S3PrivateStore {
         if !(3..=63).contains(&bytes.len())
             || !bytes[0].is_ascii_lowercase()
             || !bytes[bytes.len() - 1].is_ascii_alphanumeric()
-            || !bytes.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+            || !bytes
+                .iter()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
             || private_bucket.contains("--")
             || private_bucket.starts_with("public")
         {
@@ -189,8 +189,7 @@ impl PrivateObjectStore for S3PrivateStore {
         if !self.head_verified(object).await? {
             return Err(StorageError::Corrupt);
         }
-        let config =
-            PresigningConfig::expires_in(ttl).map_err(|_| StorageError::Invalid)?;
+        let config = PresigningConfig::expires_in(ttl).map_err(|_| StorageError::Invalid)?;
         let signed = self
             .client
             .get_object()
