@@ -13,6 +13,18 @@ pub fn detail(
     chapters: &[OwnedChapterSummary],
     csrf: &str,
 ) -> Html<String> {
+    detail_with_covers(book, published, chapters, csrf, false, None)
+}
+
+/// The form exists only when a signed source store and cover worker are enabled.
+pub fn detail_with_covers(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+    uploads_enabled: bool,
+    latest_job: Option<&str>,
+) -> Html<String> {
     let mut items = String::new();
     if chapters.is_empty() {
         items.push_str("<p class=\"empty-state\">В этой книге пока нет глав.</p>");
@@ -85,11 +97,39 @@ pub fn detail(
         "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
         book.id
     );
+    let cover_status = match latest_job {
+        Some("pending") => "Обложка ожидает обработки.",
+        Some("running") | Some("ready") => "Обложка обрабатывается.",
+        Some("done") => "Обложка готова.",
+        Some("superseded") => "Обложка заменена более новой версией.",
+        Some("dead") => "Ошибка обработки обложки. Загрузите другой файл.",
+        _ => "Обложка ещё не загружена.",
+    };
+    let upload = if uploads_enabled {
+        format!(
+            r#"<section aria-labelledby="book-cover-upload">
+                <h2 id="book-cover-upload">Обложка книги</h2>
+                <p class="account-profile__hint">{cover_status}</p>
+                <form method="post" action="/me/books/{}/cover" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{}">
+                    <label for="book-cover-file">Выберите изображение</label>
+                    <input id="book-cover-file" type="file" name="cover" accept="image/jpeg,image/png,image/webp" required>
+                    <p>JPG, PNG или WebP, не более 8 МиБ. После загрузки начнётся обработка.</p>
+                    <button class="button" type="submit">Загрузить обложку</button>
+                </form>
+                </section>"#,
+            book.id,
+            escape_html(csrf)
+        )
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
+        {upload}
         <h2>Главы</h2>{items}
         {add_action}
         {action}
@@ -185,6 +225,20 @@ mod tests {
         assert!(page.0.contains("&lt;img"));
         assert!(!page.0.contains("<img src=x"));
     }
+    #[test]
+    fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
+        let book = OwnedBook { id: 42, title: "Книга".to_owned() };
+        let disabled = detail(&book, false, &[], "secret").0;
+        assert!(!disabled.contains("enctype=\"multipart/form-data\""));
+        let waiting = detail_with_covers(&book, false, &[], "secret", true, Some("pending")).0;
+        assert!(waiting.contains("action=\"/me/books/42/cover\""));
+        assert!(waiting.contains("name=\"csrf_token\" value=\"secret\""));
+        assert!(waiting.contains("ожидает обработки"));
+        assert!(!waiting.contains("Обложка готова"));
+        let ready = detail_with_covers(&book, true, &[], "secret", true, Some("done")).0;
+        assert!(ready.contains("Обложка готова"));
+    }
+
     #[test]
     fn release_form_escapes_chapter_body_and_pins_version() {
         let chapter = PendingChapter {

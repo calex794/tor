@@ -3,7 +3,7 @@
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
-    author_chapter_http, author_chapter_pages, author_pages, pages,
+    author_cover_http, author_chapter_http, author_chapter_pages, author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
@@ -15,6 +15,8 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+use std::sync::Arc;
+use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_accounts::{
     repositories::PgAccounts,
     services::ril_pseudonym::RilSubjectSigner,
@@ -51,6 +53,8 @@ struct AuthState {
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
     ril_signer: Option<RilSubjectSigner>,
+    cover_jobs: Option<PgCoverJobs>,
+    cover_upload_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -90,17 +94,37 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
-    let chapter_routes = author_chapter_http::router(
-        accounts.clone(),
-        CookiePolicy {
-            secure,
-            origin: origin.clone(),
-        },
-    );
+    router_inner(accounts, reader, secure, origin, None)
+}
+
+pub(crate) fn router_with_cover_uploads(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    storage: Arc<dyn CoverObjectStore>,
+) -> Router {
+    router_inner(accounts, reader, secure, origin, Some(storage))
+}
+
+fn router_inner(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    storage: Option<Arc<dyn CoverObjectStore>>,
+) -> Router {
+    let cookies = CookiePolicy { secure, origin };
+    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
+    let cover_routes = storage.as_ref().map(|store| {
+        author_cover_http::router(accounts.clone(), cookies.clone(), store.clone())
+    });
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
+    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         accounts,
         authoring,
@@ -108,12 +132,14 @@ pub(crate) fn router(
         sync,
         bookmarks,
         reader,
-        cookies: CookiePolicy { secure, origin },
+        cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
+        cover_jobs,
+        cover_upload_enabled,
     };
     let observation_state = state.clone();
-    Router::new()
+    let app = Router::new()
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -156,7 +182,12 @@ pub(crate) fn router(
             observation_state,
             behavior_consent::annotate_verified_ril,
         ))
-        .merge(chapter_routes)
+        .merge(chapter_routes);
+    if let Some(cover_routes) = cover_routes {
+        app.merge(cover_routes)
+    } else {
+        app
+    }
 }
 
 fn deny(status: StatusCode) -> Response {
@@ -321,9 +352,24 @@ async fn author_book(
         Ok(chapters) => chapters,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let latest_cover = if let Some(jobs) = state.cover_jobs.as_ref() {
+        match jobs.latest_for_author(id, actor).await {
+            Ok(latest) => latest,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        author_chapter_pages::detail(&book, published, &chapters, &csrf),
+        author_chapter_pages::detail_with_covers(
+            &book,
+            published,
+            &chapters,
+            &csrf,
+            state.cover_upload_enabled,
+            latest_cover.as_deref(),
+        ),
         &cookies,
     )
 }

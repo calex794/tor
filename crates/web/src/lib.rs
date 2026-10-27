@@ -19,12 +19,14 @@ use tor_reading::{
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
+mod author_cover_http;
 mod author_chapter_pages;
 mod author_pages;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
 pub use cover_http::{
+    router_with_postgres_reading_auth_cover_uploads,
     router_with_postgres_reading_auth_covers, router_with_postgres_reading_covers,
 };
 pub mod cover_worker;

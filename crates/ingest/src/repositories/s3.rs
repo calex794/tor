@@ -40,6 +40,59 @@ impl S3CoverStore {
 
 #[async_trait]
 impl CoverObjectStore for S3CoverStore {
+    async fn put_source_verified(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        mime: &str,
+        sha256: &[u8; 32],
+    ) -> Result<(), CoverError> {
+        let actual: [u8; 32] = Sha256::digest(bytes).into();
+        if !key.starts_with("staging/covers/sources/")
+            || !Self::permitted(key)
+            || !matches!(mime, "image/png" | "image/jpeg" | "image/webp")
+            || bytes.is_empty()
+            || bytes.len() > 8 * 1024 * 1024
+            || actual != *sha256
+        {
+            return Err(CoverError::Invalid);
+        }
+        let digest = Self::hash_hex(bytes);
+        self.client
+            .put_object()
+            .bucket(&self.private_bucket)
+            .key(key)
+            .content_type(mime)
+            .metadata("sha256", digest.as_str())
+            .body(ByteStream::from(bytes.to_vec()))
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let head = self
+            .client
+            .head_object()
+            .bucket(&self.private_bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        if head.content_length() != Some(bytes.len() as i64)
+            || head.content_type() != Some(mime)
+            || head
+                .metadata()
+                .and_then(|metadata| metadata.get("sha256"))
+                .is_none_or(|stored| stored != &digest)
+        {
+            return Err(CoverError::Unavailable);
+        }
+        let stored = self.get_bounded(key, bytes.len()).await?;
+        let actual: [u8; 32] = Sha256::digest(&stored).into();
+        if stored.len() != bytes.len() || actual != *sha256 {
+            return Err(CoverError::Unavailable);
+        }
+        Ok(())
+    }
+
     async fn get_bounded(&self, key: &str, max_bytes: usize) -> Result<Vec<u8>, CoverError> {
         if !Self::permitted(key) || max_bytes == 0 {
             return Err(CoverError::Invalid);

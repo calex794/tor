@@ -157,6 +157,13 @@
       "policy": "owner"
     },
     {
+      "method": "POST",
+      "template": "/me/books/{id}/cover",
+      "source": "crates/web/src/author_cover_http.rs",
+      "handler": "upload_cover",
+      "policy": "owner"
+    },
+    {
       "method": "GET",
       "template": "/me/books/{id}/chapters/{chapter_id}/edit",
       "source": "crates/web/src/author_chapter_http.rs",
