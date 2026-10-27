@@ -380,8 +380,13 @@ const ROUTES: [RouteRegistration; 56] = [
         Write,
     ), // 54
     RouteRegistration::new(
-        "/api/v1/purchases", "POST", "/api/v1/purchases/",
-        Exact, Api, ProductArea::Billing, Write,
+        "/api/v1/purchases",
+        "POST",
+        "/api/v1/purchases/",
+        Exact,
+        Api,
+        ProductArea::Billing,
+        Write,
     ), // 55
 ];
 

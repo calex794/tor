@@ -9,10 +9,8 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use tor_commerce::{
-    domain::money::{
-        CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
-    },
+use tor_commerce::domain::money::{
+    CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
@@ -37,7 +35,9 @@ fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|c| c.is_ascii_digit()) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let id = raw.parse::<i64>().map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    let id = raw
+        .parse::<i64>()
+        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
     PositiveId::new(id).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)
 }
 
