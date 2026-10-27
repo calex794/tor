@@ -40,6 +40,69 @@ impl S3CoverStore {
 
 #[async_trait]
 impl CoverObjectStore for S3CoverStore {
+    async fn put_source_verified(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        mime: &str,
+        sha256: &[u8; 32],
+    ) -> Result<(), CoverError> {
+        let actual: [u8; 32] = Sha256::digest(bytes).into();
+        // The HTTP layer also validates and decodes images, but direct
+        // callers must not be able to forge a stored source MIME either.
+        let mime_matches_bytes = match mime {
+            "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+            "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
+            "image/webp" => {
+                bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP"
+            }
+            _ => false,
+        };
+        if !key.starts_with("staging/covers/sources/")
+            || !Self::permitted(key)
+            || !mime_matches_bytes
+            || bytes.is_empty()
+            || bytes.len() > 8 * 1024 * 1024
+            || actual != *sha256
+        {
+            return Err(CoverError::Invalid);
+        }
+        let digest = Self::hash_hex(bytes);
+        self.client
+            .put_object()
+            .bucket(&self.private_bucket)
+            .key(key)
+            .content_type(mime)
+            .metadata("sha256", digest.as_str())
+            .body(ByteStream::from(bytes.to_vec()))
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let head = self
+            .client
+            .head_object()
+            .bucket(&self.private_bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        if head.content_length() != Some(bytes.len() as i64)
+            || head.content_type() != Some(mime)
+            || head
+                .metadata()
+                .and_then(|metadata| metadata.get("sha256"))
+                .is_none_or(|stored| stored != &digest)
+        {
+            return Err(CoverError::Unavailable);
+        }
+        let stored = self.get_bounded(key, bytes.len()).await?;
+        let actual: [u8; 32] = Sha256::digest(&stored).into();
+        if stored.len() != bytes.len() || actual != *sha256 {
+            return Err(CoverError::Unavailable);
+        }
+        Ok(())
+    }
+
     async fn get_bounded(&self, key: &str, max_bytes: usize) -> Result<Vec<u8>, CoverError> {
         if !Self::permitted(key) || max_bytes == 0 {
             return Err(CoverError::Invalid);

@@ -1,0 +1,218 @@
+/* Original NEwBOO component: backend/app/web/static/css/components/book-cover-picker.css
+   Identical source rules below; TOR currently offers one actual cover slot. */
+.book-covers-form {
+  gap: 24px;
+}
+
+.book-covers-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.book-cover-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.book-cover-picker__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.book-cover-picker__frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 2 / 3;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px dashed color-mix(in srgb, var(--border-color) 72%, var(--text-muted));
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.book-cover-picker:hover .book-cover-picker__frame,
+.book-cover-picker--selected .book-cover-picker__frame {
+  border-color: color-mix(in srgb, var(--primary-color) 88%, var(--border-color));
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--text-main) 14%, transparent);
+  transform: translateY(-1px);
+}
+
+.book-cover-picker__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.book-cover-picker__image[hidden],
+.book-cover-picker__placeholder[hidden] {
+  display: none;
+}
+
+.book-cover-picker__placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.book-cover-picker__plus {
+  display: flex;
+  width: 46px;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 14%, var(--bg-surface));
+  color: var(--primary-color);
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.book-cover-picker__change {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-main) 86%, transparent);
+  color: var(--bg-surface);
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.book-cover-picker:hover .book-cover-picker__change,
+.book-cover-picker--selected .book-cover-picker__change {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.book-cover-picker__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.book-cover-picker__meta strong {
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.book-cover-picker__meta small {
+  min-height: 16px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-covers-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 980px) {
+  .book-covers-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .book-covers-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* TOR H-web-11: one functional slot; do not create three decorative fake inputs. */
+.book-covers-grid--single {
+  grid-template-columns: minmax(0, 240px);
+}
+.book-cover-picker:focus-within .book-cover-picker__frame {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 3px;
+}
+.book-cover-picker__error { color: var(--error-text, #b91c1c); font-size: 13px; }
+.book-covers-form .book-covers-actions { display: flex; margin-top: 22px; }
+@media (max-width: 560px) {
+  .book-covers-grid--single { grid-template-columns: minmax(0, 1fr); max-width: 320px; }
+}
+
+/* Reference: book-settings.css and book-settings-panel.css (NEwBOO). */
+.book-settings-page { padding: 28px 20px 56px; }
+.book-settings-shell { width: min(1160px, 100%); margin: 0 auto; }
+.book-settings-header { margin-bottom: 18px; }
+.book-settings-card {
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.book-settings-card--wide { max-width: 100%; }
+.book-settings-card__head { margin-bottom: 18px; }
+.book-settings-card__head h2 { margin: 0 0 6px; color: var(--text-main); font-size: 20px; }
+.book-settings-card__head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.book-settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--border-color);
+}
+.book-settings-tabs a {
+  padding: 11px 16px;
+  border-bottom: 3px solid transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.book-settings-tabs a[aria-current="page"] {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+.book-covers-status { margin: 0 0 18px; color: var(--text-secondary); }
+.book-covers-form .book-covers-actions .ui-button { min-height: 42px; }
+@media (max-width: 640px) {
+  .book-settings-page { padding: 20px 14px 42px; }
+  .book-settings-card { padding: 18px; }
+  .book-settings-header { flex-direction: column; }
+  .book-settings-tabs a { flex: 1; text-align: center; }
+  .book-covers-form .book-covers-actions .ui-button { width: 100%; }
+}

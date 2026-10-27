@@ -6,7 +6,7 @@ use axum::{
     response::Response,
     Router,
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
@@ -26,6 +26,11 @@ mod c11_cases;
 mod f05_ranking_cases;
 #[path = "auth_postgres/h_account_cases.rs"]
 mod h_account_cases;
+#[path = "auth_postgres/h_cover_cases.rs"]
+mod h_cover_cases;
+#[path = "auth_postgres/http_helpers.rs"]
+mod http_helpers;
+use http_helpers::json_request;
 
 fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> Request<Body> {
     let mut req = Request::builder()
@@ -36,27 +41,6 @@ fn request(method: &str, uri: &str, body: &str, cookies: &str, origin: &str) -> 
         .header(header::ORIGIN, origin)
         .body(Body::from(body.to_owned()))
         .expect("HTTP");
-    req.extensions_mut()
-        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40001))));
-    req
-}
-fn json_request(
-    method: &str,
-    uri: &str,
-    body: &str,
-    cookies: &str,
-    origin: &str,
-    csrf: &str,
-) -> Request<Body> {
-    let mut req = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, cookies)
-        .header(header::ORIGIN, origin)
-        .header("x-csrf-token", csrf)
-        .body(Body::from(body.to_owned()))
-        .expect("JSON HTTP");
     req.extensions_mut()
         .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40001))));
     req
@@ -104,12 +88,14 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     );
     let lookup = accounts.clone();
 
-    let app = tor_web::router_with_postgres_reading_auth(
+    let cover_store = h_cover_cases::MemoryCoverStore::default();
+    let app = tor_web::router_with_postgres_reading_auth_cover_uploads(
         catalog,
         reader,
         accounts,
         false,
         ORIGIN.to_owned(),
+        Arc::new(cover_store.clone()),
     );
     let page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
     assert_eq!(page.status(), StatusCode::OK);
@@ -456,6 +442,9 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert_eq!(public_book.status(), StatusCode::OK);
     let public_html = body_of(public_book).await;
     assert!(public_html.contains("Глава"));
+    // H-web-11: the actual author browser POST persists a queued image.
+    // The same G worker processes it and real cover URLs resolve on all pages.
+    h_cover_cases::upload_and_show(&app, &cover_store, book_id, &author_cookies, author_csrf).await;
     let discovered = send(
         &app,
         request(

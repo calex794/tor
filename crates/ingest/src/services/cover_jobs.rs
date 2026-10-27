@@ -24,6 +24,17 @@ pub trait CoverJobs: Send + Sync {
 
 #[async_trait]
 pub trait CoverObjectStore: Send + Sync {
+    /// A source must be verified by a signed PUT, HEAD, and bounded GET.
+    /// Stores without source-upload support fail closed.
+    async fn put_source_verified(
+        &self,
+        _key: &str,
+        _bytes: &[u8],
+        _mime: &str,
+        _sha256: &[u8; 32],
+    ) -> Result<(), CoverError> {
+        Err(CoverError::Forbidden)
+    }
     /// Implementations MUST stop at max_bytes+1 while streaming, never collect unbounded.
     async fn get_bounded(&self, key: &str, max_bytes: usize) -> Result<Vec<u8>, CoverError>;
     /// MUST verify HEAD/sha/length after idempotent upload.

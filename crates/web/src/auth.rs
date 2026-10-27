@@ -3,18 +3,19 @@
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
-    author_chapter_http, author_chapter_pages, author_pages, pages,
+    author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Redirect, Response},
     routing::{get, post},
     Router,
 };
 use serde::Deserialize;
+use std::sync::Arc;
 use tor_accounts::{
     repositories::PgAccounts,
     services::ril_pseudonym::RilSubjectSigner,
@@ -24,6 +25,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book_with_taxonomy, AuthorError, TaxonomyFields},
 };
+use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
 use tor_reading::{
@@ -53,6 +55,8 @@ struct AuthState {
     cookies: CookiePolicy,
     password_jobs: PasswordJobs,
     ril_signer: Option<RilSubjectSigner>,
+    cover_jobs: Option<PgCoverJobs>,
+    cover_upload_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -92,18 +96,40 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
-    let chapter_routes = author_chapter_http::router(
-        accounts.clone(),
-        CookiePolicy {
-            secure,
-            origin: origin.clone(),
-        },
-    );
+    router_inner(accounts, reader, secure, origin, None)
+}
+
+pub(crate) fn router_with_cover_uploads(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    storage: Arc<dyn CoverObjectStore>,
+) -> Router {
+    router_inner(accounts, reader, secure, origin, Some(storage))
+}
+
+fn router_inner(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    storage: Option<Arc<dyn CoverObjectStore>>,
+) -> Router {
+    let cookies = CookiePolicy { secure, origin };
+    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
+    let cover_routes = storage
+        .as_ref()
+        .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
+    let cover_jobs = storage
+        .as_ref()
+        .map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         accounts,
         authoring,
@@ -112,12 +138,14 @@ pub(crate) fn router(
         bookmarks,
         reader,
         rankings,
-        cookies: CookiePolicy { secure, origin },
+        cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
+        cover_jobs,
+        cover_upload_enabled,
     };
     let observation_state = state.clone();
-    Router::new()
+    let app = Router::new()
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -156,6 +184,7 @@ pub(crate) fn router(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
+        .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/logout", post(logout))
@@ -166,7 +195,12 @@ pub(crate) fn router(
             observation_state,
             behavior_consent::annotate_verified_ril,
         ))
-        .merge(chapter_routes)
+        .merge(chapter_routes);
+    if let Some(cover_routes) = cover_routes {
+        app.merge(cover_routes)
+    } else {
+        app
+    }
 }
 
 fn deny(status: StatusCode) -> Response {
@@ -331,11 +365,79 @@ async fn author_book(
         Ok(chapters) => chapters,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let latest_cover = if let Some(jobs) = state.cover_jobs.as_ref() {
+        match jobs.latest_for_author(id, actor).await {
+            Ok(latest) => latest,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        author_chapter_pages::detail(&book, published, &chapters, &csrf),
+        author_chapter_pages::detail_with_covers(
+            &book,
+            published,
+            &chapters,
+            &csrf,
+            state.cover_upload_enabled,
+            latest_cover.as_deref(),
+        ),
         &cookies,
     )
+}
+
+/// Dedicated NEwBOO-style owner cover settings. Script access is restricted
+/// to this page and to one local picker file; no inline scripts are permitted.
+async fn cover_settings(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    if !state.cover_upload_enabled {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let book = match state.authoring.owned_book(actor, id).await {
+        Ok(Some(book)) => book,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let latest = match state.cover_jobs.as_ref() {
+        Some(jobs) => match jobs.latest_for_author(id, actor).await {
+            Ok(latest) => latest,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        None => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let slots =
+        tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone());
+    let current = match slots
+        .public_variant(
+            id,
+            tor_books::repositories::cover_slots::PublicCoverKind::Main,
+        )
+        .await
+    {
+        Ok(current) => current.is_some(),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(
+        author_chapter_pages::cover_settings(&book, &csrf, latest.as_deref(), current),
+        &cookies,
+    );
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
 
 /// Interactive reading is private to a verified account. Public free reading
