@@ -463,6 +463,20 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "purchased_library",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/progress/purchased/complete",
+      "source": "crates/web/src/auth.rs",
+      "handler": "paid_completion::get",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/progress/purchased/complete",
+      "source": "crates/web/src/auth.rs",
+      "handler": "paid_completion::post",
+      "policy": "scoped"
     }
   ]
 }
