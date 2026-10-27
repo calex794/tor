@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 60] = [
+const ROUTES: [RouteRegistration; 61] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -425,6 +425,15 @@ const ROUTES: [RouteRegistration; 60] = [
         Reading,
         CostClass::ExpensiveRead,
     ), // 59
+    RouteRegistration::new(
+        "/read/{id}/complete",
+        "POST",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 60
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -498,6 +507,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/newboo-cover-picker.js"), "GET") => Some(57),
         (Some("/api/v1/purchases"), "POST") => Some(58),
         (Some("/api/v1/reader/chapters/{chapter_id}/delivery-grants"), "POST") => Some(59),
+        (Some("/read/{id}/complete"), "POST") => Some(60),
         _ => None,
     };
     index
