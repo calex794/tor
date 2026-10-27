@@ -31,10 +31,10 @@ use tor_storage::{
     },
 };
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct FakeSignedS3 {
-    calls: AtomicUsize,
-    unavailable: AtomicBool,
+    calls: Arc<AtomicUsize>,
+    unavailable: Arc<AtomicBool>,
 }
 
 #[async_trait]
@@ -132,7 +132,7 @@ async fn g_09_attached_registry_ref_only_exposes_scoped_dek_after_verified_metad
         wrapped_key_id: sealed.kek_id.to_owned(),
         codec: ContentCodec::Gzip,
     };
-    let s3 = Arc::new(FakeSignedS3::default());
+    let s3 = FakeSignedS3::default();
     let grant = PgPrivateDelivery::new(pool.clone(), s3.clone(), kek.clone());
 
     for state in ["pending", "ready"] {
