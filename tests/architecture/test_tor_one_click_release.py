@@ -3,6 +3,7 @@
 from pathlib import Path
 import importlib.util
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +75,44 @@ class OneClickReleaseTests(unittest.TestCase):
         self.assertIn("/opt/tor/incoming/$sha", HELPER)
         self.assertIn("https://raw.githubusercontent.com/calex794/tor/$sha/ops/go-live-postgres-vps.sh", HELPER)
         self.assertIn("require_current_main_sha", GO_LIVE)
+
+    def test_existing_deploy_key_signs_and_server_verifies_binary_manifest(self):
+        self.assertIn("ssh-keygen -Y sign", WORKFLOW)
+        self.assertIn("ssh-keygen -Y verify", HELPER)
+        self.assertIn("/etc/tor/tor-release-allowed-signers", BOOTSTRAP)
+        self.assertLess(
+            HELPER.index("ssh-keygen -Y verify"),
+            HELPER.index('bash "$runner" "$sha"'),
+        )
+        with tempfile.TemporaryDirectory(prefix="tor-signature-test-") as d:
+            directory = Path(d)
+            key = directory / "id_ed25519"
+            subprocess.run(
+                ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
+                capture_output=True, check=True,
+            )
+            key_line = (directory / "id_ed25519.pub").read_text().split()
+            signers = directory / "allowed_signers"
+            signers.write_text(f"tor-release {key_line[0]} {key_line[1]}\n")
+            manifest = directory / "manifest"
+            manifest.write_text("TOR_RELEASE_SHA " + SHA + "\n")
+            subprocess.run(
+                ["ssh-keygen", "-Y", "sign", "-f", str(key), "-n", "tor-release", str(manifest)],
+                capture_output=True, check=True,
+            )
+            verify = [
+                "ssh-keygen", "-Y", "verify", "-f", str(signers),
+                "-I", "tor-release", "-n", "tor-release",
+                "-s", str(directory / "manifest.sig"),
+            ]
+            valid = subprocess.run(
+                verify, input=manifest.read_bytes(), capture_output=True,
+            )
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            altered = subprocess.run(
+                verify, input=b"modified manifest\n", capture_output=True,
+            )
+            self.assertNotEqual(altered.returncode, 0)
 
     def test_backup_and_rollback_are_real_and_not_ddl_rollback(self):
         self.assertIn("pg_dump -Fc --no-owner --no-privileges", MIGRATE)
