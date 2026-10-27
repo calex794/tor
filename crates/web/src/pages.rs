@@ -12,7 +12,7 @@ pub use account::{
 mod reader_private;
 pub use reader_private::private_reader;
 mod reader_paid;
-pub use reader_paid::paid_reader_shell;
+pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
@@ -234,6 +234,15 @@ pub fn my_library(
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
 ) -> Html<String> {
+    my_library_with_purchases(items, saved, csrf, false)
+}
+
+pub fn my_library_with_purchases(
+    items: &[tor_reading::services::progress::ContinueReading],
+    saved: &tor_reading::services::library::SavedBookPage,
+    csrf: &str,
+    purchased_available: bool,
+) -> Html<String> {
     let mut cards = String::new();
     if items.is_empty() {
         cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Откройте любую бесплатную главу, затем нажмите «Сохранить место здесь». После этого книга появится в вашей истории чтения.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
@@ -276,8 +285,13 @@ pub fn my_library(
         )
         .expect("writing library cursor");
     }
+    let purchased_link = if purchased_available {
+        "<p><a class=\"button button--small\" href=\"/me/purchases\">Мои купленные главы</a></p>"
+    } else {
+        ""
+    };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p>{purchased_link}</div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
     );
     layout(
         "Моя библиотека",

@@ -83,12 +83,25 @@ fn paid_grants_router(
         secure,
         origin: public_origin.clone(),
     };
+    let browser_enabled = paid.1.is_some();
     let grants = if let Some(s3_origin) = paid.1 {
         paid_grants_http::router_with_reader(accounts.clone(), cookies, paid.0, s3_origin)?
     } else {
         paid_grants_http::router(accounts.clone(), cookies, paid.0)
     };
-    let author = if enable_cover_uploads {
+    let author = if browser_enabled {
+        auth::router_with_paid_reader(
+            accounts,
+            auth_reader,
+            secure,
+            public_origin,
+            if enable_cover_uploads {
+                cover_storage.clone()
+            } else {
+                None
+            },
+        )
+    } else if enable_cover_uploads {
         match cover_storage.as_ref() {
             Some(store) => auth::router_with_cover_uploads(
                 accounts,

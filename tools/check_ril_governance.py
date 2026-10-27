@@ -22,7 +22,7 @@ SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
-    "set_ril_behavior_consent",
+    "set_ril_behavior_consent", "readable_purchases",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
