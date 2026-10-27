@@ -270,7 +270,9 @@
 .reader-paid .reader-piece:last-child {
   border-bottom: 0;
 }
-.reader-paid .reader-piece__text {
+/* Higher specificity than the inherited .reader-page .reader-markdown p
+   rule: otherwise the spacing slider changes a variable but not the lines. */
+.reader-paid .reader-piece__text.reader-markdown {
   margin: 0 0 14px;
   white-space: pre-wrap;
   font-family: Georgia, "Times New Roman", serif;
