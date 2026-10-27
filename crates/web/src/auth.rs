@@ -3,7 +3,7 @@
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
-    author_cover_http, author_chapter_http, author_chapter_pages, author_pages, pages,
+    author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
 use axum::{
@@ -16,7 +16,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_accounts::{
     repositories::PgAccounts,
     services::ril_pseudonym::RilSubjectSigner,
@@ -26,6 +25,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book_with_taxonomy, AuthorError, TaxonomyFields},
 };
+use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
 use tor_reading::{
@@ -116,14 +116,16 @@ fn router_inner(
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
     let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
-    let cover_routes = storage.as_ref().map(|store| {
-        author_cover_http::router(accounts.clone(), cookies.clone(), store.clone())
-    });
+    let cover_routes = storage
+        .as_ref()
+        .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
-    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let cover_jobs = storage
+        .as_ref()
+        .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         accounts,
@@ -402,9 +404,8 @@ async fn cover_settings(
         },
         None => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let slots = tor_books::repositories::cover_slots::PgCoverSlots::new(
-        state.accounts.pool().clone(),
-    );
+    let slots =
+        tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone());
     let current = match slots
         .public_variant(
             id,

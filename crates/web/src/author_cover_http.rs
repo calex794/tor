@@ -153,13 +153,12 @@ async fn upload_cover(
         return deny(StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
     let checksum: [u8; 32] = Sha256::digest(&bytes).into();
-    let key = format!(
-        "staging/covers/sources/{id}/{}",
-        generate_session_token()
-    );
+    let key = format!("staging/covers/sources/{id}/{}", generate_session_token());
     match tokio::time::timeout(
         Duration::from_secs(20),
-        state.storage.put_source_verified(&key, &bytes, mime, &checksum),
+        state
+            .storage
+            .put_source_verified(&key, &bytes, mime, &checksum),
     )
     .await
     {
@@ -187,7 +186,10 @@ async fn upload_cover(
         .enqueue(source_id, id, actor, expected_revision, RECIPE_VERSION)
         .await
     {
-        Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}/settings/covers")), &[]),
+        Ok(_) => private_response(
+            Redirect::to(&format!("/me/books/{id}/settings/covers")),
+            &[],
+        ),
         Err(CoverError::Conflict) => deny(StatusCode::CONFLICT),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
@@ -203,7 +205,8 @@ mod tests {
         assert!(MAX_MULTIPART_BYTES > MAX_SOURCE_BYTES);
         let opaque = generate_session_token();
         assert_eq!(opaque.len(), 43);
-        assert!(format!("staging/covers/sources/42/{opaque}")
-            .starts_with("staging/covers/sources/"));
+        assert!(
+            format!("staging/covers/sources/42/{opaque}").starts_with("staging/covers/sources/")
+        );
     }
 }

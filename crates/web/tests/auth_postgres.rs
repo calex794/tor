@@ -442,14 +442,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     assert!(public_html.contains("Глава"));
     // H-web-11: the actual author browser POST persists a queued image.
     // The same G worker processes it and real cover URLs resolve on all pages.
-    h_cover_cases::upload_and_show(
-        &app,
-        &cover_store,
-        book_id,
-        &author_cookies,
-        author_csrf,
-    )
-    .await;
+    h_cover_cases::upload_and_show(&app, &cover_store, book_id, &author_cookies, author_csrf).await;
     let discovered = send(
         &app,
         request(

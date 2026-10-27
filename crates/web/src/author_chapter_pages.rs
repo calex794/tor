@@ -167,11 +167,19 @@ pub fn cover_settings(
         )
         .replace(
             "<!--CHANGE_LABEL-->",
-            if current_public_cover { "Заменить" } else { "Добавить" },
+            if current_public_cover {
+                "Заменить"
+            } else {
+                "Добавить"
+            },
         )
         .replace(
             "<!--FILE_LABEL-->",
-            if current_public_cover { "Текущая обложка" } else { "Файл не выбран" },
+            if current_public_cover {
+                "Текущая обложка"
+            } else {
+                "Файл не выбран"
+            },
         );
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
 }
@@ -262,7 +270,10 @@ mod tests {
     }
     #[test]
     fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
-        let book = OwnedBook { id: 42, title: "Книга".to_owned() };
+        let book = OwnedBook {
+            id: 42,
+            title: "Книга".to_owned(),
+        };
         let disabled = detail(&book, false, &[], "secret").0;
         assert!(!disabled.contains("enctype=\"multipart/form-data\""));
         let waiting = detail_with_covers(&book, false, &[], "secret", true, Some("pending")).0;
