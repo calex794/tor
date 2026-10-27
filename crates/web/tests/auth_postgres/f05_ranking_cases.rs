@@ -195,11 +195,12 @@ async fn f_05_http_browser_form_skip_and_resume() {
 #[ignore = "requires isolated tor_ci PostgreSQL fixtures"]
 async fn f_05_http_hidden_book_denied_without_writing_comparison() {
     let (app, repo, uid, session) = fixture("hidden").await;
-    // The hidden book 2 is a CI draft; use an internal fixture to test
-    // stale user state without permitting any client-created completion.
+    // Obtain CSRF from an empty authorized dashboard BEFORE seeding an
+    // inaccessible book. Once hidden state exists, every ranking GET fails closed.
+    let (csrf_cookie, token) = csrf(&app, &session).await;
+    // Book 2 is a CI draft; only this test fixture may seed such stale state.
     let before = ready(&repo, uid, [1, 2]).await;
     let q = before.next_question().unwrap().unwrap();
-    let (csrf_cookie, token) = csrf(&app, &session).await;
     let cookies = format!("{session}; {csrf_cookie}");
     let response = send(
         &app,
