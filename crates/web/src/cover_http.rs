@@ -72,6 +72,36 @@ pub fn router_with_postgres_reading_auth_covers(
     )
 }
 
+/// Add owner-only cover upload when a real background worker is enabled.
+/// Older auth+cover routers continue to expose read-only covers.
+pub fn router_with_postgres_reading_auth_cover_uploads(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+    objects: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+) -> Router {
+    let auth_reader = reader.clone();
+    let uploads = auth::router_with_cover_uploads(
+        accounts,
+        auth_reader,
+        secure,
+        public_origin,
+        objects.clone(),
+    );
+    ril::instrument(
+        make_router(
+            Arc::new(catalog.clone()),
+            Some(catalog),
+            Some(reader),
+            true,
+            Some(objects),
+        )
+        .merge(uploads),
+    )
+}
+
 /// PostgreSQL reader plus private object adapter; available in isolated tests.
 pub fn router_with_postgres_reading_covers(
     catalog: PgCatalog,

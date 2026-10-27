@@ -10,6 +10,13 @@ mod orchestrator;
 pub use orchestrator::{process_cover, ImageVariant, COVER_CARD, COVER_MAIN, RECIPE_VERSION};
 
 /// Limits for an untrusted uploaded cover; independent of HTTP Content-Length.
+/// Validate an author's source without generating variants or writing to S3.
+pub fn validate_cover_source(bytes: &[u8], mime: &str) -> Result<(), ImagePipelineError> {
+    validate::validate_input(bytes, mime)?;
+    let _ = decode::decode_image(bytes)?;
+    Ok(())
+}
+
 pub const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_SOURCE_SIDE: u32 = 5_000;
 pub const MAX_SOURCE_PIXELS: u64 = 24_000_000;

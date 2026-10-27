@@ -342,6 +342,113 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap()
         .is_none());
 
+    // OBS-08: the private S3 provider disappears after trusted registration.
+    // The scheduled runner must keep the job pending, with no public image.
+    // Then abort it (simulated process restart), restore the object, and verify
+    // a fresh runner resumes from durable PG without duplicate attachment.
+    let after_outage_bytes = png(73);
+    let outage_key = "staging/covers/ci-book-904-restart-source.png";
+    let source = jobs
+        .register_verified_source(
+            904,
+            904,
+            outage_key,
+            "image/png",
+            after_outage_bytes.len() as i64,
+            &digest(&after_outage_bytes),
+        )
+        .await
+        .unwrap();
+    let interrupted_job = jobs
+        .enqueue(source, 904, 904, 0, RECIPE_VERSION)
+        .await
+        .unwrap();
+    assert_eq!(
+        fetch(&app, "/covers/904/card.webp").await.status(),
+        StatusCode::NOT_FOUND,
+        "unattached private source must not be publicly readable"
+    );
+    let original_monitor = CoverRunnerMonitor::default();
+    let original = CoverRunner::new(
+        catalog.clone(),
+        Arc::new(store.clone()),
+        original_monitor.clone(),
+    )
+    .spawn(Duration::from_millis(25), Duration::from_secs(90));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if original_monitor.snapshot().retried_or_quarantined >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+    })
+    .await
+    .expect("S3 outage must be reported by the actual background worker");
+    original.abort();
+    let stopped = original.await.unwrap_err();
+    assert!(
+        stopped.is_cancelled(),
+        "simulated restart must stop the first runner"
+    );
+    let first = original_monitor.snapshot();
+    assert_eq!(first.attached, 0);
+    assert!(first.retried_or_quarantined >= 1);
+    assert_eq!(first.timeouts, 0);
+    assert_eq!(
+        jobs.job_status(interrupted_job).await.unwrap().as_deref(),
+        Some("pending"),
+        "a temporary outage must preserve the durable job for retry"
+    );
+    assert!(slots.current_slot(904).await.unwrap().is_none());
+    assert_eq!(
+        fetch(&app, "/covers/904/card.webp").await.status(),
+        StatusCode::NOT_FOUND,
+        "the outage may not publish an unverified object"
+    );
+
+    // Simulate provider recovery and a fresh web process reusing the same PG.
+    store.add(outage_key, after_outage_bytes);
+    let restarted_monitor = CoverRunnerMonitor::default();
+    let restarted = CoverRunner::new(
+        catalog.clone(),
+        Arc::new(store.clone()),
+        restarted_monitor.clone(),
+    )
+    .spawn(Duration::from_millis(25), Duration::from_secs(90));
+    let resumed = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if restarted_monitor.snapshot().attached >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+    })
+    .await;
+    restarted.abort();
+    let _ = restarted.await;
+    resumed.expect("after S3 recovery, a new process must claim the retained job");
+    let second = restarted_monitor.snapshot();
+    assert_eq!(second.attached, 1);
+    assert_eq!(second.timeouts, 0);
+    assert_eq!(
+        jobs.job_status(interrupted_job).await.unwrap().as_deref(),
+        Some("done")
+    );
+    assert_eq!(
+        slots.current_slot(904).await.unwrap(),
+        Some((interrupted_job, 1)),
+        "replay after restart must attach the exact job once"
+    );
+    assert_eq!(
+        jobs.existing_variants(interrupted_job).await.unwrap().len(),
+        2
+    );
+    let image = fetch(&app, "/covers/904/card.webp").await;
+    assert_eq!(image.status(), StatusCode::OK);
+    assert_eq!(image.headers()["content-type"], "image/webp");
+    assert_eq!(image.headers()["cache-control"], "no-store");
+
     // B-owned PostgreSQL tests independently verify hold/draft/delete revocation.
     // The web integration intentionally has no SQLx dependency.
     catalog.pool().close().await;

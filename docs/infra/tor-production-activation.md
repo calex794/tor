@@ -70,14 +70,15 @@ verify the embedded SQLx migration list rather than assuming exactly nine
 total versions or 17 total tables. The CLI reports TOR_SQLX_APPLIED_OK N/N;
 future additive migrations use the same mechanism.
 
-## Fast, normal CI/CD after the first switch
+## Controlled release after the first switch — 27 October 2026
 
-Enable repository Actions variable TOR_AUTO_DEPLOY=true after the
-first successful PG-backed activation. Auto-deploy is now triggered
-only by a successful TOR PostgreSQL runtime workflow on main,
-not the old Rust S0 demo workflow. The release stage packages
-binaries without rerunning the whole test suite. The active service
-remains configured for real PostgreSQL on every subsequent restart.
+**Current I-line safety decision:** merging into `main` runs tests but never invokes deployment or SSH. The former `workflow_run` trigger and `TOR_AUTO_DEPLOY` flag were removed from `.github/workflows/tor-vps-staging.yml`. The old auto-deploy instruction below is superseded.
+
+To stage a candidate, run [tor VPS staged release](https://github.com/calex794/tor/actions/workflows/tor-vps-staging.yml) manually from `main` with `install=false` and an **empty** `confirm_sha`. The stage transfers only the SHA-pinned binaries; it does not switch the running service.
+
+For `install=true`, supply `confirm_sha` equal to the **full 40-character `main` SHA of this workflow run**. The validation fails before checkout/build/SSH if the value differs, is truncated, or if a stage-only run supplied a confirmation. The existing root-verified SQLx schema and PG activation markers, healthy previous service, current-main recheck, rollback verification and HTTPS checks still apply. A missing migration marker prevents activation, even with correct confirmation.
+
+The operator's version-pinned `go-live-postgres-vps.sh` remains the only procedure for applying new migrations. To advance an existing PostgreSQL schema, first perform backup and root-only migration/proof, then manually dispatch installation against the exact approved `main` SHA. Do not use `TOR_AUTO_DEPLOY=true`; it is ignored by the current workflow.
 
 **Next engineering task:** integrate the migration upgrade process
 for future schema version 010+ into the normal deploy path.
@@ -92,7 +93,7 @@ shipped implementation and acceptance. Enable real off-server
 backups with a restoration test before important user data.
 The external URL book collector S024/F021 remains frozen.
 
-## Schema-gated automatic releases (October 2026)
+## Schema-gated manual releases (updated 27 October 2026)
 
 The previous automatic stage could activate a new binary without applying its
 new SQLx migrations. In particular, B-06 requires migration
@@ -100,7 +101,7 @@ new SQLx migrations. In particular, B-06 requires migration
 now fails closed if that migration or its working table is missing.
 
 Staging always transfers the SHA-pinned binary and migrator. Before any
-automatic or workflow-dispatch activation, the CI job compares the latest
+manually approved activation, the CI job compares the latest
 SQLx version in the candidate's `migrations/` directory with the last version
 recorded in `/var/lib/tor-release/schema-version` on the VPS. This marker is
 written atomically by the **root-only**, version-pinned
@@ -113,19 +114,19 @@ application is switched and therefore could survive a failed first cutover.
 The operator script now also writes the root-owned
 `/var/lib/tor-release/pg-activated` marker **only after** the real
 PostgreSQL application passes /readyz, login/registration and HTTPS checks.
-Before auto-activation, CI verifies this marker, the non-demo systemd
+Before manual activation, CI verifies this marker, the non-demo systemd
 override and a healthy local /readyz. This prevents a successful schema
 migration from accidentally authorizing a demo-mode deployment.
 
 If the marker is absent or does not exactly match, the candidate can be
-**staged but is never automatically activated**. The operator applies migrations
+**staged but is never activated**. The operator applies migrations
 through the standard go-live procedure using the same staged Git SHA; its
 normal `/readyz`, HTTP and HTTPS checks still control the switch. A marker
 is evidence of the verified migration version, not evidence that a specific
 binary was activated. Only a logged `Active tor commit: <SHA>` or
 `TOR_PRODUCTION_OK <SHA>` establishes deployment.
 
-Auto-install also rechecks the exact current `main` SHA immediately before
+Manual installation also rechecks the exact current `main` SHA immediately before
 the service switch. If another PR merged while compilation was running,
 the obsolete candidate is rejected. This prevents a stale staged binary
 from overwriting newer code.

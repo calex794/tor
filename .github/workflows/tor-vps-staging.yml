@@ -3,13 +3,15 @@ on:
   workflow_dispatch:
     inputs:
       install:
-        description: "Activate candidate after staging smoke (requires prepared systemd and nginx)"
+        description: "Activate only after successful staging, schema checks and exact SHA confirmation"
         type: boolean
         required: false
         default: false
-  workflow_run:
-    workflows: ["TOR PostgreSQL runtime"]
-    types: [completed]
+      confirm_sha:
+        description: "For install=true: paste the full 40-character current main SHA; otherwise leave blank"
+        type: string
+        required: false
+        default: ""
 permissions:
   contents: read
 concurrency:
@@ -17,28 +19,32 @@ concurrency:
   cancel-in-progress: false
 jobs:
   stage:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
-      || (github.event_name == 'workflow_run' &&
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_branch == 'main' &&
-          vars.TOR_AUTO_DEPLOY == 'true')
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment: tor-staging
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-      AUTO_INSTALL: ${{ github.event_name == 'workflow_run' || inputs.install }}
+      TARGET_SHA: ${{ github.sha }}
+      AUTO_INSTALL: ${{ inputs.install }}
+      INSTALL_CONFIRM_SHA: ${{ inputs.confirm_sha }}
       TOR_DEPLOY_HOST: ${{ vars.TOR_DEPLOY_HOST }}
       TOR_DEPLOY_USER: ${{ vars.TOR_DEPLOY_USER }}
       TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
       TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
     steps:
-      - name: Validate target, refuse stale main SHA
+      - name: Validate target and explicit installation approval
         run: |
           set -euo pipefail
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$AUTO_INSTALL" == "true" ]]; then
+            if [[ "$INSTALL_CONFIRM_SHA" != "$TARGET_SHA" ]]; then
+              echo "REFUSE_INSTALL: enter the exact current main SHA in confirm_sha" >&2
+              exit 1
+            fi
+          elif [[ -n "$INSTALL_CONFIRM_SHA" ]]; then
+            echo "REFUSE_STAGE: confirm_sha must be empty for install=false" >&2
+            exit 1
+          fi
           [[ -n "$TOR_DEPLOY_HOST" && -n "$TOR_DEPLOY_USER" && -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
           [[ "$TOR_DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$TOR_DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
