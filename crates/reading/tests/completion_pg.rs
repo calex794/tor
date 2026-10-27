@@ -3,10 +3,7 @@
 use sqlx::{PgPool, Row};
 use tor_reading::{
     repositories::PgReadingSync,
-    services::{
-        progress::ReadingPlace,
-        sync::SyncError,
-    },
+    services::{progress::ReadingPlace, sync::SyncError},
 };
 
 #[tokio::test]
@@ -60,12 +57,10 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES(98420,98431)",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES(98420,98431)")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let sync = PgReadingSync::new(pool.clone());
     let mid = ReadingPlace {
@@ -79,12 +74,11 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
             .revision,
         1
     );
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_chapter_completions WHERE user_id=98401",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_chapter_completions WHERE user_id=98401")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 0, "middle of chapter is not completed");
 
     let final_place = ReadingPlace {
@@ -148,17 +142,15 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
         3
     );
     assert_eq!(
-        sync.save_free(98401, 98420, 98431, final_place, 3)
-            .await,
+        sync.save_free(98401, 98420, 98431, final_place, 3).await,
         Err(SyncError::Conflict),
         "a late V1 device cannot replay a completion"
     );
-    let num_facts: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_chapter_completions WHERE user_id=98401",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let num_facts: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_chapter_completions WHERE user_id=98401")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let num_events: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events
          WHERE dedupe_key='chapter-completed:98401:98420'",
@@ -173,8 +165,7 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
         .await
         .unwrap();
     assert_eq!(
-        sync.save_free(98401, 98420, 98432, new_final, 3)
-            .await,
+        sync.save_free(98401, 98420, 98432, new_final, 3).await,
         Err(SyncError::Conflict),
         "moderation blocks verified progress"
     );
