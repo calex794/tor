@@ -951,3 +951,14 @@ img.home-spotlight-card__cover {
   aspect-ratio: 2 / 3;
   object-fit: cover;
 }
+
+/* F-05: personal ranking follows NEwBOO's light/dark surface tokens. */
+.ranking-panel { max-width: 900px; margin: 28px auto 72px; }
+.ranking-pair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; margin: 24px 0; }
+.ranking-pair__book { padding: 24px; border: 1px solid var(--border-color); background: var(--bg-surface); border-radius: var(--radius-lg); min-width: 0; }
+.ranking-pair__title { overflow-wrap: anywhere; font-weight: 750; font-size: 21px; }
+.ranking-pair__label { color: var(--text-muted); font-size: 13px; }
+.ranking-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.ranking-actions .ui-button { flex: 1 1 160px; }
+.ranking-info { color: var(--text-secondary); margin-top: 16px; }
+@media (max-width: 640px) { .ranking-pair { grid-template-columns: minmax(0,1fr); } .ranking-pair__book { padding: 18px; } }
