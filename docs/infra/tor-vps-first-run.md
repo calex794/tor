@@ -1,6 +1,6 @@
 # TOR: подготовка существующего VPS к первому визуальному запуску
 
-> **Этот документ описывает исторический первый запуск S0.** Для рабочего сайта с настоящим PostgreSQL, регистрацией и читательскими данными применять [production activation](tor-production-activation.md), а не `TOR_DEMO_MODE=1`. Релиз GitHub после первого включения должен проходить проверку PostgreSQL.
+> **Исторический документ. С 27.10.2026 автоматическая установка после слияния PR отключена.** См. [действующую процедуру ручного выпуска](tor-production-activation.md). Запускать `tor-vps-staging.yml` только вручную из `main`; `install=false` — без подтверждения, `install=true` — только с `confirm_sha`, равным полному 40-символьному SHA. `TOR_AUTO_DEPLOY` более не используется.\n\n> **Этот документ описывает исторический первый запуск S0.** Для рабочего сайта с настоящим PostgreSQL, регистрацией и читательскими данными применять [production activation](tor-production-activation.md), а не `TOR_DEMO_MODE=1`. Релиз GitHub после первого включения должен проходить проверку PostgreSQL.
 
 **Актуализация 26.10.2026:** S0 Rust RAM-demo работает под systemd на `pandaolate.ru`, Nginx HTTPS → `127.0.0.1:3000`, активный релиз `c2c0429b61f06df8dd3372452f23cfd7c15ff87a`. Владелец подтвердил открытие сайта с внешнего компьютера, пять маршрутов HTTP 200, `X-Robots-Tag: noindex, nofollow`, MemAvailable ~603 МиБ. Ниже историческая инструкция первого запуска; команды на VPS выполнял оператор, а не ChatGPT. **Полная платформа и PostgreSQL ещё не внедрены.**
 
@@ -87,7 +87,7 @@ tor-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart tor-web.service, /usr
 
 ## 5. Workflow
 
-[tor-vps-staging.yml](../../.github/workflows/tor-vps-staging.yml) поддерживает `workflow_dispatch` с `install=false` (только stage) и `install=true` (активировать после stage). Изолированная сборка, архитектура и тесты проходят **на GitHub runner**, не на VPS.
+[tor-vps-staging.yml](../../.github/workflows/tor-vps-staging.yml) поддерживает только ручной `workflow_dispatch` с `install=false` (только stage, `confirm_sha` пустой) и `install=true` (активация только при совпадении `confirm_sha` с полным SHA). Изолированная сборка, архитектура и тесты проходят **на GitHub runner**, не на VPS.
 
 После первого успешного вручную активированного релиза, проверки HTTPS в браузере, возврата на предыдущий SHA и отсутствия переполнения RAM переключить GitHub Environment Variable `TOR_AUTO_DEPLOY=true`. Тогда **только успешный main CI** `Rust S0 browser preview` запускает поставку; для PR и непроверенных SHA доступа к SSH не будет. На малом сервере дополнительная проверка **не запускает второй процесс на постоянно открытом внешнем порту**: кандидат живёт временно на loopback:3099.
 
