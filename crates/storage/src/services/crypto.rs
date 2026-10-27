@@ -8,7 +8,9 @@ use aes_gcm::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
-use std::{fmt, io::Write, sync::Arc};
+use std::{fmt, io::Write};
+#[cfg(any(feature = "pg", test))]
+use std::sync::Arc;
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use zeroize::Zeroizing;
 
