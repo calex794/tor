@@ -1,6 +1,10 @@
 //! H/C/F-05: an explicit browser completion for a D-owned encrypted V1.
 //! Unlike a S3 grant/GET or saved position this requires the sealed G anchor.
-use super::{deny, session_user, sync_actions::{csrf, id, status}, AuthState};
+use super::{
+    deny, session_user,
+    sync_actions::{id, status},
+    AuthState,
+};
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Query, State},
@@ -10,6 +14,16 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_reading::services::progress::ReadingPlace;
+
+// The actual cookie and Origin predicates are local so the RIL reviewer
+// checks the same security boundary that each handler calls.
+fn csrf(state: &AuthState, headers: &HeaderMap) -> bool {
+    state.cookies.same_origin(headers)
+        && headers
+            .get("x-csrf-token")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| state.cookies.valid_csrf(headers, value))
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
