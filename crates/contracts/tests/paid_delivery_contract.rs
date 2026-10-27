@@ -33,7 +33,10 @@ fn object_ids_reject_paths_uppercase_and_noncanonical_forms() {
         "cb62d5a3-3d9e-4327-8dd4-10b6e3eaaf61/another",
         "",
     ] {
-        assert_eq!(ObjectId::parse(invalid), Err(ContractError::InvalidObjectId));
+        assert_eq!(
+            ObjectId::parse(invalid),
+            Err(ContractError::InvalidObjectId)
+        );
     }
     assert_eq!(object_id().as_str(), "cb62d5a3-3d9e-4327-8dd4-10b6e3eaaf61");
 }
@@ -48,13 +51,8 @@ fn unsigned_or_uninitialized_ciphertext_cannot_be_a_trusted_object() {
         ObjectRef::new(object_id(), EncryptedObjectKind::Chapter, [4; 32], 16),
         Err(ContractError::InvalidCiphertext)
     );
-    let valid = ObjectRef::new(
-        object_id(),
-        EncryptedObjectKind::ChapterAsset,
-        [4; 32],
-        17,
-    )
-    .unwrap();
+    let valid =
+        ObjectRef::new(object_id(), EncryptedObjectKind::ChapterAsset, [4; 32], 17).unwrap();
     assert_eq!(valid.size_bytes, 17);
     assert_eq!(ContentCodec::Gzip.wire(), "gzip");
     assert_eq!(ContentCodec::None.wire(), "none");
@@ -74,7 +72,11 @@ fn signed_get_ttl_is_bounded_by_contract() {
         validate_signed_get_ttl(Duration::from_secs(120)),
         Ok(Duration::from_secs(120))
     );
-    for ttl in [Duration::ZERO, Duration::from_secs(29), Duration::from_secs(121)] {
+    for ttl in [
+        Duration::ZERO,
+        Duration::from_secs(29),
+        Duration::from_secs(121),
+    ] {
         assert_eq!(validate_signed_get_ttl(ttl), Err(ContractError::InvalidTtl));
     }
 }
