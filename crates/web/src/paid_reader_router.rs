@@ -36,7 +36,10 @@ pub fn router_with_postgres_reading_auth_paid_grants(
         secure,
         public_origin,
         (paid_storage, None),
-        PaidRouterExtras { cover, author: None },
+        PaidRouterExtras {
+            cover,
+            author: None,
+        },
     )
     .expect("API-only grant constructor has no browser S3 origin")
 }
@@ -65,7 +68,10 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser(
         secure,
         public_origin,
         (paid.0, Some(paid.1)),
-        PaidRouterExtras { cover, author: None },
+        PaidRouterExtras {
+            cover,
+            author: None,
+        },
     )
 }
 
