@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tor_books::{
     repositories::paid_storage::{PaidPublication, PgPaidStorage},
-    services::authoring::AuthorError,
+    services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
 use tor_contracts::paid_delivery::{ChapterVersionPort, ChapterVersionRef, ObjectId, PositiveId};
 
@@ -517,5 +517,147 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .execute(&pool)
         .await
         .unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 /tor_ci"]
+async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_version() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("CI database");
+    assert!(url.ends_with("/tor_ci"), "never touch production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b-paid-new-owner@example.invalid','Paid owner','$argon2id$fixture')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let other: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b-paid-new-other@example.invalid','Paid other','$argon2id$fixture')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('ci:paid-new-save','ru','New paid chapter','public',$1) RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let body = "Новая платная глава\n文 😀";
+    let key = "p".repeat(43);
+    let request = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Платная глава",
+        body,
+        access: "paid",
+        price_amount: 100,
+        command_key: &key,
+    })
+    .unwrap();
+    let publisher = PgPaidStorage::new(pool.clone());
+    assert_eq!(
+        publisher.prepare_new_paid_chapter(other, &request).await,
+        Err(AuthorError::Missing)
+    );
+    let prepared = publisher
+        .prepare_new_paid_chapter(owner, &request)
+        .await
+        .unwrap();
+    assert!(!prepared.published);
+    assert_eq!(
+        publisher.prepare_new_paid_chapter(owner, &request).await,
+        Ok(prepared),
+        "retry must retain the same chapter/version identifiers"
+    );
+    let chapter: (String, String, i64) = sqlx::query_as(
+        "SELECT visibility,access_level,price_amount FROM chapters WHERE id=$1",
+    )
+    .bind(prepared.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(chapter, ("draft".to_owned(), "paid".to_owned(), 100));
+    let visible: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM chapter_publications WHERE chapter_id=$1)",
+    )
+    .bind(prepared.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!visible, "S3 is not verified: no publication pointer");
+
+    let changed = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Другая глава",
+        body,
+        access: "paid",
+        price_amount: 100,
+        command_key: &key,
+    })
+    .unwrap();
+    assert_eq!(
+        publisher.prepare_new_paid_chapter(owner, &changed).await,
+        Err(AuthorError::Conflict),
+        "same command key with different payload never replaces purchased text"
+    );
+
+    let object = ready_object(
+        &pool,
+        prepared.chapter_id,
+        prepared.version_id,
+        body,
+        "b9041111-0001-4000-8000-000000000111",
+        false,
+        "content-kek-v2",
+    )
+    .await;
+    publisher
+        .attach_verified_and_publish(
+            owner,
+            book,
+            pinned(prepared.chapter_id, prepared.version_id),
+            &object,
+            PaidPublication::Publish {
+                expected_current: None,
+            },
+        )
+        .await
+        .unwrap();
+    let again = publisher
+        .prepare_new_paid_chapter(owner, &request)
+        .await
+        .unwrap();
+    assert_eq!(again.chapter_id, prepared.chapter_id);
+    assert_eq!(again.version_id, prepared.version_id);
+    assert!(again.published);
+    let version_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_versions WHERE chapter_id=$1",
+    )
+    .bind(prepared.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(version_count, 1);
+    let current: i64 = sqlx::query_scalar(
+        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
+    )
+    .bind(prepared.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(current, prepared.version_id);
     pool.close().await;
 }
