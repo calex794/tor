@@ -3,7 +3,9 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_commerce::repositories::entitlements::{ReadablePurchase, ReadablePurchasesPage};
+use tor_commerce::repositories::entitlements::{
+    ReadableBookToc, ReadablePurchase, ReadablePurchasesPage,
+};
 
 /// NEwBOO's hide_site_chrome mode: keep only the reader topbar.
 /// Unlike the ordinary layout, this document cannot accidentally restore
@@ -17,8 +19,51 @@ fn reader_layout(title: &str, description: &str, content: &str) -> Html<String> 
     )
 }
 
+/// All entries are already scoped to the owner and canonically checked by D.
+/// Never display public TOC items as though they were paid entitlements.
+fn paid_book_toc(edition: &ReadablePurchase, toc: &ReadableBookToc) -> String {
+    let mut entries = String::new();
+    for chapter in &toc.items {
+        let label = format!(
+            "Глава {}. {} · редакция {}",
+            chapter.chapter_no,
+            escape_html(&chapter.chapter_title),
+            chapter.version_no
+        );
+        if chapter.purchase_id == edition.purchase_id {
+            write!(
+                entries,
+                "<li class=\"reader-paid__toc-current\"><span aria-current=\"page\">{label}</span></li>"
+            )
+            .expect("write current item");
+        } else {
+            write!(
+                entries,
+                "<li><a data-paid-toc-link href=\"/read/paid/{}?purchase_id={}\">{label}</a></li>",
+                chapter.chapter_id, chapter.purchase_id,
+            )
+            .expect("write purchased chapter link");
+        }
+    }
+    let overflow = if toc.truncated {
+        "<p class=\"reader-paid__toc-more\">Показаны 100 ближайших купленных глав. Полный список — в <a href=\"/me/purchases\">библиотеке покупок</a>.</p>"
+    } else {
+        ""
+    };
+    format!(
+        "<details class=\"reader-topbar__toc\" data-paid-toc>
+          <summary aria-label=\"Оглавление купленных глав\">Оглавление</summary>
+          <div class=\"reader-paid__toc-menu\" role=\"group\" aria-label=\"Купленные главы этой книги\">
+            <ol class=\"reader-paid__toc-list\">{entries}</ol>
+            {overflow}
+          </div>
+         </details>"
+    )
+}
+
 pub fn paid_reader_shell(
     edition: &ReadablePurchase,
+    toc: &ReadableBookToc,
     csrf: &str,
     private_s3_origin: &str,
 ) -> Html<String> {
@@ -39,6 +84,7 @@ pub fn paid_reader_shell(
                  <span class="reader-topbar__chapter" title="{chapter_label}">{chapter_label}</span>
                </div>
                <div class="reader-topbar__actions">
+                 {toc_menu}
                  <button class="reader-topbar__settings" type="button" data-paid-settings-open
                    aria-controls="paid-reader-settings" aria-expanded="false"
                    aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
@@ -95,6 +141,7 @@ pub fn paid_reader_shell(
         book = book,
         chapter_label = chapter_label,
         version_no = edition.version_no,
+        toc_menu = paid_book_toc(edition, toc),
     );
     reader_layout(
         &format!("{} — {}", edition.chapter_title, edition.book_title),
@@ -166,6 +213,32 @@ mod tests {
     }
 
     #[test]
+    fn paid_book_toc_escapes_metadata_and_links_only_entitled_editions() {
+        let current = ReadablePurchase {
+            purchase_id: 31, chapter_id: 23, version_id: 40, version_no: 1,
+            chapter_no: 2, book_title: "Book".to_owned(),
+            chapter_title: "Current".to_owned(),
+        };
+        let next = ReadablePurchase {
+            purchase_id: 32, chapter_id: 24, version_id: 42, version_no: 1,
+            chapter_no: 3, book_title: "Book".to_owned(),
+            chapter_title: "Следующая <script>x</script>".to_owned(),
+        };
+        let toc = ReadableBookToc {
+            items: vec![current.clone(), next],
+            truncated: true,
+        };
+        let html = paid_book_toc(&current, &toc);
+        assert!(html.contains("aria-current=\"page\""));
+        assert!(html.contains("href=\"/read/paid/24?purchase_id=32\""));
+        assert!(!html.contains("href=\"/read/paid/23?purchase_id=31\""));
+        assert!(html.contains("&lt;script&gt;x&lt;/script&gt;"));
+        assert!(!html.contains("<script>x</script>"));
+        assert!(html.contains("100 ближайших"));
+        assert!(!html.contains("ciphertext_url"));
+    }
+
+    #[test]
     fn h_paid_shell_contains_no_grant_or_plaintext_but_a_real_reader() {
         let edition = ReadablePurchase {
             purchase_id: 31,
@@ -176,8 +249,13 @@ mod tests {
             book_title: "Книга <script>опасно</script>".to_owned(),
             chapter_title: "Вторая \"глава\"".to_owned(),
         };
+        let toc = ReadableBookToc {
+            items: vec![edition.clone()],
+            truncated: false,
+        };
         let body = paid_reader_shell(
             &edition,
+            &toc,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "https://private.storage.example",
         )
@@ -196,6 +274,10 @@ mod tests {
         assert!(body.contains("data-purchase-id=\"31\""));
         assert!(body.contains("data-chapter-id=\"23\""));
         assert!(body.contains("Купленная редакция 1"));
+        assert!(body.contains("data-paid-toc"));
+        assert!(body.contains("Оглавление купленных глав"));
+        assert!(body.contains("aria-current=\"page\""));
+        assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
         assert!(body.contains("data-paid-reader-settings"));
         assert!(body.contains("data-paid-font-scale"));
