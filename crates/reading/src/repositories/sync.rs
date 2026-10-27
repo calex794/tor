@@ -312,6 +312,67 @@ impl PgReadingSync {
             return Err(SyncError::Invalid);
         }
         checked_place(place, expected_revision)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        // The D-owned purchase row is locked before rights are checked.
+        // A refund's FK insertion needs KEY SHARE and waits for this commit.
+        // B moderation rows are locked too; a pinned V1 survives V2 release.
+        let edition = sqlx::query(
+            "SELECT chapter.book_id, edition.body_markdown,
+                    edition.storage_object_id::text AS object_id
+             FROM chapter_purchase_facts AS purchase
+             JOIN chapters AS chapter ON chapter.id=purchase.chapter_id
+             JOIN books AS book ON book.id=chapter.book_id
+             JOIN chapter_versions AS edition ON edition.chapter_id=purchase.chapter_id
+                 AND edition.id=purchase.version_id
+             WHERE purchase.user_id=$1 AND purchase.id=$2
+               AND purchase.chapter_id=$3 AND purchase.version_id=$4
+             FOR UPDATE OF purchase FOR SHARE OF chapter,book,edition",
+        )
+        .bind(actor)
+        .bind(purchase_id)
+        .bind(chapter_id)
+        .bind(version_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| SyncError::Unavailable)?
+        .ok_or(SyncError::NotFound)?;
+        // D is checked after the lock with a fresh statement snapshot.
+        let allowed: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+            .bind(actor)
+            .bind(purchase_id)
+            .bind(chapter_id)
+            .bind(version_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
+        if !allowed {
+            return Err(SyncError::NotFound);
+        }
+        let book_id: i64 = edition
+            .try_get("book_id")
+            .map_err(|_| SyncError::Unavailable)?;
+        let body: String = edition
+            .try_get("body_markdown")
+            .map_err(|_| SyncError::Unavailable)?;
+        if !crate::domain::renderer::valid_reader_length(&body) {
+            return Err(SyncError::Invalid);
+        }
+        let blocks = crate::services::progress::reader_blocks(&body);
+        if crate::services::progress::valid_text_place(place, &blocks).is_err() {
+            return Err(SyncError::Invalid);
+        }
+        // An S3-backed encrypted V1 has no immutable ReaderVersionManifest
+        // yet. Do not infer its true end from a stale PG plaintext/shadow or
+        // an S3 GET: allow cursor sync, but never mint completion evidence.
+        let storage_object: Option<String> = edition
+            .try_get("object_id")
+            .map_err(|_| SyncError::Unavailable)?;
+        let finished = storage_object.is_none()
+            && crate::services::progress::is_completed_place(place, &blocks);
         let row = sqlx::query(
             "INSERT INTO reader_purchased_positions AS saved \
               (user_id, purchase_id, chapter_id, version_id, \
@@ -342,19 +403,47 @@ impl PgReadingSync {
         .bind(place.block_index)
         .bind(place.char_offset)
         .bind(expected_revision)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|_| SyncError::Unavailable)?;
-        if let Some(row) = row {
-            return parse_receipt(row);
+        let receipt = row
+            .map(parse_receipt)
+            .transpose()?
+            .ok_or(SyncError::Conflict)?;
+        if finished {
+            // The C cursor, completion and outbox are committed as one unit.
+            // One user/book/chapter can only produce a single completion.
+            sqlx::query(
+                "WITH committed AS (
+                    INSERT INTO reader_chapter_completions
+                        (user_id,book_id,chapter_id,first_version_id,purchase_id,source_event_id)
+                    VALUES($1,$2,$3,$4,$5,gen_random_uuid())
+                    ON CONFLICT(user_id,book_id,chapter_id) DO NOTHING
+                    RETURNING source_event_id
+                )
+                INSERT INTO outbox_events(
+                    id,event_type,schema_version,aggregate_kind,aggregate_id,
+                    dedupe_key,payload,required_consumers
+                )
+                SELECT source_event_id,'ChapterCompletedV1',1,'chapter',$3,
+                    concat('chapter-completed:', $1, ':', $3),
+                    jsonb_build_object('user_id',$1,'book_id',$2,
+                        'chapter_id',$3,'version_id',$4,'purchase_id',$5,
+                        'authority','C-verified-purchased-position'),
+                    ARRAY['ranking-eligibility-v1']
+                FROM committed",
+            )
+            .bind(actor)
+            .bind(book_id)
+            .bind(chapter_id)
+            .bind(version_id)
+            .bind(purchase_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         }
-        if !self
-            .purchased_allowed(actor, purchase_id, chapter_id, version_id)
-            .await?
-        {
-            return Err(SyncError::NotFound);
-        }
-        Err(SyncError::Conflict)
+        tx.commit().await.map_err(|_| SyncError::Unavailable)?;
+        Ok(receipt)
     }
 }
 
