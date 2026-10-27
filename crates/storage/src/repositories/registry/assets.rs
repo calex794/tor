@@ -22,7 +22,7 @@ impl PgStorageRegistry {
         .map_err(|_| RegistryError::Invalid)?;
         if !valid_private_bucket(bucket)
             || !valid_ciphertext_size(&object)
-            || object.size_bytes > 8 * 1024 * 1024
+            || object.size_bytes > 8 * 1024 * 1024 + 16
             || !matches!(asset.mime, "image/png" | "image/jpeg" | "image/webp")
             || asset.kek_id != keyring.active_id()
             || asset.wrapped_dek.len() != 48
