@@ -1,10 +1,10 @@
 name: TOR PostgreSQL runtime
 on:
   pull_request:
-    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py']
+    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py','tools/tor_pg_restart_smoke.sh','tools/tor_pg_backup_restore_smoke.sh']
   push:
     branches: [main]
-    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py']
+    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py','tools/tor_pg_restart_smoke.sh','tools/tor_pg_backup_restore_smoke.sh']
   workflow_dispatch:
 permissions:
   contents: read
@@ -199,6 +199,12 @@ jobs:
         run: |
           cargo build -p tor-web
           bash tools/tor_pg_restart_smoke.sh
+      - name: I-11 PostgreSQL 18 backup and clean restore drill
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_backup_restore_smoke.sh
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |
