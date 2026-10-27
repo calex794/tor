@@ -33,6 +33,7 @@ pub mod cover_worker;
 mod observability;
 mod operator_overview;
 mod operator_traces;
+mod paid_grants_http;
 mod pages;
 mod password_jobs;
 mod ril;
@@ -364,6 +365,54 @@ pub fn router_with_postgres_reading_auth(
     )
 }
 
+/// S034 opt-in. This is the only constructor that mounts a paid grant route.
+/// Other demo/PG and legacy authentication constructors remain default-off.
+pub fn router_with_postgres_reading_auth_paid_grants(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+    paid_storage: Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
+    cover_storage: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    enable_cover_uploads: bool,
+) -> Router {
+    let auth_reader = reader.clone();
+    let grants = paid_grants_http::router(
+        accounts.clone(),
+        auth_cookies::CookiePolicy {
+            secure,
+            origin: public_origin.clone(),
+        },
+        paid_storage,
+    );
+    let author = if enable_cover_uploads {
+        match cover_storage.as_ref() {
+            Some(store) => auth::router_with_cover_uploads(
+                accounts,
+                auth_reader,
+                secure,
+                public_origin,
+                store.clone(),
+            ),
+            None => auth::router(accounts, auth_reader, secure, public_origin),
+        }
+    } else {
+        auth::router(accounts, auth_reader, secure, public_origin)
+    };
+    ril::instrument(
+        make_router(
+            Arc::new(catalog.clone()),
+            Some(catalog),
+            Some(reader),
+            true,
+            cover_storage,
+        )
+        .merge(author)
+        .merge(grants),
+    )
+}
+
 fn make_router(
     repo: Arc<dyn PublicBookRepository>,
     postgres: Option<PgCatalog>,
@@ -474,6 +523,19 @@ mod tests {
     #[tokio::test]
     async fn demo_must_not_advertise_unimplemented_reader() {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
+        let app = router(Arc::new(InMemoryCatalog::demo()));
+        let reply = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/reader/chapters/1/delivery-grants")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), StatusCode::NOT_FOUND);
+
     }
     #[tokio::test]
     async fn operator_summary_must_reject_site_account_cookie_without_staff_secret() {

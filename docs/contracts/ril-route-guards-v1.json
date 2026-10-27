@@ -428,6 +428,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "checkout::buy",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "grant",
+      "policy": "session"
     }
   ]
 }
