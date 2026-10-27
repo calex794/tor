@@ -102,7 +102,7 @@ pub(crate) fn router(
     secure: bool,
     origin: String,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, None, false)
+    router_inner(accounts, reader, secure, origin, None, false, None)
 }
 
 pub(crate) fn router_with_cover_uploads(
@@ -112,7 +112,7 @@ pub(crate) fn router_with_cover_uploads(
     origin: String,
     storage: Arc<dyn CoverObjectStore>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, Some(storage), false)
+    router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
 
 /// Enable purchased-library navigation only when an authorized reader is mounted.
@@ -123,7 +123,36 @@ pub(crate) fn router_with_paid_reader(
     origin: String,
     cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, cover_upload_storage, true)
+    router_inner(
+        accounts,
+        reader,
+        secure,
+        origin,
+        cover_upload_storage,
+        true,
+        None,
+    )
+}
+
+/// Only the private, explicitly enabled paid-author router provides a writer.
+/// The existing grant-only constructor never changes author capabilities.
+pub(crate) fn router_with_paid_reader_author(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
+    author: Arc<dyn author_chapter_http::PaidChapterPublisher>,
+) -> Router {
+    router_inner(
+        accounts,
+        reader,
+        secure,
+        origin,
+        cover_upload_storage,
+        true,
+        Some(author),
+    )
 }
 
 fn router_inner(
@@ -133,9 +162,10 @@ fn router_inner(
     origin: String,
     storage: Option<Arc<dyn CoverObjectStore>>,
     paid_reader_available: bool,
+    paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
-    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
+    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
