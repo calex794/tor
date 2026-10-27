@@ -81,7 +81,10 @@ pub(super) async fn publish_second_chapter(
     .await;
     assert_eq!(public.status(), StatusCode::OK);
     let html = body_of(public).await;
-    assert!(html.contains("Вторая"), "one Save must show the new free chapter");
+    assert!(
+        html.contains("Вторая"),
+        "one Save must show the new free chapter"
+    );
     let chapter_id = html
         .split("href=\"/reader/")
         .last()
