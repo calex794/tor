@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 56] = [
+const ROUTES: [RouteRegistration; 59] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -380,6 +380,33 @@ const ROUTES: [RouteRegistration; 56] = [
         Write,
     ), // 54
     RouteRegistration::new(
+        "/me/books/{id}/cover",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 55
+    RouteRegistration::new(
+        "/me/books/{id}/settings/covers",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 56
+    RouteRegistration::new(
+        "/assets/newboo-cover-picker.js",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 57
+    RouteRegistration::new(
         "/api/v1/purchases",
         "POST",
         "/api/v1/purchases/",
@@ -387,7 +414,7 @@ const ROUTES: [RouteRegistration; 56] = [
         Api,
         ProductArea::Billing,
         Write,
-    ), // 55
+    ), // 58
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -456,7 +483,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/rankings"), "GET") => Some(52),
         (Some("/api/v1/me/rankings/choice"), "POST") => Some(53),
         (Some("/api/v1/me/rankings/resume"), "POST") => Some(54),
-        (Some("/api/v1/purchases"), "POST") => Some(55),
+        (Some("/me/books/{id}/cover"), "POST") => Some(55),
+        (Some("/me/books/{id}/settings/covers"), "GET") => Some(56),
+        (Some("/assets/newboo-cover-picker.js"), "GET") => Some(57),
+        (Some("/api/v1/purchases"), "POST") => Some(58),
         _ => None,
     };
     index

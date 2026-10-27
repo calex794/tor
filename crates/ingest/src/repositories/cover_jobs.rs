@@ -103,6 +103,26 @@ impl PgCoverJobs {
         .ok_or(CoverError::Forbidden)
     }
 
+    /// Most recent status for a book, only for its current owner.
+    pub async fn latest_for_author(
+        &self,
+        book_id: i64,
+        actor_id: i64,
+    ) -> Result<Option<String>, CoverError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT j.status FROM cover_variant_jobs j
+             JOIN books b ON b.id=j.book_id
+             WHERE j.book_id=$1 AND b.owner_user_id=$2
+               AND j.actor_user_id=$2 AND NOT b.is_deleted
+             ORDER BY j.id DESC LIMIT 1",
+        )
+        .bind(book_id)
+        .bind(actor_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CoverError::Unavailable)
+    }
+
     pub async fn job_status(&self, job_id: i64) -> Result<Option<String>, CoverError> {
         sqlx::query_scalar("SELECT status FROM cover_variant_jobs WHERE id=$1")
             .bind(job_id)

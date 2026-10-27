@@ -7,11 +7,14 @@ use tor_books::services::authoring::{
 
 use crate::pages::{escape_html, layout};
 
-pub fn detail(
+/// The form exists only when a signed source store and cover worker are enabled.
+pub fn detail_with_covers(
     book: &OwnedBook,
     published: bool,
     chapters: &[OwnedChapterSummary],
     csrf: &str,
+    uploads_enabled: bool,
+    latest_job: Option<&str>,
 ) -> Html<String> {
     let mut items = String::new();
     if chapters.is_empty() {
@@ -85,11 +88,25 @@ pub fn detail(
         "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
         book.id
     );
+    let cover_status = cover_status(latest_job);
+    let upload = if uploads_enabled {
+        format!(
+            r#"<section class="author-cover-link" aria-label="Обложки книги">
+                <h2>Обложки книги</h2>
+                <p class="account-profile__hint">{cover_status}</p>
+                <a class="ui-button ui-button--ghost" href="/me/books/{}/settings/covers">Управлять обложкой</a>
+                </section>"#,
+            book.id,
+        )
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
+        {upload}
         <h2>Главы</h2>{items}
         {add_action}
         {action}
@@ -99,6 +116,63 @@ pub fn detail(
         escape_html(&book.title)
     );
     layout(&book.title, "Управление своей книгой", &body)
+}
+
+fn cover_status(latest_job: Option<&str>) -> &'static str {
+    match latest_job {
+        Some("pending") => "Обложка ожидает обработки.",
+        Some("running") | Some("ready") => "Обложка обрабатывается.",
+        Some("done") => "Обложка готова.",
+        Some("superseded") => "Обложка заменена более новой версией.",
+        Some("dead") => "Ошибка обработки обложки. Загрузите другой файл.",
+        _ => "Обложка ещё не загружена.",
+    }
+}
+
+/// Mirrors NEwBOO's covers settings template and picker, one real TOR slot.
+pub fn cover_settings(
+    book: &OwnedBook,
+    csrf: &str,
+    latest_job: Option<&str>,
+    current_public_cover: bool,
+) -> Html<String> {
+    let title = escape_html(&book.title);
+    let image = if current_public_cover {
+        format!(
+            r#"<img class="book-cover-picker__image" src="/covers/{}/main.webp" alt="Обложка книги «{title}»" loading="lazy" data-cover-picker-image>"#,
+            book.id
+        )
+    } else {
+        r#"<img class="book-cover-picker__image" alt="Предварительный просмотр выбранной обложки" data-cover-picker-image hidden>"#
+            .to_owned()
+    };
+    let html = include_str!("../templates/author_cover_settings.html")
+        .replace("<!--BOOK_TITLE-->", &title)
+        .replace("<!--BOOK_ID-->", &book.id.to_string())
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--COVER_STATUS-->", cover_status(latest_job))
+        .replace("<!--COVER_IMAGE-->", &image)
+        .replace(
+            "<!--PLACEHOLDER_HIDDEN-->",
+            if current_public_cover { "hidden" } else { "" },
+        )
+        .replace(
+            "<!--CHANGE_LABEL-->",
+            if current_public_cover {
+                "Заменить"
+            } else {
+                "Добавить"
+            },
+        )
+        .replace(
+            "<!--FILE_LABEL-->",
+            if current_public_cover {
+                "Текущая обложка"
+            } else {
+                "Файл не выбран"
+            },
+        );
+    layout("Обложки книги", "Изменение обложки своей книги.", &html)
 }
 
 pub fn new_chapter(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
@@ -169,6 +243,16 @@ pub fn release_chapter(
 }
 
 #[cfg(test)]
+pub fn detail(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+) -> Html<String> {
+    detail_with_covers(book, published, chapters, csrf, false, None)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -185,6 +269,32 @@ mod tests {
         assert!(page.0.contains("&lt;img"));
         assert!(!page.0.contains("<img src=x"));
     }
+    #[test]
+    fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
+        let book = OwnedBook {
+            id: 42,
+            title: "Книга".to_owned(),
+        };
+        let disabled = detail(&book, false, &[], "secret").0;
+        assert!(!disabled.contains("enctype=\"multipart/form-data\""));
+        let waiting = detail_with_covers(&book, false, &[], "secret", true, Some("pending")).0;
+        assert!(waiting.contains("href=\"/me/books/42/settings/covers\""));
+        assert!(!waiting.contains("enctype=\"multipart/form-data\""));
+        assert!(waiting.contains("ожидает обработки"));
+        let settings = cover_settings(&book, "secret", Some("pending"), false).0;
+        assert!(settings.contains("action=\"/me/books/42/cover\""));
+        assert!(settings.contains("name=\"csrf_token\" value=\"secret\""));
+        assert!(settings.contains("book-cover-picker__frame"));
+        assert!(settings.contains("data-cover-picker-input"));
+        assert!(settings.contains("book-cover-picker__plus"));
+        assert!(settings.contains("Обложка 1"));
+        assert!(!settings.contains("/covers/42/main.webp"));
+        let ready = cover_settings(&book, "secret", Some("done"), true).0;
+        assert!(ready.contains("Обложка готова"));
+        assert!(ready.contains("src=\"/covers/42/main.webp\""));
+        assert!(ready.contains("Заменить"));
+    }
+
     #[test]
     fn release_form_escapes_chapter_body_and_pins_version() {
         let chapter = PendingChapter {

@@ -291,13 +291,6 @@
     },
     {
       "method": "POST",
-      "template": "/api/v1/purchases",
-      "source": "crates/web/src/auth.rs",
-      "handler": "checkout::buy",
-      "policy": "session"
-    },
-    {
-      "method": "POST",
       "template": "/login",
       "source": "crates/web/src/auth.rs",
       "handler": "account_form_http::login",
@@ -407,6 +400,34 @@
       "source": "crates/web/src/auth.rs",
       "handler": "sync_actions::put_purchased",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/cover",
+      "source": "crates/web/src/author_cover_http.rs",
+      "handler": "upload_cover",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/covers",
+      "source": "crates/web/src/auth.rs",
+      "handler": "cover_settings",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-cover-picker.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::cover_picker_script",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/purchases",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::buy",
+      "policy": "session"
     }
   ]
 }
