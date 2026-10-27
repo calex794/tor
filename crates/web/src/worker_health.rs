@@ -1,7 +1,7 @@
 //! Classification is conservative: stale leases and retries are signals,
 //! not proof a remote job process crashed. The RIL heartbeat is local only.
-use tor_ingest::repositories::cover_jobs::CoverQueueCounts;
 use crate::cover_worker::CoverRunnerSnapshot;
+use tor_ingest::repositories::cover_jobs::CoverQueueCounts;
 use tor_traffic_behavior::{repositories::RilQueueCounts, services::PgPumpSnapshot};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,7 +124,9 @@ pub(crate) fn cover_runner(
         };
     }
     if runner.running_for_s.is_some_and(|seconds| seconds >= 95)
-        || runner.since_completion_s.is_some_and(|seconds| seconds >= 95)
+        || runner
+            .since_completion_s
+            .is_some_and(|seconds| seconds >= 95)
         || (runner.cycles == 0 && runner.since_start_s.is_some_and(|seconds| seconds >= 95))
     {
         return Diagnostic {
@@ -256,7 +258,9 @@ mod tests {
     #[test]
     fn cover_runner_timeout_and_stale_heartbeat_are_warnings_even_when_queue_empty() {
         let mut runner = CoverRunnerSnapshot {
-            cycles: 2, since_completion_s: Some(96), ..CoverRunnerSnapshot::default()
+            cycles: 2,
+            since_completion_s: Some(96),
+            ..CoverRunnerSnapshot::default()
         };
         assert!(cover_runner(Some(runner), Some(cover_queue())).warning);
         runner.since_completion_s = Some(1);
@@ -273,10 +277,13 @@ mod tests {
     fn cover_queue_and_runtime_must_not_invent_success() {
         assert!(cover_runner(None, None).text.contains("не подтверждена"));
         let first = CoverRunnerSnapshot {
-            since_start_s: Some(1), ..CoverRunnerSnapshot::default()
+            since_start_s: Some(1),
+            ..CoverRunnerSnapshot::default()
         };
         assert!(!cover_runner(Some(first), Some(cover_queue())).warning);
-        assert!(cover_runner(Some(first), Some(cover_queue())).text.contains("первый цикл"));
+        assert!(cover_runner(Some(first), Some(cover_queue()))
+            .text
+            .contains("первый цикл"));
         let mut queue = cover_queue();
         queue.overdue_pending = 1;
         assert!(cover_runner(Some(first), Some(queue)).warning);
