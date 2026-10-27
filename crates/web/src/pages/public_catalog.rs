@@ -508,7 +508,7 @@ mod home_tests {
         card.genres = vec!["Детектив".into()];
         let html = catalog(&[card]).0;
         assert!(html.contains("book-mini-card__cover book-shimmer"));
-        assert!(html.contains("<div class=\\"book-mini-card__meta\\">Имя автора</div>"));
+        assert!(html.contains("<div class=\"book-mini-card__meta\">Имя автора</div>"));
         assert!(!html.contains("Язык: ru"));
         assert!(!html.contains("Жанры:"));
         assert!(!html.contains("Лайков:"));
