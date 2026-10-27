@@ -114,11 +114,15 @@ def disabled() -> None:
     expect(buy(Client(), {"chapter_id": "1", "expected_version_id": "1",
                           "expected_price_minor": 150}, key="A" * 42 + "8"),
            404, "Checkout must be disabled by default")
+    expect(Client().call("POST", "/api/v1/reader/chapters/1/delivery-grants", {}),
+           404, "Paid delivery must also be disabled by default")
     print("D-04 default-off: PASS")
 
 
 def enabled() -> None:
     require(DB, "Set TEST_DATABASE_URL to isolated tor_ci")
+    expect(Client().call("POST", "/api/v1/reader/chapters/1/delivery-grants", {}),
+           404, "Checkout opt-in must not automatically enable paid S3 grants")
     buyer, author, stranger = Client(), Client(), Client()
     buyer.register("d04-smoke-buyer@tor-ci.example", "Покупатель")
     author.register("d04-smoke-author@tor-ci.example", "Автор")

@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 59] = [
+const ROUTES: [RouteRegistration; 60] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -415,6 +415,16 @@ const ROUTES: [RouteRegistration; 59] = [
         ProductArea::Billing,
         Write,
     ), // 58
+    // Signed, scoped paid content grant. Performs PG rights checks and S3 HEAD.
+    RouteRegistration::new(
+        "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
+        "POST",
+        "/api/v1/reader/chapters/",
+        Prefix,
+        Api,
+        Reading,
+        CostClass::ExpensiveRead,
+    ), // 59
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -487,6 +497,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/settings/covers"), "GET") => Some(56),
         (Some("/assets/newboo-cover-picker.js"), "GET") => Some(57),
         (Some("/api/v1/purchases"), "POST") => Some(58),
+        (Some("/api/v1/reader/chapters/{chapter_id}/delivery-grants"), "POST") => Some(59),
         _ => None,
     };
     index

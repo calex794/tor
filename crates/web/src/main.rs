@@ -4,6 +4,7 @@ use tor_books::{
     repositories::{InMemoryCatalog, PgCatalog},
     services::PublicBookRepository,
 };
+use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::PgReader;
 
 /// No schema changes happen during HTTP startup.
@@ -15,6 +16,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("TOR must bind to loopback behind HTTPS reverse proxy".into());
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
+    // No paid bearer URL can be issued without an operator-enabled, compiled
+    // private G adapter, PostgreSQL and cookie authentication.
+    let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        _ => return Err("TOR_PAID_GRANTS_ENABLED must be 0 or 1".into()),
+    };
+    if paid_grants_enabled {
+        if demo
+            || env::var_os("DATABASE_URL").is_none()
+            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1")
+        {
+            return Err("Paid grants require PostgreSQL and enabled cookie authentication".into());
+        }
+        #[cfg(not(feature = "s3-paid"))]
+        return Err("Paid grants require a build with --features s3-paid".into());
+    }
     // Optional numeric-only SQLx telemetry. Never enables raw SQL logs.
     if !demo && env::var("DATABASE_URL").is_ok() && !tor_web::activate_ril_sqlx_observation() {
         eprintln!("RIL SQLx completion telemetry disabled (subscriber unavailable)");
@@ -104,9 +123,47 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             .into(),
                     );
                 }
-                let accounts = PgAccounts::from_pool(pool);
+                let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
-                if let Some(store) = cover_store {
+                #[cfg(feature = "s3-paid")]
+                let paid_storage: Option<Arc<dyn PrivateObjectDeliveryPort>> =
+                    if paid_grants_enabled {
+                        let bucket = env::var("TOR_PAID_S3_BUCKET")?;
+                        let kek = tor_storage::services::crypto::ContentKek::from_environment()
+                            .map_err(|_| "TOR_CONTENT_KEK_V1 is required and must be 32 bytes")?;
+                        let config =
+                            aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+                        let client = aws_sdk_s3::Client::new(&config);
+                        let store = tor_storage::repositories::s3::S3PrivateStore::new(
+                            client,
+                            bucket.clone(),
+                        )
+                        .map_err(|_| "Invalid TOR_PAID_S3_BUCKET")?;
+                        let signer =
+                            tor_storage::repositories::paid_delivery::PgPrivateDelivery::new(
+                                pool.clone(),
+                                store,
+                                Arc::new(kek),
+                                bucket,
+                            )
+                            .map_err(|_| "Invalid G paid delivery configuration")?;
+                        Some(Arc::new(signer))
+                    } else {
+                        None
+                    };
+                #[cfg(not(feature = "s3-paid"))]
+                let paid_storage: Option<Arc<dyn PrivateObjectDeliveryPort>> = None;
+                if let Some(paid) = paid_storage {
+                    tor_web::router_with_postgres_reading_auth_paid_grants(
+                        catalog,
+                        reader,
+                        accounts,
+                        secure,
+                        origin,
+                        paid,
+                        cover_store.map(|store| (store, cover_worker_enabled)),
+                    )
+                } else if let Some(store) = cover_store {
                     if cover_worker_enabled {
                         tor_web::router_with_postgres_reading_auth_cover_uploads(
                             catalog, reader, accounts, secure, origin, store,

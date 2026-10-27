@@ -67,6 +67,7 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -157,6 +158,7 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored
+          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
 
