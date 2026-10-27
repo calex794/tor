@@ -17,7 +17,9 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::{paid_storage::PgPaidStorage, PgCatalog};
-use tor_contracts::paid_delivery::{ChapterVersionPort, ChapterVersionRef, PositiveId, PrivateObjectDeliveryPort};
+use tor_contracts::paid_delivery::{
+    ChapterVersionPort, ChapterVersionRef, PositiveId, PrivateObjectDeliveryPort,
+};
 use tor_reading::repositories::PgReader;
 use tor_storage::{
     repositories::{paid_delivery::PgPrivateDelivery, s3::S3PrivateStore},
@@ -37,7 +39,18 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
     assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
     let result = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql client required by isolated PG test");
     assert!(
@@ -141,10 +154,8 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let (owner, owner_session) =
-        user(&accounts, "paid-author-v2-ci-owner@example.invalid").await;
-    let (_, other_session) =
-        user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
+    let (owner, owner_session) = user(&accounts, "paid-author-v2-ci-owner@example.invalid").await;
+    let (_, other_session) = user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
     let book: i64 = pg(
         &url,
         &format!(
@@ -186,7 +197,16 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let csrf = generate_session_token();
     let command = generate_session_token();
     assert_eq!(
-        send(&grants_only, book, &owner_session, &csrf, &command, true, "Paid").await,
+        send(
+            &grants_only,
+            book,
+            &owner_session,
+            &csrf,
+            &command,
+            true,
+            "Paid"
+        )
+        .await,
         StatusCode::SERVICE_UNAVAILABLE,
         "paid reader must not automatically enable paid author writes"
     );
@@ -200,13 +220,9 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     assert_eq!(status, StatusCode::OK);
     assert!(!page.contains("<option value=\"paid\">"));
 
-    let author = PgPaidAuthorPublisher::new(
-        catalog.clone(),
-        store.clone(),
-        ring,
-        BUCKET.to_owned(),
-    )
-    .unwrap();
+    let author =
+        PgPaidAuthorPublisher::new(catalog.clone(), store.clone(), ring, BUCKET.to_owned())
+            .unwrap();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
         catalog,
         PgReader::new(pool.clone()),
@@ -245,7 +261,16 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         "identical POST replay must be successful without another publication"
     );
     assert_eq!(
-        send(&app, book, &owner_session, &csrf, &command, true, "Different").await,
+        send(
+            &app,
+            book,
+            &owner_session,
+            &csrf,
+            &command,
+            true,
+            "Different"
+        )
+        .await,
         StatusCode::CONFLICT,
         "same key with altered text/metadata must never replace the version"
     );
@@ -285,7 +310,9 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         .unwrap()
         .unwrap();
     let private_bytes = store.get_verified(&encrypted.object).await.unwrap();
-    assert!(!private_bytes.windows(b"Paid chapter V2".len()).any(|w| w == b"Paid chapter V2"));
+    assert!(!private_bytes
+        .windows(b"Paid chapter V2".len())
+        .any(|w| w == b"Paid chapter V2"));
     assert!(signer
         .grant_verified_object(&encrypted, Duration::from_secs(90))
         .await
