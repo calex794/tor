@@ -255,7 +255,7 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
         Err(AuthorError::Conflict),
         "not even the owner can add an image after publication"
     );
-    assert_eq!(
+    assert!(
         sqlx::query(
             "UPDATE chapter_version_assets SET version_id=$1
              WHERE chapter_id=$2 AND storage_object_id=$3::uuid",
@@ -266,7 +266,6 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
         .execute(&pool)
         .await
         .is_err(),
-        true,
         "direct SQL cannot move an image between historical editions"
     );
     assert!(
