@@ -19,7 +19,8 @@ use sqlx::{PgPool, Row};
 use std::{sync::Arc, time::Duration};
 use tor_contracts::paid_delivery::{
     validate_signed_get_ttl, ChapterVersionRef, ContentCodec, DeliveryError, EncryptedObjectKind,
-    EncryptedObjectRef, GrantedContent, ObjectId, PositiveId, PrivateObjectDeliveryPort, SecretValue,
+    EncryptedObjectRef, GrantedContent, ObjectId, PositiveId, PrivateObjectDeliveryPort,
+    SecretValue,
 };
 
 pub struct PgPrivateDelivery<S> {
@@ -65,8 +66,7 @@ fn canonical_aad(aad: &[u8], id: &ObjectId, plaintext_sha256: &[u8]) -> bool {
         raw.and_then(|value| value.parse::<i64>().ok())
             .and_then(|value| PositiveId::new(value).ok())
     };
-    let (Some(chapter_id), Some(version_id)) =
-        (parse_id(fields.next()), parse_id(fields.next()))
+    let (Some(chapter_id), Some(version_id)) = (parse_id(fields.next()), parse_id(fields.next()))
     else {
         return false;
     };
