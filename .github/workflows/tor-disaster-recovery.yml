@@ -1,34 +1,23 @@
 name: TOR isolated encrypted S3 backup recovery
 on:
   pull_request:
-    paths:
-      - '.github/workflows/tor-disaster-recovery.yml'
-      - 'tools/tor_dr_archive_crypto.cjs'
-      - 'tools/tor_dr_s3_backup_smoke.sh'
-      - 'crates/web/src/**'
-      - 'crates/books/src/**'
-      - 'migrations/**'
-      - 'crates/migrations/**'
-      - 'Cargo.toml'
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/tor-disaster-recovery.yml'
-      - 'tools/tor_dr_archive_crypto.cjs'
-      - 'tools/tor_dr_s3_backup_smoke.sh'
-      - 'crates/web/src/**'
-      - 'crates/books/src/**'
-      - 'migrations/**'
-      - 'crates/migrations/**'
-      - 'Cargo.toml'
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
   group: tor-disaster-recovery-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: backup_recovery
   sealed-remote-copy:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"backup_recovery":true}').backup_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:

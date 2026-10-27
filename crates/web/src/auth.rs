@@ -38,6 +38,7 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod library_actions;
@@ -164,6 +165,10 @@ fn router_inner(
         .route("/me", get(me))
         .route("/me/library", get(my_library))
         .route("/me/rankings", get(rankings::page))
+        .route(
+            "/me/books/{id}/rate",
+            get(book_stars::page).post(book_stars::submit),
+        )
         .route("/me/rankings/choice", post(rankings::browser_choice))
         .route("/me/rankings/resume", post(rankings::browser_resume))
         .route("/api/v1/me/rankings", get(rankings::api_state))

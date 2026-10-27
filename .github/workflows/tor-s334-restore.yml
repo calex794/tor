@@ -1,42 +1,23 @@
 name: TOR S3-34 purchased edition disaster recovery
 on:
   pull_request:
-    paths:
-      - 'crates/web/tests/s334_paid_restore_pg_s3.rs'
-      - 'crates/web/Cargo.toml'
-      - 'crates/storage/**'
-      - 'crates/books/src/repositories/paid_storage.rs'
-      - 'crates/commerce/src/repositories/entitlements.rs'
-      - 'crates/reading/src/services/paid_delivery.rs'
-      - 'crates/web/src/paid_grants_http.rs'
-      - 'migrations/**'
-      - 'tools/tor_s334_paid_restore_smoke.sh'
-      - 'tools/tor_dr_archive_crypto.cjs'
-      - 'tools/paid_grant_webcrypto_e2e.mjs'
-      - '.github/workflows/tor-s334-restore.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/web/tests/s334_paid_restore_pg_s3.rs'
-      - 'crates/web/Cargo.toml'
-      - 'crates/storage/**'
-      - 'crates/books/src/repositories/paid_storage.rs'
-      - 'crates/commerce/src/repositories/entitlements.rs'
-      - 'crates/reading/src/services/paid_delivery.rs'
-      - 'crates/web/src/paid_grants_http.rs'
-      - 'migrations/**'
-      - 'tools/tor_s334_paid_restore_smoke.sh'
-      - 'tools/tor_dr_archive_crypto.cjs'
-      - 'tools/paid_grant_webcrypto_e2e.mjs'
-      - '.github/workflows/tor-s334-restore.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
   group: tor-s334-recovery-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: purchased_recovery
   purchased-v1-recovery:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"purchased_recovery":true}').purchased_recovery) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:

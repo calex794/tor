@@ -1,67 +1,20 @@
 name: TOR paid S3 grant end-to-end
 on:
   pull_request:
-    paths:
-      - 'crates/web/src/paid_grants_http.rs'
-      - 'crates/web/src/main.rs'
-      - 'crates/web/src/paid_author_publish.rs'
-      - 'crates/web/src/paid_reader_router.rs'
-      - 'crates/web/src/author_chapter_http.rs'
-      - 'crates/web/src/author_chapter_pages.rs'
-      - 'crates/web/templates/author_new_chapter.html'
-      - 'crates/web/tests/paid_author_pg.rs'
-      - 'crates/web/tests/paid_grants_s3_pg.rs'
-      - 'crates/reading/src/services/paid_delivery.rs'
-      - 'crates/books/src/repositories/paid_storage.rs'
-      - 'crates/storage/**'
-      - 'migrations/**'
-      - 'tools/paid_grant_webcrypto_e2e.mjs'
-      - 'tools/paid_reader_minio_chromium_e2e.cjs'
-      - 'crates/web/assets/newboo-paid-reader.mjs'
-      - 'crates/web/src/pages/reader_paid.rs'
-      - 'crates/web/templates/layout.html'
-      - 'crates/web/src/pages.rs'
-      - 'crates/web/assets/site.css'
-      - 'crates/web/assets/newboo-port.css'
-      - 'crates/web/assets/newboo-book-detail.css'
-      - 'crates/web/assets/newboo-reader.css'
-      - 'crates/web/assets/newboo-cover-picker.css'
-      - 'crates/web/assets/brand/**'
-      - '.github/workflows/tor-paid-grant-e2e.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/web/src/paid_grants_http.rs'
-      - 'crates/web/src/main.rs'
-      - 'crates/web/src/paid_author_publish.rs'
-      - 'crates/web/src/paid_reader_router.rs'
-      - 'crates/web/src/author_chapter_http.rs'
-      - 'crates/web/src/author_chapter_pages.rs'
-      - 'crates/web/templates/author_new_chapter.html'
-      - 'crates/web/tests/paid_author_pg.rs'
-      - 'crates/web/tests/paid_grants_s3_pg.rs'
-      - 'crates/reading/src/services/paid_delivery.rs'
-      - 'crates/books/src/repositories/paid_storage.rs'
-      - 'crates/storage/**'
-      - 'migrations/**'
-      - 'tools/paid_grant_webcrypto_e2e.mjs'
-      - 'tools/paid_reader_minio_chromium_e2e.cjs'
-      - 'crates/web/assets/newboo-paid-reader.mjs'
-      - 'crates/web/src/pages/reader_paid.rs'
-      - 'crates/web/templates/layout.html'
-      - 'crates/web/src/pages.rs'
-      - 'crates/web/assets/site.css'
-      - 'crates/web/assets/newboo-port.css'
-      - 'crates/web/assets/newboo-book-detail.css'
-      - 'crates/web/assets/newboo-reader.css'
-      - 'crates/web/assets/newboo-cover-picker.css'
-      - 'crates/web/assets/brand/**'
-      - '.github/workflows/tor-paid-grant-e2e.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: paid_e2e
   paid-private-e2e:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"paid_e2e":true}').paid_e2e) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:

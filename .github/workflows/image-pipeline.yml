@@ -1,20 +1,8 @@
 name: Rust G image pipeline
 on:
   pull_request:
-    paths:
-      - 'crates/ingest/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'architecture/modules.toml'
-      - '.github/workflows/image-pipeline.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/ingest/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'architecture/modules.toml'
-      - '.github/workflows/image-pipeline.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,7 +10,13 @@ concurrency:
   group: image-g-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: image
   image:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"image":true}').image) }}
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:

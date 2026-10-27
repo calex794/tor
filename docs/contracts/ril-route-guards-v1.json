@@ -477,6 +477,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "paid_completion::post",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/rate",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stars::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/rate",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stars::submit",
+      "policy": "scoped"
     }
   ]
 }
