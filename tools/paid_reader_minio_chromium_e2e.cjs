@@ -215,6 +215,32 @@ async function run() {
           "No HTML parsed from private book metadata");
         assert.equal(await page.locator(".reader-topbar__book").getAttribute("title"),
           fixture.expected_book_title);
+        // The native <details> menu is server-rendered from the buyer's D
+        // entitlements; it must link to the second verified paid edition.
+        const toc = page.locator("[data-paid-toc]");
+        assert.equal(await toc.count(), 1, device + ": purchased TOC missing");
+        await toc.locator("summary").click();
+        assert(await toc.evaluate((element) => element.open),
+          device + ": purchased TOC does not open");
+        const second = toc.locator("a[data-paid-toc-link]");
+        assert.equal(await second.count(), 1, device + ": expected one other paid edition");
+        assert.equal(await second.getAttribute("href"),
+          "/read/paid/" + fixture.toc_second_chapter_id +
+          "?purchase_id=" + fixture.toc_second_purchase_id);
+        assert((await second.textContent()).includes(fixture.toc_second_title),
+          device + ": TOC must display actual PostgreSQL chapter title");
+        assert.equal(await toc.locator("script, img[src=x]").count(), 0,
+          device + ": purchased TOC parsed user HTML");
+        assert.equal(await toc.locator('[aria-current="page"]').count(), 1,
+          device + ": current pinned edition missing from TOC");
+        const tocOverflow = await page.evaluate(() =>
+          document.documentElement.scrollWidth >
+          document.documentElement.clientWidth + 1);
+        assert(!tocOverflow, device + ": TOC opens outside the viewport");
+        await toc.locator("summary").click();
+        assert(!(await toc.evaluate((element) => element.open)),
+          device + ": purchased TOC did not close");
+
         const state = await page.evaluate(async () => ({
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
           xss: window.__xss === true,
