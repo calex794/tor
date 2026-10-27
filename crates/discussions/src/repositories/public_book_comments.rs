@@ -45,7 +45,9 @@ impl PgPublicBookComments {
             || body.chars().count() > 2000
             || body.contains('\0')
             || command_key.len() != 43
-            || !command_key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            || !command_key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             || payload_hash.len() != 32
         {
             return CreateResult::Conflict;
