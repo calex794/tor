@@ -264,3 +264,37 @@ pub(super) async fn login(
     // No next parameter is accepted: redirects always stay on this site.
     private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
 }
+
+#[cfg(test)]
+mod login_error_tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn too_many_login_attempts_has_clear_429_and_retry_after() {
+        let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, false);
+        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(reply.headers()[header::RETRY_AFTER], "600");
+        let body = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
+        let html = String::from_utf8(body.to_vec()).expect("UTF-8");
+        assert!(html.contains("Слишком много попыток входа"));
+        assert!(html.contains("10 минут"));
+        assert!(!html.contains("password_hash"));
+    }
+
+    #[tokio::test]
+    async fn registration_rate_limit_is_also_honest() {
+        let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, true);
+        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(reply.headers()[header::RETRY_AFTER], "600");
+    }
+
+    #[tokio::test]
+    async fn unavailable_storage_is_not_misreported_as_throttling() {
+        let reply = auth_limit_error(StatusCode::SERVICE_UNAVAILABLE, false);
+        assert_eq!(reply.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(reply.headers().get(header::RETRY_AFTER).is_none());
+        let html = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
+        assert!(String::from_utf8_lossy(&html).contains("Вход временно недоступен"));
+    }
+}
