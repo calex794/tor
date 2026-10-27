@@ -13,6 +13,7 @@ use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use zeroize::Zeroizing;
 
 const KEK_ID: &str = "content-kek-v1";
+const KEK_ID_V2: &str = "content-kek-v2";
 const MAX_CHAPTER_UTF8_BYTES: usize = 200_000;
 const MAX_CHAPTER_CHARS: usize = 50_000;
 
@@ -204,6 +205,58 @@ pub fn seal_chapter(
         return Err(CryptoError::AuthenticationFailed);
     }
     Ok(sealed)
+}
+
+/// Only encrypted DEK wrapping metadata can change during a KEK rotation.
+/// The chapter ciphertext, content nonce, digest, AAD, object ID and purchase
+/// are deliberately not inputs or outputs of this operation.
+pub struct RewrappedDekV2 {
+    pub wrapped_dek: Vec<u8>,
+    pub wrap_nonce: [u8; 12],
+    pub kek_id: &'static str,
+}
+
+impl fmt::Debug for RewrappedDekV2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RewrappedDekV2")
+            .field("wrapped_dek", &"[REDACTED]")
+            .field("wrap_nonce", &"[REDACTED]")
+            .field("kek_id", &self.kek_id)
+            .finish()
+    }
+}
+
+/// S3-34 phase 1: authenticate the v1 wrapper, then protect the exact same
+/// scoped DEK with a fresh nonce and an independently supplied v2 KEK.
+/// No S3 bytes are read, decrypted or rewritten. The caller must perform
+/// an authorized PostgreSQL compare-and-swap after a verified backup.
+/// Until that controlled migration exists this function changes NO data.
+pub fn rewrap_registered_v1_to_v2(
+    object_id: &ObjectId,
+    v1_wrapped_dek: &[u8],
+    v1_wrap_nonce: &[u8; 12],
+    v1_kek: &ContentKek,
+    v2_kek: &ContentKek,
+) -> Result<RewrappedDekV2, CryptoError> {
+    // Reuse of the same 32-byte secret under a new name is not a rotation.
+    if v1_kek.0[..] == v2_kek.0[..] {
+        return Err(CryptoError::InvalidMaterial);
+    }
+    let dek = unwrap_registered_dek(object_id, v1_wrapped_dek, v1_wrap_nonce, KEK_ID, v1_kek)?;
+    let wrap_nonce = random_bytes::<12>()?;
+    let aad = wrap_aad(object_id);
+    let wrapped_dek = encrypt_raw(&v2_kek.0, &wrap_nonce, &aad, &dek[..])?;
+    // Verify both the authentication tag and the exact DEK before returning
+    // any material that could be committed by a future migration.
+    let confirmed = Zeroizing::new(decrypt_raw(&v2_kek.0, &wrap_nonce, &aad, &wrapped_dek)?);
+    if confirmed.as_slice() != &dek[..] || wrapped_dek.len() != 48 {
+        return Err(CryptoError::AuthenticationFailed);
+    }
+    Ok(RewrappedDekV2 {
+        wrapped_dek,
+        wrap_nonce,
+        kek_id: KEK_ID_V2,
+    })
 }
 
 /// Verify downloaded bytes against the immutable PG/HEAD receipt before any
