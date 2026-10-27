@@ -159,13 +159,20 @@ async fn request_completion(
         })
         .method(method)
         .header(header::ORIGIN, ORIGIN)
-        .header(header::COOKIE, format!("tor-dev-session={session}; tor-dev-csrf={csrf}"))
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+        )
         .header("x-csrf-token", csrf);
     if method == "POST" {
         request = request.header(header::CONTENT_TYPE, "application/json");
     }
     app.clone()
-        .oneshot(request.body(Body::from(body.map_or_else(String::new, |v| v.to_string()))).unwrap())
+        .oneshot(
+            request
+                .body(Body::from(body.map_or_else(String::new, |v| v.to_string())))
+                .unwrap(),
+        )
         .await
         .unwrap()
 }
@@ -510,7 +517,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     // C/F-05: A grant, downloaded ciphertext or bookmark alone does not
     // create a ranking fact. The owner explicitly finishes the sealed V1.
     let before_finish = request_completion(
-        &app, "GET", chapter, purchase_id, v1, &buyer_cookie, &csrf, None,
+        &app,
+        "GET",
+        chapter,
+        purchase_id,
+        v1,
+        &buyer_cookie,
+        &csrf,
+        None,
     )
     .await;
     assert_eq!(before_finish.status(), StatusCode::OK);
@@ -529,37 +543,83 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         "plaintext_sha256": sha,
     });
     let denied = request_completion(
-        &app, "POST", chapter, purchase_id, v1, &stranger_cookie, &csrf, Some(command.clone()),
-    ).await;
+        &app,
+        "POST",
+        chapter,
+        purchase_id,
+        v1,
+        &stranger_cookie,
+        &csrf,
+        Some(command.clone()),
+    )
+    .await;
     assert_eq!(denied.status(), StatusCode::NOT_FOUND);
     let mut fake = command.clone();
     fake["char_offset"] = json!(1);
     let fake_response = request_completion(
-        &app, "POST", chapter, purchase_id, v1, &buyer_cookie, &csrf, Some(fake),
-    ).await;
+        &app,
+        "POST",
+        chapter,
+        purchase_id,
+        v1,
+        &buyer_cookie,
+        &csrf,
+        Some(fake),
+    )
+    .await;
     assert_eq!(fake_response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let rank_before = private_get(&app, "/api/v1/me/rankings", Some(&buyer_cookie)).await;
-    assert!(!decode(rank_before).await.to_string().contains(&book.to_string()));
+    assert!(!decode(rank_before)
+        .await
+        .to_string()
+        .contains(&book.to_string()));
     let done = request_completion(
-        &app, "POST", chapter, purchase_id, v1, &buyer_cookie, &csrf, Some(command.clone()),
-    ).await;
+        &app,
+        "POST",
+        chapter,
+        purchase_id,
+        v1,
+        &buyer_cookie,
+        &csrf,
+        Some(command.clone()),
+    )
+    .await;
     assert_eq!(done.status(), StatusCode::OK);
     assert_eq!(decode(done).await["status"], "completed");
     let duplicate = request_completion(
-        &app, "POST", chapter, purchase_id, v1, &buyer_cookie, &csrf, Some(command.clone()),
-    ).await;
+        &app,
+        "POST",
+        chapter,
+        purchase_id,
+        v1,
+        &buyer_cookie,
+        &csrf,
+        Some(command.clone()),
+    )
+    .await;
     assert_eq!(duplicate.status(), StatusCode::OK);
     assert_eq!(decode(duplicate).await["status"], "already_completed");
-    let after = decode(private_get(
-        &app, "/api/v1/me/rankings", Some(&buyer_cookie),
-    ).await).await;
+    let after = decode(private_get(&app, "/api/v1/me/rankings", Some(&buyer_cookie)).await).await;
     assert!(after.to_string().contains(&book.to_string()));
-    assert!(!after.to_string().contains(MARKDOWN), "ranking may not reveal paid body");
-    let completed_state = decode(request_completion(
-        &app, "GET", chapter, purchase_id, v1, &buyer_cookie, &csrf, None,
-    ).await).await;
+    assert!(
+        !after.to_string().contains(MARKDOWN),
+        "ranking may not reveal paid body"
+    );
+    let completed_state = decode(
+        request_completion(
+            &app,
+            "GET",
+            chapter,
+            purchase_id,
+            v1,
+            &buyer_cookie,
+            &csrf,
+            None,
+        )
+        .await,
+    )
+    .await;
     assert_eq!(completed_state["completed"], true);
-
 
     // Save a real server-rendered page, not a hand-written copy of its HTML.
     // Buyer owns V1 after V2/creator-hide, but a stranger cannot open the page.
@@ -668,9 +728,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::FORBIDDEN
     );
     let revoked_finish = request_completion(
-        &app, "POST", chapter, purchase_id, v1,
-        &buyer_cookie, &csrf, Some(command),
-    ).await;
+        &app,
+        "POST",
+        chapter,
+        purchase_id,
+        v1,
+        &buyer_cookie,
+        &csrf,
+        Some(command),
+    )
+    .await;
     assert_eq!(revoked_finish.status(), StatusCode::NOT_FOUND);
     // Previous signed links remain bearer credentials until TTL; the Node
     // follow-up consumes this just-issued URL and validates its real S3 GET.
