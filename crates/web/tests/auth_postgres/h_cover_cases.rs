@@ -267,7 +267,8 @@ pub(super) async fn upload_and_show(
         }
         match worker.run_one().await.unwrap() {
             WorkerResult::Idle => panic!("queued image was never processed"),
-            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {}
+            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {
+            }
         }
     }
     assert_eq!(
