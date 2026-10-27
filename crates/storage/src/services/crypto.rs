@@ -389,6 +389,7 @@ pub fn verify_ciphertext(encrypted: &EncryptedChapter, bytes: &[u8]) -> bool {
 
 /// G-internal only. Caller must have a freshly verified D entitlement and
 /// exact B version/object membership before this key can be used in a grant.
+#[cfg(any(feature = "pg", test))]
 pub(crate) fn unwrap_scoped_dek(
     encrypted: &EncryptedChapter,
     kek: &ContentKek,
