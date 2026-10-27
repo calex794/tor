@@ -179,9 +179,26 @@ undo() {
     ln -s "$old_target" "$back"
     mv -Tf "$back" /opt/tor/current
   fi
-  systemctl daemon-reload
+  systemctl daemon-reload || true
   systemctl restart tor-web.service || true
-  echo "Restored previous TOR service settings; PostgreSQL migrations are preserved." >&2
+  # A restored symlink alone is NOT proof that the previous binary works with
+  # the new additive SQLx schema. Never claim rollback success without HTTP.
+  rollback_healthy=0
+  for attempt in $(seq 1 15); do
+    if systemctl is-active --quiet tor-web.service &&
+       [[ $(curl -fsS --max-time 3 http://127.0.0.1:3000/readyz 2>/dev/null || true) == ok ]]; then
+      rollback_healthy=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$rollback_healthy" == 1 ]] &&
+     [[ $(curl -fsS --max-time 6 --resolve pandaolate.ru:443:127.0.0.1 https://pandaolate.ru/readyz 2>/dev/null || true) == ok ]]; then
+    echo "ROLLBACK_VERIFIED: previous TOR binary healthy; SQLx migrations are preserved." >&2
+  else
+    echo "ROLLBACK_UNVERIFIED: previous binary restored but real HTTPS readiness failed; SQLx migrations are preserved." >&2
+    systemctl show tor-web.service --no-pager -p ActiveState -p SubState -p Result -p ExecMainStatus || true
+  fi
 }
 trap undo ERR
 
