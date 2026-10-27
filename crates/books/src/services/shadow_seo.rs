@@ -87,10 +87,7 @@ mod tests {
         let mut book = default_book();
         assert!(!book.listed_on_shadow());
         assert_eq!(book.index_owner(), Some(SeoIndexOwner::Pandaolate));
-        assert_eq!(
-            book.robots_meta(SeoIndexOwner::Shadow),
-            "noindex,follow"
-        );
+        assert_eq!(book.robots_meta(SeoIndexOwner::Shadow), "noindex,follow");
 
         book.shadow_enabled = true;
         assert!(book.listed_on_shadow());
