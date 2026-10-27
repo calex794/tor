@@ -1,6 +1,6 @@
 //! Read-only system overview with the same independent operator password as traces.
 //! No business records or private URLs; unavailable observations stay unknown.
-use crate::{observability, operator_traces, ril, worker_health, AppState};
+use crate::{cover_worker, observability, operator_traces, ril, worker_health, AppState};
 use axum::{
     extract::State,
     http::HeaderMap,
@@ -8,6 +8,7 @@ use axum::{
 };
 use std::{fmt::Write, time::Duration};
 use tor_ingest::repositories::cover_jobs::{CoverQueueCounts, PgCoverJobs};
+use crate::cover_worker::CoverRunnerSnapshot;
 use tor_observability::services::{
     process::{self, ProcessSnapshot},
     publisher::PublisherCounts,
@@ -35,6 +36,7 @@ struct Overview {
     ril_queue: Option<RilQueueCounts>,
     cover_queue: Option<CoverQueueCounts>,
     ril_pump: Option<PgPumpSnapshot>,
+    cover_runner: Option<CoverRunnerSnapshot>,
 }
 
 async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overview {
@@ -49,6 +51,7 @@ async fn inspect(postgres: Option<tor_books::repositories::PgCatalog>) -> Overvi
         ril_queue: None,
         cover_queue: None,
         ril_pump: ril::pump_health_snapshot(),
+        cover_runner: cover_worker::cover_runner_snapshot(),
     };
     let Some(catalog) = postgres else {
         return state;
@@ -116,7 +119,7 @@ fn render(snapshot: &Overview) -> Html<String> {
         ),
     };
     let pump_status = worker_health::ril_pump(snapshot.ril_pump, snapshot.ril_queue);
-    let cover_status = worker_health::covers(snapshot.cover_queue);
+    let cover_status = worker_health::cover_runner(snapshot.cover_runner, snapshot.cover_queue);
     let pump_text = pump_status.text;
     let cover_text = cover_status.text;
     let pump_metrics = match snapshot.ril_pump {
@@ -136,6 +139,20 @@ fn render(snapshot: &Overview) -> Html<String> {
         "alert"
     } else {
         "status"
+    };
+    let cover_metrics = match snapshot.cover_runner {
+        None => "<p>Локальный исполнитель не включён или не запускался.</p>".to_owned(),
+        Some(runner) => {
+            let last = runner.since_completion_s
+                .map(|seconds| format!("{seconds} с назад"))
+                .unwrap_or_else(|| "Ещё не завершал цикл".to_owned());
+            format!(
+                "<dl><dt>Завершено циклов</dt><dd>{}</dd><dt>Прикреплено обложек</dt><dd>{}</dd><dt>Устаревшие задания</dt><dd>{}</dd><dt>Повторы/карантин</dt><dd>{}</dd><dt>Технические ошибки</dt><dd>{}</dd><dt>Превышения времени</dt><dd>{}</dd><dt>Ошибки подряд</dt><dd>{}</dd><dt>Последний цикл</dt><dd>{}</dd></dl>",
+                runner.cycles, runner.attached, runner.superseded,
+                runner.retried_or_quarantined, runner.errors, runner.timeouts,
+                runner.consecutive_errors, last
+            )
+        }
     };
     let cover_role = if cover_status.warning {
         "alert"
@@ -173,7 +190,7 @@ fn render(snapshot: &Overview) -> Html<String> {
         <section class=\"card\" aria-labelledby=\"http\"><h2 id=\"http\">HTTP с запуска процесса</h2><dl><dt>Завершено запросов</dt><dd>{}</dd><dt>Ответы 4xx</dt><dd>{}</dd><dt>Ответы 5xx</dt><dd>{}</dd><dt>Медленнее одной секунды</dt><dd>{}</dd></dl><p class=\"muted\">Коды 4xx могут быть обычными отказами доступа; это не обязательно ошибка сервера.</p></section>
         <section class=\"card\" aria-labelledby=\"ril\"><h2 id=\"ril\">RIL: маршруты и потери</h2><dl><dt>Известных методов маршрутов</dt><dd>{}</dd><dt>Версия классификации</dt><dd>{}</dd></dl>{ril_telemetry}<p class=\"muted\">RIL классифицирует маршруты, но не выдаёт права доступа. Потери событий не означают потерю HTTP-запросов.</p></section>
         <section class=\"card\" aria-labelledby=\"jobs\"><h2 id=\"jobs\">Очередь аналитики RIL</h2><p role=\"{pump_role}\">{pump_text}</p>{pump_metrics}{ril_queue}<p class=\"muted\">Нет завершённого цикла 90 секунд — возможная остановка. Просрочка очереди: больше 5 минут после поступления и наступления срока запуска. Активность сборщика относится только к этому веб-процессу.</p></section>
-        <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2><p role=\"{cover_role}\">{cover_text}</p>{covers}<p class=\"muted\">Аренда задания и повторные попытки — признаки проблем, но не подтверждение остановки другого процесса. Живость отдельного исполнителя обложек не проверяется.</p></section>
+        <section class=\"card\" aria-labelledby=\"images\"><h2 id=\"images\">Очередь обработки обложек</h2><p role=\"{cover_role}\">{cover_text}</p>{cover_metrics}{covers}<p class=\"muted\">Показатели исполнителя относятся только к процессу TOR. Просроченная аренда не доказывает остановку другого процесса.</p></section>
         <section class=\"card\" aria-labelledby=\"trace\"><h2 id=\"trace\">Доставка трасс</h2>{exporters}<p class=\"muted\">Счётчики накоплены с запуска веб-процесса. Отсутствующие измерения не заменяются нулём.</p></section>
         </div>",
         snapshot.http.requests,
@@ -280,6 +297,7 @@ mod tests {
                 repeated_attempts: 3,
             }),
             ril_pump: None,
+            cover_runner: None,
         };
         let text = render(&data).0;
         assert!(text.contains("Недоступна или проверка"));
