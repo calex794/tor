@@ -660,6 +660,23 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
     );
+    assert_eq!(
+        pg(&url, &format!("SELECT visibility FROM books WHERE id={book}")),
+        "draft",
+        "author-hide must persist before private TOC is rendered"
+    );
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapters c JOIN books b ON b.id=c.book_id
+                 WHERE c.book_id={book} AND b.visibility='public'
+                   AND c.visibility='public'"
+            ),
+        ),
+        0,
+        "B must not enumerate the author's hidden public chapter metadata"
+    );
     let preserved = post_grant(
         &app,
         chapter,
