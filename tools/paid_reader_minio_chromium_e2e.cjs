@@ -195,6 +195,22 @@ async function run() {
         assert(chunks.join("\n\n") === fixture.expected_markdown,
           "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        // These are the original PostgreSQL titles in real Rust HTML, not
+        // the chapter IDs, last-published V2, or test-only page labels.
+        assert.equal(await page.locator(".reader-topbar__book").textContent(),
+          fixture.expected_book_title);
+        const chapterLabel = "Глава " + fixture.expected_chapter_no + ". " +
+          fixture.expected_chapter_title;
+        assert.equal(await page.locator(".reader-topbar__chapter").textContent(), chapterLabel);
+        assert.equal(await page.locator("#reader-title").textContent(), chapterLabel);
+        assert.equal(await page.locator(".reader-page__meta").textContent(),
+          "Купленная редакция " + fixture.expected_version_no);
+        assert.equal(await page.locator(".reader-topbar img[src=x]").count(), 0,
+          "Untrusted book title must remain literal text");
+        assert.equal(await page.locator(".reader-topbar__title script").count(), 0,
+          "No HTML parsed from private book metadata");
+        assert.equal(await page.locator(".reader-topbar__book").getAttribute("title"),
+          fixture.expected_book_title);
         const state = await page.evaluate(async () => ({
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
           xss: window.__xss === true,
@@ -230,6 +246,8 @@ async function run() {
           };
         });
         assert.equal(metrics.bodyMargin, "0px", device + ": site.css not applied");
+        assert.equal(await page.locator(".reader-paid .reader-topbar").evaluate((element) =>
+          getComputedStyle(element).display), "grid", device + ": original reader topbar lost");
         assert(metrics.readerWidth <= 860 && metrics.readerWidth >= 300,
           device + ": original NEwBOO reader width not respected");
         assert(metrics.font.includes("Georgia") && metrics.lineHeight > 24,
