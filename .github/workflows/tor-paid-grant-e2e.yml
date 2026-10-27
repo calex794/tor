@@ -10,6 +10,9 @@ on:
       - 'crates/storage/**'
       - 'migrations/**'
       - 'tools/paid_grant_webcrypto_e2e.mjs'
+      - 'tools/paid_reader_minio_chromium_e2e.cjs'
+      - 'crates/web/assets/newboo-paid-reader.mjs'
+      - 'crates/web/src/pages/reader_paid.rs'
       - '.github/workflows/tor-paid-grant-e2e.yml'
   push:
     branches: [main]
@@ -22,6 +25,9 @@ on:
       - 'crates/storage/**'
       - 'migrations/**'
       - 'tools/paid_grant_webcrypto_e2e.mjs'
+      - 'tools/paid_reader_minio_chromium_e2e.cjs'
+      - 'crates/web/assets/newboo-paid-reader.mjs'
+      - 'crates/web/src/pages/reader_paid.rs'
       - '.github/workflows/tor-paid-grant-e2e.yml'
   workflow_dispatch:
 permissions:
@@ -99,6 +105,7 @@ jobs:
           test "$actual" = "$expected"
           chmod 700 "$RUNNER_TEMP/$release"
           mkdir -p "$RUNNER_TEMP/tor-paid-minio"
+          MINIO_API_CORS_ALLOW_ORIGIN=http://127.0.0.1:3098 \
           MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
             nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-paid-minio" \
               --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
@@ -115,6 +122,10 @@ jobs:
             tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log"
             exit 1
           fi
+      - name: Install real Chromium before issuing short-lived S3 URLs
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
       - name: Actual purchase, authenticated grant, private S3 and WebCrypto
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
@@ -127,8 +138,10 @@ jobs:
           python3 tools/check_feature_layout.py
           cargo fmt -p tor-web -- --check
           node --check tools/paid_grant_webcrypto_e2e.mjs
+          node --check tools/paid_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
+          node tools/paid_reader_minio_chromium_e2e.cjs
       - name: MinIO diagnostics without signed credentials
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log" || true
