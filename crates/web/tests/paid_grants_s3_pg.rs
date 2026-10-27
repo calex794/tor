@@ -671,6 +671,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .map(|row| (row.chapter_id, &row.access))
             .collect::<Vec<_>>()
     );
+    // When the author hides the book, the real HTTP menu must match the
+    // already-checked D query: own pinned editions only, no public metadata.
+    let hidden_page = paid_page(&app, chapter, purchase_id, &buyer_cookie).await;
+    assert_eq!(hidden_page.status(), StatusCode::OK);
+    let hidden_html = html_body(hidden_page).await;
+    assert!(hidden_html.contains("data-toc-state=\"current\""));
+    assert!(!hidden_html.contains("data-toc-state=\"free\""));
+    assert!(!hidden_html.contains("data-toc-state=\"locked\""));
     let preserved = post_grant(
         &app,
         chapter,
@@ -816,8 +824,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert!(reader_html.contains("data-paid-chapter-reader"));
     assert!(reader_html.contains("data-paid-toc"));
     assert!(reader_html.contains("Оглавление книги"));
-    assert!(!reader_html.contains("data-toc-state=\"free\""));
-    assert!(!reader_html.contains("data-toc-state=\"locked\""));
+    // Main republished the book before the F-05 ranking scenario below.
+    // The reader should therefore show public metadata again.
+    assert!(reader_html.contains("data-toc-state=\"free\""));
+    assert!(reader_html.contains("data-toc-state=\"locked\""));
     assert!(reader_html.contains(&format!(
         "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
     )));
