@@ -5,16 +5,103 @@ at https://pandaolate.ru. The zero-traffic site is not an excuse to keep an
 in-memory demonstration. We retain only production essentials: least-privilege
 roles, durable schema, real HTTPS, readiness, and a working rollback.
 
-## Verified current VPS state
+## One-click release (28 October 2026) — current operator path
 
-- PostgreSQL 18.6 running, 127.0.0.1:5432 only; 1 vCPU / 961 MiB RAM.
-- DB tor owned by tor_migrator; tor_app / tor_migrator have connection
-  limits 6 / 3 and neither is a superuser, createdb or createrole.
-- /etc/tor/tor-app.env and tor-migrator.env are 0600 root:root.
-- Last owner verification: **0 public domain tables**, still RAM demo
-  in systemd; ~562 MiB MemAvailable. The server is not yet PG-backed.
-- In GitHub TOR: nine canonical SQLx migrations, tor-migrate binary,
-  PgCatalog, PgReader, PgAccounts, and the real PostgreSQL 18 CI suite.
+**Normal updates now need one action:** open
+[**TOR — Обновить сайт**](https://github.com/calex794/tor/actions/workflows/tor-one-click-release.yml)
+on GitHub Actions, choose branch `main`, press **Run workflow**. No commit
+SHA, VPS terminal, `install=true`, SQL commands, or second confirmation are
+needed on subsequent updates. GitHub push and PR checks never deploy.
+
+### One-time setup on the dedicated VPS
+
+The original SSH `tor-deploy` user can transfer files but does not have the
+root-only PostgreSQL migrator password. For a future one-button deployment,
+install a **single root-owned, fixed entry point** once as root on the TOR VPS.
+The script refuses unknown release directories, unhealthy TOR, non-PostgreSQL
+runtime, missing main proof and unsafe existing sudoers. It does not restart
+the site or apply SQLx:
+
+~~~bash
+sha="$(curl -fsSL https://api.github.com/repos/calex794/tor/git/ref/heads/main |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])')"
+curl -fsSL "https://raw.githubusercontent.com/calex794/tor/$sha/ops/bootstrap-one-click-release-vps.sh" \
+  -o /root/tor-one-click-setup.sh
+bash -n /root/tor-one-click-setup.sh &&
+bash /root/tor-one-click-setup.sh "$sha"
+~~~
+
+Expected output: `TOR_ONE_CLICK_BOOTSTRAPPED`. The existing
+`tor-staging` GitHub Environment secrets (`TOR_DEPLOY_SSH_KEY`,
+`TOR_DEPLOY_KNOWN_HOSTS`) and variables (`TOR_DEPLOY_HOST`,
+`TOR_DEPLOY_USER=tor-deploy`) are reused; never paste them into chat.
+The same existing SSH key also signs the artifact manifest in GitHub;
+the one-time bootstrap pins its public key under `/etc/tor` so a modified
+or unsigned binary from the upload inbox cannot run as root. **No new
+signing secret is needed.**
+
+**Important one-time permission change:** `/opt/tor/releases` and
+`/opt/tor` become root-owned. New builds are uploaded instead to
+`/opt/tor/incoming/<SHA>` and are copied and checksum-verified into a
+root-owned release directory. The previous advanced `tor-vps-staging.yml`
+workflow is *not* compatible with this setup and is retained only as
+historical/diagnostic code: do not use its old `install=true` procedure.
+The new button is the supported regular path.
+
+### What pressing the button does
+
+1. Requires current `main` and waits for all checks that actually ran for
+   the exact SHA (`Repository rules` is always required). Failed or pending
+   checks block the release. If the branch moves during the process, it
+   stops instead of deploying a stale version.
+2. Builds `tor-web` and `tor-migrate` on GitHub's runner, not on the
+   961-MiB VPS, and transfers checksum-verified binaries through verified
+   SSH host keys to `tor-deploy`'s inbox. The two checksum files,
+SHA and signature are verified independently by the root-owned helper.
+3. The only passwordless sudo command is the root-owned
+   `/usr/local/sbin/tor-one-click-release <SHA>`. It refuses an unhealthy
+   production server, verifies the current SHA and PostgreSQL markers,
+   copies both binaries to a root-owned directory, and executes the
+   pinned root `go-live-postgres-vps.sh` procedure.
+4. `go-live-postgres-vps.sh` takes a local PostgreSQL `pg_dump -Fc`
+   backup and verifies the archive **before** applying canonical SQLx.
+   It checks migration privileges/history, restarts the new Rust binary,
+   verifies `/readyz`, catalog, registration/login CSRF and HTTPS.
+   On failure it restores the old binary/service settings and verifies
+   availability. An already-applied SQLx migration **is not undone**.
+5. GitHub reads back the *active* commit, systemd, readiness and the
+   PostgreSQL activation marker. Successful output includes
+   `TOR_ONE_CLICK_RELEASE_OK <SHA>` and `TOR_DEPLOYED_OK <SHA>`.
+
+### Limits
+
+- Backups are stored locally in `/var/backups/tor`, not automatically
+  uploaded to third-party storage. Before accepting important user data,
+  provision off-server backups and a real restore drill.
+- Database rollback is **not automatic**: replacing the executable
+  cannot undo a committed SQLx migration or preserve writes after a
+  point-in-time database restore. Migrations must remain backward-compatible
+  with the previous executable for a safe automatic application rollback.
+- The default release build does not enable `s3-covers,s3-paid`; real
+  private S3 features require separate server configuration and validation.
+  No fictional paid features are reported as activated by the release.
+- Do not run the old stage/install button after this bootstrap. For manual
+  disaster recovery use the pinned root procedures below, after verifying
+  the backup and the actual VPS state.
+
+## Последняя подтверждённая работающая версия TOR
+
+Оператор проверил на выделенном VPS 28 октября 2026 года:
+
+- /opt/tor/current → `8cba88cf471c20df669f953557ff5d0c1630f74b`.
+- Корневой маркер SQLx → `202610260007`.
+- `systemctl is-active tor-web.service` → `active`.
+- `http://127.0.0.1:3000/readyz` → `ok`.
+
+Это **последняя подтверждённая версия сервера**, не утверждение о текущем
+GitHub main. На VPS ещё не проверялась первая выкладка через новую кнопку.
+Разделы старого ручного перехода ниже — исторические инструкции 26–27
+октября, не обычный путь обновления.
 
 ## One-time switch to production
 
