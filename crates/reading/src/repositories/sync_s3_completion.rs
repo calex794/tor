@@ -2,6 +2,17 @@
 //! A cursor, grant, S3 download or browser-supplied end is not an event.
 use super::{checked_place, PgReadingSync, ReadingPlace, Row, SyncError};
 
+/// A verified client request whose purchase, version, endpoint and anchor
+/// are independently checked by the C repository in one D-locked transaction.
+pub struct PurchasedFinish<'a> {
+    pub purchase_id: i64,
+    pub chapter_id: i64,
+    pub version_id: i64,
+    pub place: ReadingPlace,
+    pub expected_revision: i64,
+    pub plaintext_sha256: &'a str,
+}
+
 impl PgReadingSync {
     /// Scoped read-only capability for H. Old S3 rows without the trusted
     /// B manifest stay ineligible; the absence of rights looks like 404.
@@ -60,13 +71,16 @@ impl PgReadingSync {
     pub async fn complete_purchased_s3(
         &self,
         actor: i64,
-        purchase_id: i64,
-        chapter_id: i64,
-        version_id: i64,
-        place: ReadingPlace,
-        expected_revision: i64,
-        plaintext_sha256: &str,
+        command: PurchasedFinish<'_>,
     ) -> Result<(String, bool), SyncError> {
+        let PurchasedFinish {
+            purchase_id,
+            chapter_id,
+            version_id,
+            place,
+            expected_revision,
+            plaintext_sha256,
+        } = command;
         if actor <= 0
             || purchase_id <= 0
             || chapter_id <= 0
