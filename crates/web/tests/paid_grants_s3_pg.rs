@@ -182,8 +182,7 @@ fn save_ephemeral_fixture(
     reader_html: String,
     reader_csp: String,
     expiry_probe_url: Value,
-    toc_chapter: i64,
-    toc_purchase: i64,
+    toc_target: (i64, i64),
 ) {
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
@@ -208,8 +207,8 @@ fn save_ephemeral_fixture(
         "expected_chapter_title": CHAPTER_TITLE,
         "expected_chapter_no": 1,
         "expected_version_no": 1,
-        "toc_second_chapter_id": toc_chapter.to_string(),
-        "toc_second_purchase_id": toc_purchase.to_string(),
+        "toc_second_chapter_id": toc_target.0.to_string(),
+        "toc_second_purchase_id": toc_target.1.to_string(),
         "toc_second_title": CHAPTER_TWO_TITLE,
     });
     file.write_all(payload.to_string().as_bytes()).unwrap();
@@ -607,8 +606,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         reader_html,
         reader_csp,
         expiry_probe_url,
-        chapter_two,
-        purchase_two_id,
+        (chapter_two, purchase_two_id),
     );
 
     pg(
