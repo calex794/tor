@@ -30,7 +30,7 @@ use tor_commerce::{
     repositories::checkout::PgCheckout,
 };
 use tor_contracts::paid_delivery::{
-    ChapterVersionRef, ObjectId, ObjectRef, PositiveId, PrivateObjectDeliveryPort,
+    ChapterVersionRef, ObjectId, ObjectRef, PositiveId,
 };
 use tor_reading::repositories::PgReader;
 use tor_storage::{
