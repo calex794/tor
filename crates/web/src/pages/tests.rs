@@ -131,7 +131,7 @@ fn ne_wboo_public_shell_and_catalog_reuse_source_components() {
     assert!(html.contains("Старый &lt;каталог&gt;"));
     assert!(!html.contains("Старый <каталог>"));
     assert!(html.contains("href=\"/books/4\""));
-    assert!(html.contains("<div class=\\"book-mini-card__meta\\">Автор</div>"));
+    assert!(html.contains("<div class=\"book-mini-card__meta\">Автор</div>"));
     assert!(!html.contains("Жанры: Фэнтези"));
     assert!(!html.contains("Язык: ru"));
     assert!(html.contains("Нижняя навигация"));
