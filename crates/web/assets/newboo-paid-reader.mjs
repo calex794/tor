@@ -221,7 +221,9 @@ export function installPaidReaderSettings(root) {
   if (!panel) return;
   const toggle = root.querySelector("[data-paid-settings-open]");
   const themeCycle = root.querySelector("[data-paid-theme-cycle]");
-  const close = panel.querySelector("[data-paid-settings-close]");
+  const dialog = panel.querySelector(".reader-paid__settings-panel");
+  const backdrop = panel.querySelector(".reader-paid__settings-backdrop");
+  const close = dialog?.querySelector("[data-paid-settings-close]");
   const reset = panel.querySelector("[data-paid-settings-reset]");
   const font = panel.querySelector("[data-paid-font-scale]");
   const line = panel.querySelector("[data-paid-line-height]");
@@ -230,8 +232,9 @@ export function installPaidReaderSettings(root) {
   const lineOutput = panel.querySelector("[data-paid-line-output]");
   const widthOutput = panel.querySelector("[data-paid-width-output]");
   const themes = [...panel.querySelectorAll("[data-paid-theme]")];
-  requireValue(toggle && themeCycle && close && reset && font && line && width &&
-    fontOutput && lineOutput && widthOutput && themes.length === 3);
+  requireValue(toggle && themeCycle && dialog && backdrop && close && reset &&
+    font && line && width && fontOutput && lineOutput &&
+    themes.length === 3);
 
   const boundedValue = (input, min, max, step) => {
     const number = Number(input.value);
@@ -267,22 +270,65 @@ export function installPaidReaderSettings(root) {
     themeCycle.setAttribute("aria-label", "Сменить тему. Сейчас: " + current);
     themeCycle.title = "Сменить тему. Сейчас: " + current;
   };
+  // The original NEwBOO settings are modal. Make the rest of the reader
+  // inert while the panel is open; do not hide any content from the DOM.
+  const backdropTargets = [
+    root.querySelector(".reader-topbar"),
+    ...[...panel.parentElement.children].filter((child) => child !== panel),
+  ].filter(Boolean);
+  let previousInert = [];
+  let previousOverflow = "";
   const hide = () => {
+    if (panel.hidden) return;
     panel.hidden = true;
+    for (const [node, wasInert] of previousInert) node.inert = wasInert;
+    previousInert = [];
+    document.body.style.overflow = previousOverflow;
     toggle.setAttribute("aria-expanded", "false");
     toggle.focus();
   };
-
+  const show = () => {
+    if (!panel.hidden) return;
+    previousOverflow = document.body.style.overflow;
+    previousInert = backdropTargets.map((node) => [node, node.inert]);
+    for (const [node] of previousInert) node.inert = true;
+    panel.hidden = false;
+    document.body.style.overflow = "hidden";
+    toggle.setAttribute("aria-expanded", "true");
+    dialog.focus();
+  };
   toggle.addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-    toggle.setAttribute("aria-expanded", String(!panel.hidden));
-    if (!panel.hidden) close.focus();
+    if (panel.hidden) show();
+    else hide();
   });
   close.addEventListener("click", hide);
+  backdrop.addEventListener("click", hide);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !panel.hidden) {
+    if (panel.hidden) return;
+    if (event.key === "Escape") {
       event.preventDefault();
       hide();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...dialog.querySelectorAll(
+      "button:not([disabled]), input:not([disabled]), a[href]",
+    )].filter((node) => node.getClientRects().length > 0);
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === dialog ||
+      !dialog.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+      event.preventDefault();
+      first.focus();
     }
   });
   for (const input of [font, line, width]) {
