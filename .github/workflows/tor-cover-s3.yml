@@ -8,6 +8,7 @@ on:
       - 'crates/web/src/cover_http.rs'
       - 'crates/ingest/Cargo.toml'
       - 'crates/ingest/src/repositories/s3.rs'
+      - 'crates/ingest/tests/s3_provider.rs'
       - '.github/workflows/tor-cover-s3.yml'
   push:
     branches: [main]
@@ -18,6 +19,7 @@ on:
       - 'crates/web/src/cover_http.rs'
       - 'crates/ingest/Cargo.toml'
       - 'crates/ingest/src/repositories/s3.rs'
+      - 'crates/ingest/tests/s3_provider.rs'
       - '.github/workflows/tor-cover-s3.yml'
   workflow_dispatch:
 permissions:
@@ -37,3 +39,40 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Compile private S3 cover adapter without provider credentials
         run: cargo check -p tor-web --features s3-covers
+      - name: Start isolated loopback S3-compatible service
+        run: |
+          docker run --detach --name tor-cover-minio \
+            --publish 127.0.0.1:9000:9000 \
+            --env MINIO_ROOT_USER=tor-cover-ci-user \
+            --env MINIO_ROOT_PASSWORD=tor-cover-ci-secret-only \
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z \
+            server /data --address :9000
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            docker logs tor-cover-minio
+            exit 1
+          fi
+      - name: Test signed S3 PUT HEAD GET, integrity and strict size bounds
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+        run: |
+          cargo fmt --all -- --check
+          cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
+          cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
+      - name: Assert direct anonymous URL cannot read the private cover
+        run: |
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
+          test "$code" = 403
+      - name: MinIO diagnostics on failure
+        if: failure()
+        run: docker logs --tail 80 tor-cover-minio || true
