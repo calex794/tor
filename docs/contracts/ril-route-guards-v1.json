@@ -375,6 +375,13 @@
     },
     {
       "method": "POST",
+      "template": "/read/{id}/complete",
+      "source": "crates/web/src/auth.rs",
+      "handler": "complete_chapter::complete",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/read/{id}/place",
       "source": "crates/web/src/auth.rs",
       "handler": "save_place",

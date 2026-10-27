@@ -50,6 +50,28 @@ impl PgReadingSync {
         row.map(parse_stored).transpose()
     }
 
+    /// C-authoritative completion receipt, actor-scoped to the read chapter.
+    /// Used by H to show a completed state and to nudge F immediately;
+    /// background outbox delivery remains the durable fallback.
+    pub async fn completion_event_id(
+        &self,
+        actor: i64,
+        chapter_id: i64,
+    ) -> Result<Option<String>, SyncError> {
+        if actor <= 0 || chapter_id <= 0 {
+            return Err(SyncError::Invalid);
+        }
+        sqlx::query_scalar(
+            "SELECT source_event_id::text FROM reader_chapter_completions
+             WHERE user_id=$1 AND chapter_id=$2",
+        )
+        .bind(actor)
+        .bind(chapter_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| SyncError::Unavailable)
+    }
+
     /// CAS: new=revision 0; existing=matching revision. No overwrite on a
     /// delayed request, backwards cursor, unpublished version or extra device.
     pub async fn save_free(
