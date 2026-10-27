@@ -1,6 +1,6 @@
 //! C -> F-05 on disposable PostgreSQL: no fake completion by GET or bookmark.
 //! The worker and user actions can race; outbox receipt and ranking must commit once.
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use tor_reading::{repositories::PgReadingSync, services::progress::ReadingPlace};
 use tor_recommendations::{
     repositories::{PgRanking, RankingCommand, RankingStoreError},
@@ -193,9 +193,10 @@ async fn f_05_c_verified_completion_outbox_to_ranked_books_is_once_and_recoverab
         Some(AnswerStatus::Ranked)
     );
     assert!(rank.pending_completion_event_ids().await.unwrap().contains(&third));
+    let other_worker = PgRanking::new(pool.clone());
     let (a, b) = tokio::join!(
         rank.accept_completed_chapter(&third),
-        PgRanking::new(pool.clone()).accept_completed_chapter(&third)
+        other_worker.accept_completed_chapter(&third)
     );
     assert_eq!(usize::from(a == Ok(true)) + usize::from(b == Ok(true)), 1);
     assert!(a == Ok(false) || b == Ok(false));
