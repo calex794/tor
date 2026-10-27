@@ -33,8 +33,7 @@ impl FakePrivateS3 {
 #[async_trait]
 impl PrivateObjectStore for FakePrivateS3 {
     async fn put_immutable(&self, object: &ObjectRef, data: &[u8]) -> Result<(), StorageError> {
-        if data.len() as u64 != object.size_bytes
-            || sha256_bytes(data) != object.sha256_ciphertext
+        if data.len() as u64 != object.size_bytes || sha256_bytes(data) != object.sha256_ciphertext
         {
             return Err(StorageError::Invalid);
         }
@@ -47,9 +46,12 @@ impl PrivateObjectStore for FakePrivateS3 {
     }
 
     async fn head_verified(&self, object: &ObjectRef) -> Result<bool, StorageError> {
-        Ok(self.ciphertext.lock().unwrap().as_deref().is_some_and(|bytes| {
-            bytes.len() as u64 == object.size_bytes
-        }))
+        Ok(self
+            .ciphertext
+            .lock()
+            .unwrap()
+            .as_deref()
+            .is_some_and(|bytes| bytes.len() as u64 == object.size_bytes))
     }
 
     async fn get_verified(&self, object: &ObjectRef) -> Result<Vec<u8>, StorageError> {
@@ -59,8 +61,7 @@ impl PrivateObjectStore for FakePrivateS3 {
             .unwrap()
             .clone()
             .ok_or(StorageError::Unavailable)?;
-        if data.len() as u64 != object.size_bytes
-            || sha256_bytes(&data) != object.sha256_ciphertext
+        if data.len() as u64 != object.size_bytes || sha256_bytes(&data) != object.sha256_ciphertext
         {
             return Err(StorageError::Corrupt);
         }
@@ -114,7 +115,10 @@ async fn g_09_s3_08_pending_verified_ready_immutability_and_retention() {
         .reserve_pending(&encrypted, &kek, "tor-private-chapter-ci")
         .await
         .unwrap();
-    assert_eq!(registry.state(&id).await.unwrap(), Some(ObjectState::Pending));
+    assert_eq!(
+        registry.state(&id).await.unwrap(),
+        Some(ObjectState::Pending)
+    );
     assert_eq!(
         registry
             .reserve_pending(&encrypted, &kek, "tor-private-chapter-ci")
@@ -161,8 +165,14 @@ async fn g_09_s3_08_pending_verified_ready_immutability_and_retention() {
         .await
         .unwrap();
     assert_eq!(registry.mark_ready(&receipt).await, Ok(()));
-    assert_eq!(registry.state(&id).await.unwrap(), Some(ObjectState::Ready));
-    assert_eq!(registry.mark_ready(&receipt).await, Err(RegistryError::Conflict));
+    assert_eq!(
+        registry.state(&id).await.unwrap(),
+        Some(ObjectState::Ready)
+    );
+    assert_eq!(
+        registry.mark_ready(&receipt).await,
+        Err(RegistryError::Conflict)
+    );
     assert_eq!(
         upload_and_verify(&storage, &object, &encrypted.ciphertext)
             .await
@@ -172,13 +182,11 @@ async fn g_09_s3_08_pending_verified_ready_immutability_and_retention() {
     );
 
     // Even the application role cannot rewrite a registered edition in PG.
-    let rewrite = sqlx::query(
-        "UPDATE storage_objects SET sha256_ciphertext=$2 WHERE id=$1::uuid",
-    )
-    .bind(id.as_str())
-    .bind(vec![123_u8; 32])
-    .execute(&pool)
-    .await;
+    let rewrite = sqlx::query("UPDATE storage_objects SET sha256_ciphertext=$2 WHERE id=$1::uuid")
+        .bind(id.as_str())
+        .bind(vec![123_u8; 32])
+        .execute(&pool)
+        .await;
     assert!(rewrite.is_err(), "ciphertext hash must be immutable");
     let rewind = sqlx::query(
         "UPDATE storage_objects SET state='pending',verified_at=NULL
@@ -206,7 +214,10 @@ async fn g_09_s3_08_pending_verified_ready_immutability_and_retention() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(registry.state(&id).await.unwrap(), Some(ObjectState::Attached));
+    assert_eq!(
+        registry.state(&id).await.unwrap(),
+        Some(ObjectState::Attached)
+    );
     assert!(
         sqlx::query("DELETE FROM storage_objects WHERE id=$1::uuid")
             .bind(id.as_str())

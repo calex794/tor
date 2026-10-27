@@ -7,9 +7,7 @@ use crate::{
         provider::{valid_ciphertext_size, valid_private_bucket},
     },
     services::{
-        crypto::{
-            chapter_aad, sha256_bytes, unwrap_scoped_dek, ContentKek, EncryptedChapter,
-        },
+        crypto::{chapter_aad, sha256_bytes, unwrap_scoped_dek, ContentKek, EncryptedChapter},
         provider::VerifiedObject,
     },
 };

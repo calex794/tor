@@ -62,8 +62,7 @@ pub async fn upload_and_verify(
         Err(error) => return Err(error),
     }
     let actual = store.get_verified(object).await?;
-    if actual.len() as u64 != object.size_bytes
-        || sha256_bytes(&actual) != object.sha256_ciphertext
+    if actual.len() as u64 != object.size_bytes || sha256_bytes(&actual) != object.sha256_ciphertext
     {
         return Err(StorageError::Corrupt);
     }
