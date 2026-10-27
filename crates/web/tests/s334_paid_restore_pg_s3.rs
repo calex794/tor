@@ -32,9 +32,7 @@ use tor_commerce::{
     domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
     repositories::checkout::PgCheckout,
 };
-use tor_contracts::paid_delivery::{
-    ChapterVersionRef, ObjectId, ObjectRef, PositiveId,
-};
+use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, ObjectRef, PositiveId};
 use tor_reading::repositories::PgReader;
 use tor_storage::{
     repositories::{
@@ -59,7 +57,10 @@ const RESTORED: &str = "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_s334_
 fn require_ci(restored: bool) -> &'static str {
     assert_eq!(env::var("GITHUB_ACTIONS").unwrap(), "true");
     assert_eq!(env::var("TOR_TEST_S3_ENDPOINT").unwrap(), ENDPOINT);
-    assert_eq!(env::var("TOR_TEST_S3_ACCESS_KEY").unwrap(), "tor-chapter-ci-user");
+    assert_eq!(
+        env::var("TOR_TEST_S3_ACCESS_KEY").unwrap(),
+        "tor-chapter-ci-user"
+    );
     assert_eq!(
         env::var("TOR_TEST_S3_SECRET_KEY").unwrap(),
         "tor-chapter-ci-secret-only"
@@ -191,8 +192,16 @@ fn pg(url: &str, sql: &str) -> String {
     assert!(url == SOURCE || url == RESTORED, "production SQL forbidden");
     let output = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", sql,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
         ])
         .output()
         .expect("CI PostgreSQL client required");
@@ -386,7 +395,10 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         url,
         &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
     );
-    assert_eq!(current, v2, "restored published V2 must not erase bought V1");
+    assert_eq!(
+        current, v2,
+        "restored published V2 must not erase bought V1"
+    );
 
     // The original S3 object was deleted after backup. Restored PostgreSQL
     // and an intact KEK cannot sign or authorize absent ciphertext.
