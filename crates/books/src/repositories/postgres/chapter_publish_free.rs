@@ -49,7 +49,11 @@ impl PgAuthoring {
         }
         let payload_hash: [u8; 32] = hasher.finalize().into();
         let content_hash: [u8; 32] = Sha256::digest(input.body.as_bytes()).into();
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books WHERE id=$1 AND owner_user_id=$2
              AND NOT admin_hold AND NOT is_deleted FOR UPDATE",
