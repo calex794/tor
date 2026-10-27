@@ -10,21 +10,22 @@ SHA_A = "a" * 40
 SHA_B = "b" * 40
 
 class API:
-    def __init__(self, pending=False, mismatch=False):
+    def __init__(self, pending=False, mismatch=False, failed=False):
         self.pending = pending
         self.mismatch = mismatch
+        self.failed = failed
     def get(self, path, query=None):
         if path.endswith("/actions/runs"):
             return {"total_count": 1, "workflow_runs": [
                 {"id": 3, "name": "rules", "head_sha": SHA_B if self.mismatch else SHA_A,
                  "status": "in_progress" if self.pending else "completed",
-                 "conclusion": None if self.pending else "success"}]}
+                 "conclusion": None if self.pending else ("failure" if self.failed else "success")}]}
         if path.endswith("/jobs"):
             return {"total_count": 1, "jobs": [
                 {"id": 8, "run_id": 3, "created_at": "2026-10-27T01:00:00Z",
                  "started_at": "2026-10-27T01:01:00Z",
                  "completed_at": None if self.pending else "2026-10-27T01:03:00Z",
-                 "conclusion": None if self.pending else "success"}]}
+                 "conclusion": None if self.pending else ("failure" if self.failed else "success")}]}
         if path.endswith("/3"):
             return {"id": 3, "head_sha": SHA_A, "status": "completed", "conclusion": "success"}
         raise AssertionError(path)
@@ -44,6 +45,10 @@ class MetricsTest(unittest.TestCase):
         result = load_group(API(pending=True), "calex794/tor", "target", SHA_A)
         self.assertFalse(result["complete"])
         self.assertEqual(result["jobs_completed"], 0)
+    def test_failed_run_cannot_prove_speedup(self):
+        result = load_group(API(failed=True), "calex794/tor", "target", SHA_A)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["runs"][0]["conclusion"], "failure")
     def test_mismatch_fails_closed(self):
         with self.assertRaises(MetricsError):
             load_group(API(mismatch=True), "calex794/tor", "target", SHA_A)
