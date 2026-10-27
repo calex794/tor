@@ -89,11 +89,19 @@ impl OrphanGcRegistry for PgOrphanGc {
         .map_err(|_| GcError::Unavailable)?;
         row.map(|row| {
             let id: String = row.try_get("object_id").map_err(|_| GcError::Unavailable)?;
-            let kind: String = row.try_get("object_kind").map_err(|_| GcError::Unavailable)?;
-            let key: String = row.try_get("object_key").map_err(|_| GcError::Unavailable)?;
+            let kind: String = row
+                .try_get("object_kind")
+                .map_err(|_| GcError::Unavailable)?;
+            let key: String = row
+                .try_get("object_key")
+                .map_err(|_| GcError::Unavailable)?;
             let bucket: String = row.try_get("bucket").map_err(|_| GcError::Unavailable)?;
-            let epoch: i64 = row.try_get("gc_lease_epoch").map_err(|_| GcError::Unavailable)?;
-            let attempts: i32 = row.try_get("gc_attempts").map_err(|_| GcError::Unavailable)?;
+            let epoch: i64 = row
+                .try_get("gc_lease_epoch")
+                .map_err(|_| GcError::Unavailable)?;
+            let attempts: i32 = row
+                .try_get("gc_attempts")
+                .map_err(|_| GcError::Unavailable)?;
             GcClaim::from_database(&id, &kind, &key, bucket, epoch, attempts)
                 .map_err(|_: StorageError| GcError::Invalid)
         })

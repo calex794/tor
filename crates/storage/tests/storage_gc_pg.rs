@@ -71,7 +71,10 @@ impl OrphanDeletePort for MockStorage {
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
 async fn g_09_s3_12_fenced_orphans_retry_restart_and_exhaustion() {
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
-    assert!(url.ends_with("/tor_ci"), "never touch a production database");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "never touch a production database"
+    );
     let pool = PgPool::connect(&url).await.unwrap();
     let gc = PgOrphanGc::new(pool.clone());
 
@@ -86,7 +89,10 @@ async fn g_09_s3_12_fenced_orphans_retry_restart_and_exhaustion() {
     assert_eq!(old.object_id().as_str(), A);
     assert_eq!(old.epoch(), 1);
     assert_eq!(old.attempts(), 1);
-    assert!(gc.claim_due().await.unwrap().is_none(), "live lease is exclusive");
+    assert!(
+        gc.claim_due().await.unwrap().is_none(),
+        "live lease is exclusive"
+    );
 
     // Worker dies before the S3 delete; another process can recover after
     // lease expiration. Old worker may still delete S3, but cannot finish PG.
@@ -103,10 +109,7 @@ async fn g_09_s3_12_fenced_orphans_retry_restart_and_exhaustion() {
     assert_eq!(next.epoch(), 2);
     assert_eq!(next.attempts(), 2);
     assert_eq!(gc.finish(&old).await, Err(GcError::LostLease));
-    assert_eq!(
-        gc.retry(&old, "unavailable").await,
-        Err(GcError::LostLease)
-    );
+    assert_eq!(gc.retry(&old, "unavailable").await, Err(GcError::LostLease));
     assert_eq!(gc.retry(&next, "unavailable").await, Ok(()));
     let row = sqlx::query(
         "SELECT state,gc_error_code,gc_retry_after>now() AS backoff,
@@ -124,7 +127,10 @@ async fn g_09_s3_12_fenced_orphans_retry_restart_and_exhaustion() {
     );
     assert!(row.try_get::<bool, _>("backoff").unwrap());
     assert!(row.try_get::<bool, _>("unlocked").unwrap());
-    assert!(gc.claim_due().await.unwrap().is_none(), "backoff blocks retry");
+    assert!(
+        gc.claim_due().await.unwrap().is_none(),
+        "backoff blocks retry"
+    );
     sqlx::query(
         "UPDATE storage_objects SET gc_retry_after=now()-INTERVAL '1 second'
          WHERE id=$1::uuid",
@@ -136,13 +142,12 @@ async fn g_09_s3_12_fenced_orphans_retry_restart_and_exhaustion() {
     let claim = gc.claim_due().await.unwrap().unwrap();
     assert_eq!(claim.epoch(), 3);
     assert_eq!(gc.finish(&claim).await, Ok(()));
-    let remaining: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM storage_objects WHERE id=$1::uuid",
-    )
-    .bind(A)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM storage_objects WHERE id=$1::uuid")
+            .bind(A)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(remaining, 0);
 
     // A failed S3 operation records a retry, never removes its PG receipt.
@@ -266,14 +271,12 @@ async fn g_09_s3_12_paid_v1_retained_after_v2_publication() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "UPDATE chapter_versions SET storage_object_id=$2::uuid WHERE id=$1",
-    )
-    .bind(v1)
-    .bind(PAID_V1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE chapter_versions SET storage_object_id=$2::uuid WHERE id=$1")
+        .bind(v1)
+        .bind(PAID_V1)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO chapter_publications(chapter_id,version_id)
          VALUES($1,$2)",
@@ -299,19 +302,21 @@ async fn g_09_s3_12_paid_v1_retained_after_v2_publication() {
     .bind(PAID_V1)
     .execute(&pool)
     .await;
-    assert!(wrong_due.is_err(), "purchased V1 must never be eligible for GC");
+    assert!(
+        wrong_due.is_err(),
+        "purchased V1 must never be eligible for GC"
+    );
     let gone = sqlx::query("DELETE FROM storage_objects WHERE id=$1::uuid")
         .bind(PAID_V1)
         .execute(&pool)
         .await;
     assert!(gone.is_err(), "attached historical object is never deleted");
-    let unchanged: String = sqlx::query_scalar(
-        "SELECT storage_object_id::text FROM chapter_versions WHERE id=$1",
-    )
-    .bind(v1)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let unchanged: String =
+        sqlx::query_scalar("SELECT storage_object_id::text FROM chapter_versions WHERE id=$1")
+            .bind(v1)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(unchanged, PAID_V1);
     pool.close().await;
 }

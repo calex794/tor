@@ -1,10 +1,8 @@
 //! G-09/S3-12: one bounded orphan cleanup unit, not an HTTP route.
 //! The PG claim is fenced before deleting S3 bytes; B can only attach ready
 //! rows and may never attach a row claimed as deleting. Replays are safe.
+use super::super::domain::{gc::GcClaim, provider::StorageError};
 use async_trait::async_trait;
-use super::super::{
-    domain::{gc::GcClaim, provider::StorageError},
-};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GcError {

@@ -76,9 +76,16 @@ mod tests {
         let id = "e5a64c40-41ad-4ff0-93f5-5da145bcd710";
         let key = format!("private/chapter-versions/{id}.enc");
         assert!(GcClaim::from_database(id, "chapter", &key, "tor-private-ci".into(), 1, 1).is_ok());
-        assert!(GcClaim::from_database(id, "chapter_asset", &key, "tor-private-ci".into(), 1, 1).is_err());
+        assert!(
+            GcClaim::from_database(id, "chapter_asset", &key, "tor-private-ci".into(), 1, 1)
+                .is_err()
+        );
         assert!(GcClaim::from_database(id, "chapter", &key, "public-bucket".into(), 1, 1).is_err());
-        assert!(GcClaim::from_database(id, "chapter", &key, "tor-private-ci".into(), 0, 1).is_err());
-        assert!(GcClaim::from_database(id, "chapter", &key, "tor-private-ci".into(), 1, 9).is_err());
+        assert!(
+            GcClaim::from_database(id, "chapter", &key, "tor-private-ci".into(), 0, 1).is_err()
+        );
+        assert!(
+            GcClaim::from_database(id, "chapter", &key, "tor-private-ci".into(), 1, 9).is_err()
+        );
     }
 }
