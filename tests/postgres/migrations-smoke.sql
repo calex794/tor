@@ -154,7 +154,7 @@ BEGIN
     UPDATE books SET shadow_enabled=FALSE,seo_index_owner='pandaolate'
       WHERE id=book_id;
     IF EXISTS(SELECT 1 FROM shadow_public_books WHERE id=book_id)
-       OR EXISTS(SELECT 1 FROM shadow_public_chapters WHERE book_id=book_id) THEN
+       OR EXISTS(SELECT 1 FROM shadow_public_chapters AS sc WHERE sc.book_id=$shadow_smoke$.book_id) THEN
         RAISE EXCEPTION 'Shadow manual withdrawal leaked a book or chapters';
     END IF;
 END
