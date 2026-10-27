@@ -109,6 +109,71 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         }
         published
     }
+    /// Existing paid chapter: prepare a new immutable B revision while the
+    /// bought V1 remains the published and readable edition. Only after
+    /// authenticated G PUT+GET/hash may B move the current pointer by CAS.
+    /// This method does not expose a new HTTP route or alter paid metadata.
+    pub async fn publish_edit(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        let prepared = self
+            .paid
+            .prepare_published_paid_edit(actor, request)
+            .await?;
+        if prepared.published {
+            return Ok(());
+        }
+        let version = ChapterVersionRef {
+            chapter_id: PositiveId::new(prepared.chapter_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+            version_id: PositiveId::new(prepared.version_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+        };
+        let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
+        let sealed =
+            seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
+                .map_err(|_| AuthorError::Unavailable)?;
+        let object = self
+            .registry
+            .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        let receipt = upload_and_verify(&self.store, &object, &sealed.ciphertext)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        self.registry
+            .mark_ready(&receipt)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        let published = self
+            .paid
+            .attach_verified_and_publish(
+                actor,
+                request.book_id,
+                version,
+                &object_id,
+                PaidPublication::PublishEdit {
+                    expected_current: prepared.previous_version_id,
+                    expected_revision: prepared.expected_revision,
+                },
+            )
+            .await;
+        if published == Err(AuthorError::Conflict) {
+            let existing = self
+                .paid
+                .prepare_published_paid_edit(actor, request)
+                .await?;
+            if existing.chapter_id == prepared.chapter_id
+                && existing.version_id == prepared.version_id
+                && existing.published
+            {
+                return Ok(());
+            }
+        }
+        published
+    }
 }
 
 #[async_trait]

@@ -153,6 +153,7 @@ jobs:
           cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_release_pg -- --ignored
           cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test postgres_reading -- --ignored
           cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1

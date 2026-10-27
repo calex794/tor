@@ -422,5 +422,100 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         "1",
         "recovery must publish once, even when the response is retried"
     );
+    // Paid edition editing is a separate B/G capability. The original
+    // purchased version remains attached and readable until S3 verified V2.
+    let edit_key = generate_session_token();
+    let edit_body = "Paid text V2 after edit — 第二章";
+    let edit = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: Some(chapter_id as u64),
+        number: 1,
+        expected_revision: 1,
+        title: "Paid",
+        body: edit_body,
+        access: "paid",
+        price_amount: 100,
+        command_key: &edit_key,
+    })
+    .unwrap();
+    assert_eq!(
+        failed.publish_edit(owner, &edit).await,
+        Err(AuthorError::Unavailable),
+        "S3 upload failure must not move the purchased edition pointer"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
+        ),
+        version_id.to_string()
+    );
+    recovered.publish_edit(owner, &edit).await.unwrap();
+    recovered.publish_edit(owner, &edit).await.unwrap();
+    let current: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
+    )
+    .parse()
+    .unwrap();
+    assert_ne!(current, version_id);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT edit_revision FROM chapters WHERE id={chapter_id}"),
+        ),
+        "2",
+        "identical edit retry may not bump the revision a second time"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT version_id FROM chapter_first_release_events WHERE chapter_id={chapter_id}"
+            ),
+        ),
+        version_id.to_string(),
+        "historical paid first release must never be rewritten"
+    );
+    let after = PgPaidStorage::new(pool.clone());
+    let old = after.encrypted_chapter(pinned).await.unwrap().unwrap();
+    let new = after
+        .encrypted_chapter(ChapterVersionRef {
+            chapter_id: PositiveId::new(chapter_id).unwrap(),
+            version_id: PositiveId::new(current).unwrap(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(old.object.object_id, new.object.object_id);
+    assert_ne!(old.object.sha256_ciphertext, new.object.sha256_ciphertext);
+    assert!(store.get_verified(&old.object).await.is_ok());
+    assert!(store.get_verified(&new.object).await.is_ok());
+    assert!(signer
+        .grant_verified_object(&old, Duration::from_secs(90))
+        .await
+        .is_ok());
+    assert!(signer
+        .grant_verified_object(&new, Duration::from_secs(90))
+        .await
+        .is_ok());
+    let stale_key = generate_session_token();
+    let stale = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: Some(chapter_id as u64),
+        number: 1,
+        expected_revision: 1,
+        title: "Paid",
+        body: "Second tab stale text",
+        access: "paid",
+        price_amount: 100,
+        command_key: &stale_key,
+    })
+    .unwrap();
+    assert_eq!(
+        recovered.publish_edit(owner, &stale).await,
+        Err(AuthorError::Conflict),
+        "another tab cannot overwrite new paid V2 or purchased V1"
+    );
     pool.close().await;
 }
