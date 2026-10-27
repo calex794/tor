@@ -189,7 +189,7 @@ pub fn new_chapter(
           <option value="free">Бесплатная</option>
           <option value="paid">Платная</option>
         </select>
-        <label for="chapter-price">Стоимость главы (для бесплатной — 0)</label>
+        <label for="chapter-price">Цена в копейках (100 = 1 ₽; для бесплатной — 0)</label>
         <input id="chapter-price" name="price_amount" type="number" min="0" step="1" value="0" required>
         <p class="account-profile__hint">Платная глава будет опубликована только после проверки зашифрованного файла в закрытом хранилище. При ошибке сохранения повторите отправку той же формы.</p>"#
     } else {
