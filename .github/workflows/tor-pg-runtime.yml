@@ -1,10 +1,10 @@
 name: TOR PostgreSQL runtime
 on:
   pull_request:
-    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py']
+    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py','tools/tor_pg_restart_smoke.sh','tools/tor_pg_backup_restore_smoke.sh']
   push:
     branches: [main]
-    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py']
+    paths: ['Cargo.toml','crates/**','migrations/**','.github/workflows/tor-pg-runtime.yml','.github/workflows/tor-vps-staging.yml','ops/go-live-postgres-vps.sh','tests/architecture/test_tor_schema_gated_release.py','tools/tor_pg_restart_smoke.sh','tools/tor_pg_backup_restore_smoke.sh']
   workflow_dispatch:
 permissions:
   contents: read
