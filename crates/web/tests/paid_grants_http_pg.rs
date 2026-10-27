@@ -658,7 +658,9 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
              VALUES({purchase_id},'ci:s034-http-refund','refund')"
         ),
     );
-    release_tx.send(()).expect("resume signer after committed refund");
+    release_tx
+        .send(())
+        .expect("resume signer after committed refund");
     let raced = tokio::time::timeout(Duration::from_secs(10), in_flight)
         .await
         .expect("no grant/refund deadlock")
