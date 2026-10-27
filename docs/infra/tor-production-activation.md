@@ -70,6 +70,39 @@ verify the embedded SQLx migration list rather than assuming exactly nine
 total versions or 17 total tables. The CLI reports TOR_SQLX_APPLIED_OK N/N;
 future additive migrations use the same mechanism.
 
+## Read-only stage preflight before applying the next upgrade
+
+After **all required GitHub Actions checks on the exact current main** succeed,
+run [tor VPS staged release](https://github.com/calex794/tor/actions/workflows/tor-vps-staging.yml)
+manually with `install=false` and an empty confirmation. A successful staging
+job transfers binaries but does not apply SQLx or switch the server. On the
+dedicated VPS as root, take the *same full 40-character SHA* from the successful
+stage and run the pinned read-only preflight:
+
+~~~bash
+sha='<40-character-current-main-SHA-from-successful-stage>'
+curl -fsSL "https://raw.githubusercontent.com/calex794/tor/$sha/ops/check-tor-release-vps.sh" -o /root/tor-check-release.sh
+bash -n /root/tor-check-release.sh &&
+bash /root/tor-check-release.sh "$sha"
+~~~
+
+This preflight reads the active release, current server readiness, PostgreSQL
+SQLx history, root-verified schema markers, staged migrator checksum, current
+GitHub main SHA, and candidate migration count. It **never** applies migrations,
+restarts anything, switches `/opt/tor/current`, or reads plaintext secrets.
+A healthy but outdated database produces
+`TOR_PREFLIGHT_STAGE_OK_MIGRATIONS_REQUIRED` with the number of pending versions.
+A stale candidate or missing stage produces `TOR_PREFLIGHT_REFUSED`. Exit 0
+means the staged candidate passed these *read-only* checks — not that it is
+safe to deploy: verified off-server backup, rollback compatibility, full CI,
+operator approval, S3 credentials and required feature flags remain separate.
+
+Do not launch the root go-live from an obsolete staging run. The root go-live
+performs its own GitHub main checks before and after migrating; if `main`
+changes during migration, the old executable remains active while the
+already-applied SQLx migrations persist. Stop merges during the brief actual
+release window and run the release only from a verified, stable SHA.
+
 ## Controlled release after the first switch — 27 October 2026
 
 **Current I-line safety decision:** merging into `main` runs tests but never invokes deployment or SSH. The former `workflow_run` trigger and `TOR_AUTO_DEPLOY` flag were removed from `.github/workflows/tor-vps-staging.yml`. The old auto-deploy instruction below is superseded.
