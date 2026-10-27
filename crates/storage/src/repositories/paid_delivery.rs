@@ -120,7 +120,7 @@ impl<S: PrivateObjectStore> PrivateObjectDeliveryPort for PgPrivateDelivery<S> {
             _ => return Err(DeliveryError::Invalid),
         };
         if validate_signed_get_ttl(ttl).is_err()
-            || (kind == "chapter_asset" && encrypted.object.size_bytes > 8 * 1024 * 1024)
+            || (kind == "chapter_asset" && encrypted.object.size_bytes > 8 * 1024 * 1024 + 16)
             || !valid_ciphertext_size(&encrypted.object)
             || encrypted.aad.is_empty()
             || !matches!(
