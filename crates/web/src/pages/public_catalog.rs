@@ -38,7 +38,11 @@ fn book_cards(
         let mut details = String::new();
         // Match the original NEwBOO BookCard: public author if present, not
         // invented likes/comments or an extra language/genre metadata block.
-        if let Some(author) = book.author_name.as_deref().filter(|name| !name.trim().is_empty()) {
+        if let Some(author) = book
+            .author_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
             write!(
                 details,
                 "<div class=\"book-mini-card__meta\">{}</div>",
