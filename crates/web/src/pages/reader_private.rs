@@ -2,7 +2,9 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
-use tor_reading::services::progress::{reader_blocks, valid_text_place, SavedPlaceState};
+use tor_reading::services::progress::{
+    reader_blocks, valid_text_place, ReadingPlace, SavedPlaceState,
+};
 
 /// Account-only reading: the browser can save a deterministic point in an
 /// immutable, currently published, free chapter without requiring JavaScript.
@@ -11,8 +13,48 @@ pub fn private_reader(
     chapter: &tor_reading::services::PublicChapterPage,
     csrf: &str,
     saved: SavedPlaceState,
+    expected_revision: i64,
+    completed: bool,
 ) -> Html<String> {
     let blocks = reader_blocks(&chapter.body_markdown);
+    // Do not infer completion from a GET or from a saved paragraph marker.
+    // Only the final non-blank server-parsed block offers the explicit action.
+    let finish = blocks
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, text)| !text.trim().is_empty())
+        .and_then(|(index, text)| {
+            let place = ReadingPlace {
+                block_index: i32::try_from(index + 1).ok()?,
+                char_offset: i32::try_from(text.encode_utf16().count()).ok()?,
+            };
+            valid_text_place(place, &blocks).ok().map(|()| place)
+        });
+    let complete_form = if completed {
+        "<p class=\"reader-complete\" role=\"status\">Глава уже отмечена прочитанной.</p>"
+            .to_owned()
+    } else {
+        finish.map_or_else(String::new, |place| {
+        format!(
+            r#"<div class="reader-complete">
+              <p>Закончили главу? Отметьте её прочитанной, чтобы добавить книгу в личный рейтинг.</p>
+              <form method="post" action="/read/{chapter_id}/complete">
+                <input type="hidden" name="csrf_token" value="{csrf}">
+                <input type="hidden" name="version_id" value="{version_id}">
+                <input type="hidden" name="block_index" value="{block_index}">
+                <input type="hidden" name="char_offset" value="{char_offset}">
+                <input type="hidden" name="expected_revision" value="{expected_revision}">
+                <button type="submit" class="ui-button ui-button--primary">Глава прочитана</button>
+              </form>
+            </div>"#,
+            csrf = escape_html(csrf),
+            version_id = chapter.version_id,
+            block_index = place.block_index,
+            char_offset = place.char_offset,
+        )
+        })
+    };
     let mut sections = String::new();
     for (index, source) in blocks.iter().enumerate() {
         let block_index = index + 1;
@@ -73,6 +115,7 @@ pub fn private_reader(
                 <article class="chapter-content reader-private__content" aria-label="Текст главы">
                     {sections}
                 </article>
+                {complete_form}
                 {navigation}
                 <p class="reader-page__return"><a class="text-link" href="/me/library">К моей библиотеке</a></p>
             </div></section>"#,
