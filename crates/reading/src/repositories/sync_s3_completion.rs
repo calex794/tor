@@ -67,14 +67,23 @@ impl PgReadingSync {
         expected_revision: i64,
         plaintext_sha256: &str,
     ) -> Result<(String, bool), SyncError> {
-        if actor <= 0 || purchase_id <= 0 || chapter_id <= 0 || version_id <= 0
+        if actor <= 0
+            || purchase_id <= 0
+            || chapter_id <= 0
+            || version_id <= 0
             || plaintext_sha256.len() != 64
-            || !plaintext_sha256.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !plaintext_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
             return Err(SyncError::Invalid);
         }
         checked_place(place, expected_revision)?;
-        let mut tx = self.pool.begin().await.map_err(|_| SyncError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SyncError::Unavailable)?;
         // Block the D purchase before a concurrent refund can insert its FK.
         // Hold B moderation and the immutable attached G object through commit.
         let row = sqlx::query(
@@ -110,25 +119,27 @@ impl PgReadingSync {
         .await
         .map_err(|_| SyncError::Unavailable)?
         .ok_or(SyncError::NotFound)?;
-        let permitted: bool = sqlx::query_scalar(
-            "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
-        )
-        .bind(actor)
-        .bind(purchase_id)
-        .bind(chapter_id)
-        .bind(version_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| SyncError::Unavailable)?;
+        let permitted: bool =
+            sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+                .bind(actor)
+                .bind(purchase_id)
+                .bind(chapter_id)
+                .bind(version_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|_| SyncError::Unavailable)?;
         if !permitted {
             return Err(SyncError::NotFound);
         }
         let book_id: i64 = row.try_get("book_id").map_err(|_| SyncError::Unavailable)?;
-        let last_block: Option<i32> = row.try_get("reader_end_block")
+        let last_block: Option<i32> = row
+            .try_get("reader_end_block")
             .map_err(|_| SyncError::Unavailable)?;
-        let last_offset: Option<i32> = row.try_get("reader_end_utf16")
+        let last_offset: Option<i32> = row
+            .try_get("reader_end_utf16")
             .map_err(|_| SyncError::Unavailable)?;
-        let hash: String = row.try_get("plaintext_hash")
+        let hash: String = row
+            .try_get("plaintext_hash")
             .map_err(|_| SyncError::Unavailable)?;
         if last_block != Some(place.block_index)
             || last_offset != Some(place.char_offset)
@@ -148,7 +159,8 @@ impl PgReadingSync {
         .bind(chapter_id)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|_| SyncError::Unavailable)? {
+        .map_err(|_| SyncError::Unavailable)?
+        {
             return Ok((existing, false));
         }
 
