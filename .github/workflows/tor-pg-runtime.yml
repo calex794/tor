@@ -137,6 +137,7 @@ jobs:
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
           cargo test -p tor-web --test cover_worker_pg -- --ignored
