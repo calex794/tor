@@ -456,7 +456,7 @@ const ROUTES: [RouteRegistration; 64] = [
     RouteRegistration::new(
         "/me/purchases",
         "GET",
-        "/me/purchases/",
+        "/me/library/",
         Exact,
         Page,
         Reading,
