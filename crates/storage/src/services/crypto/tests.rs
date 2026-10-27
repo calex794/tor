@@ -154,6 +154,10 @@ fn invalid_size_empty_and_missing_material_fail_closed() {
         seal_chapter(version(), object_id(), &"Ж".repeat(100_001), &kek),
         Err(CryptoError::InvalidMaterial)
     ));
+    assert!(matches!(
+        seal_chapter(version(), object_id(), &"a".repeat(50_001), &kek),
+        Err(CryptoError::InvalidMaterial)
+    ));
     let mut zipped = gzip_markdown("data".as_bytes()).unwrap();
     assert_eq!(&zipped[4..8], &[0_u8; 4], "deterministic gzip mtime");
     zipped[4] = 1;
