@@ -4,7 +4,7 @@ use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_commerce::repositories::entitlements::{
-    MixedBookToc, MixedTocAccess, ReadablePurchase, ReadablePurchasesPage,
+    MixedBookToc, MixedTocAccess, MixedTocChapter, ReadablePurchase, ReadablePurchasesPage,
 };
 
 /// NEwBOO's hide_site_chrome mode: keep only the reader topbar.
@@ -107,6 +107,85 @@ fn paid_book_toc(edition: &ReadablePurchase, toc: &MixedBookToc) -> String {
     )
 }
 
+/// Render only a verified edition or a separately public free chapter.
+/// Unpurchased paid neighbours are visible metadata, never navigable grants.
+fn paid_nav_item(chapter: Option<&MixedTocChapter>, previous: bool) -> String {
+    let (direction, arrow, rel) = if previous {
+        ("Предыдущая глава", "←", "prev")
+    } else {
+        ("Следующая глава", "→", "next")
+    };
+    let state = if previous { "prev" } else { "next" };
+    let Some(chapter) = chapter else {
+        return format!(
+            "<span class=\"reader-paid__nav-card reader-paid__nav-card--disabled\" data-paid-nav-{state} aria-disabled=\"true\">
+                <span class=\"reader-paid__nav-direction\">{arrow} {direction}</span>
+                <span class=\"reader-paid__nav-name\">Нет доступной главы</span>
+             </span>"
+        );
+    };
+    let title = escape_html(&chapter.title);
+    let label = format!("Глава {}. {title}", chapter.chapter_no);
+    let (href, badge) = match chapter.access {
+        MixedTocAccess::Purchased { purchase_id, .. } => (
+            Some(format!(
+                "/read/paid/{}?purchase_id={purchase_id}",
+                chapter.chapter_id
+            )),
+            "Куплено",
+        ),
+        MixedTocAccess::PublicFree => (
+            Some(format!("/reader/{}", chapter.chapter_id)),
+            "Бесплатно",
+        ),
+        MixedTocAccess::Locked { .. } => (None, "Не куплено"),
+    };
+    match href {
+        Some(href) => format!(
+            "<a class=\"reader-paid__nav-card reader-paid__nav-card--active\" data-paid-nav-{state} rel=\"{rel}\" href=\"{href}\">
+                <span class=\"reader-paid__nav-direction\">{arrow} {direction}</span>
+                <span class=\"reader-paid__nav-name\">{label}</span>
+                <span class=\"reader-paid__nav-badge\">{badge}</span>
+             </a>"
+        ),
+        None => format!(
+            "<span class=\"reader-paid__nav-card reader-paid__nav-card--locked\" data-paid-nav-{state} aria-disabled=\"true\">
+                <span class=\"reader-paid__nav-direction\">{arrow} {direction}</span>
+                <span class=\"reader-paid__nav-name\">{label}</span>
+                <span class=\"reader-paid__nav-badge\">{badge}</span>
+             </span>"
+        ),
+    }
+}
+
+/// NEwBOO-style previous/next above and below the chapter. Do not jump over
+/// a locked public chapter or fabricate purchases from progress/bookmarks.
+fn paid_chapter_nav(edition: &ReadablePurchase, toc: &MixedBookToc, bottom: bool) -> String {
+    let Some(index) = toc.chapters.iter().position(|item| {
+        item.chapter_id == edition.chapter_id
+            && matches!(
+                item.access,
+                MixedTocAccess::Purchased { purchase_id, version_id, .. }
+                if purchase_id == edition.purchase_id && version_id == edition.version_id
+            )
+    }) else {
+        return String::new();
+    };
+    let previous = index.checked_sub(1).and_then(|n| toc.chapters.get(n));
+    let next = toc.chapters.get(index + 1);
+    let region = if bottom { "внизу" } else { "вверху" };
+    let position = if bottom { "bottom" } else { "top" };
+    format!(
+        "<nav class=\"reader-paid__chapter-nav reader-paid__chapter-nav--{position}\"
+              data-paid-chapter-nav aria-label=\"Переход между главами {region}\">
+            {}
+            {}
+         </nav>",
+        paid_nav_item(previous, true),
+        paid_nav_item(next, false)
+    )
+}
+
 pub fn paid_reader_shell(
     edition: &ReadablePurchase,
     toc: &MixedBookToc,
@@ -173,11 +252,13 @@ pub fn paid_reader_shell(
                  Подготавливаем зашифрованную главу…
                </p>
              </div>
+             {top_nav}
              <div class="reader-resume" data-paid-resume aria-live="polite"></div>
              <article class="chapter-content reader-markdown reader-paid__content"
                  data-paid-content aria-label="Текст купленной главы"></article>
              <div class="reader-resume reader-paid__completion" data-paid-completion
                   aria-live="polite" hidden></div>
+             {bottom_nav}
              <p class="reader-page__return"><a class="text-link" href="/me/purchases">К купленным главам</a></p>
            </div>
            <script type="module" src="/assets/newboo-paid-reader.mjs"></script>
@@ -190,6 +271,8 @@ pub fn paid_reader_shell(
         chapter_label = chapter_label,
         version_no = edition.version_no,
         toc_menu = paid_book_toc(edition, toc),
+        top_nav = paid_chapter_nav(edition, toc, false),
+        bottom_nav = paid_chapter_nav(edition, toc, true),
     );
     reader_layout(
         &format!("{} — {}", edition.chapter_title, edition.book_title),
@@ -328,6 +411,22 @@ mod tests {
         assert!(!html.contains("<img src=x>"));
         assert!(html.contains("100 ближайших"));
         assert!(!html.contains("ciphertext_url"));
+        // Current bought chapter 2: prior free chapter 1 and next bought V1.
+        let nav = paid_chapter_nav(&edition, &toc, false);
+        assert!(nav.contains("rel=\"prev\" href=\"/reader/21\""));
+        assert!(nav.contains("rel=\"next\" href=\"/read/paid/24?purchase_id=32\""));
+        assert!(!nav.contains("href=\"/reader/25\""));
+        // Chapter 3 is followed by unpurchased 4: show lock, no link.
+        let next_edition = ReadablePurchase {
+            purchase_id: 32, chapter_id: 24, version_id: 42,
+            version_no: 1, chapter_no: 3, book_title: "Book".to_owned(),
+            chapter_title: "Next".to_owned(),
+        };
+        let blocked = paid_chapter_nav(&next_edition, &toc, true);
+        assert!(blocked.contains("data-paid-nav-next aria-disabled=\"true\""));
+        assert!(blocked.contains("Не куплено"));
+        assert!(!blocked.contains("href=\"/read/paid/25"));
+        assert!(!blocked.contains("href=\"/reader/25"));
     }
 
     #[test]
@@ -377,6 +476,9 @@ mod tests {
         assert!(body.contains("Купленная редакция 1"));
         assert!(body.contains("data-paid-toc"));
         assert!(body.contains("Оглавление книги"));
+        assert_eq!(body.matches("data-paid-chapter-nav").count(), 2);
+        assert!(body.contains("data-paid-nav-next aria-disabled=\"true\""));
+        assert!(body.contains("data-paid-nav-prev aria-disabled=\"true\""));
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
