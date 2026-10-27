@@ -180,11 +180,11 @@ pub(super) async fn upload_and_show(
         StatusCode::UNSUPPORTED_MEDIA_TYPE
     );
     // The non-owner cannot alter a seeded book, even with their own valid session.
-    let denied = format!("/me/books/901/cover");
+    let denied = "/me/books/901/cover";
     assert_eq!(
         send(
             app,
-            upload_request(&denied, csrf, cookies, ORIGIN, "image/png", &source)
+            upload_request(denied, csrf, cookies, ORIGIN, "image/png", &source)
         )
         .await
         .status(),
@@ -267,9 +267,7 @@ pub(super) async fn upload_and_show(
         }
         match worker.run_one().await.unwrap() {
             WorkerResult::Idle => panic!("queued image was never processed"),
-            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {
-                ()
-            }
+            WorkerResult::Attached | WorkerResult::Superseded | WorkerResult::RetryOrQuarantine => {}
         }
     }
     assert_eq!(
