@@ -118,7 +118,8 @@ fn router_inner(
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
-    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
+    let chapter_routes =
+        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
