@@ -45,7 +45,7 @@ pub(super) async fn limit(
             .permit_auth_attempt(&address_key, 60, 600)
             .await
             .map_err(|_| {
-                tracing::warn!(stage = "auth_ip_rate_limit", "account storage temporarily unavailable");
+                eprintln!("TOR_AUTH_UNAVAILABLE stage=ip_rate_limit");
                 StatusCode::SERVICE_UNAVAILABLE
             })?;
         if !address_ok {
@@ -59,7 +59,7 @@ pub(super) async fn limit(
         .permit_auth_attempt(&identity_key, 8, 600)
         .await
         .map_err(|_| {
-            tracing::warn!(stage = "auth_identity_rate_limit", "account storage temporarily unavailable");
+            eprintln!("TOR_AUTH_UNAVAILABLE stage=identity_rate_limit");
             StatusCode::SERVICE_UNAVAILABLE
         })?;
     if !identity_ok {
