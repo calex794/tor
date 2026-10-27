@@ -60,7 +60,7 @@ pub fn paid_reader_shell(
                    </div>
                  </div>
                  <label class="reader-paid__settings-field">Размер текста
-                   <input type="range" min="82" max="142" step="4" value="100" data-paid-font-scale>
+                   <input type="range" min="80" max="140" step="5" value="100" data-paid-font-scale>
                    <output data-paid-font-output>100%</output>
                  </label>
                  <label class="reader-paid__settings-field">Межстрочный интервал
