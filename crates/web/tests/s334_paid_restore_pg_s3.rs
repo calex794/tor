@@ -16,7 +16,7 @@ use axum::{
 use serde_json::{json, Value};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-use std::{env, fs, fs::OpenOptions, io::Write, num::NonZeroU32, path::PathBuf, sync::Arc};
+use std::{env, fs, fs::OpenOptions, io::Write, num::NonZeroU32, path::PathBuf, process::Command, sync::Arc};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -184,6 +184,27 @@ fn state() -> Value {
     serde_json::from_slice(&fs::read(ci_file("s334-state.json")).unwrap()).unwrap()
 }
 
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url == SOURCE || url == RESTORED, "production SQL forbidden");
+    let output = Command::new("psql")
+        .args([
+            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
+            "--dbname", url, "--command", sql,
+        ])
+        .output()
+        .expect("CI PostgreSQL client required");
+    assert!(
+        output.status.success(),
+        "disposable PostgreSQL fixture operation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn scalar(url: &str, sql: &str) -> i64 {
+    pg(url, sql).parse().expect("one PG integer")
+}
+
 #[tokio::test]
 #[ignore = "isolated GitHub Actions tor_ci + MinIO only"]
 async fn s3_34_seed_paid_v1_and_publish_v2() {
@@ -191,7 +212,6 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
     let c = client();
     c.create_bucket().bucket(BUCKET).send().await.unwrap();
     let kek = key();
-
     let catalog = PgCatalog::connect(url).await.unwrap();
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
@@ -200,46 +220,43 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
     let (_stranger, stranger_cookie) = register(&accounts, "s334-stranger@tor-ci.example").await;
     let csrf = generate_session_token();
 
-    sqlx::query(
-        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
-         VALUES($1,600,'RUB')",
-    )
-    .bind(buyer)
-    .execute(&pool)
-    .await
-    .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:s334-paid-restore','ru','S334 paid V1 recovery','public',$1)
-         RETURNING id",
-    )
-    .bind(author)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let chapter: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES($1,1,'S334 encrypted chapter','public','paid',175) RETURNING id",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let v1: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,$2) RETURNING id",
-    )
-    .bind(chapter)
-    .bind(MARKDOWN)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter)
-        .bind(v1)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({buyer},600,'RUB')"
+        ),
+    );
+    let book = scalar(
+        url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:s334-paid-restore','ru','S334 paid V1 recovery','public',{author})
+             RETURNING id"
+        ),
+    );
+    let chapter = scalar(
+        url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'S334 encrypted chapter','public','paid',175) RETURNING id"
+        ),
+    );
+    let escaped = MARKDOWN.replace('\'', "''");
+    let v1 = scalar(
+        url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'{escaped}') RETURNING id"
+        ),
+    );
+    pg(
+        url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({chapter},{v1})"
+        ),
+    );
 
     let pinned = ChapterVersionRef {
         chapter_id: PositiveId::new(chapter).unwrap(),
@@ -280,31 +297,24 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
         )
         .await
         .unwrap();
-
-    let v2: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,2,'New V2 not purchased') RETURNING id",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE chapter_publications SET version_id=$1 WHERE chapter_id=$2")
-        .bind(v2)
-        .bind(chapter)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE books SET visibility='draft' WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
-        .bind(chapter)
-        .execute(&pool)
-        .await
-        .unwrap();
+    let v2 = scalar(
+        url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},2,'New V2 not purchased') RETURNING id"
+        ),
+    );
+    pg(
+        url,
+        &format!(
+            "UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"
+        ),
+    );
+    pg(url, &format!("UPDATE books SET visibility='draft' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
+    );
 
     let a = app(url, c, kek).await;
     let response = grant(&a, chapter, Some(&buyer_cookie), Some(&csrf), "{}").await;
@@ -318,16 +328,16 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
             .status(),
         StatusCode::FORBIDDEN
     );
-    let row: (i64, String) = sqlx::query_as(
-        "SELECT v.id, s.state
-         FROM chapter_versions v JOIN storage_objects s ON s.id=v.storage_object_id
-         WHERE v.id=$1",
-    )
-    .bind(v1)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(row, (v1, "attached".to_string()));
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT s.state FROM storage_objects s
+                 JOIN chapter_versions v ON v.storage_object_id=s.id WHERE v.id={v1}"
+            ),
+        ),
+        "attached"
+    );
     save_json(
         ci_file("s334-state.json"),
         &json!({
@@ -361,26 +371,22 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
     let c = client();
     let kek = key();
     let store = S3PrivateStore::new(c.clone(), BUCKET.to_string()).unwrap();
-    let pool = sqlx::PgPool::connect(url).await.unwrap();
-    let restored: i64 = sqlx::query_scalar(
-        "SELECT id FROM chapter_versions WHERE id=$1 AND storage_object_id=$2::uuid",
-    )
-    .bind(v1)
-    .bind(ID)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+
+    let restored = scalar(
+        url,
+        &format!(
+            "SELECT id FROM chapter_versions WHERE id={v1} AND storage_object_id='{ID}'::uuid"
+        ),
+    );
     assert_eq!(restored, v1);
-    let current: i64 =
-        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
-            .bind(chapter)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let current = scalar(
+        url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter}"),
+    );
     assert_eq!(current, v2, "restored published V2 must not erase bought V1");
 
-    // The source S3 object was deleted after backup. Neither PostgreSQL nor
-    // an intact recovery KEK alone permits issuing a grant for missing bytes.
+    // The original S3 object was deleted after backup. Restored PostgreSQL
+    // and an intact KEK cannot sign or authorize absent ciphertext.
     let missing = app(url, c.clone(), key()).await;
     assert_eq!(
         grant(&missing, chapter, Some(buyer), Some(csrf), "{}")
@@ -389,8 +395,7 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 
-    // Recover the exact historical ciphertext from a different private
-    // backup namespace, preserving metadata needed for a verified S3 HEAD.
+    // Retrieve exact historical bytes from separate private backup namespace.
     let backup_key = format!("s334/private/chapter-versions/{ID}.enc");
     let response = c
         .get_object()
@@ -400,8 +405,18 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         .await
         .unwrap();
     let bytes = response.body.collect().await.unwrap().into_bytes().to_vec();
-    let expected = hex::decode(digest).unwrap();
-    assert_eq!(sha256_bytes(&bytes).as_slice(), expected.as_slice());
+    assert_eq!(hex::encode(sha256_bytes(&bytes)), digest);
+    let size = scalar(
+        url,
+        &format!("SELECT size_bytes FROM storage_objects WHERE id='{ID}'::uuid"),
+    );
+    let reference = ObjectRef::new(
+        object_id,
+        tor_contracts::paid_delivery::EncryptedObjectKind::Chapter,
+        sha256_bytes(&bytes),
+        size.try_into().unwrap(),
+    )
+    .unwrap();
     c.put_object()
         .bucket(BUCKET)
         .key(format!("private/chapter-versions/{ID}.enc"))
@@ -412,23 +427,10 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         .send()
         .await
         .unwrap();
-    let reference: ObjectRef = tor_contracts::paid_delivery::ObjectRef::new(
-        object_id,
-        tor_contracts::paid_delivery::EncryptedObjectKind::Chapter,
-        expected.try_into().unwrap(),
-        sqlx::query_scalar::<_, i64>(
-            "SELECT size_bytes FROM storage_objects WHERE id=$1::uuid",
-        )
-        .bind(ID)
-        .fetch_one(&pool)
-        .await
-        .unwrap() as u64,
-    )
-    .unwrap();
     assert!(store.get_verified(&reference).await.is_ok());
 
-    // The KEK must be independently recoverable, never inferred from PG or
-    // private S3 data. Missing or wrong KEK must deny all new grants.
+    // The external recovery KEK must be supplied independently of the DB
+    // and S3 data. Missing/wrong KEK fails closed, never exposes a V1 grant.
     assert!(matches!(
         ContentKek::from_environment(),
         Err(CryptoError::UnavailableKey)
@@ -483,20 +485,18 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         }),
     );
 
-    // Refund AFTER issuing a test grant: subsequent grants must be denied.
-    sqlx::query(
-        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
-         VALUES($1,'ci:s334-refund-after-restore','refund')",
-    )
-    .bind(purchase_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    // A refund in the restored database must reject further signed grants.
+    pg(
+        url,
+        &format!(
+            "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+             VALUES({purchase_id},'ci:s334-refund-after-restore','refund')"
+        ),
+    );
     assert_eq!(
         grant(&correct, chapter, Some(buyer), Some(csrf), "{}")
             .await
             .status(),
         StatusCode::FORBIDDEN
     );
-    pool.close().await;
 }
