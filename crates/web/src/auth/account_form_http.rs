@@ -66,7 +66,9 @@ fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
             "Превышено число попыток. Повторите через 10 минут.",
             registration,
         );
-        response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("600"));
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("600"));
         response
     } else {
         let title = if registration {
@@ -74,7 +76,12 @@ fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
         } else {
             "Вход временно недоступен"
         };
-        auth_problem(status, title, "Попробуйте снова немного позже.", registration)
+        auth_problem(
+            status,
+            title,
+            "Попробуйте снова немного позже.",
+            registration,
+        )
     }
 }
 
@@ -133,7 +140,9 @@ pub(super) async fn register(
             );
         }
     };
-    if let Err(status) = login_limiter::limit(&state, "register", &account.email, &headers, peer).await {
+    if let Err(status) =
+        login_limiter::limit(&state, "register", &account.email, &headers, peer).await
+    {
         return auth_limit_error(status, true);
     }
 
@@ -241,7 +250,9 @@ pub(super) async fn login(
                 "Повторите попытку через несколько секунд.",
                 false,
             );
-            response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
             return response;
         }
         Err(_) => return login_storage_error("password_worker"),
@@ -252,13 +263,23 @@ pub(super) async fn login(
     let Some(user) = stored else {
         return invalid_credentials();
     };
-    if state.accounts.clear_auth_attempt(&identity_key).await.is_err() {
+    if state
+        .accounts
+        .clear_auth_attempt(&identity_key)
+        .await
+        .is_err()
+    {
         return login_storage_error("clear_attempt");
     }
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
-    if state.accounts.insert_session(user.id, &digest, ttl).await.is_err() {
+    if state
+        .accounts
+        .insert_session(user.id, &digest, ttl)
+        .await
+        .is_err()
+    {
         return login_storage_error("create_session");
     }
     // No next parameter is accepted: redirects always stay on this site.
