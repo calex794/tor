@@ -13,7 +13,7 @@ refuse() {
   refuse 'give the full 40-character approved main SHA'
 sha=$1
 id tor-deploy >/dev/null || refuse 'existing tor-deploy account not found'
-for command in curl python3 visudo systemctl install chown readlink; do
+for command in curl python3 visudo systemctl install chown readlink ssh-keygen; do
   command -v "$command" >/dev/null || refuse "missing $command"
 done
 [[ -d /opt/tor && ! -L /opt/tor &&
@@ -50,6 +50,33 @@ print(sha)
 
 helper=/usr/local/sbin/tor-one-click-release
 sudoers=/etc/sudoers.d/tor-one-click-release
+signers=/etc/tor/tor-release-allowed-signers
+[[ -d /etc/tor && ! -L /etc/tor &&
+   $(stat -c '%U:%G:%a' /etc/tor) == root:root:700 ]] ||
+  refuse 'root-owned /etc/tor credentials directory is missing'
+[[ ! -L "$signers" ]] || refuse 'release signer file is a symlink'
+authorized=/home/tor-deploy/.ssh/authorized_keys
+[[ -f "$authorized" && ! -L "$authorized" ]] ||
+  refuse 'authorized GitHub deploy key is missing'
+# bootstrap-tor-deploy.sh added one restricted ed25519 GitHub deploy key.
+# Use its public half to authenticate the binaries from Actions, with no
+# additional secret, token, or approval input in GitHub.
+public_key=
+key_count=0
+while read -r restriction kind key remainder; do
+  if [[ "$restriction" == restrict && "$kind" == ssh-ed25519 &&
+        "$key" =~ ^[A-Za-z0-9+/=]+$ ]]; then
+    public_key="$kind $key"
+    key_count=$((key_count + 1))
+  fi
+done < "$authorized"
+[[ "$key_count" == 1 ]] ||
+  refuse 'expected exactly one restricted GitHub deploy key'
+signer_tmp=$(mktemp /root/.tor-release-signer.XXXXXXXX)
+printf 'tor-release %s\n' "$public_key" > "$signer_tmp"
+chmod 0600 "$signer_tmp"
+ssh-keygen -lf "$signer_tmp" >/dev/null ||
+  refuse 'invalid trusted release signer'
 [[ ! -L "$helper" && ! -L "$sudoers" ]] ||
   refuse 'unexpected symlink at trusted setup destination'
 if [[ -e "$helper" ]]; then
@@ -63,7 +90,7 @@ fi
 
 download=$(mktemp /root/.tor-release-helper.XXXXXXXX)
 config_tmp=$(mktemp /etc/sudoers.d/.tor-one-click.XXXXXXXX)
-trap 'rm -f -- "$download" "$config_tmp"' EXIT
+trap 'rm -f -- "$download" "$config_tmp" "$signer_tmp"' EXIT
 
 curl -fsSL --retry 2 --max-time 20 \
   "https://raw.githubusercontent.com/calex794/tor/$sha/ops/one-click-release-vps.sh" \
@@ -95,6 +122,7 @@ install -o root -g root -m 0755 "$download" "$helper"
 printf '%s\n' '# Installed by ops/bootstrap-one-click-release-vps.sh' >> "$helper"
 chmod 0755 "$helper"
 chown root:root "$helper"
+install -o root -g root -m 0644 "$signer_tmp" "$signers"
 install -o root -g root -m 0440 "$config_tmp" "$sudoers"
 visudo -c >/dev/null || refuse 'global sudoers validation failed'
 systemctl is-active --quiet tor-web.service ||
