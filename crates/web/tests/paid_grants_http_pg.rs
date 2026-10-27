@@ -531,6 +531,44 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         0,
         "alternate reader or progress routes must not sign G objects"
     );
+    // A chapter ciphertext UUID is not an image B membership, even for
+    // its valid buyer. No fallback to public media or generic G signing.
+    let asset_route = format!(
+        "/api/v1/reader/chapters/{chapter}/assets/{UUID}/delivery-grants"
+    );
+    assert_eq!(
+        send(&app, &asset_route, Some(&buyer_cookie), Some(&csrf), Some(ORIGIN), "{}")
+            .await.status(),
+        StatusCode::NOT_FOUND,
+    );
+    assert_eq!(
+        send(&app, &asset_route, Some(&author_cookie), Some(&author_csrf), Some(ORIGIN), "{}")
+            .await.status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        send(&app, &asset_route, None, None, Some(ORIGIN), "{}")
+            .await.status(),
+        StatusCode::UNAUTHORIZED,
+    );
+    assert_eq!(
+        send(&app, &asset_route, Some(&buyer_cookie), Some(&csrf),
+            Some("https://hostile.invalid"), "{}")
+            .await.status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        send(&app, &asset_route, Some(&buyer_cookie), Some(&csrf), Some(ORIGIN),
+            r#"{"version_id":"999"}"#)
+            .await.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    assert_eq!(
+        fake.signed.load(Ordering::SeqCst),
+        0,
+        "forged asset grants must never reach G"
+    );
+
     for invalid in [
         r#"{"version_id":"2"}"#,
         r#"{"bucket":"public"}"#,
