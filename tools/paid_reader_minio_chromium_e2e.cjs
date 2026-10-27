@@ -665,12 +665,10 @@ async function run() {
         assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
         assert.equal(await page.getByRole("button", { name: "Сепия" })
           .getAttribute("aria-pressed"), "true");
-        if (device === "desktop") {
-          await page.screenshot({
-            path: path.join(screenshotRoot, "s065-reader-settings-desktop.png"),
-            fullPage: true, mask, maskColor: "#e5e7eb",
-          });
-        }
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-settings-" + device + ".png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
         await page.getByRole("button", { name: "Сбросить настройки" }).click();
         assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
         assert.equal(await page.evaluate(() => document.body.hasAttribute(
@@ -737,6 +735,18 @@ async function run() {
             path: path.join(screenshotRoot, "s065-reader-quick-theme-320.png"),
             fullPage: true, mask, maskColor: "#e5e7eb",
           });
+          await control.click();
+          const narrowDialog = await dialog.boundingBox();
+          assert(narrowDialog && narrowDialog.x >= 0 &&
+            narrowDialog.x + narrowDialog.width <= 321 &&
+            narrowDialog.height <= 720,
+            "320px modal clips outside safe viewport");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-modal-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+          await page.keyboard.press("Escape");
+          assert(await panel.isHidden(), "320px Escape failed to close modal");
         }
       } finally {
         await page.close();
