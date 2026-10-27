@@ -92,12 +92,18 @@ start_web() {
 }
 
 assert_visible_data() {
-  local output
-  output="$(curl -fsS --max-time 5 "$base/api/v1/books")"
-  [[ "$output" == *'TOR Restart Persistence Sentinel'* ]] || {
-    echo 'FAIL: persisted sentinel missing from public catalogue' >&2
+  local book_id output
+  book_id="$(psql "$TEST_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT id FROM books WHERE source_identity='ci:startup-restart' AND target_language='ru'")"
+  [[ "$book_id" =~ ^[0-9]+$ ]] || {
+    echo 'FAIL: committed public book is missing from PostgreSQL' >&2
     return 1
   }
+  output="$(curl -fsS --max-time 5 "$base/books/$book_id")"
+  [[ "$output" == *'TOR Restart Persistence Sentinel'* ]] || {
+    echo 'FAIL: persisted sentinel missing from its public book page' >&2
+    return 1
+  }
+  output="$(curl -fsS --max-time 5 "$base/api/v1/books")"
   [[ "$output" != *'TOR CI hidden'* && "$output" != *'TOR CI held'* ]] || {
     echo 'FAIL: private or held book appeared in public catalogue' >&2
     return 1
