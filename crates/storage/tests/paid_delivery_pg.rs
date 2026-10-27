@@ -218,6 +218,19 @@ async fn g_s3_20_attached_receipt_grant_and_dek_are_exact_and_redacted() {
     ));
     assert_eq!(store.signed(), 0);
 
+    let different_bucket = PgPrivateDelivery::new(
+        pool.clone(),
+        store.clone(),
+        ContentKek::from_bytes([93; 32]),
+        "tor-different-bucket".to_owned(),
+    )
+    .unwrap();
+    assert!(matches!(
+        different_bucket.grant_verified_object(&metadata, ttl).await,
+        Err(DeliveryError::Unavailable)
+    ));
+    assert_eq!(store.signed(), 0);
+
     let granted = signer.grant_verified_object(&metadata, ttl).await.unwrap();
     assert_eq!(store.signed(), 1);
     assert_eq!(granted.cipher, "AES-256-GCM");
@@ -260,7 +273,7 @@ async fn g_s3_20_attached_receipt_grant_and_dek_are_exact_and_redacted() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn g_s3_20_wrong_bucket_or_kek_never_signs() {
+async fn g_s3_20_invalid_bucket_or_unknown_object_never_signs() {
     let url = std::env::var("TEST_DATABASE_URL").expect("CI database");
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let pool = PgPool::connect(&url).await.unwrap();
@@ -281,7 +294,8 @@ async fn g_s3_20_wrong_bucket_or_kek_never_signs() {
         "tor-different-bucket".to_owned(),
     )
     .unwrap();
-    let object = ObjectRef::new(object_id(), EncryptedObjectKind::Chapter, [1; 32], 64).unwrap();
+    let unknown_id = ObjectId::parse("88888888-8888-4888-8888-888888888888").unwrap();
+    let object = ObjectRef::new(unknown_id, EncryptedObjectKind::Chapter, [1; 32], 64).unwrap();
     let metadata = EncryptedObjectRef {
         object,
         nonce: [2; 12],
