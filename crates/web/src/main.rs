@@ -157,11 +157,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let config =
                         aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
                     let client = aws_sdk_s3::Client::new(&config);
-                    let store = tor_storage::repositories::s3::S3PrivateStore::new(
-                        client,
-                        bucket.clone(),
-                    )
-                    .map_err(|_| "Invalid TOR_PAID_S3_BUCKET")?;
+                    let store =
+                        tor_storage::repositories::s3::S3PrivateStore::new(client, bucket.clone())
+                            .map_err(|_| "Invalid TOR_PAID_S3_BUCKET")?;
                     let author = if paid_author_enabled {
                         Some(
                             tor_web::PgPaidAuthorPublisher::new(
