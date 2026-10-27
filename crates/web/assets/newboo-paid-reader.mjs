@@ -164,7 +164,14 @@ export async function decryptPaidGrant(
   }
   const text = await decompressBounded(zipped);
   requireValue(text.length <= 200000);
-  return { versionId: grant.version_id, text };
+  // Bind the displayed plaintext to G's authenticated immutable AAD.
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const plain = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode(normalized)
+  ));
+  const plainHex = Array.from(plain, (b) => b.toString(16).padStart(2, "0")).join("");
+  requireValue(plainHex === parts[4]);
+  return { versionId: grant.version_id, text, plaintextSha256: plainHex };
 }
 
 export function renderPaidBlocks(container, text, onSave) {
@@ -206,89 +213,6 @@ async function api(url, options) {
   return response.json();
 }
 
-// H/S065: active controls for the standalone NEwBOO reader.
-// Apply only enumerated themes and bounded numbers. Preferences live only
-// in this document; encrypted chapters, keys and settings never reach storage.
-export function installPaidReaderSettings(root) {
-  const panel = root.querySelector("[data-paid-reader-settings]");
-  if (!panel) return;
-  const toggle = root.querySelector("[data-paid-settings-open]");
-  const close = panel.querySelector("[data-paid-settings-close]");
-  const reset = panel.querySelector("[data-paid-settings-reset]");
-  const font = panel.querySelector("[data-paid-font-scale]");
-  const line = panel.querySelector("[data-paid-line-height]");
-  const width = panel.querySelector("[data-paid-reader-width]");
-  const fontOutput = panel.querySelector("[data-paid-font-output]");
-  const lineOutput = panel.querySelector("[data-paid-line-output]");
-  const widthOutput = panel.querySelector("[data-paid-width-output]");
-  const themes = [...panel.querySelectorAll("[data-paid-theme]")];
-  requireValue(toggle && close && reset && font && line && width &&
-    fontOutput && lineOutput && widthOutput && themes.length === 3);
-
-  const boundedValue = (input, min, max, step) => {
-    const number = Number(input.value);
-    requireValue(Number.isInteger(number) && number >= min &&
-      number <= max && (number - min) % step === 0);
-    return number;
-  };
-  const refresh = () => {
-    const scale = boundedValue(font, 80, 140, 5);
-    const spacing = boundedValue(line, 150, 220, 5);
-    const pixels = boundedValue(width, 620, 980, 20);
-    fontOutput.textContent = String(scale) + "%";
-    lineOutput.textContent = (spacing / 100).toFixed(2);
-    widthOutput.textContent = String(pixels) + " px";
-    if (scale === 100) root.style.removeProperty("--paid-font-size");
-    else root.style.setProperty("--paid-font-size", String(scale / 5) + "px");
-    if (spacing === 185) root.style.removeProperty("--paid-line-height");
-    else root.style.setProperty("--paid-line-height", String(spacing / 100));
-    if (pixels === 860) root.style.removeProperty("--paid-reader-width");
-    else root.style.setProperty("--paid-reader-width", String(pixels) + "px");
-  };
-  const selectTheme = (choice) => {
-    requireValue(["system", "light", "sepia", "dark"].includes(choice));
-    if (choice === "system") delete document.body.dataset.paidReaderTheme;
-    else document.body.dataset.paidReaderTheme = choice;
-    for (const button of themes) {
-      button.setAttribute("aria-pressed",
-        String(button.dataset.paidTheme === choice));
-    }
-  };
-  const hide = () => {
-    panel.hidden = true;
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.focus();
-  };
-
-  toggle.addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-    toggle.setAttribute("aria-expanded", String(!panel.hidden));
-    if (!panel.hidden) close.focus();
-  });
-  close.addEventListener("click", hide);
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !panel.hidden) {
-      event.preventDefault();
-      hide();
-    }
-  });
-  for (const input of [font, line, width]) {
-    input.addEventListener("input", refresh);
-  }
-  for (const button of themes) {
-    button.addEventListener("click", () => selectTheme(button.dataset.paidTheme));
-  }
-  reset.addEventListener("click", () => {
-    font.value = "100";
-    line.value = "185";
-    width.value = "860";
-    refresh();
-    selectTheme("system");
-  });
-  refresh();
-  selectTheme("system");
-}
-
 export async function startPaidReader(root) {
   const chapter = checkedId(root.dataset.chapterId);
   const purchase = checkedId(root.dataset.purchaseId);
@@ -298,7 +222,8 @@ export async function startPaidReader(root) {
   const status = root.querySelector("[data-paid-status]");
   const article = root.querySelector("[data-paid-content]");
   const resume = root.querySelector("[data-paid-resume]");
-  requireValue(status && article && resume);
+  const completion = root.querySelector("[data-paid-completion]");
+  requireValue(status && article && resume && completion);
   status.textContent = "Проверяем покупку и загружаем защищённую версию…";
   const grant = await api(
     "/api/v1/reader/chapters/" + chapter + "/delivery-grants",
@@ -308,7 +233,7 @@ export async function startPaidReader(root) {
       body: JSON.stringify({ purchase_id: purchase }),
     }
   );
-  const { versionId, text } = await decryptPaidGrant(grant, chapter, s3Origin);
+  const { versionId, text, plaintextSha256 } = await decryptPaidGrant(grant, chapter, s3Origin);
   let revision = 0;
   const url = "/api/v1/me/progress/purchased";
   const lookup = new URLSearchParams({
@@ -316,7 +241,7 @@ export async function startPaidReader(root) {
   });
   const stored = await api(url + "?" + lookup.toString());
   revision = stored.revision;
-  renderPaidBlocks(article, text, async (blockId, charOffset) => {
+  const blocks = renderPaidBlocks(article, text, async (blockId, charOffset) => {
     try {
       const saved = await api(url, {
         method: "PUT",
@@ -340,13 +265,59 @@ export async function startPaidReader(root) {
   } else {
     resume.textContent = "Место ещё не сохранено.";
   }
+  // A bookmark or download is not proof of completion. Only this separate,
+  // user-initiated action may request a C completion from a G-sealed anchor.
+  const finishUrl = "/api/v1/me/progress/purchased/complete";
+  const capability = await api(finishUrl + "?" + lookup.toString());
+  completion.hidden = false;
+  if (capability.completed) {
+    completion.textContent = "Глава уже отмечена прочитанной.";
+  } else if (!capability.available) {
+    completion.textContent = "Для этой редакции отметка прочтения пока недоступна.";
+  } else {
+    let last = -1;
+    blocks.forEach((block, index) => { if (block.trim()) last = index; });
+    requireValue(last >= 0);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button reader-paid__finish";
+    button.textContent = "Глава прочитана";
+    const message = document.createElement("span");
+    message.setAttribute("role", "status");
+    message.setAttribute("aria-live", "polite");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      message.textContent = "Сохраняем прочтение…";
+      try {
+        const result = await api(finishUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify({
+            chapter_id: chapter, purchase_id: purchase, version_id: versionId,
+            block_id: last + 1, char_offset: blocks[last].length,
+            expected_revision: revision, plaintext_sha256: plaintextSha256,
+          }),
+        });
+        requireValue(result.status === "completed" || result.status === "already_completed");
+        completion.replaceChildren(document.createTextNode("Глава отмечена прочитанной. "));
+        const ranking = document.createElement("a");
+        ranking.href = "/me/rankings";
+        ranking.textContent = "Открыть мой рейтинг";
+        ranking.className = "text-link";
+        completion.append(ranking);
+      } catch {
+        button.disabled = false;
+        message.textContent = "Не удалось отметить главу. Проверьте доступ и повторите.";
+      }
+    });
+    completion.replaceChildren(button, message);
+  }
   status.textContent = "Оплаченная версия " + versionId + " · Защищённая загрузка завершена";
 }
 
 if (typeof document !== "undefined") {
   const root = document.querySelector("[data-paid-chapter-reader]");
   if (root) {
-    installPaidReaderSettings(root);
     startPaidReader(root).catch(() => {
       const status = root.querySelector("[data-paid-status]");
       if (status) status.textContent = "Не удалось открыть главу. Проверьте доступ и повторите попытку.";

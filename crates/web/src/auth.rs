@@ -42,6 +42,7 @@ mod checkout;
 mod complete_chapter;
 mod library_actions;
 mod login_limiter;
+mod paid_completion;
 mod rankings;
 mod sync_actions;
 
@@ -193,6 +194,10 @@ fn router_inner(
         .route(
             "/api/v1/me/progress/purchased",
             get(sync_actions::get_purchased).put(sync_actions::put_purchased),
+        )
+        .route(
+            "/api/v1/me/progress/purchased/complete",
+            get(paid_completion::get).post(paid_completion::post),
         )
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/library/{id}/save", post(library_actions::browser_add))

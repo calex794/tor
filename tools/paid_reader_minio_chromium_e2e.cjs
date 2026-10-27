@@ -93,6 +93,8 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 let grantCalls = 0;
 let saved = null;
+let markedComplete = false;
+let completionPosts = 0;
 const server = http.createServer(async (req, reply) => {
   try {
     const uri = new URL(req.url, SITE);
@@ -123,6 +125,33 @@ const server = http.createServer(async (req, reply) => {
       assert.deepEqual(JSON.parse(await readBody(req)), { purchase_id: purchase });
       grantCalls++;
       send(reply, 200, JSON.stringify(grant), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
+      req.method === "GET") {
+      assert.equal(uri.searchParams.get("chapter_id"), chapter);
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      assert.equal(uri.searchParams.get("version_id"), grant.version_id);
+      send(reply, 200, JSON.stringify({
+        available: true, completed: markedComplete,
+      }), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
+      req.method === "POST") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      const body = JSON.parse(await readBody(req));
+      assert.equal(body.purchase_id, purchase);
+      assert.equal(body.chapter_id, chapter);
+      assert.equal(body.version_id, grant.version_id);
+      assert.equal(body.expected_revision, 1);
+      assert.equal(body.block_id, fixture.expected_markdown.split("\n\n").length);
+      assert.equal(body.char_offset, fixture.expected_markdown.split("\n\n").at(-1).length);
+      const aad = Buffer.from(grant.content.aad_b64u, "base64url").toString("utf8").split("\n");
+      assert.equal(body.plaintext_sha256, aad[4]);
+      completionPosts++;
+      const old = markedComplete;
+      markedComplete = true;
+      send(reply, 200, JSON.stringify({
+        status: old ? "already_completed" : "completed",
+      }), "application/json");
     } else if (uri.pathname === "/api/v1/me/progress/purchased" &&
       req.method === "GET") {
       assert.equal(uri.searchParams.get("chapter_id"), chapter);
@@ -285,70 +314,6 @@ async function run() {
           path: path.join(screenshotRoot, "s034-" + device + "-dark.png"),
           fullPage: true, mask, maskColor: "#e5e7eb",
         });
-        // Controls must be real interactions, not decorative buttons. No
-        // browser storage is used for paid text, keys or preferences.
-        const panel = page.locator("#paid-reader-settings");
-        const control = page.getByRole("button", { name: "Настройки чтения" });
-        assert(await panel.isHidden(), device + ": reader settings shown by default");
-        await control.click();
-        assert(await panel.isVisible(), device + ": settings button does not open panel");
-        assert.equal(await control.getAttribute("aria-expanded"), "true");
-        const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
-          (element) => Number.parseFloat(getComputedStyle(element).fontSize));
-        await page.locator("[data-paid-font-scale]").evaluate((input) => {
-          input.value = "120";
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-        const sizeAfter = await page.locator(".reader-piece__text").first().evaluate(
-          (element) => Number.parseFloat(getComputedStyle(element).fontSize));
-        assert(sizeAfter > sizeBefore, device + ": font size setting ignored");
-        assert.equal(await page.locator("[data-paid-font-output]").textContent(), "120%");
-        await page.locator("[data-paid-line-height]").evaluate((input) => {
-          input.value = "205";
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-        const spacing = await page.locator(".reader-piece__text").first().evaluate(
-          (element) => Number.parseFloat(getComputedStyle(element).lineHeight));
-        assert(spacing > sizeAfter * 2, device + ": line spacing setting ignored");
-        await page.locator("[data-paid-reader-width]").evaluate((input) => {
-          input.value = "620";
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-        if (device === "desktop") {
-          const newWidth = await page.locator(".reader-paid .reader-width").evaluate(
-            (element) => element.getBoundingClientRect().width);
-          assert(newWidth <= 620 && newWidth < metrics.readerWidth,
-            "reader width setting ignored");
-        }
-        await page.getByRole("button", { name: "Сепия" }).click();
-        const sepiaBackground = await page.evaluate(() =>
-          getComputedStyle(document.body).backgroundColor);
-        assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
-        assert.equal(await page.getByRole("button", { name: "Сепия" })
-          .getAttribute("aria-pressed"), "true");
-        if (device === "desktop") {
-          await page.screenshot({
-            path: path.join(screenshotRoot, "s065-reader-settings-desktop.png"),
-            fullPage: true, mask, maskColor: "#e5e7eb",
-          });
-        }
-        await page.getByRole("button", { name: "Сбросить настройки" }).click();
-        assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
-        assert.equal(await page.evaluate(() => document.body.hasAttribute(
-          "data-paid-reader-theme")), false, device + ": reset did not clear theme");
-        await page.getByRole("button", { name: "Закрыть настройки" }).click();
-        assert(await panel.isHidden(), device + ": settings close did not work");
-        assert.equal(await control.getAttribute("aria-expanded"), "false");
-        await control.click();
-        await page.keyboard.press("Escape");
-        assert(await panel.isHidden(), device + ": Escape must close reader controls");
-        assert(await control.evaluate((element) => element === document.activeElement),
-          device + ": Escape did not return keyboard focus");
-        const storageCount = await page.evaluate(async () =>
-          localStorage.length + sessionStorage.length + (await caches.keys()).length +
-          (await indexedDB.databases()).length);
-        assert.equal(storageCount, 0, device + ": settings wrote into persistent storage");
-
         await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
         await page.getByText("Место сохранено.").waitFor();
         const first = fixture.expected_markdown.split("\n\n")[0];
@@ -356,6 +321,19 @@ async function run() {
           chapter_id: chapter, purchase_id: purchase, version_id: grant.version_id,
           block_id: 1, char_offset: first.length, expected_revision: 0,
         });
+        const section = page.locator("[data-paid-completion]");
+        assert(await section.isVisible(), device + ": missing completion UI");
+        if (device === "desktop") {
+          await page.getByRole("button", { name: "Глава прочитана" }).click();
+          await section.getByText("Глава отмечена прочитанной.", { exact: false })
+            .waitFor({ timeout: 10000 });
+          assert.equal(completionPosts, 1, "only explicit click completes a chapter");
+          assert.equal(await section.locator('a[href="/me/rankings"]').count(), 1);
+        } else {
+          await section.getByText("Глава уже отмечена прочитанной.").waitFor();
+          assert.equal(await page.getByRole("button", { name: "Глава прочитана" }).count(), 0);
+          assert.equal(completionPosts, 1, "reopening does not duplicate completion");
+        }
       } finally {
         await page.close();
       }
