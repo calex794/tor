@@ -14,17 +14,11 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use std::{
-    env,
-    fs::OpenOptions,
-    io::Write,
-    num::NonZeroU32,
-    path::Path,
-    process::Command,
-    sync::Arc,
-};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+use std::{
+    env, fs::OpenOptions, io::Write, num::NonZeroU32, path::Path, process::Command, sync::Arc,
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -126,7 +120,10 @@ async fn post_grant(
     if let Some(session) = session {
         request = request.header(
             header::COOKIE,
-            format!("tor-dev-session={session}; tor-dev-csrf={}", csrf.unwrap_or("A")),
+            format!(
+                "tor-dev-session={session}; tor-dev-csrf={}",
+                csrf.unwrap_or("A")
+            ),
         );
     }
     if let Some(csrf) = csrf {
@@ -191,12 +188,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let pool = catalog.pool().clone();
     let reader = PgReader::new(pool.clone());
     let accounts = PgAccounts::from_pool(pool.clone());
-    let (author, _author_cookie) =
-        user(&accounts, "s034-minio-author@tor-ci.example").await;
-    let (buyer, buyer_cookie) =
-        user(&accounts, "s034-minio-buyer@tor-ci.example").await;
-    let (_stranger, stranger_cookie) =
-        user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
+    let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
+    let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let csrf = generate_session_token();
 
     pg(
@@ -274,9 +268,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         None,
     );
     assert_eq!(
-        post_grant(&app, chapter, Some(&buyer_cookie), Some(&csrf), ORIGIN, "{}")
-            .await
-            .status(),
+        post_grant(
+            &app,
+            chapter,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            ORIGIN,
+            "{}"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
         "buyer may not receive bytes before the payment commits"
     );
@@ -328,9 +329,20 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    let purchased = post_grant(&app, chapter, Some(&buyer_cookie), Some(&csrf), ORIGIN, "{}").await;
+    let purchased = post_grant(
+        &app,
+        chapter,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        ORIGIN,
+        "{}",
+    )
+    .await;
     assert_eq!(purchased.status(), StatusCode::OK);
-    assert_eq!(purchased.headers()[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(
+        purchased.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
     assert_eq!(purchased.headers()[header::REFERRER_POLICY], "no-referrer");
     assert_eq!(purchased.headers()["x-robots-tag"], "noindex");
     let first = decode(purchased).await;
@@ -349,23 +361,50 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
-    pg(&url, &format!("UPDATE books SET visibility='draft' WHERE id={book}"));
-    pg(&url, &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"));
-    let preserved = post_grant(&app, chapter, Some(&buyer_cookie), Some(&csrf), ORIGIN, "{}").await;
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
+    );
+    pg(
+        &url,
+        &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
+    );
+    let preserved = post_grant(
+        &app,
+        chapter,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        ORIGIN,
+        "{}",
+    )
+    .await;
     assert_eq!(preserved.status(), StatusCode::OK);
     let still_v1 = decode(preserved).await;
     assert_eq!(still_v1["version_id"], v1.to_string());
     assert!(!still_v1.to_string().contains(MARKDOWN));
     save_ephemeral_fixture(still_v1, v1);
 
-    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
     assert_eq!(
-        post_grant(&app, chapter, Some(&buyer_cookie), Some(&csrf), ORIGIN, "{}")
-            .await
-            .status(),
+        post_grant(
+            &app,
+            chapter,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            ORIGIN,
+            "{}"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
-    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
     pg(
         &url,
         &format!(
@@ -374,9 +413,16 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         ),
     );
     assert_eq!(
-        post_grant(&app, chapter, Some(&buyer_cookie), Some(&csrf), ORIGIN, "{}")
-            .await
-            .status(),
+        post_grant(
+            &app,
+            chapter,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            ORIGIN,
+            "{}"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     // Previous signed links remain bearer credentials until TTL; the Node
