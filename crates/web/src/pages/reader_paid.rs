@@ -17,7 +17,7 @@ pub fn paid_reader_shell(
              data-s3-origin="{}" aria-labelledby="reader-title">
            <div class="container reader-width">
              <header class="reader-topbar" aria-label="Панель чтения">
-               <a class="reader-topbar__back" href="/me/library"><span aria-hidden="true">←</span> Моя библиотека</a>
+               <a class="reader-topbar__back" href="/me/purchases"><span aria-hidden="true">←</span> Моя библиотека</a>
                <div class="reader-topbar__title">
                  <span class="reader-topbar__book">Оплаченная книга</span>
                  <span class="reader-topbar__chapter">Глава {}</span>
@@ -33,7 +33,7 @@ pub fn paid_reader_shell(
              <div class="reader-resume" data-paid-resume aria-live="polite"></div>
              <article class="chapter-content reader-markdown reader-paid__content"
                  data-paid-content aria-label="Текст купленной главы"></article>
-             <p class="reader-page__return"><a class="text-link" href="/me/library">К моей библиотеке</a></p>
+             <p class="reader-page__return"><a class="text-link" href="/me/purchases">К моей библиотеке</a></p>
            </div>
            <script type="module" src="/assets/newboo-paid-reader.mjs"></script>
          </section>"#,
