@@ -6,7 +6,10 @@ use tor_commerce::{
     },
     repositories::checkout::PgCheckout,
 };
-use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
+use tor_contracts::paid_delivery::{
+    Actor, ChapterVersionRef, DenialReason, EntitlementDecision, EntitlementPort, PositiveId,
+};
+use tor_commerce::repositories::entitlements::PgDirectEntitlements;
 
 async fn fixture(name: &str, balance: i64, price: i64) -> (PgPool, i64, i64, i64, i64) {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL required");
@@ -289,4 +292,208 @@ async fn d_02_concurrent_different_keys_cannot_overspend_wallet() {
             .await
             .unwrap();
     assert_eq!(after, 20);
+}
+
+fn paid_actor(user_id: i64) -> Actor {
+    Actor {
+        user_id: PositiveId::new(user_id).unwrap(),
+    }
+}
+
+fn denied(reason: DenialReason) -> EntitlementDecision {
+    EntitlementDecision::Denied { reason }
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_03_unpurchased_even_with_saved_progress_cannot_mint_rights() {
+    let (pool, actor, book, chapter, version) = fixture("d03_progress", 500, 100).await;
+    sqlx::query(
+        "INSERT INTO reader_book_positions
+         (user_id,book_id,chapter_id,chapter_no,chapter_revision,version_id,block_index)
+         VALUES ($1,$2,$3,1,0,$4,1)",
+    )
+    .bind(actor)
+    .bind(book)
+    .bind(chapter)
+    .bind(version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let repo = PgDirectEntitlements::new(pool);
+    let decision = repo
+        .resolve_entitlement(paid_actor(actor), PositiveId::new(chapter).unwrap(), None)
+        .await
+        .unwrap();
+    assert_eq!(decision, denied(DenialReason::NotPurchased));
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_03_only_buyer_can_read_exact_v1_after_new_publication_v2() {
+    let (pool, actor, _, chapter, version) = fixture("d03_pin", 500, 100).await;
+    let checkout = PgCheckout::new(pool.clone());
+    let receipt = checkout
+        .checkout_once(&command(actor, chapter, version, 100, 'A'))
+        .await
+        .unwrap();
+    let rights = PgDirectEntitlements::new(pool.clone());
+    let chapter_id = PositiveId::new(chapter).unwrap();
+    let purchased = rights
+        .resolve_entitlement(
+            paid_actor(actor),
+            chapter_id,
+            Some(PositiveId::new(receipt.purchase_id.get()).unwrap()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(purchased, EntitlementDecision::Allowed { pinned: receipt.pinned });
+
+    let stranger: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('d03_stranger@example.test','Another buyer','$argon2id$ci') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rights
+            .resolve_entitlement(
+                paid_actor(stranger),
+                chapter_id,
+                Some(PositiveId::new(receipt.purchase_id.get()).unwrap())
+            )
+            .await
+            .unwrap(),
+        denied(DenialReason::NotPurchased)
+    );
+    assert_eq!(
+        rights
+            .resolve_entitlement(
+                paid_actor(actor),
+                chapter_id,
+                Some(PositiveId::new(receipt.purchase_id.get() + 1).unwrap())
+            )
+            .await
+            .unwrap(),
+        denied(DenialReason::NotPurchased)
+    );
+
+    let v2: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Новая редакция') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$1 WHERE chapter_id=$2")
+        .bind(v2)
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rights
+            .resolve_entitlement(paid_actor(actor), chapter_id, None)
+            .await
+            .unwrap(),
+        purchased
+    );
+    assert_ne!(version, v2);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_03_refund_immediately_denies_future_entitlement_decisions() {
+    let (pool, actor, _, chapter, version) = fixture("d03_refund", 500, 100).await;
+    let receipt = PgCheckout::new(pool.clone())
+        .checkout_once(&command(actor, chapter, version, 100, 'A'))
+        .await
+        .unwrap();
+    let rights = PgDirectEntitlements::new(pool.clone());
+    let chapter_id = PositiveId::new(chapter).unwrap();
+    assert!(matches!(
+        rights
+            .resolve_entitlement(paid_actor(actor), chapter_id, None)
+            .await
+            .unwrap(),
+        EntitlementDecision::Allowed { .. }
+    ));
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,'d03_refund_reversal','refund')",
+    )
+    .bind(receipt.purchase_id.get())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rights
+            .resolve_entitlement(paid_actor(actor), chapter_id, None)
+            .await
+            .unwrap(),
+        denied(DenialReason::Refunded)
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
+    let (pool, actor, book, chapter, version) = fixture("d03_hold", 500, 100).await;
+    PgCheckout::new(pool.clone())
+        .checkout_once(&command(actor, chapter, version, 100, 'A'))
+        .await
+        .unwrap();
+    let rights = PgDirectEntitlements::new(pool.clone());
+    let chapter_id = PositiveId::new(chapter).unwrap();
+    let buyer = paid_actor(actor);
+    // Creator hiding the storefront cannot revoke a valid paid V1.
+    sqlx::query("UPDATE books SET visibility='draft' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        EntitlementDecision::Allowed { .. }
+    ));
+
+    sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        denied(DenialReason::Locked)
+    );
+    sqlx::query("UPDATE chapters SET admin_hold=false,is_deleted=true WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        denied(DenialReason::Hidden)
+    );
+    sqlx::query("UPDATE chapters SET is_deleted=false WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        denied(DenialReason::Locked)
+    );
 }
