@@ -221,6 +221,34 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         stored_object(&pool, v1).await.as_deref(),
         Some(object_v1.as_str())
     );
+    // B-only metadata: exact UTF-16 lengths, no body or S3 credentials.
+    let (lengths, last_block, last_offset, content_sha): (Vec<i32>, i32, i32, Vec<u8>) =
+        sqlx::query_as(
+            "SELECT block_utf16_lengths,last_readable_block_index,
+                    last_readable_char_offset,content_sha256
+             FROM chapter_reader_manifests
+             WHERE chapter_id=$1 AND version_id=$2 AND storage_object_id=$3::uuid",
+        )
+        .bind(chapter)
+        .bind(v1)
+        .bind(object_v1.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let normalized_v1 = v1_body.replace("\r\n", "\n").replace('\r', "\n");
+    assert_eq!(lengths, vec![normalized_v1.encode_utf16().count() as i32]);
+    assert_eq!((last_block, last_offset), (1, lengths[0]));
+    assert_eq!(content_sha, sha(normalized_v1.as_bytes()).to_vec());
+    let before_replay: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before_replay, 1);
+
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -232,6 +260,27 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .await,
         Ok(()),
         "exact attach retry is idempotent"
+    );
+    let after_replay: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(after_replay, 1);
+    assert!(
+        sqlx::query(
+            "UPDATE chapter_reader_manifests SET parser_schema=1
+             WHERE chapter_id=$1 AND version_id=$2",
+        )
+        .bind(chapter)
+        .bind(v1)
+        .execute(&pool)
+        .await
+        .is_err(),
+        "a released reader manifest must not be edited in place"
     );
 
     // Even a forged G-ready object with the wrong plaintext SHA rolls back.
@@ -250,6 +299,19 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     );
     assert_eq!(object_state(&pool, &object_wrong).await, "ready");
     assert_eq!(stored_object(&pool, v2).await, None);
+    let invalid_manifest_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v2)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        invalid_manifest_count, 0,
+        "bad ciphertext may not mint a reader manifest"
+    );
+
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -285,6 +347,21 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         stored_object(&pool, v2).await.as_deref(),
         Some(object_v2.as_str())
     );
+    let manifests: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests
+         WHERE chapter_id=$1 AND version_id IN ($2,$3)",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .bind(v2)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        manifests, 2,
+        "V2 must never erase purchased V1 parser metadata"
+    );
+
     let current: i64 =
         sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
             .bind(chapter)

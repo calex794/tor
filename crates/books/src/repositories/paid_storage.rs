@@ -3,11 +3,13 @@
 //! No entitlement is created here; D remains the sole rights authority.
 use crate::services::authoring::AuthorError;
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::{
     ChapterVersionPort, ChapterVersionRef, ContentCodec, DeliveryError, EncryptedObjectKind,
     EncryptedObjectRef, ObjectId, ObjectRef,
 };
+use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHEMA_V1};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaidPublication {
@@ -179,6 +181,68 @@ impl PgPaidStorage {
             if !attached {
                 return Err(AuthorError::Conflict);
             }
+        }
+
+        // B creates the immutable parser manifest in the same commit as
+        // the already-verified object attachment. C can later validate a
+        // paid cursor without fetching or decrypting the S3 ciphertext.
+        // Never copy plaintext, signed URLs or user data to this table.
+        let body: String = sqlx::query_scalar(
+            "SELECT body_markdown FROM chapter_versions
+             WHERE chapter_id=$1 AND id=$2",
+        )
+        .bind(chapter_id)
+        .bind(version_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        let manifest = ReaderVersionManifestV1::from_markdown(&body).ok_or(AuthorError::Invalid)?;
+        let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
+        let digest: [u8; 32] = Sha256::digest(normalized.as_bytes()).into();
+        sqlx::query(
+            "INSERT INTO chapter_reader_manifests (
+                 chapter_id,version_id,storage_object_id,parser_schema,
+                 content_sha256,block_utf16_lengths,
+                 last_readable_block_index,last_readable_char_offset
+             ) VALUES($1,$2,$3::uuid,$4,$5,$6,$7,$8)
+             ON CONFLICT(chapter_id,version_id) DO NOTHING",
+        )
+        .bind(chapter_id)
+        .bind(version_id)
+        .bind(object_id.as_str())
+        .bind(READER_PARSER_SCHEMA_V1)
+        .bind(digest.as_slice())
+        .bind(&manifest.block_utf16_lengths)
+        .bind(manifest.last_readable_block_index)
+        .bind(manifest.last_readable_char_offset)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        // An exact replay is idempotent; any disagreement on parser, object,
+        // edition or offsets is a hard conflict rather than a silent update.
+        let identical: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM chapter_reader_manifests
+                 WHERE chapter_id=$1 AND version_id=$2
+                   AND storage_object_id=$3::uuid AND parser_schema=$4
+                   AND content_sha256=$5 AND block_utf16_lengths=$6
+                   AND last_readable_block_index=$7
+                   AND last_readable_char_offset=$8
+             )",
+        )
+        .bind(chapter_id)
+        .bind(version_id)
+        .bind(object_id.as_str())
+        .bind(READER_PARSER_SCHEMA_V1)
+        .bind(digest.as_slice())
+        .bind(&manifest.block_utf16_lengths)
+        .bind(manifest.last_readable_block_index)
+        .bind(manifest.last_readable_char_offset)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_write)?;
+        if !identical {
+            return Err(AuthorError::Conflict);
         }
 
         if let PaidPublication::Publish { .. } = publication {
