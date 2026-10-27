@@ -6,7 +6,7 @@ use crate::{
 };
 use axum::{
     extract::{ConnectInfo, Form, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
 };
 use serde::Deserialize;
@@ -50,6 +50,42 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
             pages::account_error_page(title, message, registration),
         ),
         &[],
+    )
+}
+
+fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        let title = if registration {
+            "Слишком много попыток регистрации"
+        } else {
+            "Слишком много попыток входа"
+        };
+        let mut response = auth_problem(
+            status,
+            title,
+            "Превышено число попыток. Повторите через 10 минут.",
+            registration,
+        );
+        response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("600"));
+        response
+    } else {
+        let title = if registration {
+            "Регистрация временно недоступна"
+        } else {
+            "Вход временно недоступен"
+        };
+        auth_problem(status, title, "Попробуйте снова немного позже.", registration)
+    }
+}
+
+fn login_storage_error(stage: &'static str) -> Response {
+    // Static stage only: do not log email, password, cookie or password hash.
+    eprintln!("TOR_AUTH_LOGIN_UNAVAILABLE stage={stage}");
+    auth_problem(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Вход временно недоступен",
+        "Попробуйте войти немного позже.",
+        false,
     )
 }
 
@@ -97,13 +133,8 @@ pub(super) async fn register(
             );
         }
     };
-    if let Err(status) = login_limiter::limit(&state, "register", &account.email, peer).await {
-        return auth_problem(
-            status,
-            "Регистрация временно недоступна",
-            "Попробуйте снова чуть позже.",
-            true,
-        );
+    if let Err(status) = login_limiter::limit(&state, "register", &account.email, &headers, peer).await {
+        return auth_limit_error(status, true);
     }
 
     // Argon2 is deliberately moved off Tokio's request executor.
@@ -180,27 +211,13 @@ pub(super) async fn login(
         Ok(email) => email,
         Err(_) => return invalid_credentials(),
     };
-    let identity_key = match login_limiter::limit(&state, "login", &email, peer).await {
+    let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
         Ok(key) => key,
-        Err(status) => {
-            return auth_problem(
-                status,
-                "Вход временно недоступен",
-                "Попробуйте войти немного позже.",
-                false,
-            );
-        }
+        Err(status) => return auth_limit_error(status, false),
     };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
-        Err(_) => {
-            return auth_problem(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Вход временно недоступен",
-                "Попробуйте войти немного позже.",
-                false,
-            );
-        }
+        Err(_) => return login_storage_error("lookup"),
     };
     let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
@@ -209,7 +226,7 @@ pub(super) async fn login(
         .run(move || match known_hash {
             Some(hash) => verify_password(&password, &hash),
             None => {
-                // A missing account still performs costly work to limit timing leaks.
+                // Unknown accounts still perform costly work to limit timing leaks.
                 let _ = hash_password(&password);
                 false
             }
@@ -217,14 +234,17 @@ pub(super) async fn login(
         .await
     {
         Ok(valid) => valid,
-        Err(status) => {
-            return auth_problem(
-                status,
-                "Вход временно недоступен",
-                "Попробуйте войти немного позже.",
+        Err(StatusCode::TOO_MANY_REQUESTS) => {
+            let mut response = auth_problem(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Сервис входа перегружен",
+                "Повторите попытку через несколько секунд.",
                 false,
             );
+            response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
+            return response;
         }
+        Err(_) => return login_storage_error("password_worker"),
     };
     if !verified {
         return invalid_credentials();
@@ -232,35 +252,14 @@ pub(super) async fn login(
     let Some(user) = stored else {
         return invalid_credentials();
     };
-
-    if state
-        .accounts
-        .clear_auth_attempt(&identity_key)
-        .await
-        .is_err()
-    {
-        return auth_problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Вход временно недоступен",
-            "Попробуйте войти немного позже.",
-            false,
-        );
+    if state.accounts.clear_auth_attempt(&identity_key).await.is_err() {
+        return login_storage_error("clear_attempt");
     }
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
-    if state
-        .accounts
-        .insert_session(user.id, &digest, ttl)
-        .await
-        .is_err()
-    {
-        return auth_problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Вход временно недоступен",
-            "Попробуйте войти немного позже.",
-            false,
-        );
+    if state.accounts.insert_session(user.id, &digest, ttl).await.is_err() {
+        return login_storage_error("create_session");
     }
     // No next parameter is accepted: redirects always stay on this site.
     private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
