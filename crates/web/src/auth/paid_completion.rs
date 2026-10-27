@@ -79,7 +79,10 @@ pub(super) async fn get(
         .await
     {
         Ok((available, completed)) => private_response(
-            Json(CompletionState { available, completed }),
+            Json(CompletionState {
+                available,
+                completed,
+            }),
             &[],
         ),
         Err(error) => deny(status(error)),
