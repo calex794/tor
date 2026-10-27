@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 const KEK_ID: &str = "content-kek-v1";
 const MAX_CHAPTER_UTF8_BYTES: usize = 200_000;
+const MAX_CHAPTER_CHARS: usize = 50_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CryptoError {
@@ -46,9 +47,9 @@ impl ContentKek {
         if decoded.len() != 32 {
             return Err(CryptoError::UnavailableKey);
         }
-        let mut secret = [0; 32];
-        secret.copy_from_slice(&decoded);
-        Ok(Self::from_bytes(secret))
+        let mut secret = Zeroizing::new([0; 32]);
+        secret[..].copy_from_slice(&decoded);
+        Ok(Self(secret))
     }
 }
 
@@ -159,7 +160,10 @@ pub fn seal_chapter(
     kek: &ContentKek,
 ) -> Result<EncryptedChapter, CryptoError> {
     let normalized = Zeroizing::new(markdown.replace("\r\n", "\n").replace('\r', "\n"));
-    if normalized.is_empty() || normalized.len() > MAX_CHAPTER_UTF8_BYTES {
+    if normalized.is_empty()
+        || normalized.len() > MAX_CHAPTER_UTF8_BYTES
+        || normalized.chars().count() > MAX_CHAPTER_CHARS
+    {
         return Err(CryptoError::InvalidMaterial);
     }
     let plaintext_sha256 = sha256_bytes(normalized.as_bytes());
@@ -217,9 +221,9 @@ pub(crate) fn unwrap_scoped_dek(
     if bytes.len() != 32 {
         return Err(CryptoError::InvalidMaterial);
     }
-    let mut dek = [0_u8; 32];
-    dek.copy_from_slice(&bytes);
-    Ok(Zeroizing::new(dek))
+    let mut dek = Zeroizing::new([0_u8; 32]);
+    dek[..].copy_from_slice(&bytes);
+    Ok(dek)
 }
 
 #[cfg(test)]
