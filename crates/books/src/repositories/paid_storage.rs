@@ -275,24 +275,23 @@ impl ChapterVersionPort for PgPaidStorage {
         let Some(row) = row else {
             return Ok(None);
         };
-        let invalid = |_| DeliveryError::Unavailable;
-        let uuid: String = row.try_get("object_id").map_err(invalid)?;
-        let size: i64 = row.try_get("size_bytes").map_err(invalid)?;
-        let digest: Vec<u8> = row.try_get("sha256_ciphertext").map_err(invalid)?;
-        let nonce: Vec<u8> = row.try_get("object_nonce").map_err(invalid)?;
-        let aad: Vec<u8> = row.try_get("object_aad").map_err(invalid)?;
-        let kek_id: String = row.try_get("kek_id").map_err(invalid)?;
+        let uuid: String = row.try_get("object_id").map_err(|_| DeliveryError::Unavailable)?;
+        let size: i64 = row.try_get("size_bytes").map_err(|_| DeliveryError::Unavailable)?;
+        let digest: Vec<u8> = row.try_get("sha256_ciphertext").map_err(|_| DeliveryError::Unavailable)?;
+        let nonce: Vec<u8> = row.try_get("object_nonce").map_err(|_| DeliveryError::Unavailable)?;
+        let aad: Vec<u8> = row.try_get("object_aad").map_err(|_| DeliveryError::Unavailable)?;
+        let kek_id: String = row.try_get("kek_id").map_err(|_| DeliveryError::Unavailable)?;
         let object_id = ObjectId::parse(&uuid).map_err(|_| DeliveryError::Unavailable)?;
         let object = ObjectRef::new(
             object_id,
             EncryptedObjectKind::Chapter,
-            digest.try_into().map_err(invalid)?,
-            size.try_into().map_err(invalid)?,
+            digest.try_into().map_err(|_| DeliveryError::Unavailable)?,
+            size.try_into().map_err(|_| DeliveryError::Unavailable)?,
         )
         .map_err(|_| DeliveryError::Unavailable)?;
         Ok(Some(EncryptedObjectRef {
             object,
-            nonce: nonce.try_into().map_err(invalid)?,
+            nonce: nonce.try_into().map_err(|_| DeliveryError::Unavailable)?,
             aad,
             wrapped_key_id: kek_id,
             codec: ContentCodec::Gzip,
