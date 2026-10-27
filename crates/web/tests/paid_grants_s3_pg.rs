@@ -30,7 +30,10 @@ use tor_books::repositories::{
 };
 use tor_commerce::{
     domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
-    repositories::checkout::PgCheckout,
+    repositories::{
+        checkout::PgCheckout,
+        entitlements::{MixedTocAccess, PgDirectEntitlements},
+    },
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 use tor_reading::repositories::PgReader;
@@ -691,10 +694,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         0,
         "public free chapter must not accidentally become a paid entitlement"
     );
-    let scoped_toc = tor_commerce::repositories::entitlements::PgDirectEntitlements::new(
-        pool.clone(),
-    )
-    .mixed_book_toc(
+    let scoped_toc = PgDirectEntitlements::new(pool.clone())
+        .mixed_book_toc(
         PositiveId::new(buyer).unwrap(),
         PositiveId::new(chapter).unwrap(),
         PositiveId::new(purchase_id).unwrap(),
@@ -704,7 +705,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert!(
         scoped_toc.chapters.iter().all(|row| matches!(
             row.access,
-            tor_commerce::repositories::entitlements::MixedTocAccess::Purchased { .. }
+            MixedTocAccess::Purchased { .. }
         )),
         "hidden public metadata leaked from SQL query: {:?}",
         scoped_toc
