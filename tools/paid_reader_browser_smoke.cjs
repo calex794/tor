@@ -147,6 +147,28 @@ async function testDevice(browser, name, width, height, tamper) {
         block_id: 1, char_offset: "Глава платная А😀Б".length, expected_revision: 0,
       });
       assert.equal(await page.locator("img[src=x]").count(), 0, "Unsafe image parsed");
+      if (name === "desktop") {
+        // A forged Content-Length must not make the browser buffer an
+        // unbounded object before the cryptographic hash check.
+        const blockedOversize = await page.evaluate(async (grant) => {
+          const { decryptPaidGrant } = await import("/assets/newboo-paid-reader.mjs");
+          let cancelled = false;
+          const streaming = new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(16 * 1024 * 1024 + 1));
+            },
+            cancel() { cancelled = true; },
+          });
+          const download = async () => new Response(streaming, { status: 200 });
+          try {
+            await decryptPaidGrant(grant, "103", "http://127.0.0.1:9000", download);
+            return false;
+          } catch {
+            return cancelled;
+          }
+        }, fixture.grant);
+        assert(blockedOversize, "Oversized S3 stream must abort without buffering");
+      }
       if (process.env.TOR_PAID_READER_SHOTS) {
         fs.mkdirSync(process.env.TOR_PAID_READER_SHOTS, { recursive: true });
         await page.screenshot({
