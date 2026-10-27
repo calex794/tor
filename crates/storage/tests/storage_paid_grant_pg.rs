@@ -23,10 +23,9 @@ use tor_contracts::paid_delivery::{
 };
 use tor_storage::{
     domain::provider::StorageError,
-    repositories::registry::PgStorageRegistry,
+    repositories::{paid_delivery::PgPrivateDelivery, registry::PgStorageRegistry},
     services::{
         crypto::{seal_chapter, ContentKek},
-        paid_delivery::PgPrivateDelivery,
         provider::PrivateObjectStore,
     },
 };
