@@ -484,7 +484,7 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   z-index: 120;
   top: calc(100% + 8px);
   right: 0;
-  width: min(440px, calc(100vw - 32px));
+  width: min(520px, calc(100vw - 24px));
   max-height: min(65dvh, 530px);
   overflow: auto;
   overscroll-behavior: contain;
