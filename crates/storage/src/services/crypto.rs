@@ -242,24 +242,13 @@ pub fn rewrap_registered_v1_to_v2(
     if v1_kek.0[..] == v2_kek.0[..] {
         return Err(CryptoError::InvalidMaterial);
     }
-    let dek = unwrap_registered_dek(
-        object_id,
-        v1_wrapped_dek,
-        v1_wrap_nonce,
-        KEK_ID,
-        v1_kek,
-    )?;
+    let dek = unwrap_registered_dek(object_id, v1_wrapped_dek, v1_wrap_nonce, KEK_ID, v1_kek)?;
     let wrap_nonce = random_bytes::<12>()?;
     let aad = wrap_aad(object_id);
     let wrapped_dek = encrypt_raw(&v2_kek.0, &wrap_nonce, &aad, &dek[..])?;
     // Verify both the authentication tag and the exact DEK before returning
     // any material that could be committed by a future migration.
-    let confirmed = Zeroizing::new(decrypt_raw(
-        &v2_kek.0,
-        &wrap_nonce,
-        &aad,
-        &wrapped_dek,
-    )?);
+    let confirmed = Zeroizing::new(decrypt_raw(&v2_kek.0, &wrap_nonce, &aad, &wrapped_dek)?);
     if confirmed.as_slice() != &dek[..] || wrapped_dek.len() != 48 {
         return Err(CryptoError::AuthenticationFailed);
     }
