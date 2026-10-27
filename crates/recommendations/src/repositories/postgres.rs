@@ -30,6 +30,14 @@ pub struct RankingCommit {
     pub status: Option<AnswerStatus>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisibleRank {
+    pub book_id: i64,
+    pub title: String,
+    pub tier: i64,
+    pub comparisons_count: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RankingStoreError {
     Invalid,
@@ -83,6 +91,41 @@ fn db_u64(value: u64) -> Result<i64, RankingStoreError> {
 impl PgRanking {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Private and currently public ranks only. One bounded SQL request
+    /// instead of one query per book.
+    pub async fn visible_ranks(
+        &self,
+        user_id: i64,
+    ) -> Result<Vec<VisibleRank>, RankingStoreError> {
+        if user_id <= 0 {
+            return Err(RankingStoreError::Invalid);
+        }
+        let rows = sqlx::query(
+            "SELECT b.id,b.title,r.tier,r.comparisons_count
+             FROM user_book_rank AS r JOIN books AS b ON b.id=r.book_id
+             WHERE r.user_id=$1
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             ORDER BY r.tier ASC,b.id::text ASC LIMIT 500",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let count: i64 = row.try_get("comparisons_count")?;
+                if count < 0 {
+                    return Err(RankingStoreError::Invalid);
+                }
+                Ok(VisibleRank {
+                    book_id: row.try_get("id")?,
+                    title: row.try_get("title")?,
+                    tier: row.try_get("tier")?,
+                    comparisons_count: count as u64,
+                })
+            })
+            .collect()
     }
 
     /// Private snapshot. The caller must derive user_id from the session.
