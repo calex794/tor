@@ -1,5 +1,6 @@
 //! Classification is conservative: stale leases and retries are signals,
 //! not proof a remote job process crashed. The RIL heartbeat is local only.
+use crate::cover_worker::CoverRunnerSnapshot;
 use tor_ingest::repositories::cover_jobs::CoverQueueCounts;
 use tor_traffic_behavior::{repositories::RilQueueCounts, services::PgPumpSnapshot};
 
@@ -106,6 +107,55 @@ pub(crate) fn covers(queue: Option<CoverQueueCounts>) -> Diagnostic {
     }
 }
 
+/// Conservative local runner health. A live PostgreSQL lease is not evidence
+/// that this or another process is making forward progress.
+pub(crate) fn cover_runner(
+    runner: Option<CoverRunnerSnapshot>,
+    queue: Option<CoverQueueCounts>,
+) -> Diagnostic {
+    let base = covers(queue);
+    let Some(runner) = runner else {
+        return base;
+    };
+    if runner.stopped || runner.timeouts > 0 {
+        return Diagnostic {
+            text: "Локальный исполнитель обложек остановлен после превышения времени операции; требуется проверка.",
+            warning: true,
+        };
+    }
+    if runner.running_for_s.is_some_and(|seconds| seconds >= 95)
+        || runner
+            .since_completion_s
+            .is_some_and(|seconds| seconds >= 95)
+        || (runner.cycles == 0 && runner.since_start_s.is_some_and(|seconds| seconds >= 95))
+    {
+        return Diagnostic {
+            text: "Исполнитель обложек не завершал цикл более 95 секунд: возможная остановка.",
+            warning: true,
+        };
+    }
+    if runner.consecutive_errors >= 3 {
+        return Diagnostic {
+            text: "Исполнитель обложек завершил три или более операций подряд с ошибками.",
+            warning: true,
+        };
+    }
+    if base.warning {
+        return base;
+    }
+    if runner.cycles == 0 {
+        Diagnostic {
+            text: "Локальный исполнитель обложек запущен; первый цикл ещё не завершён.",
+            warning: false,
+        }
+    } else {
+        Diagnostic {
+            text: "Локальный исполнитель обложек завершает циклы; состояние других процессов неизвестно.",
+            warning: false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +253,40 @@ mod tests {
         let info = covers(Some(queue));
         assert!(!info.warning);
         assert!(info.text.contains("не подтверждён"));
+    }
+
+    #[test]
+    fn cover_runner_timeout_and_stale_heartbeat_are_warnings_even_when_queue_empty() {
+        let mut runner = CoverRunnerSnapshot {
+            cycles: 2,
+            since_completion_s: Some(96),
+            ..CoverRunnerSnapshot::default()
+        };
+        assert!(cover_runner(Some(runner), Some(cover_queue())).warning);
+        runner.since_completion_s = Some(1);
+        runner.timeouts = 1;
+        runner.stopped = true;
+        assert!(cover_runner(Some(runner), Some(cover_queue())).warning);
+        runner.stopped = false;
+        runner.timeouts = 0;
+        runner.consecutive_errors = 3;
+        assert!(cover_runner(Some(runner), Some(cover_queue())).warning);
+    }
+
+    #[test]
+    fn cover_queue_and_runtime_must_not_invent_success() {
+        assert!(cover_runner(None, None).text.contains("не подтверждена"));
+        let first = CoverRunnerSnapshot {
+            since_start_s: Some(1),
+            ..CoverRunnerSnapshot::default()
+        };
+        assert!(!cover_runner(Some(first), Some(cover_queue())).warning);
+        assert!(cover_runner(Some(first), Some(cover_queue()))
+            .text
+            .contains("первый цикл"));
+        let mut queue = cover_queue();
+        queue.overdue_pending = 1;
+        assert!(cover_runner(Some(first), Some(queue)).warning);
     }
 
     #[test]

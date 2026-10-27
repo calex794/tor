@@ -40,6 +40,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         None
     };
+    // Explicit opt-in only. Never start image jobs in demo, without PostgreSQL,
+    // without a compiled private S3 adapter, or on malformed configuration.
+    let worker_setting = match env::var("TOR_COVER_WORKER_ENABLED") {
+        Ok(setting) => Some(setting),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let cover_worker_enabled = match tor_web::cover_worker::worker_opt_in(
+        worker_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        cover_store.is_some(),
+    ) {
+        Ok(enabled) => enabled,
+        Err(reason) => return Err(reason.into()),
+    };
+    // Do not start jobs until the HTTP application and listener have passed
+    // their own readiness checks. No second database pool is opened.
+    let mut pending_cover_worker: Option<(
+        PgCatalog,
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+    )> = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -51,6 +73,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             tor_web::start_ril_pg_background(&catalog);
             let reader = PgReader::new(pool.clone());
             reader.probe().await?;
+            if cover_worker_enabled {
+                pending_cover_worker = cover_store
+                    .as_ref()
+                    .map(|storage| (catalog.clone(), storage.clone()));
+            }
             println!("TOR PostgreSQL catalogue and public reading on {address}");
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 let origin = env::var("TOR_PUBLIC_ORIGIN")?;
@@ -102,6 +129,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Err(error) => return Err(error.into()),
     };
     let listener = tokio::net::TcpListener::bind(address).await?;
+    // Exactly one bounded background task for this process. PostgreSQL's
+    // SKIP LOCKED and lease_epoch fence competing processes and restarts.
+    let _cover_worker = if let Some((catalog, storage)) = pending_cover_worker {
+        let started = tor_web::cover_worker::start_cover_worker_background(catalog, storage)
+            .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
+        println!("TOR private cover worker enabled");
+        Some(started)
+    } else {
+        None
+    };
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

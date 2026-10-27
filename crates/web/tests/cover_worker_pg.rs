@@ -11,6 +11,7 @@ use std::{
     collections::HashMap,
     io::Cursor,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tor_books::repositories::{
     cover_slots::{PgCoverSlots, PublicCoverKind},
@@ -25,7 +26,7 @@ use tor_ingest::{
         image_pipeline::RECIPE_VERSION,
     },
 };
-use tor_web::cover_worker::PgBookCoverBridge;
+use tor_web::cover_worker::{CoverRunner, CoverRunnerMonitor, PgBookCoverBridge};
 use tower::ServiceExt;
 
 #[derive(Clone, Default)]
@@ -127,7 +128,26 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .enqueue(source, 901, 901, 0, RECIPE_VERSION)
         .await
         .unwrap();
-    assert_eq!(worker.run_one().await.unwrap(), WorkerResult::Attached);
+    // OBS-07: prove the actual scheduled loop autonomously takes a PG job,
+    // produces two verified variants and attaches it. No manual run_one().
+    let monitor = CoverRunnerMonitor::default();
+    let handle = CoverRunner::new(catalog.clone(), Arc::new(store.clone()), monitor.clone())
+        .spawn(Duration::from_millis(25), Duration::from_secs(90));
+    let outcome = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if monitor.snapshot().attached >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    handle.abort();
+    outcome.expect("automated cover runner must finish the first PG/S3-fake job");
+    let local = monitor.snapshot();
+    assert_eq!(local.attached, 1);
+    assert_eq!(local.errors, 0);
+    assert_eq!(local.timeouts, 0);
     assert_eq!(slots.current_slot(901).await.unwrap(), Some((job, 1)));
     assert_eq!(jobs.job_status(job).await.unwrap().as_deref(), Some("done"));
     let card = slots

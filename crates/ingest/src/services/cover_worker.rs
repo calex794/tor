@@ -15,7 +15,7 @@ pub enum WorkerResult {
     RetryOrQuarantine,
 }
 
-pub struct CoverWorker<'a, J: CoverJobs, S: CoverObjectStore, B: BookCoverAttach> {
+pub struct CoverWorker<'a, J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> {
     pub jobs: &'a J,
     pub storage: &'a S,
     pub books: &'a B,
@@ -28,7 +28,7 @@ fn hex_digest(bytes: &[u8; 32]) -> String {
     bytes.iter().map(|value| format!("{value:02x}")).collect()
 }
 
-impl<J: CoverJobs, S: CoverObjectStore, B: BookCoverAttach> CoverWorker<'_, J, S, B> {
+impl<J: CoverJobs, S: CoverObjectStore + ?Sized, B: BookCoverAttach> CoverWorker<'_, J, S, B> {
     pub async fn run_one(&self) -> Result<WorkerResult, CoverError> {
         let Some(claim) = self.jobs.claim_next().await? else {
             return Ok(WorkerResult::Idle);
