@@ -117,8 +117,48 @@ pub(super) async fn upload_and_show(
     );
     let posted = send(app, upload_request(&path, csrf, cookies, ORIGIN, "image/png", &source)).await;
     assert_eq!(posted.status(), StatusCode::SEE_OTHER);
-    assert_eq!(posted.headers()[header::LOCATION], format!("/me/books/{book_id}"));
+    assert_eq!(
+        posted.headers()[header::LOCATION],
+        format!("/me/books/{book_id}/settings/covers")
+    );
     assert_eq!(posted.headers()[header::CACHE_CONTROL], "no-store");
+    let settings = send(
+        app,
+        request(
+            "GET",
+            &format!("/me/books/{book_id}/settings/covers"),
+            "",
+            cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(settings.status(), StatusCode::OK);
+    let csp = settings.headers()["content-security-policy"].to_str().unwrap();
+    assert!(csp.contains("script-src 'self'"));
+    assert!(csp.contains("img-src 'self' blob:"));
+    assert!(csp.contains("frame-ancestors 'none'"));
+    let settings_html = body_of(settings).await;
+    assert!(settings_html.contains("book-cover-picker__frame"));
+    assert!(settings_html.contains("book-cover-picker__plus"));
+    assert!(settings_html.contains("Обложка 1"));
+    assert!(settings_html.contains("data-cover-picker-input"));
+    assert!(settings_html.contains("name=\"cover\""));
+    assert!(settings_html.contains("/assets/newboo-cover-picker.js"));
+    assert!(!settings_html.contains("cover_file_2"));
+    assert!(settings_html.contains("Обложка ожидает обработки."));
+    let anonymous_settings = send(
+        app,
+        request(
+            "GET",
+            &format!("/me/books/{book_id}/settings/covers"),
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(anonymous_settings.status(), StatusCode::SEE_OTHER);
     let page = send(app, request("GET", &format!("/me/books/{book_id}"), "", cookies, ORIGIN)).await;
     assert!(body_of(page).await.contains("Обложка ожидает обработки."));
 
@@ -159,4 +199,19 @@ pub(super) async fn upload_and_show(
     }
     let owned = body_of(send(app, request("GET", &format!("/me/books/{book_id}"), "", cookies, ORIGIN)).await).await;
     assert!(owned.contains("Обложка готова."));
+    let settings = send(
+        app,
+        request(
+            "GET",
+            &format!("/me/books/{book_id}/settings/covers"),
+            "",
+            cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(settings.status(), StatusCode::OK);
+    assert!(body_of(settings)
+        .await
+        .contains(&format!("src=\"/covers/{book_id}/main.webp\"")));
 }
