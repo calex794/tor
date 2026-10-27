@@ -35,6 +35,10 @@ Expected output: `TOR_ONE_CLICK_BOOTSTRAPPED`. The existing
 `tor-staging` GitHub Environment secrets (`TOR_DEPLOY_SSH_KEY`,
 `TOR_DEPLOY_KNOWN_HOSTS`) and variables (`TOR_DEPLOY_HOST`,
 `TOR_DEPLOY_USER=tor-deploy`) are reused; never paste them into chat.
+The same existing SSH key also signs the artifact manifest in GitHub;
+the one-time bootstrap pins its public key under `/etc/tor` so a modified
+or unsigned binary from the upload inbox cannot run as root. **No new
+signing secret is needed.**
 
 **Important one-time permission change:** `/opt/tor/releases` and
 `/opt/tor` become root-owned. New builds are uploaded instead to
@@ -52,7 +56,8 @@ The new button is the supported regular path.
    stops instead of deploying a stale version.
 2. Builds `tor-web` and `tor-migrate` on GitHub's runner, not on the
    961-MiB VPS, and transfers checksum-verified binaries through verified
-   SSH host keys to `tor-deploy`'s inbox.
+   SSH host keys to `tor-deploy`'s inbox. The two checksum files,
+SHA and signature are verified independently by the root-owned helper.
 3. The only passwordless sudo command is the root-owned
    `/usr/local/sbin/tor-one-click-release <SHA>`. It refuses an unhealthy
    production server, verifies the current SHA and PostgreSQL markers,
