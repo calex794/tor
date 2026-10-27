@@ -178,14 +178,17 @@ impl PgPaidStorage {
         if revision != request.expected_revision {
             return Err(AuthorError::Conflict);
         }
-        let version_no: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(version_no),0)+1 FROM chapter_versions
+        // chapter_versions.version_no is INTEGER, not BIGINT. Decoding it
+        // as i64 fails under SQLx even though the query succeeds.
+        let version_no: i32 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(version_no),0) FROM chapter_versions
              WHERE chapter_id=$1",
         )
         .bind(chapter_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(map_write)?;
+        let version_no = version_no.checked_add(1).ok_or(AuthorError::Conflict)?;
         let version_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
              VALUES($1,$2,$3,$4) RETURNING id",
