@@ -258,6 +258,49 @@ async function run() {
           "No HTML parsed from private book metadata");
         assert.equal(await page.locator(".reader-topbar__book").getAttribute("title"),
           fixture.expected_book_title);
+        // NEwBOO-like next/previous cards exist both above and below the
+        // actual decrypted text. Buttons are navigable only for D/B grants.
+        const topNavigation = page.locator(".reader-paid__chapter-nav--top");
+        const bottomNavigation = page.locator(".reader-paid__chapter-nav--bottom");
+        assert.equal(await topNavigation.count(), 1, device + ": top chapter navigation missing");
+        assert.equal(await bottomNavigation.count(), 1,
+          device + ": bottom chapter navigation missing");
+        for (const navigation of [topNavigation, bottomNavigation]) {
+          const next = navigation.locator("[data-paid-nav-next]");
+          const previous = navigation.locator("[data-paid-nav-prev]");
+          assert.equal(await next.getAttribute("href"),
+            "/read/paid/" + fixture.toc_second_chapter_id +
+            "?purchase_id=" + fixture.toc_second_purchase_id,
+            device + ": next must point to the pinned paid V1 purchase");
+          assert.equal(await next.getAttribute("rel"), "next");
+          assert.equal(await previous.getAttribute("aria-disabled"), "true",
+            device + ": do not invent a previous purchase");
+          assert.equal(await previous.locator("a").count(), 0,
+            device + ": disabled previous must not link to a locked chapter");
+          assert((await next.textContent()).includes("Вторая купленная глава"),
+            device + ": next card has wrong real chapter title");
+        }
+        const navStyles = await topNavigation.evaluate((element) => {
+          const next = element.querySelector("[data-paid-nav-next]");
+          const prev = element.querySelector("[data-paid-nav-prev]");
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            nextBorder: getComputedStyle(next).borderStyle,
+            disabledBorder: getComputedStyle(prev).borderStyle,
+            width: element.getBoundingClientRect().width,
+            viewport: document.documentElement.clientWidth,
+          };
+        });
+        assert(navStyles.columns === 2 && navStyles.nextBorder === "solid" &&
+          navStyles.disabledBorder === "dashed" &&
+          navStyles.width <= navStyles.viewport,
+          device + ": NEwBOO previous/next card design regression");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-prev-next-" + device + ".png"),
+          fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
         // The native <details> menu is server-rendered from the buyer's D
         // entitlements; it must link to the second verified paid edition.
         const toc = page.locator("[data-paid-toc]");
