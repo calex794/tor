@@ -160,23 +160,38 @@ mod tests {
         let blocks = reader_blocks("Начало\\n\\nКонец😀\\n\\n");
         assert_eq!(blocks.len(), 3);
         assert!(!is_completed_place(
-            ReadingPlace { block_index: 1, char_offset: 6 },
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 6
+            },
             &blocks
         ));
         assert!(!is_completed_place(
-            ReadingPlace { block_index: 2, char_offset: 6 },
+            ReadingPlace {
+                block_index: 2,
+                char_offset: 6
+            },
             &blocks
         ));
         assert!(is_completed_place(
-            ReadingPlace { block_index: 2, char_offset: 7 },
+            ReadingPlace {
+                block_index: 2,
+                char_offset: 7
+            },
             &blocks
         ));
         assert!(!is_completed_place(
-            ReadingPlace { block_index: 3, char_offset: 0 },
+            ReadingPlace {
+                block_index: 3,
+                char_offset: 0
+            },
             &blocks
         ));
         assert!(!is_completed_place(
-            ReadingPlace { block_index: 1, char_offset: 0 },
+            ReadingPlace {
+                block_index: 1,
+                char_offset: 0
+            },
             &reader_blocks("  ")
         ));
     }
