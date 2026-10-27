@@ -333,10 +333,9 @@ async fn purchased_library(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
-    response.headers_mut().insert(
-        "x-robots-tag",
-        HeaderValue::from_static("noindex"),
-    );
+    response
+        .headers_mut()
+        .insert("x-robots-tag", HeaderValue::from_static("noindex"));
     response
 }
 
