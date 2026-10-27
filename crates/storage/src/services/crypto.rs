@@ -64,6 +64,7 @@ impl fmt::Debug for ContentKek {
 
 /// Read-only, versioned content keys, independent of cookies/JWT and the DB.
 /// V1 remains mandatory until no historical edition references it.
+#[cfg(any(feature = "pg", test))]
 pub struct ContentKeyring {
     v1: Arc<ContentKek>,
     v2: Option<Arc<ContentKek>>,
