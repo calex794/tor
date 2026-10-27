@@ -8,7 +8,7 @@ use crate::{
 };
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Redirect, Response},
     routing::{get, post},
@@ -172,6 +172,7 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
+        .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/logout", post(logout))
@@ -372,6 +373,60 @@ async fn author_book(
         ),
         &cookies,
     )
+}
+
+/// Dedicated NEwBOO-style owner cover settings. Script access is restricted
+/// to this page and to one local picker file; no inline scripts are permitted.
+async fn cover_settings(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    if !state.cover_upload_enabled {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let book = match state.authoring.owned_book(actor, id).await {
+        Ok(Some(book)) => book,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let latest = match state.cover_jobs.as_ref() {
+        Some(jobs) => match jobs.latest_for_author(id, actor).await {
+            Ok(latest) => latest,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        None => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let slots = tor_books::repositories::cover_slots::PgCoverSlots::new(
+        state.accounts.pool().clone(),
+    );
+    let current = match slots
+        .public_variant(
+            id,
+            tor_books::repositories::cover_slots::PublicCoverKind::Main,
+        )
+        .await
+    {
+        Ok(current) => current.is_some(),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(
+        author_chapter_pages::cover_settings(&book, &csrf, latest.as_deref(), current),
+        &cookies,
+    );
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
 
 /// Interactive reading is private to a verified account. Public free reading
