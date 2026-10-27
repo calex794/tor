@@ -50,6 +50,8 @@ const BUCKET: &str = "tor-private-chapter-ci";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
 const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n第二章 — только купленная редакция";
+const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
+const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
 
 fn pg(url: &str, sql: &str) -> String {
     assert!(
@@ -198,6 +200,10 @@ fn save_ephemeral_fixture(
         "reader_csp": reader_csp,
         "expiry_probe_url": expiry_probe_url,
         "expected_markdown": MARKDOWN,
+        "expected_book_title": BOOK_TITLE,
+        "expected_chapter_title": CHAPTER_TITLE,
+        "expected_chapter_no": 1,
+        "expected_version_no": 1,
     });
     file.write_all(payload.to_string().as_bytes()).unwrap();
     file.sync_all().unwrap();
@@ -243,11 +249,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
              VALUES({buyer},600,'RUB')"
         ),
     );
+    let book_title_sql = BOOK_TITLE.replace('\'', "''");
+    let chapter_title_sql = CHAPTER_TITLE.replace('\'', "''");
     let book = scalar(
         &url,
         &format!(
             "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
-             VALUES('ci:s034-private-e2e','ru','MinIO paid edition','public',{author}) \
+             VALUES('ci:s034-private-e2e','ru','{book_title_sql}','public',{author}) \
              RETURNING id"
         ),
     );
@@ -255,7 +263,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) \
-             VALUES({book},1,'Secret edition V1','public','paid',175) RETURNING id"
+             VALUES({book},1,'{chapter_title_sql}','public','paid',175) RETURNING id"
         ),
     );
     let sql_body = MARKDOWN.replace('\'', "''");
@@ -486,6 +494,11 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .unwrap();
     assert!(reader_html.contains("data-paid-chapter-reader"));
+    assert!(reader_html.contains("Невбу &lt;img src=x onerror=window.__xss=true&gt; книга"));
+    assert!(reader_html.contains(CHAPTER_TITLE));
+    assert!(reader_html.contains("Глава 1. Редакция «V1»"));
+    assert!(reader_html.contains("Купленная редакция 1"));
+    assert!(!reader_html.contains("<img src=x"));
     assert!(!reader_html.contains(MARKDOWN));
     assert!(!reader_html.contains("dek_b64u"));
     let expiry_probe_url = serde_json::to_value(
@@ -507,6 +520,12 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
+    assert_eq!(
+        paid_page(&app, chapter, purchase_id, &buyer_cookie)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
     );
     let held_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
     assert!(!html_body(held_list)
@@ -535,6 +554,12 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason) \
              VALUES({purchase_id},'ci:s034-minio-refund','refund')"
         ),
+    );
+    assert_eq!(
+        paid_page(&app, chapter, purchase_id, &buyer_cookie)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
     );
     let refunded_list = private_get(&app, "/me/purchases", Some(&buyer_cookie)).await;
     assert!(!html_body(refunded_list)
