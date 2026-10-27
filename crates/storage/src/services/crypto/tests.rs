@@ -356,3 +356,92 @@ fn s334_read_keyring_fails_closed_without_matching_v2_or_with_fake_id() {
         Err(CryptoError::AuthenticationFailed)
     ));
 }
+
+#[test]
+fn s334_new_paid_revision_uses_opted_in_v2_without_breaking_purchased_v1() {
+    let old_key = Arc::new(ContentKek::from_bytes([0x91; 32]));
+    let next_key = Arc::new(ContentKek::from_bytes([0x92; 32]));
+    let legacy = ContentKeyring::with_v2(old_key.clone(), next_key.clone()).unwrap();
+    assert_eq!(legacy.active_id(), "content-kek-v1");
+    assert!(matches!(
+        ContentKeyring::v1_only(old_key.clone()).with_active_id("content-kek-v2"),
+        Err(CryptoError::UnavailableKey)
+    ));
+    assert!(matches!(
+        ContentKeyring::with_v2(old_key.clone(), next_key.clone())
+            .unwrap()
+            .with_active_id(""),
+        Err(CryptoError::UnavailableKey)
+    ));
+    assert!(matches!(
+        ContentKeyring::with_v2(old_key.clone(), next_key.clone())
+            .unwrap()
+            .with_active_id("content-kek-v3"),
+        Err(CryptoError::UnavailableKey)
+    ));
+
+    let purchased_v1 = seal_chapter_with_keyring(
+        version(),
+        object_id(),
+        "Купленная V1 остаётся доступной",
+        &legacy,
+    )
+    .unwrap();
+    assert_eq!(purchased_v1.kek_id, "content-kek-v1");
+
+    let active = legacy.with_active_id("content-kek-v2").unwrap();
+    let next_object = ObjectId::parse("cb62d5a3-3d9e-4327-8dd4-10b6e3eaaf62").unwrap();
+    let new_v2 = seal_chapter_with_keyring(
+        ChapterVersionRef {
+            chapter_id: version().chapter_id,
+            version_id: PositiveId::new(457).unwrap(),
+        },
+        next_object,
+        "Новая платная V2: 文本",
+        &active,
+    )
+    .unwrap();
+    assert_eq!(new_v2.kek_id, "content-kek-v2");
+    assert_ne!(purchased_v1.aad, new_v2.aad);
+    assert_ne!(purchased_v1.ciphertext_sha256, new_v2.ciphertext_sha256);
+    assert!(verify_ciphertext(&purchased_v1, &purchased_v1.ciphertext));
+    assert!(verify_ciphertext(&new_v2, &new_v2.ciphertext));
+
+    for (sealed, expected) in [
+        (&purchased_v1, "Купленная V1 остаётся доступной"),
+        (&new_v2, "Новая платная V2: 文本"),
+    ] {
+        let dek = unwrap_registered_dek_from_keyring(
+            &sealed.object_id,
+            &sealed.wrapped_dek,
+            &sealed.wrap_nonce,
+            sealed.kek_id,
+            &active,
+        )
+        .unwrap();
+        let compressed = decrypt_raw(&dek, &sealed.object_nonce, &sealed.aad, &sealed.ciphertext)
+            .unwrap();
+        assert_eq!(decode_gzip(&compressed), expected);
+    }
+    assert!(matches!(
+        unwrap_registered_dek_from_keyring(
+            &new_v2.object_id,
+            &new_v2.wrapped_dek,
+            &new_v2.wrap_nonce,
+            "content-kek-v1",
+            &active,
+        ),
+        Err(CryptoError::AuthenticationFailed)
+    ));
+    assert!(matches!(
+        unwrap_registered_dek_from_keyring(
+            &new_v2.object_id,
+            &new_v2.wrapped_dek,
+            &new_v2.wrap_nonce,
+            new_v2.kek_id,
+            &ContentKeyring::v1_only(old_key),
+        ),
+        Err(CryptoError::UnavailableKey)
+    ));
+    assert!(!format!("{new_v2:?} {next_key:?}").contains("Новая платная"));
+}
