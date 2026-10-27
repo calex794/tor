@@ -5,7 +5,10 @@ use crate::author_chapter_http::PaidChapterPublisher;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tor_books::{
-    repositories::{paid_storage::{PaidPublication, PgPaidStorage}, PgCatalog},
+    repositories::{
+        paid_storage::{PaidPublication, PgPaidStorage},
+        PgCatalog,
+    },
     services::authoring::{AuthorError, SaveChapter},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
@@ -57,17 +60,15 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             return Ok(());
         }
         let version = ChapterVersionRef {
-            chapter_id: PositiveId::new(pending.chapter_id).map_err(|_| AuthorError::Unavailable)?,
-            version_id: PositiveId::new(pending.version_id).map_err(|_| AuthorError::Unavailable)?,
+            chapter_id: PositiveId::new(pending.chapter_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+            version_id: PositiveId::new(pending.version_id)
+                .map_err(|_| AuthorError::Unavailable)?,
         };
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
-        let sealed = seal_chapter_with_keyring(
-            version,
-            object_id.clone(),
-            &request.body,
-            &self.keyring,
-        )
-        .map_err(|_| AuthorError::Unavailable)?;
+        let sealed =
+            seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
+                .map_err(|_| AuthorError::Unavailable)?;
         let object = self
             .registry
             .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
