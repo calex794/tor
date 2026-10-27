@@ -122,6 +122,17 @@ class OneClickReleaseTests(unittest.TestCase):
         self.assertIn("systemctl restart tor-web.service", GO_LIVE)
         self.assertIn("migrations are preserved", GO_LIVE)
 
+    def test_new_release_directory_is_traversable_and_config_retained(self):
+        # mktemp -d makes 0700 directories; systemd runs as tor-deploy.
+        self.assertIn('chmod 0755 "$temporary"', HELPER)
+        self.assertLess(
+            HELPER.index('chmod 0755 "$temporary"'),
+            HELPER.index('mv -T "$temporary" "$target"'),
+        )
+        self.assertIn('if [[ -f "$dropin" ]]; then', GO_LIVE)
+        self.assertIn('grep -Fxq "$line" "$dropin"', GO_LIVE)
+        self.assertIn('Environment=TOR_AUTH_ENABLED=1', GO_LIVE)
+
     def test_operator_shell_syntax(self):
         for script in ("ops/one-click-release-vps.sh", "ops/bootstrap-one-click-release-vps.sh"):
             with self.subTest(script=script):
