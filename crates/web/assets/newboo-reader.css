@@ -283,18 +283,41 @@
   font-size: var(--paid-font-size, clamp(17px, 2.3vw, 20px));
   line-height: var(--paid-line-height, 1.85);
 }
+/* The save-position action must read as a button, never an underlined
+   Markdown link. Match the 44px NEwBOO reader control minimum on touch. */
 .reader-paid .reader-save-button {
-  min-height: 42px;
-  padding: 9px 13px;
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-main);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.reader-paid .reader-save-button:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-surface);
 }
 .reader-paid .reader-save-button:focus-visible {
-  outline: 2px solid var(--primary-color);
+  outline: 3px solid var(--primary-color);
   outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-paid .reader-save-button {
+    transition: none;
+  }
 }
 .reader-paid .reader-resume {
   padding: 14px;
