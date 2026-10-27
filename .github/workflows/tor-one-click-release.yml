@@ -77,6 +77,19 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
           ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
 
+      - name: "Подписать сборку существующим ключом GitHub"
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'TOR_RELEASE_SHA %s\n' "$TARGET_SHA"
+            cat "$RUNNER_TEMP/tor-web.sha256"
+            cat "$RUNNER_TEMP/tor-migrate.sha256"
+          } > "$RUNNER_TEMP/tor-release-manifest"
+          ssh-keygen -Y sign -f "$RUNNER_TEMP/tor_id_ed25519" \
+            -n tor-release "$RUNNER_TEMP/tor-release-manifest" >/dev/null
+          test -s "$RUNNER_TEMP/tor-release-manifest.sig"
+
       - name: "Передать проверенную сборку на VPS без остановки сайта"
         shell: bash
         run: |
@@ -93,6 +106,8 @@ jobs:
           scp -p "${opts[@]}" target/release/tor-migrate "$destination:$inbox/tor-migrate"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-web.sha256" "$destination:$inbox/tor-web.sha256"
           scp -p "${opts[@]}" "$RUNNER_TEMP/tor-migrate.sha256" "$destination:$inbox/tor-migrate.sha256"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-release-manifest" "$destination:$inbox/tor-release-manifest"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-release-manifest.sig" "$destination:$inbox/tor-release-manifest.sig"
           ssh "${opts[@]}" "$destination" \
             "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256"
           echo "TOR_RELEASE_STAGED $TARGET_SHA"
