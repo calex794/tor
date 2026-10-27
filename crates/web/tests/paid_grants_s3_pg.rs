@@ -418,7 +418,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .unwrap()
         .to_owned();
     let reader_html = String::from_utf8(
-        to_bytes(page.into_body(), 128 * 1024).await.unwrap().to_vec(),
+        to_bytes(page.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
     )
     .unwrap();
     assert!(reader_html.contains("data-paid-chapter-reader"));
