@@ -5,6 +5,18 @@ use axum::response::Html;
 use std::fmt::Write;
 use tor_commerce::repositories::entitlements::{ReadablePurchase, ReadablePurchasesPage};
 
+/// NEwBOO's hide_site_chrome mode: keep only the reader topbar.
+/// Unlike the ordinary layout, this document cannot accidentally restore
+/// global navigation, login links, or the site footer around a paid edition.
+fn reader_layout(title: &str, description: &str, content: &str) -> Html<String> {
+    Html(
+        include_str!("../../templates/reader_layout.html")
+            .replace("<!--PAGE_TITLE-->", &escape_html(title))
+            .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+            .replace("<!--PAGE_CONTENT-->", content),
+    )
+}
+
 pub fn paid_reader_shell(
     edition: &ReadablePurchase,
     csrf: &str,
@@ -49,7 +61,7 @@ pub fn paid_reader_shell(
         chapter_label = chapter_label,
         version_no = edition.version_no,
     );
-    layout(
+    reader_layout(
         &format!("{} — {}", edition.chapter_title, edition.book_title),
         "Чтение закреплённой купленной редакции после проверки доступа.",
         &body,
@@ -136,6 +148,14 @@ mod tests {
         )
         .0;
         assert!(body.contains("reader-topbar"));
+        assert!(body.contains("<body class=\"reader-standalone\">"));
+        assert!(body.contains("<main id=\"main\" class=\"reader-standalone__main\">"));
+        assert!(!body.contains("class=\"site-header\""));
+        assert!(!body.contains("class=\"site-footer\""));
+        assert!(!body.contains("class=\"site-logo\""));
+        assert!(body.contains("<link rel=\"stylesheet\" href=\"/assets/site.css\">"));
+        assert!(body.contains("<link rel=\"stylesheet\" href=\"/assets/newboo.css\">"));
+
         assert!(body.contains("data-paid-chapter-reader"));
         assert!(body.contains("newboo-paid-reader.mjs"));
         assert!(body.contains("data-purchase-id=\"31\""));
