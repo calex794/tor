@@ -494,6 +494,10 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     )
     .unwrap();
     assert!(reader_html.contains("data-paid-chapter-reader"));
+    assert!(reader_html.contains("<body class=\"reader-standalone\">"));
+    assert!(reader_html.contains("<main id=\"main\" class=\"reader-standalone__main\">"));
+    assert!(!reader_html.contains("class=\"site-header\""));
+    assert!(!reader_html.contains("class=\"site-footer\""));
     assert!(reader_html.contains("Невбу &lt;img src=x onerror=window.__xss=true&gt; книга"));
     assert!(reader_html.contains(CHAPTER_TITLE));
     assert!(reader_html.contains("Глава 1. Редакция «V1»"));
