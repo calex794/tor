@@ -8,10 +8,11 @@ use tor_contracts::paid_delivery::{validate_signed_get_ttl, ObjectRef, SecretVal
 
 use crate::{
     domain::{
+        gc::GcClaim,
         object_keys::{PrivateObjectKey, ENCRYPTED_CONTENT_TYPE},
         provider::{valid_ciphertext_size, valid_private_bucket, StorageError},
     },
-    services::{crypto::sha256_bytes, provider::PrivateObjectStore},
+    services::{crypto::sha256_bytes, gc::OrphanDeletePort, provider::PrivateObjectStore},
 };
 
 #[derive(Clone)]
@@ -197,5 +198,51 @@ impl PrivateObjectStore for S3PrivateStore {
             return Err(StorageError::Unavailable);
         }
         SecretValue::new(url).map_err(|_| StorageError::Unavailable)
+    }
+}
+
+/// Separate G-only capability. No web handler or user-supplied key can
+/// invoke this method; the argument is a GcClaim minted by a fenced PG lease.
+#[async_trait]
+impl OrphanDeletePort for S3PrivateStore {
+    async fn delete_claimed(&self, claim: &GcClaim) -> Result<(), StorageError> {
+        if claim.bucket() != self.bucket {
+            return Err(StorageError::Invalid);
+        }
+        // The claim constructor already proved canonical key + private bucket.
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(claim.key().as_str())
+            .send()
+            .await
+            .map_err(|_| StorageError::Unavailable)?;
+
+        // Do not finalize the registry merely because DELETE was accepted.
+        // In an eventually consistent or failing provider, a HEAD may still
+        // reveal bytes or an outage. Only an explicit missing-object response
+        // is evidence for completing the fenced PG lease.
+        let head = self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(claim.key().as_str())
+            .send()
+            .await;
+        match head {
+            Ok(_) => Err(StorageError::Conflict),
+            Err(error) => {
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                let missing = error
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .is_some_and(|code| matches!(code, "NotFound" | "NoSuchKey" | "404"));
+                if missing {
+                    Ok(())
+                } else {
+                    Err(StorageError::Unavailable)
+                }
+            }
+        }
     }
 }
