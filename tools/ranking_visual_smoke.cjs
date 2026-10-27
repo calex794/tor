@@ -66,8 +66,13 @@ async function screenshot(page, name) {
 
       const active = await page.goto(base + '/me/rankings', { waitUntil: 'networkidle' });
       assert(active && active.status() === 200, viewport + ': ranked question HTTP failed');
-      assert(await page.getByText('Знакомая книга').isVisible(), viewport + ': original A title missing');
-      assert(await page.getByText('Любимая книга').isVisible(), viewport + ': original B title missing');
+      // A ranked book also appears in the private history; scope the active
+      // question to avoid Playwright strict-mode ambiguity.
+      const questionPair = page.locator('.ranking-pair');
+      assert(await questionPair.getByRole('link', { name: 'Знакомая книга', exact: true }).isVisible(),
+        viewport + ': original A title missing from question');
+      assert(await questionPair.getByRole('link', { name: 'Любимая книга', exact: true }).isVisible(),
+        viewport + ': original B title missing from question');
       assert(await page.getByRole('button', { name: 'Первая лучше' }).isVisible(),
         viewport + ': comparison controls missing');
       assert(await page.getByRole('button', { name: 'Отложить вторую' }).isVisible(),
