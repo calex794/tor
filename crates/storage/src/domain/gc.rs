@@ -1,9 +1,10 @@
 //! Durable S3 orphan cleanup identity. Only G repository may produce a claim.
-use super::{
-    object_keys::PrivateObjectKey,
-    provider::{valid_private_bucket, StorageError},
-};
-use tor_contracts::paid_delivery::{EncryptedObjectKind, ObjectId};
+use super::object_keys::PrivateObjectKey;
+#[cfg(any(feature = "pg", test))]
+use super::provider::{valid_private_bucket, StorageError};
+#[cfg(any(feature = "pg", test))]
+use tor_contracts::paid_delivery::EncryptedObjectKind;
+use tor_contracts::paid_delivery::ObjectId;
 
 #[derive(Clone, Debug)]
 pub struct GcClaim {
@@ -15,6 +16,7 @@ pub struct GcClaim {
 }
 
 impl GcClaim {
+    #[cfg(any(feature = "pg", test))]
     pub(crate) fn from_database(
         raw_id: &str,
         kind: &str,
