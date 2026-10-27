@@ -55,7 +55,7 @@ fn independent_golden_vector_matches_aesgcm_and_wrap_aad() {
     let wrapped = encrypt_raw(&kek, &wrap_nonce, &wrap_aad(&object_id()), &dek).unwrap();
     assert_eq!(hex::encode(&wrapped), field("wrapped_dek_hex"));
     let unwrapped = decrypt_raw(&kek, &wrap_nonce, &wrap_aad(&object_id()), &wrapped).unwrap();
-    assert_eq!(unwrapped, dek);
+    assert_eq!(unwrapped.as_slice(), dek.as_slice());
 }
 
 #[test]
@@ -125,22 +125,22 @@ fn wrong_kek_tampered_wrap_or_wrong_object_cannot_recover_key() {
     let kek = ContentKek::from_bytes([7; 32]);
     let mut sealed = seal_chapter(version(), object_id(), "Секрет", &kek).unwrap();
     assert!(unwrap_scoped_dek(&sealed, &kek).is_ok());
-    assert_eq!(
-        unwrap_scoped_dek(&sealed, &ContentKek::from_bytes([8; 32])).unwrap_err(),
-        CryptoError::AuthenticationFailed
-    );
+    assert!(matches!(
+        unwrap_scoped_dek(&sealed, &ContentKek::from_bytes([8; 32])),
+        Err(CryptoError::AuthenticationFailed)
+    ));
     let original = sealed.wrapped_dek.clone();
     sealed.wrapped_dek[0] ^= 1;
-    assert_eq!(
-        unwrap_scoped_dek(&sealed, &kek).unwrap_err(),
-        CryptoError::AuthenticationFailed
-    );
+    assert!(matches!(
+        unwrap_scoped_dek(&sealed, &kek),
+        Err(CryptoError::AuthenticationFailed)
+    ));
     sealed.wrapped_dek = original;
     sealed.object_id = ObjectId::parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
-    assert_eq!(
-        unwrap_scoped_dek(&sealed, &kek).unwrap_err(),
-        CryptoError::AuthenticationFailed
-    );
+    assert!(matches!(
+        unwrap_scoped_dek(&sealed, &kek),
+        Err(CryptoError::AuthenticationFailed)
+    ));
 }
 
 #[test]
