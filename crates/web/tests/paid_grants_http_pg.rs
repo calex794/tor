@@ -160,6 +160,17 @@ async fn send(
         .unwrap()
 }
 
+async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response {
+    let mut request = Request::builder().uri(path).method("GET");
+    if let Some(session) = session {
+        request = request.header(header::COOKIE, format!("tor-dev-session={session}"));
+    }
+    app.clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
 async fn json_body(reply: Response) -> Value {
     let bytes = to_bytes(reply.into_body(), 8192).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
@@ -250,6 +261,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .await
         .unwrap();
     let fake = Arc::new(FakeG::default());
+    let browser = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
+        catalog.clone(),
+        reader.clone(),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+        (fake.clone(), "http://127.0.0.1:9000".to_owned()),
+        None,
+    )
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants(
         catalog,
         reader,
@@ -311,6 +332,20 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     );
     assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
 
+    assert_eq!(
+        read_page(&browser, "/read/paid/1?purchase_id=1", None)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED,
+    );
+    // The API-only router never mounts the H reader.
+    assert_eq!(
+        read_page(&app, "/read/paid/1?purchase_id=1", Some(&buyer_cookie))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+    );
+
     let checkout = PgCheckout::new(pool.clone());
     let receipt = checkout
         .checkout_once(
@@ -326,6 +361,28 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .await
         .unwrap();
     let purchase_id = receipt.purchase_id.get();
+    let reader_path = format!("/read/paid/{chapter}?purchase_id={purchase_id}");
+    let stranger = read_page(&browser, &reader_path, Some(&author_cookie)).await;
+    assert_eq!(stranger.status(), StatusCode::FORBIDDEN);
+    let page = read_page(&browser, &reader_path, Some(&buyer_cookie)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(page.headers()[header::REFERRER_POLICY], "no-referrer");
+    assert_eq!(page.headers()["x-robots-tag"], "noindex");
+    assert!(
+        page.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("connect-src 'self' http://127.0.0.1:9000")
+    );
+    let html = String::from_utf8(to_bytes(page.into_body(), 128 * 1024).await.unwrap().to_vec())
+        .unwrap();
+    assert!(html.contains("data-paid-chapter-reader"));
+    assert!(html.contains("newboo-paid-reader.mjs"));
+    assert!(html.contains(&format!("data-purchase-id=\"{purchase_id}\"")));
+    assert!(!html.contains(BODY), "S034 raw plaintext must not enter SSR HTML");
+    assert!(!html.contains("dek_b64u"), "S034 no scoped DEK in SSR HTML");
+
 
     for invalid in [
         r#"{"version_id":"2"}"#,
@@ -444,6 +501,12 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         StatusCode::FORBIDDEN,
     );
     assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        read_page(&browser, &reader_path, Some(&buyer_cookie))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+    );
     accounts
         .revoke_session(&session_token_digest(&buyer_cookie))
         .await

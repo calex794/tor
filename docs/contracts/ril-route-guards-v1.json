@@ -375,6 +375,13 @@
     },
     {
       "method": "POST",
+      "template": "/read/{id}/complete",
+      "source": "crates/web/src/auth.rs",
+      "handler": "complete_chapter::complete",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/read/{id}/place",
       "source": "crates/web/src/auth.rs",
       "handler": "save_place",
@@ -435,6 +442,20 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "grant",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/read/paid/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "paid_reader",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-paid-reader.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::paid_reader_script",
+      "policy": "public"
     }
   ]
 }

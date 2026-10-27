@@ -11,6 +11,8 @@ pub use account::{
 };
 mod reader_private;
 pub use reader_private::private_reader;
+mod reader_paid;
+pub use reader_paid::paid_reader_shell;
 mod public_catalog;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
@@ -313,6 +315,20 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         CSS.as_str(),
+    )
+}
+
+/// Public static runtime only; no signed URL or scoped key is embedded here.
+pub async fn paid_reader_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-paid-reader.mjs"),
     )
 }
 

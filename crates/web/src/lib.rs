@@ -366,8 +366,8 @@ pub fn router_with_postgres_reading_auth(
     )
 }
 
-/// S034 opt-in. This is the only constructor that mounts a paid grant route.
-/// Other demo/PG and legacy authentication constructors remain default-off.
+/// S034 opt-in: the grant API remains independent from the browser reader.
+/// Other demo/PG constructors remain default-off.
 pub fn router_with_postgres_reading_auth_paid_grants(
     catalog: PgCatalog,
     reader: PgReader,
@@ -380,19 +380,75 @@ pub fn router_with_postgres_reading_auth_paid_grants(
         bool,
     )>,
 ) -> Router {
+    paid_grants_router(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        (paid_storage, None),
+        cover,
+    )
+    .expect("API-only grant constructor has no browser S3 origin")
+}
+
+/// Enable the actual H reader only with an explicitly validated S3 origin.
+/// It shares the same rights and signed-grant route as the API-only variant.
+pub fn router_with_postgres_reading_auth_paid_grants_browser(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+    paid: (
+        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
+        String,
+    ),
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
+) -> Result<Router, &'static str> {
+    paid_grants_router(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        (paid.0, Some(paid.1)),
+        cover,
+    )
+}
+
+fn paid_grants_router(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+    paid: (
+        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
+        Option<String>,
+    ),
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
+) -> Result<Router, &'static str> {
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
         None => (None, false),
     };
     let auth_reader = reader.clone();
-    let grants = paid_grants_http::router(
-        accounts.clone(),
-        auth_cookies::CookiePolicy {
-            secure,
-            origin: public_origin.clone(),
-        },
-        paid_storage,
-    );
+    let cookies = auth_cookies::CookiePolicy {
+        secure,
+        origin: public_origin.clone(),
+    };
+    let grants = if let Some(s3_origin) = paid.1 {
+        paid_grants_http::router_with_reader(accounts.clone(), cookies, paid.0, s3_origin)?
+    } else {
+        paid_grants_http::router(accounts.clone(), cookies, paid.0)
+    };
     let author = if enable_cover_uploads {
         match cover_storage.as_ref() {
             Some(store) => auth::router_with_cover_uploads(
@@ -407,7 +463,7 @@ pub fn router_with_postgres_reading_auth_paid_grants(
     } else {
         auth::router(accounts, auth_reader, secure, public_origin)
     };
-    ril::instrument(
+    Ok(ril::instrument(
         make_router(
             Arc::new(catalog.clone()),
             Some(catalog),
@@ -417,7 +473,7 @@ pub fn router_with_postgres_reading_auth_paid_grants(
         )
         .merge(author)
         .merge(grants),
-    )
+    ))
 }
 
 fn make_router(
@@ -438,6 +494,7 @@ fn make_router(
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
+        .route("/assets/newboo-paid-reader.mjs", get(pages::paid_reader_script))
         .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),

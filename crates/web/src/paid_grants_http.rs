@@ -1,12 +1,12 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
-use crate::auth_cookies::{private_response, CookiePolicy};
+use crate::{auth_cookies::{private_response, CookiePolicy}, pages};
 use axum::{
-    extract::{DefaultBodyLimit, Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    extract::{DefaultBodyLimit, Path, Query, State},
+    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::Response,
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -19,7 +19,10 @@ use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::paid_storage::PgPaidStorage;
 use tor_commerce::repositories::entitlements::PgDirectEntitlements;
-use tor_contracts::paid_delivery::{Actor, DeliveryError, PositiveId, PrivateObjectDeliveryPort};
+use tor_contracts::paid_delivery::{
+    Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
+    PrivateObjectDeliveryPort,
+};
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
 
 const WINDOW: Duration = Duration::from_secs(60);
@@ -62,6 +65,38 @@ struct GrantState {
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
     concurrent: Arc<Semaphore>,
+    reader_s3_origin: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReaderQuery {
+    purchase_id: String,
+}
+
+/// Only operator-owned HTTPS origins can reach CSP/connect-src. Loopback HTTP
+/// is allowed exclusively for isolated browser tests and local development.
+pub(crate) fn valid_reader_s3_origin(origin: &str) -> bool {
+    if origin.is_empty() || origin.contains('#') || origin.contains('?') || origin.ends_with('/') {
+        return false;
+    }
+    let Ok(uri) = origin.parse::<Uri>() else {
+        return false;
+    };
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    let host = uri.host().unwrap_or("");
+    let secure = uri.scheme_str() == Some("https");
+    let local_http = uri.scheme_str() == Some("http")
+        && (host == "127.0.0.1" || host == "localhost");
+    (secure || local_http)
+        && !host.is_empty()
+        && host.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-'
+        })
+        && !authority.as_str().contains('@')
+        && uri.path_and_query().is_none_or(|path| path.as_str() == "/")
 }
 
 #[derive(Default, Deserialize)]
@@ -177,12 +212,121 @@ async fn grant(
     }
 }
 
+/// The page contains only a generic reader shell. D is checked here and
+/// again in the POST; the browser never receives a bearer grant in HTML.
+async fn paid_reader(
+    State(state): State<GrantState>,
+    Path(raw_chapter): Path<String>,
+    Query(query): Query<ReaderQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(s3_origin) = state.reader_s3_origin.as_deref() else {
+        return deny(StatusCode::NOT_FOUND);
+    };
+    let Some(session) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&session))
+        .await
+    {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (Some(chapter_id), Some(purchase_id), Ok(actor_id)) = (
+        positive(&raw_chapter),
+        positive(&query.purchase_id),
+        PositiveId::new(actor),
+    ) else {
+        return deny(StatusCode::NOT_FOUND);
+    };
+    match state
+        .entitlement
+        .resolve_entitlement(
+            Actor { user_id: actor_id },
+            chapter_id,
+            Some(purchase_id),
+        )
+        .await
+    {
+        Ok(EntitlementDecision::Allowed { pinned })
+            if pinned.chapter_id == chapter_id => {}
+        Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
+        Ok(EntitlementDecision::Denied { reason }) => {
+            return deny(status(match reason {
+                tor_contracts::paid_delivery::DenialReason::Hidden => DeliveryError::Hidden,
+                tor_contracts::paid_delivery::DenialReason::Unknown => DeliveryError::Unavailable,
+                _ => DeliveryError::Denied,
+            }));
+        }
+        Err(error) => return deny(status(error)),
+    }
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(
+        pages::paid_reader_shell(
+            &chapter_id.wire(),
+            &purchase_id.wire(),
+            &csrf,
+            s3_origin,
+        ),
+        &cookies,
+    );
+    let csp = format!(
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; \
+         connect-src 'self' {s3_origin}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    );
+    let Ok(value) = HeaderValue::from_str(&csp) else {
+        return deny(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", value);
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response
+        .headers_mut()
+        .insert("x-robots-tag", HeaderValue::from_static("noindex"));
+    response
+}
+
 /// Mount this router ONLY after explicit operator enablement and valid
 /// private S3 + separate content KEK configuration. No demo or default route.
 pub(crate) fn router(
     accounts: PgAccounts,
     cookies: CookiePolicy,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
+) -> Router {
+    router_inner(accounts, cookies, storage, None)
+}
+
+/// Browser route is opt-in separately from the API grant; tests of the grant
+/// alone remain unchanged and cannot accidentally expose a reader page.
+pub(crate) fn router_with_reader(
+    accounts: PgAccounts,
+    cookies: CookiePolicy,
+    storage: Arc<dyn PrivateObjectDeliveryPort>,
+    reader_s3_origin: String,
+) -> Result<Router, &'static str> {
+    if !valid_reader_s3_origin(&reader_s3_origin) {
+        return Err("private paid S3 origin must be HTTPS or localhost");
+    }
+    Ok(router_inner(
+        accounts,
+        cookies,
+        storage,
+        Some(reader_s3_origin),
+    ))
+}
+
+fn router_inner(
+    accounts: PgAccounts,
+    cookies: CookiePolicy,
+    storage: Arc<dyn PrivateObjectDeliveryPort>,
+    reader_s3_origin: Option<String>,
 ) -> Router {
     let pool = accounts.pool().clone();
     let state = GrantState {
@@ -193,19 +337,39 @@ pub(crate) fn router(
         cookies,
         rate_limits: Arc::new(Mutex::new(RateLimits::default())),
         concurrent: Arc::new(Semaphore::new(MAX_CONCURRENT_SIGNINGS)),
+        reader_s3_origin,
     };
-    Router::new()
-        .route(
-            "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
-            post(grant),
-        )
-        .layer(DefaultBodyLimit::max(512))
-        .with_state(state)
+    let mut app = Router::new().route(
+        "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
+        post(grant),
+    );
+    if state.reader_s3_origin.is_some() {
+        app = app.route("/read/paid/{chapter_id}", get(paid_reader));
+    }
+    app.layer(DefaultBodyLimit::max(512)).with_state(state)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn h_browser_s3_origin_is_server_owned_and_no_redirect_target() {
+        for accepted in [
+            "https://objects.example.test",
+            "https://objects.example.test:443",
+            "http://127.0.0.1:9000",
+        ] {
+            assert!(valid_reader_s3_origin(accepted), "{accepted}");
+        }
+        for denied in [
+            "", "http://external.example", "https://host.example/path",
+            "https://host.example/", "https://user@host.example",
+            "https://host.example/?q=1", "javascript:alert(1)",
+        ] {
+            assert!(!valid_reader_s3_origin(denied), "{denied}");
+        }
+    }
 
     #[test]
     fn paid_grant_http_accepts_only_unsigned_positive_decimal_ids() {
