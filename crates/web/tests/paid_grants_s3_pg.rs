@@ -731,7 +731,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         visible_html,
         reader_csp,
         expiry_probe_url,
-        (chapter_two, purchase_two_id, free_chapter, locked_chapter, draft_chapter),
+        (
+            chapter_two,
+            purchase_two_id,
+            free_chapter,
+            locked_chapter,
+            draft_chapter,
+        ),
     );
 
     pg(
