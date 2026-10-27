@@ -5,6 +5,7 @@ use std::{collections::HashSet, fmt::Write};
 use tor_search::repositories::catalog::TaxonomyOptions;
 
 mod catalog_active_filters;
+mod catalog_taxonomy_selects;
 mod home_spotlight;
 
 #[derive(Clone, Debug)]
@@ -36,21 +37,18 @@ fn book_cards(
     };
     for book in books {
         let title = escape_html(&book.title);
-        let language = escape_html(&book.language);
         let mut details = String::new();
-        if let Some(author) = &book.author_name {
+        // Match the original NEwBOO BookCard: public author if present, not
+        // invented likes/comments or an extra language/genre metadata block.
+        if let Some(author) = book
+            .author_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
             write!(
                 details,
-                "<p class=\"book-card__meta book-mini-card__meta\">Автор: {}</p>",
+                "<div class=\"book-mini-card__meta\">{}</div>",
                 escape_html(author),
-            )
-            .expect("format String");
-        }
-        if !book.genres.is_empty() {
-            write!(
-                details,
-                "<p class=\"book-card__meta book-mini-card__meta\">Жанры: {}</p>",
-                escape_html(&book.genres.join(", ")),
             )
             .expect("format String");
         }
@@ -69,7 +67,7 @@ fn book_cards(
         };
         write!(
             html,
-            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
+            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
             book.id,
         )
         .expect("format String");
@@ -264,20 +262,7 @@ pub fn catalog_search_with_covers(
             1,
         );
     }
-    if let Some(options) = options {
-        for (id, values) in [
-            ("catalog-genres", &options.genres),
-            ("catalog-tags", &options.tags),
-            ("catalog-fandoms", &options.fandoms),
-        ] {
-            write!(controls, "<datalist id=\"{id}\">").expect("String write");
-            for value in values {
-                write!(controls, "<option value=\"{}\">", escape_html(value))
-                    .expect("String write");
-            }
-            controls.push_str("</datalist>");
-        }
-    }
+    controls = catalog_taxonomy_selects::apply(controls, options, genre, tag, fandom);
     if let Some(cursor) = cursor {
         let language_param = language
             .filter(|value| !value.is_empty())
@@ -470,6 +455,28 @@ mod home_tests {
         .0;
         assert!(catalog.contains(r#"src="/covers/8/card.webp""#));
         assert!(!catalog.contains("/covers/3/"));
+    }
+
+    #[test]
+    fn h_10_cards_match_original_public_neboo_author_only_metadata() {
+        let mut card = book(42, "Пробная новелла");
+        card.author_name = Some("Имя автора".into());
+        card.genres = vec!["Детектив".into()];
+        let html = catalog(&[card]).0;
+        assert!(html.contains("book-mini-card__cover book-shimmer"));
+        assert!(html.contains("<div class=\"book-mini-card__meta\">Имя автора</div>"));
+        assert!(!html.contains("Язык: ru"));
+        assert!(!html.contains("Жанры:"));
+        assert!(!html.contains("Лайков:"));
+    }
+
+    #[test]
+    fn h_11_card_author_is_html_escaped() {
+        let mut card = book(43, "Название");
+        card.author_name = Some("<img src=x onerror=evil()>".into());
+        let html = catalog(&[card]).0;
+        assert!(html.contains("&lt;img src=x onerror=evil()&gt;"));
+        assert!(!html.contains("<img src=x"));
     }
 
     #[test]
