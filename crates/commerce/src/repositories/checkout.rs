@@ -136,10 +136,7 @@ impl CheckoutRepository for PgCheckout {
         .await
         .map_err(unavailable)?
         .ok_or(CheckoutError::Inaccessible)?;
-        if offer
-            .try_get::<i64, _>("version_id")
-            .map_err(unavailable)?
-            != version
+        if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version
             || offer
                 .try_get::<i64, _>("price_amount")
                 .map_err(unavailable)?
@@ -204,7 +201,10 @@ impl CheckoutRepository for PgCheckout {
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| {
-            if error.as_database_error().and_then(|db| db.code()).as_deref()
+            if error
+                .as_database_error()
+                .and_then(|db| db.code())
+                .as_deref()
                 == Some("23505")
             {
                 CheckoutError::AlreadyOwned

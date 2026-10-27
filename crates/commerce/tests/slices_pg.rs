@@ -63,14 +63,12 @@ async fn chapter_with_offer(pool: &PgPool, book: i64, number: i32, price: i64) -
     .fetch_one(pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(chapter)
-    .bind(version)
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(pool)
+        .await
+        .unwrap();
     (chapter, version)
 }
 
@@ -172,7 +170,10 @@ async fn d_02_purchase_replay_uses_one_debit_and_exact_pinned_version() {
     .await
     .unwrap();
     assert_eq!(pinned, version);
-    assert_eq!(store.checkout_once(&buy).await.unwrap().purchase_id, first.purchase_id);
+    assert_eq!(
+        store.checkout_once(&buy).await.unwrap().purchase_id,
+        first.purchase_id
+    );
 }
 
 #[tokio::test]
