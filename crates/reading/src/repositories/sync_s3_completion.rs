@@ -1,10 +1,10 @@
 //! F-05 / C-15: explicit completion of a pinned encrypted paid V1.
- //! A cursor, grant, S3 download or browser-supplied end is not an event.
+//! A cursor, grant, S3 download or browser-supplied end is not an event.
 use super::{checked_place, PgReadingSync, ReadingPlace, Row, SyncError};
 
 impl PgReadingSync {
     /// Scoped read-only capability for H. Old S3 rows without the trusted
-    /// G manifest stay ineligible; the absence of rights looks like 404.
+    /// B manifest stay ineligible; the absence of rights looks like 404.
     pub async fn purchased_s3_completion_state(
         &self,
         actor: i64,
@@ -36,11 +36,7 @@ impl PgReadingSync {
                AND tor_purchase_version_readable($1,$2,$3,$4)
                AND o.object_kind='chapter' AND o.codec='gzip'
                AND o.state='attached'
-               AND EXISTS(
-                 SELECT 1 FROM chapter_encrypted_release_events e
-                 WHERE e.chapter_id=$3 AND e.version_id=$4
-                   AND e.storage_object_id=o.id
-               )",
+",
         )
         .bind(actor)
         .bind(purchase_id)
@@ -58,7 +54,7 @@ impl PgReadingSync {
         ))
     }
 
-    /// Validate a G-sealed final UTF-16 anchor and D's current pinned right
+    /// Validate B's immutable final UTF-16 anchor and D's current pinned right
     /// under the same transaction as CAS, one C completion and the F outbox.
     /// Returns (C event id, newly completed). No plaintext is read or emitted.
     pub async fn complete_purchased_s3(
@@ -104,11 +100,6 @@ impl PgReadingSync {
                  concat('tor.encrypted.chapter.v1',chr(10),$3::text,chr(10),
                    $4::text,chr(10),o.id::text,chr(10),
                    encode(o.plaintext_sha256,'hex'),chr(10)), 'UTF8')
-               AND EXISTS(
-                 SELECT 1 FROM chapter_encrypted_release_events e
-                 WHERE e.chapter_id=$3 AND e.version_id=$4
-                   AND e.storage_object_id=o.id
-               )
              FOR UPDATE OF purchase FOR SHARE OF chapter,book,edition,o",
         )
         .bind(actor)
