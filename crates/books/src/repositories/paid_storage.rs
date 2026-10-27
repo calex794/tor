@@ -68,7 +68,7 @@ impl PgPaidStorage {
             || !(1..=200).contains(&request.title.chars().count())
             || request.title.chars().any(char::is_control)
             || !(1..=50_000).contains(&request.body.chars().count())
-            || request.body.contains(['\\0', '\\r'])
+            || (request.body.contains('\0') || request.body.contains('\r'))
         {
             return Err(AuthorError::Invalid);
         }
