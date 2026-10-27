@@ -242,6 +242,24 @@ async function run() {
         assert(chunks.join("\n\n") === fixture.expected_markdown,
           "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        // Compare the real control with the source NEwBOO 44px touch targets.
+        // A save action must look like a button, not an underlined text link.
+        const saveStyle = await page.locator(".reader-save-button").first()
+          .evaluate((button) => {
+            const style = getComputedStyle(button);
+            return {
+              height: button.getBoundingClientRect().height,
+              decoration: style.textDecorationLine,
+              display: style.display,
+              border: style.borderTopStyle,
+              fontWeight: Number(style.fontWeight),
+              background: style.backgroundColor,
+            };
+          });
+        assert(saveStyle.height >= 44 && saveStyle.decoration === "none" &&
+          saveStyle.display === "inline-flex" && saveStyle.border === "solid" &&
+          saveStyle.fontWeight >= 700 && saveStyle.background !== "rgba(0, 0, 0, 0)",
+          device + ": save-position button lost original reader styling");
         // These are the original PostgreSQL titles in real Rust HTML, not
         // the chapter IDs, last-published V2, or test-only page labels.
         assert.equal(await page.locator(".reader-topbar__book").textContent(),
