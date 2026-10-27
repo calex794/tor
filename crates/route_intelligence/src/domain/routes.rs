@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 63] = [
+const ROUTES: [RouteRegistration; 64] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -452,6 +452,16 @@ const ROUTES: [RouteRegistration; 63] = [
         System,
         Free,
     ), // 62
+    // Only an authenticated, entitled actor can enumerate owned purchases.
+    RouteRegistration::new(
+        "/me/purchases",
+        "GET",
+        "/me/purchases/",
+        Exact,
+        Page,
+        Reading,
+        Read,
+    ), // 63
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -528,6 +538,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/read/{id}/complete"), "POST") => Some(60),
         (Some("/read/paid/{chapter_id}"), "GET") => Some(61),
         (Some("/assets/newboo-paid-reader.mjs"), "GET") => Some(62),
+        (Some("/me/purchases"), "GET") => Some(63),
         _ => None,
     };
     index
