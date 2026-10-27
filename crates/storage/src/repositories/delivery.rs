@@ -103,9 +103,15 @@ impl<S: PrivateObjectStore + Send + Sync> PrivateObjectDeliveryPort for PgPrivat
 
         // All metadata must match B's immutable object reference exactly.
         // SQL state alone never authorizes delivery or recovers plaintext.
-        let bucket: String = row.try_get("bucket").map_err(|_| DeliveryError::Unavailable)?;
-        let key: String = row.try_get("object_key").map_err(|_| DeliveryError::Unavailable)?;
-        let size: i64 = row.try_get("size_bytes").map_err(|_| DeliveryError::Unavailable)?;
+        let bucket: String = row
+            .try_get("bucket")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let key: String = row
+            .try_get("object_key")
+            .map_err(|_| DeliveryError::Unavailable)?;
+        let size: i64 = row
+            .try_get("size_bytes")
+            .map_err(|_| DeliveryError::Unavailable)?;
         let ciphertext_sha256: Vec<u8> = row
             .try_get("sha256_ciphertext")
             .map_err(|_| DeliveryError::Unavailable)?;
@@ -118,7 +124,9 @@ impl<S: PrivateObjectStore + Send + Sync> PrivateObjectDeliveryPort for PgPrivat
         let aad: Vec<u8> = row
             .try_get("object_aad")
             .map_err(|_| DeliveryError::Unavailable)?;
-        let kek_id: String = row.try_get("kek_id").map_err(|_| DeliveryError::Unavailable)?;
+        let kek_id: String = row
+            .try_get("kek_id")
+            .map_err(|_| DeliveryError::Unavailable)?;
         let wrap_nonce: Vec<u8> = row
             .try_get("wrap_nonce")
             .map_err(|_| DeliveryError::Unavailable)?;
@@ -126,10 +134,8 @@ impl<S: PrivateObjectStore + Send + Sync> PrivateObjectDeliveryPort for PgPrivat
             .try_get("encrypted_dek")
             .map_err(|_| DeliveryError::Unavailable)?;
 
-        let expected_key = PrivateObjectKey::for_object(
-            encrypted.object.kind,
-            &encrypted.object.object_id,
-        );
+        let expected_key =
+            PrivateObjectKey::for_object(encrypted.object.kind, &encrypted.object.object_id);
         if bucket != self.private_bucket
             || key != expected_key.as_str()
             || size != encrypted.object.size_bytes as i64
@@ -137,11 +143,7 @@ impl<S: PrivateObjectStore + Send + Sync> PrivateObjectDeliveryPort for PgPrivat
             || nonce.as_slice() != encrypted.nonce.as_slice()
             || aad.as_slice() != encrypted.aad.as_slice()
             || kek_id != encrypted.wrapped_key_id
-            || !canonical_chapter_aad(
-                &aad,
-                encrypted.object.object_id.as_str(),
-                &plaintext_sha256,
-            )
+            || !canonical_chapter_aad(&aad, encrypted.object.object_id.as_str(), &plaintext_sha256)
         {
             return Err(DeliveryError::Unavailable);
         }

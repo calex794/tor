@@ -24,10 +24,7 @@ use tor_contracts::paid_delivery::{
 };
 use tor_storage::{
     domain::provider::StorageError,
-    repositories::{
-        delivery::PgPrivateDelivery,
-        registry::PgStorageRegistry,
-    },
+    repositories::{delivery::PgPrivateDelivery, registry::PgStorageRegistry},
     services::{
         crypto::{seal_chapter, sha256_bytes, ContentKek},
         provider::{upload_and_verify, PrivateObjectStore},
@@ -77,15 +74,10 @@ impl PrivateObjectStore for FakeStore {
         if !self.healthy.load(Ordering::SeqCst) {
             return Err(StorageError::Unavailable);
         }
-        Ok(self
-            .bytes
-            .lock()
-            .unwrap()
-            .as_deref()
-            .is_some_and(|bytes| {
-                bytes.len() as u64 == object.size_bytes
-                    && sha256_bytes(bytes) == object.sha256_ciphertext
-            }))
+        Ok(self.bytes.lock().unwrap().as_deref().is_some_and(|bytes| {
+            bytes.len() as u64 == object.size_bytes
+                && sha256_bytes(bytes) == object.sha256_ciphertext
+        }))
     }
 
     async fn get_verified(&self, object: &ObjectRef) -> Result<Vec<u8>, StorageError> {
@@ -289,18 +281,13 @@ async fn g_s3_20_wrong_bucket_or_kek_never_signs() {
         "tor-different-bucket".to_owned(),
     )
     .unwrap();
-    let object = ObjectRef::new(
-        object_id(),
-        EncryptedObjectKind::Chapter,
-        [1; 32],
-        64,
-    )
-    .unwrap();
+    let object = ObjectRef::new(object_id(), EncryptedObjectKind::Chapter, [1; 32], 64).unwrap();
     let metadata = EncryptedObjectRef {
         object,
         nonce: [2; 12],
-        aad: b"tor.encrypted.chapter.v1\n101\n201\n4de6c014-1e2b-440c-bfed-e19721912020\n00000000\n"
-            .to_vec(),
+        aad:
+            b"tor.encrypted.chapter.v1\n101\n201\n4de6c014-1e2b-440c-bfed-e19721912020\n00000000\n"
+                .to_vec(),
         wrapped_key_id: "content-kek-v1".to_owned(),
         codec: ContentCodec::Gzip,
     };
