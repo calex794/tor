@@ -219,20 +219,24 @@
 .reader-paid {
   padding-block: 0 56px;
 }
+/* The original NEwBOO reader has a viewport-wide sticky bar, not a
+   narrow bar nested inside the 860px text column. Keep safe-area padding. */
 .reader-paid .reader-topbar {
   position: sticky;
   top: 0;
   z-index: 80;
   display: grid;
-  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
+  box-sizing: border-box;
+  width: 100%;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) minmax(120px, auto);
   align-items: center;
   gap: 12px;
   min-height: 58px;
-  padding: 8px 14px;
+  padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
   margin: 0 0 24px;
-  border: 1px solid var(--border-color);
-  border-top: 0;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
   box-shadow: 0 10px 22px color-mix(in srgb, var(--text-main) 6%, transparent);
   backdrop-filter: blur(14px);
@@ -304,7 +308,7 @@
   .reader-paid .reader-topbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
-    padding: 8px;
+    padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
   }
   .reader-paid .reader-topbar__back-label {
     display: none;
