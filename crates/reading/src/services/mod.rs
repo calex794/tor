@@ -60,3 +60,5 @@ pub mod toc;
 pub mod library;
 
 pub mod sync;
+
+pub mod paid_delivery;
