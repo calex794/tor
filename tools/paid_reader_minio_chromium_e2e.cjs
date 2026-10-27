@@ -233,6 +233,53 @@ async function run() {
           device + ": purchased TOC parsed user HTML");
         assert.equal(await toc.locator('[aria-current="page"]').count(), 1,
           device + ": current pinned edition missing from TOC");
+        const free = toc.locator('a[data-free-toc-link]');
+        assert.equal(await free.count(), 1, device + ": visible free chapter missing");
+        assert.equal(await free.getAttribute("href"),
+          "/reader/" + fixture.toc_free_chapter_id,
+          device + ": free chapter must use the B public reader");
+        assert((await free.textContent()).includes("Бесплатно"));
+        const locked = toc.locator('[data-toc-state="locked"]');
+        assert.equal(await locked.count(), 1, device + ": closed paid metadata missing");
+        assert.equal(await locked.locator("[aria-disabled]").count(), 1,
+          device + ": closed chapter must be visibly disabled");
+        assert.equal(await locked.locator("a").count(), 0,
+          device + ": inaccessible chapter has a clickable link");
+        assert((await locked.textContent()).includes("1,75 ₽"),
+          device + ": real price in kopecks was not formatted in RUB");
+        assert.equal(await toc.locator('[data-toc-state="owned"]').count(), 1,
+          device + ": paid chapters not visually distinguished");
+        assert.equal(await toc.locator('[data-toc-state="free"]').count(), 1,
+          device + ": free chapters not visually distinguished");
+        assert.equal(await toc.locator('[data-toc-state="current"]').count(), 1,
+          device + ": current V1 not visually highlighted");
+        const html = await toc.innerHTML();
+        assert(!html.includes("SECRET_DRAFT_CHAPTER") &&
+          !html.includes("SECRET_FUTURE_CHAPTER") &&
+          !html.includes(fixture.toc_draft_chapter_id),
+          device + ": draft or future private chapter leaked");
+        const visuals = await toc.evaluate((element) => {
+          const owned = element.querySelector(".reader-paid__toc-badge--owned");
+          const freeBadge = element.querySelector(".reader-paid__toc-badge--free");
+          const closed = element.querySelector(".reader-paid__toc-badge--locked");
+          const menu = element.querySelector(".reader-paid__toc-menu");
+          return {
+            ownedBg: getComputedStyle(owned).backgroundColor,
+            freeBg: getComputedStyle(freeBadge).backgroundColor,
+            closedBg: getComputedStyle(closed).backgroundColor,
+            menuWidth: menu.getBoundingClientRect().width,
+          };
+        });
+        assert(visuals.ownedBg !== visuals.freeBg &&
+          visuals.freeBg !== visuals.closedBg &&
+          visuals.menuWidth <= width - 24,
+          device + ": mixed TOC styles diverge from NEwBOO reading hierarchy");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-mixed-toc-" + device + ".png"),
+          fullPage: true,
+          mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
         const tocOverflow = await page.evaluate(() =>
           document.documentElement.scrollWidth >
           document.documentElement.clientWidth + 1);
