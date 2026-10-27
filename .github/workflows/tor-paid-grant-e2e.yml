@@ -13,6 +13,14 @@ on:
       - 'tools/paid_reader_minio_chromium_e2e.cjs'
       - 'crates/web/assets/newboo-paid-reader.mjs'
       - 'crates/web/src/pages/reader_paid.rs'
+      - 'crates/web/templates/layout.html'
+      - 'crates/web/src/pages.rs'
+      - 'crates/web/assets/site.css'
+      - 'crates/web/assets/newboo-port.css'
+      - 'crates/web/assets/newboo-book-detail.css'
+      - 'crates/web/assets/newboo-reader.css'
+      - 'crates/web/assets/newboo-cover-picker.css'
+      - 'crates/web/assets/brand/**'
       - '.github/workflows/tor-paid-grant-e2e.yml'
   push:
     branches: [main]
@@ -28,6 +36,14 @@ on:
       - 'tools/paid_reader_minio_chromium_e2e.cjs'
       - 'crates/web/assets/newboo-paid-reader.mjs'
       - 'crates/web/src/pages/reader_paid.rs'
+      - 'crates/web/templates/layout.html'
+      - 'crates/web/src/pages.rs'
+      - 'crates/web/assets/site.css'
+      - 'crates/web/assets/newboo-port.css'
+      - 'crates/web/assets/newboo-book-detail.css'
+      - 'crates/web/assets/newboo-reader.css'
+      - 'crates/web/assets/newboo-cover-picker.css'
+      - 'crates/web/assets/brand/**'
       - '.github/workflows/tor-paid-grant-e2e.yml'
   workflow_dispatch:
 permissions:
@@ -131,6 +147,7 @@ jobs:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
+          TOR_PAID_READER_SHOTS: ${{ runner.temp }}/tor-paid-reader-visual
         run: |
           set -euo pipefail
           export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
@@ -142,6 +159,14 @@ jobs:
           cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
+      - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-s034-real-rust-reader-newboo-1440-390
+          path: ${{ runner.temp }}/tor-paid-reader-visual/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: MinIO diagnostics without signed credentials
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log" || true
