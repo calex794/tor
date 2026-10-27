@@ -48,6 +48,7 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
