@@ -152,7 +152,7 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
-          cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
