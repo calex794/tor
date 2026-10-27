@@ -1,5 +1,6 @@
 //! D-02: only test against disposable tor_ci, never a real user wallet.
 use sqlx::PgPool;
+use tor_commerce::repositories::entitlements::PgDirectEntitlements;
 use tor_commerce::{
     domain::money::{
         CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
@@ -9,7 +10,6 @@ use tor_commerce::{
 use tor_contracts::paid_delivery::{
     Actor, ChapterVersionRef, DenialReason, EntitlementDecision, EntitlementPort, PositiveId,
 };
-use tor_commerce::repositories::entitlements::PgDirectEntitlements;
 
 async fn fixture(name: &str, balance: i64, price: i64) -> (PgPool, i64, i64, i64, i64) {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PostgreSQL required");
@@ -347,7 +347,12 @@ async fn d_03_only_buyer_can_read_exact_v1_after_new_publication_v2() {
         )
         .await
         .unwrap();
-    assert_eq!(purchased, EntitlementDecision::Allowed { pinned: receipt.pinned });
+    assert_eq!(
+        purchased,
+        EntitlementDecision::Allowed {
+            pinned: receipt.pinned
+        }
+    );
 
     let stranger: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
@@ -460,7 +465,10 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
         .await
         .unwrap();
     assert!(matches!(
-        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        rights
+            .resolve_entitlement(buyer, chapter_id, None)
+            .await
+            .unwrap(),
         EntitlementDecision::Allowed { .. }
     ));
 
@@ -470,7 +478,10 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
         .await
         .unwrap();
     assert_eq!(
-        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        rights
+            .resolve_entitlement(buyer, chapter_id, None)
+            .await
+            .unwrap(),
         denied(DenialReason::Locked)
     );
     sqlx::query("UPDATE chapters SET admin_hold=false,is_deleted=true WHERE id=$1")
@@ -479,7 +490,10 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
         .await
         .unwrap();
     assert_eq!(
-        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        rights
+            .resolve_entitlement(buyer, chapter_id, None)
+            .await
+            .unwrap(),
         denied(DenialReason::Hidden)
     );
     sqlx::query("UPDATE chapters SET is_deleted=false WHERE id=$1")
@@ -493,7 +507,10 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
         .await
         .unwrap();
     assert_eq!(
-        rights.resolve_entitlement(buyer, chapter_id, None).await.unwrap(),
+        rights
+            .resolve_entitlement(buyer, chapter_id, None)
+            .await
+            .unwrap(),
         denied(DenialReason::Locked)
     );
 }
