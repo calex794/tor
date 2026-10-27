@@ -5,6 +5,16 @@ use std::sync::Arc;
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 
+/// Internal account, cover and author wiring. Keep the route constructor
+/// small without relaxing Clippy's argument-count/type-complexity policies.
+struct PaidRouterExtras {
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
+    author: Option<Arc<dyn crate::author_chapter_http::PaidChapterPublisher>>,
+}
+
 /// S034 opt-in: the grant API remains independent from the browser reader.
 /// Other demo/PG constructors remain default-off.
 pub fn router_with_postgres_reading_auth_paid_grants(
@@ -26,7 +36,7 @@ pub fn router_with_postgres_reading_auth_paid_grants(
         secure,
         public_origin,
         (paid_storage, None),
-        (cover, None),
+        PaidRouterExtras { cover, author: None },
     )
     .expect("API-only grant constructor has no browser S3 origin")
 }
@@ -55,7 +65,7 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser(
         secure,
         public_origin,
         (paid.0, Some(paid.1)),
-        (cover, None),
+        PaidRouterExtras { cover, author: None },
     )
 }
 
@@ -87,7 +97,10 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
         secure,
         public_origin,
         (paid.0, Some(paid.1)),
-        (cover, Some(Arc::new(author))),
+        PaidRouterExtras {
+            cover,
+            author: Some(Arc::new(author)),
+        },
     )
 }
 
@@ -101,15 +114,9 @@ fn paid_grants_router(
         Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
         Option<String>,
     ),
-    extras: (
-        Option<(
-            Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
-            bool,
-        )>,
-        Option<Arc<dyn crate::author_chapter_http::PaidChapterPublisher>>,
-    ),
+    extras: PaidRouterExtras,
 ) -> Result<Router, &'static str> {
-    let (cover, author) = extras;
+    let PaidRouterExtras { cover, author } = extras;
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
         None => (None, false),
