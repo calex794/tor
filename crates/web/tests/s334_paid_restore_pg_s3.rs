@@ -318,11 +318,12 @@ async fn s3_34_seed_paid_v1_and_publish_v2() {
     );
     pg(
         url,
-        &format!(
-            "UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"
-        ),
+        &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
-    pg(url, &format!("UPDATE books SET visibility='draft' WHERE id={book}"));
+    pg(
+        url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
+    );
     pg(
         url,
         &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
@@ -450,7 +451,12 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
         ContentKek::from_environment(),
         Err(CryptoError::UnavailableKey)
     ));
-    let wrong = app(url, c.clone(), Arc::new(ContentKek::from_bytes([99_u8; 32]))).await;
+    let wrong = app(
+        url,
+        c.clone(),
+        Arc::new(ContentKek::from_bytes([99_u8; 32])),
+    )
+    .await;
     assert_eq!(
         grant(&wrong, chapter, Some(buyer), Some(csrf), "{}")
             .await
@@ -460,9 +466,7 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
 
     let correct = app(url, c, kek).await;
     assert_eq!(
-        grant(&correct, chapter, None, None, "{}")
-            .await
-            .status(),
+        grant(&correct, chapter, None, None, "{}").await.status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
@@ -486,7 +490,10 @@ async fn s3_34_verify_restored_paid_v1_and_rejected_keys() {
     );
     let accepted = grant(&correct, chapter, Some(buyer), Some(csrf), "{}").await;
     assert_eq!(accepted.status(), StatusCode::OK);
-    assert_eq!(accepted.headers()[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(
+        accepted.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
     let authorized = decoded(accepted).await;
     assert_eq!(authorized["version_id"], v1.to_string());
     assert_eq!(authorized["content"]["object_sha256"], digest);
