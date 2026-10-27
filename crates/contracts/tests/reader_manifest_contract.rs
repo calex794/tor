@@ -11,7 +11,13 @@ fn unicode_crlf_and_trailing_blank_are_not_false_completions() {
     assert_eq!(blocks, vec!["А😀Б", "Конец😀", ""]);
     let manifest = ReaderVersionManifestV1::from_markdown(md).unwrap();
     assert_eq!(manifest.block_utf16_lengths, vec![4, 7, 0]);
-    assert_eq!((manifest.last_readable_block_index, manifest.last_readable_char_offset), (2, 7));
+    assert_eq!(
+        (
+            manifest.last_readable_block_index,
+            manifest.last_readable_char_offset
+        ),
+        (2, 7)
+    );
     assert!(manifest.valid_place(1, 4));
     assert!(manifest.valid_place(3, 0));
     assert!(!manifest.valid_place(1, 5));
@@ -33,9 +39,7 @@ fn exactly_200_anchors_cover_thousands_of_paragraphs() {
     assert_eq!(blocks.join("\n\n"), md);
     let manifest = ReaderVersionManifestV1::from_markdown(&md).unwrap();
     assert_eq!(manifest.block_utf16_lengths.len(), 200);
-    assert!(manifest.is_completed_place(
-        200, blocks.last().unwrap().encode_utf16().count() as i32
-    ));
+    assert!(manifest.is_completed_place(200, blocks.last().unwrap().encode_utf16().count() as i32));
     assert!(!manifest.valid_place(201, 0));
 }
 
