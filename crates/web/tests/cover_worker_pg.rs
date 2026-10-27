@@ -1,6 +1,10 @@
 //! End-to-end internal cover worker: real PostgreSQL, deterministic S3 fake.
 //! Real S3/HTTP upload/browser availability requires independent provider evidence.
 use async_trait::async_trait;
+use axum::{
+    body::{to_bytes, Body},
+    http::{Request, StatusCode},
+};
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
 use sha2::{Digest, Sha256};
 use std::{
@@ -22,6 +26,7 @@ use tor_ingest::{
     },
 };
 use tor_web::cover_worker::PgBookCoverBridge;
+use tower::ServiceExt;
 
 #[derive(Clone, Default)]
 struct MemoryS3 {
@@ -80,6 +85,13 @@ fn png(seed: u8) -> Vec<u8> {
     writer.into_inner()
 }
 
+async fn fetch(app: &axum::Router, path: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
 #[tokio::test]
 #[ignore = "requires seeded TOR PG18 and a deterministic fake S3 store"]
 async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
@@ -130,6 +142,58 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap();
     assert_eq!(object.len() as i64, card.size_bytes);
     assert_eq!(digest(&object), card.sha256);
+    let app = tor_web::router_with_postgres_reading_covers(
+        catalog.clone(),
+        tor_reading::repositories::PgReader::new(catalog.pool()),
+        Arc::new(store.clone()),
+    );
+    let response = fetch(&app, "/covers/901/card.webp").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/webp");
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert!(response.headers().get("location").is_none());
+    let body = to_bytes(response.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(digest(&body), card.sha256);
+    assert_eq!(
+        fetch(&app, "/covers/901/main.webp").await.status(),
+        StatusCode::OK
+    );
+    for route in [
+        "/covers/901/thumb.webp",
+        "/covers/902/card.webp",
+        "/covers/903/card.webp",
+        "/covers/0/card.webp",
+        "/covers/not-an-id/card.webp",
+        "/covers/999999999999999999999999999999/card.webp",
+    ] {
+        let response = fetch(&app, route).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{route}");
+        assert_eq!(response.headers()["cache-control"], "no-store");
+    }
+    let book = fetch(&app, "/books/901").await;
+    assert_eq!(book.status(), StatusCode::OK);
+    let html = to_bytes(book.into_body(), 256 * 1024).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(html.contains("src=\"/covers/901/main.webp\""));
+    assert!(!html.contains(&card.storage_key));
+    let catalog_page = fetch(&app, "/catalog?q=CI%20owned%20cover%20book").await;
+    assert_eq!(catalog_page.status(), StatusCode::OK);
+    let body = to_bytes(catalog_page.into_body(), 256 * 1024)
+        .await
+        .unwrap();
+    assert!(std::str::from_utf8(&body)
+        .unwrap()
+        .contains("src=\"/covers/901/card.webp\""));
+
+    // Damaged private-object bytes fail closed without exposing partial data.
+    store.add(&card.storage_key, vec![0x41; object.len()]);
+    let bad = fetch(&app, "/covers/901/card.webp").await;
+    assert_eq!(bad.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(to_bytes(bad.into_body(), 1024).await.unwrap().is_empty());
+    store.add(&card.storage_key, object);
     assert!(slots
         .public_variant(901, PublicCoverKind::Main)
         .await
@@ -185,6 +249,10 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap();
     assert_eq!(current.revision, 2);
     assert_ne!(current.sha256, card.sha256);
+    let fresh = fetch(&app, "/covers/901/card.webp").await;
+    assert_eq!(fresh.status(), StatusCode::OK);
+    let bytes = to_bytes(fresh.into_body(), 8 * 1024 * 1024).await.unwrap();
+    assert_eq!(digest(&bytes), current.sha256);
     assert_eq!(
         jobs.existing_variants(job).await.unwrap().len(),
         2,
@@ -254,5 +322,7 @@ async fn g_09_verified_variants_and_b_atomic_slot_replacement() {
         .unwrap()
         .is_none());
 
+    // B-owned PostgreSQL tests independently verify hold/draft/delete revocation.
+    // The web integration intentionally has no SQLx dependency.
     catalog.pool().close().await;
 }

@@ -10,9 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tor_books::{
     repositories::PgCatalog,
-    services::{
-        CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE,
-    },
+    services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
 };
 use tor_reading::{
     repositories::PgReader,
@@ -23,6 +21,12 @@ mod auth_cookies;
 mod author_chapter_http;
 mod author_chapter_pages;
 mod author_pages;
+mod catalog_http;
+pub mod cover_delivery;
+mod cover_http;
+pub use cover_http::{
+    router_with_postgres_reading_auth_covers, router_with_postgres_reading_covers,
+};
 pub mod cover_worker;
 mod observability;
 mod operator_overview;
@@ -38,6 +42,7 @@ struct AppState {
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
+    covers: Option<cover_delivery::CoverDelivery>,
 }
 
 async fn health() -> &'static str {
@@ -108,115 +113,10 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
                 genres: book.genres,
             })
             .collect::<Vec<_>>();
-        return Ok(pages::home_recent(&cards));
+        let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
+        return Ok(pages::home_recent_with_covers(&cards, &covers));
     }
     Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
-}
-#[derive(Default, Deserialize)]
-struct CatalogQuery {
-    q: Option<String>,
-    language: Option<String>,
-    genre: Option<String>,
-    tag: Option<String>,
-    fandom: Option<String>,
-    after: Option<String>,
-    sort: Option<String>,
-}
-async fn catalog(
-    State(state): State<AppState>,
-    Query(query): Query<CatalogQuery>,
-) -> Result<Html<String>, StatusCode> {
-    if let Some(search) = state.search.as_ref() {
-        // Always page the real PG catalog, even without a text filter.
-        // Demo mode remains a separate legacy-compatible path.
-        let sort = query.sort.as_deref().unwrap_or("oldest");
-        let facets = tor_search::repositories::CatalogFacets {
-            term: query.q.as_deref().unwrap_or(""),
-            language: query.language.as_deref(),
-            genre: query.genre.as_deref(),
-            tag: query.tag.as_deref(),
-            fandom: query.fandom.as_deref(),
-        };
-        let page = search
-            .search_catalog(
-                facets,
-                query.after.as_deref(),
-                DEFAULT_PAGE_SIZE,
-                Some(sort),
-            )
-            .await
-            .map_err(|error| match error {
-                tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
-                tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-            })?;
-        // First page shows the exact count once. Cursor requests remain
-        // cheap and do not perform a repeated full-filter count.
-        let total = if query.after.is_none() {
-            Some(
-                search
-                    .count_catalog(facets)
-                    .await
-                    .map_err(|error| match error {
-                        tor_search::SearchError::Invalid => StatusCode::BAD_REQUEST,
-                        tor_search::SearchError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-                    })?,
-            )
-        } else {
-            None
-        };
-        let options = if query.after.is_none() {
-            Some(
-                search
-                    .taxonomy_options()
-                    .await
-                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            )
-        } else {
-            None
-        };
-        let cards: Vec<_> = page
-            .items
-            .into_iter()
-            .map(|item| pages::PublicBookCard {
-                id: item.id,
-                title: item.title,
-                language: item.language,
-                author_name: if item.author_name.is_empty() {
-                    None
-                } else {
-                    Some(item.author_name)
-                },
-                genres: item.genres,
-            })
-            .collect();
-        return Ok(pages::catalog_search(
-            &cards,
-            pages::CatalogPageQuery {
-                query: query.q.as_deref().unwrap_or(""),
-                language: query.language.as_deref(),
-                genre: query.genre.as_deref(),
-                tag: query.tag.as_deref(),
-                fandom: query.fandom.as_deref(),
-                cursor: page.next_cursor.as_deref(),
-                sort,
-                total,
-                options: options.as_ref(),
-            },
-        ));
-    }
-    if query.q.is_some()
-        || query.after.is_some()
-        || query.language.is_some()
-        || query.genre.is_some()
-        || query.tag.is_some()
-        || query.fandom.is_some()
-        || query.sort.is_some()
-    {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    Ok(pages::catalog(
-        &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
-    ))
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
@@ -294,7 +194,17 @@ async fn book_detail(
             Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
             Err(error) => return auth_cookies::private_response(reading_status(error), &[]),
         };
-        return pages::book_detail_with_chapters(&book, limit).into_response();
+        let has_cover = if let Some(delivery) = state.covers.as_ref() {
+            match delivery.available_card_ids(&[book.id]).await {
+                Ok(ids) => ids.contains(&book.id),
+                Err(_) => {
+                    return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
+                }
+            }
+        } else {
+            false
+        };
+        return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -410,7 +320,7 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    ril::instrument(make_router(repo, None, None, false))
+    ril::instrument(make_router(repo, None, None, false, None))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     ril::instrument(make_router(
@@ -418,6 +328,7 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
         Some(catalog),
         None,
         false,
+        None,
     ))
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
@@ -426,6 +337,7 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         Some(catalog),
         Some(reader),
         false,
+        None,
     ))
 }
 
@@ -439,8 +351,14 @@ pub fn router_with_postgres_reading_auth(
 ) -> Router {
     let auth_reader = reader.clone();
     ril::instrument(
-        make_router(Arc::new(catalog.clone()), Some(catalog), Some(reader), true)
-            .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+        make_router(
+            Arc::new(catalog.clone()),
+            Some(catalog),
+            Some(reader),
+            true,
+            None,
+        )
+        .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
 }
 
@@ -449,12 +367,14 @@ fn make_router(
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
     active_auth: bool,
+    objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     let mut app = Router::new()
         .route("/", get(homepage))
-        .route("/catalog", get(catalog))
+        .route("/catalog", get(catalog_http::catalog))
         .route("/books/{id}", get(book_detail))
+        .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
@@ -485,11 +405,18 @@ fn make_router(
         .clone()
         .map(tor_search::api::router)
         .unwrap_or_default();
+    let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
+        cover_delivery::CoverDelivery::new(
+            tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
+            store,
+        )
+    });
     app.with_state(AppState {
         books: repo,
         postgres,
         reader,
         search,
+        covers,
     })
     .merge(api)
     .merge(search_api)

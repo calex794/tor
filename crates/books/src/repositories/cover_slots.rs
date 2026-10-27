@@ -177,6 +177,49 @@ impl PgCoverSlots {
     }
 }
 
+impl PgCoverSlots {
+    /// A bounded single-query projection for H/F cards, with exactly the same
+    /// fail-closed visibility, ownership and attached-variant predicates as
+    /// public_variant. A client-supplied id list can never reveal an S3 key.
+    pub async fn public_card_ids(
+        &self,
+        ids: &[u64],
+    ) -> Result<std::collections::HashSet<u64>, sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+        if ids.len() > 100 {
+            return Err(sqlx::Error::Protocol(
+                "cover projection batch too large".into(),
+            ));
+        }
+        let ids = ids
+            .iter()
+            .map(|id| {
+                i64::try_from(*id).map_err(|_| sqlx::Error::Protocol("invalid book id".into()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let rows: Vec<i64> = sqlx::query_scalar(
+            "SELECT b.id FROM books b
+             JOIN book_cover_slots s ON s.book_id=b.id
+             JOIN cover_variant_jobs j ON j.id=s.job_id AND j.book_id=b.id
+             JOIN cover_variants v ON v.job_id=j.id AND v.variant_name='card'
+             WHERE b.id=ANY($1::bigint[])
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.owner_user_id=j.actor_user_id AND j.status='done'",
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|id| {
+                u64::try_from(id)
+                    .map_err(|_| sqlx::Error::Protocol("invalid stored book id".into()))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod public_cover_tests {
     use super::PublicCoverKind;
