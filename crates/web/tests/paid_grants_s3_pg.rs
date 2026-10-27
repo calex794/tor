@@ -514,6 +514,18 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let still_v1 = decode(preserved).await;
     assert_eq!(still_v1["version_id"], v1.to_string());
     assert!(!still_v1.to_string().contains(MARKDOWN));
+    // A D purchase stays readable even while an author hides the work,
+    // but F's visible private ranking deliberately excludes unpublished
+    // books. Re-publish after exercising D's hidden V1 rights so the next
+    // assertion tests F eligibility instead of violating its visibility rule.
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET visibility='public' WHERE id={book}; \
+             UPDATE chapters SET visibility='public' WHERE id={chapter}"
+        ),
+    );
+
     // C/F-05: A grant, downloaded ciphertext or bookmark alone does not
     // create a ranking fact. The owner explicitly finishes the sealed V1.
     let before_finish = request_completion(
