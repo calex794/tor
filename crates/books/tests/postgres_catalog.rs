@@ -157,7 +157,6 @@ async fn b_public_cover_variant_revalidates_current_visibility() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL tor_ci, seeded fixtures, and migration 202610280006"]
 async fn shadow_manual_opt_in_is_not_automatic_and_views_are_read_only() {
@@ -174,12 +173,11 @@ async fn shadow_manual_opt_in_is_not_automatic_and_views_are_read_only() {
 
     // No side effects outside the transaction: the catalog remains empty by default.
     let mut tx = pool.begin().await.unwrap();
-    let old_state: (bool, String) = sqlx::query_as(
-        "SELECT shadow_enabled, seo_index_owner FROM books WHERE id=1",
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
+    let old_state: (bool, String) =
+        sqlx::query_as("SELECT shadow_enabled, seo_index_owner FROM books WHERE id=1")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
     assert_eq!(old_state, (false, "pandaolate".to_owned()));
 
     let initially_visible: i64 =
@@ -193,11 +191,10 @@ async fn shadow_manual_opt_in_is_not_automatic_and_views_are_read_only() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    let visible: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM shadow_public_books WHERE id=1")
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
+    let visible: i64 = sqlx::query_scalar("SELECT count(*) FROM shadow_public_books WHERE id=1")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
     assert_eq!(visible, 1);
     let owner: String =
         sqlx::query_scalar("SELECT seo_index_owner FROM shadow_public_books WHERE id=1")
@@ -208,11 +205,10 @@ async fn shadow_manual_opt_in_is_not_automatic_and_views_are_read_only() {
 
     // The future, draft, moderated and blocked chapters are not readable even
     // if their parent has been allowed into Shadow. Paid metadata is not a veto.
-    let rows =
-        sqlx::query("SELECT id FROM shadow_public_chapters WHERE book_id=1 ORDER BY id")
-            .fetch_all(&mut *tx)
-            .await
-            .unwrap();
+    let rows = sqlx::query("SELECT id FROM shadow_public_chapters WHERE book_id=1 ORDER BY id")
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
     let ids: Vec<i64> = rows.iter().map(|row| row.get("id")).collect();
     assert_eq!(ids, vec![101, 103, 108]);
     assert_eq!(
