@@ -29,6 +29,8 @@ base64 = "0.22"
 sha2 = "0.10"
 
 [dev-dependencies]
+tor-commerce = { path = "../commerce" }
+tor-contracts = { path = "../contracts" }
 serde_json = "1"
 tower = { version = "0.5", features = ["util"] }
 
