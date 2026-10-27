@@ -1,0 +1,43 @@
+name: TOR private S3 crypto
+on:
+  pull_request:
+    paths:
+      - 'crates/storage/**'
+      - 'crates/contracts/**'
+      - 'Cargo.toml'
+      - '.github/workflows/storage-crypto.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/storage/**'
+      - 'crates/contracts/**'
+      - 'Cargo.toml'
+      - '.github/workflows/storage-crypto.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tor-storage-crypto-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  crypto:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: TOR architecture boundaries
+        run: python3 tools/check_feature_layout.py
+      - name: Format storage and contracts
+        run: cargo fmt -p tor-storage -p tor-contracts -- --check
+      - name: Rust crypto and contracts negative tests
+        run: cargo test -p tor-storage -p tor-contracts --all-targets
+      - name: Clippy storage and contracts only
+        run: cargo clippy -p tor-storage -p tor-contracts --all-targets -- -D warnings
+      - name: Independent WebCrypto AES-GCM golden
+        run: node crates/storage/tests/crypto_webcrypto.mjs
