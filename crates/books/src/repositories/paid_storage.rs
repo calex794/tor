@@ -11,12 +11,21 @@ use tor_contracts::paid_delivery::{
 };
 use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHEMA_V1};
 
+mod edit;
+pub use edit::PreparedPaidEdit;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaidPublication {
     /// Attach verified historical V1 without changing the reader pointer.
     KeepCurrent,
     /// B-owned compare-and-swap of the published pointer. None = first release.
     Publish { expected_current: Option<i64> },
+    /// Published paid text revision: V1 stays pinned to existing purchases.
+    /// A successful pointer swap also advances the optimistic edit revision.
+    PublishEdit {
+        expected_current: i64,
+        expected_revision: i64,
+    },
 }
 
 /// Durable B-owned draft, not visible until G verifies the ciphertext
@@ -219,13 +228,23 @@ impl PgPaidStorage {
         if actor <= 0 || book_id <= 0 {
             return Err(AuthorError::Invalid);
         }
-        if let PaidPublication::Publish {
-            expected_current: Some(expected),
-        } = publication
-        {
-            if expected <= 0 || expected == version_id {
+        match publication {
+            PaidPublication::Publish {
+                expected_current: Some(expected),
+            } if expected <= 0 || expected == version_id => {
                 return Err(AuthorError::Invalid);
             }
+            PaidPublication::PublishEdit {
+                expected_current,
+                expected_revision,
+            } if expected_current <= 0
+                || expected_current == version_id
+                || expected_revision < 0
+                || expected_revision == i64::MAX =>
+            {
+                return Err(AuthorError::Invalid);
+            }
+            _ => {}
         }
 
         let mut tx = self.pool.begin().await.map_err(map_write)?;
@@ -246,8 +265,8 @@ impl PgPaidStorage {
         }
 
         // Prevent a free chapter from being linked to paid-only ciphertext.
-        let chapter_visibility: Option<String> = sqlx::query_scalar(
-            "SELECT visibility FROM chapters
+        let chapter_data: Option<(String, i64)> = sqlx::query_as(
+            "SELECT visibility,edit_revision FROM chapters
              WHERE id=$1 AND book_id=$2 AND access_level='paid'
                AND price_amount>0 AND NOT admin_hold AND NOT is_deleted
                AND (reader_released_at IS NULL OR reader_released_at<=now())
@@ -258,7 +277,7 @@ impl PgPaidStorage {
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_write)?;
-        let Some(chapter_visibility) = chapter_visibility else {
+        let Some((chapter_visibility, chapter_revision)) = chapter_data else {
             return Err(AuthorError::Missing);
         };
 
@@ -289,10 +308,28 @@ impl PgPaidStorage {
         .await
         .map_err(map_write)?;
 
-        if let PaidPublication::Publish { expected_current } = publication {
-            // Exactly replayed publish is safe, but a stale caller cannot move
-            // a newer published version backwards.
-            if current != Some(version_id) && current != expected_current {
+        let expected_current = match publication {
+            PaidPublication::KeepCurrent => None,
+            PaidPublication::Publish { expected_current } => Some(expected_current),
+            PaidPublication::PublishEdit {
+                expected_current,
+                expected_revision,
+            } => {
+                if chapter_visibility != "public"
+                    || (current != Some(version_id)
+                        && chapter_revision != expected_revision)
+                    || (current == Some(version_id)
+                        && chapter_revision != expected_revision + 1)
+                {
+                    return Err(AuthorError::Conflict);
+                }
+                Some(Some(expected_current))
+            }
+        };
+        if let Some(expected) = expected_current {
+            // Exact replay may succeed, but the previous published edition
+            // may never be overwritten by a stale or differently pinned tab.
+            if current != Some(version_id) && current != expected {
                 return Err(AuthorError::Conflict);
             }
             if current == Some(version_id) && chapter_visibility != "public" {
@@ -409,7 +446,7 @@ impl PgPaidStorage {
             return Err(AuthorError::Conflict);
         }
 
-        if let PaidPublication::Publish { .. } = publication {
+        if !matches!(publication, PaidPublication::KeepCurrent) {
             if current != Some(version_id) {
                 match current {
                     Some(old_version) => {
@@ -449,11 +486,29 @@ impl PgPaidStorage {
                         .map_err(map_write)?;
                     }
                 }
-                sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
+                if let PaidPublication::PublishEdit {
+                    expected_revision, ..
+                } = publication
+                {
+                    let changed = sqlx::query(
+                        "UPDATE chapters SET edit_revision=edit_revision+1
+                         WHERE id=$1 AND edit_revision=$2 AND visibility='public'",
+                    )
                     .bind(chapter_id)
+                    .bind(expected_revision)
                     .execute(&mut *tx)
                     .await
                     .map_err(map_write)?;
+                    if changed.rows_affected() != 1 {
+                        return Err(AuthorError::Conflict);
+                    }
+                } else {
+                    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
+                        .bind(chapter_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(map_write)?;
+                }
                 sqlx::query(
                     "INSERT INTO chapter_encrypted_release_events
                        (chapter_id,version_id,storage_object_id)
