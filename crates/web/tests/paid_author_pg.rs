@@ -11,7 +11,7 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use std::{env, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{env, num::NonZeroU32, process::Command, sync::Arc, time::Duration};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -32,6 +32,21 @@ use tower::ServiceExt;
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const BUCKET: &str = "tor-private-author-creation-ci";
+
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+    let result = Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .output()
+        .expect("psql client required by isolated PG test");
+    assert!(
+        result.status.success(),
+        "disposable fixture SQL failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
 
 async fn user(accounts: &PgAccounts, email: &str) -> (i64, String) {
     let token = generate_session_token();
@@ -130,13 +145,15 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         user(&accounts, "paid-author-v2-ci-owner@example.invalid").await;
     let (_, other_session) =
         user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES('ci:real-paid-author-save','ru','Paid author creation','public',$1) RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:real-paid-author-save','ru','Paid author creation','public',{owner})
+             RETURNING id"
+        ),
     )
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     let ring = Arc::new(
         ContentKeyring::with_v2(
@@ -233,32 +250,34 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         "same key with altered text/metadata must never replace the version"
     );
 
-    let row: (i64, i64, String, String, String) = sqlx::query_as(
-        "SELECT c.id, v.id, c.visibility, c.access_level, o.kek_id
-         FROM chapters c
-         JOIN chapter_publications p ON p.chapter_id=c.id
-         JOIN chapter_versions v ON v.id=p.version_id
-         JOIN storage_objects o ON o.id=v.storage_object_id
-         WHERE c.book_id=$1",
+    let result = pg(
+        &url,
+        &format!(
+            "SELECT c.id || '|' || v.id || '|' || c.visibility || '|' || c.access_level || '|' || o.kek_id
+             FROM chapters c
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id
+             JOIN storage_objects o ON o.id=v.storage_object_id
+             WHERE c.book_id={book}"
+        ),
+    );
+    let values = result.split('|').collect::<Vec<_>>();
+    assert_eq!(values.len(), 5);
+    let chapter_id: i64 = values[0].parse().unwrap();
+    let version_id: i64 = values[1].parse().unwrap();
+    assert_eq!(values[2], "public");
+    assert_eq!(values[3], "paid");
+    assert_eq!(values[4], "content-kek-v2");
+    let version_count: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_versions WHERE chapter_id={chapter_id}"),
     )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    assert_eq!(row.2, "public");
-    assert_eq!(row.3, "paid");
-    assert_eq!(row.4, "content-kek-v2");
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_versions WHERE chapter_id=$1",
-    )
-    .bind(row.0)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(version_count, 1);
     let pinned = ChapterVersionRef {
-        chapter_id: PositiveId::new(row.0).unwrap(),
-        version_id: PositiveId::new(row.1).unwrap(),
+        chapter_id: PositiveId::new(chapter_id).unwrap(),
+        version_id: PositiveId::new(version_id).unwrap(),
     };
     let encrypted = PgPaidStorage::new(pool.clone())
         .encrypted_chapter(pinned)
