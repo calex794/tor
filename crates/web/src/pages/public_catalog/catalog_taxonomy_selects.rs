@@ -11,9 +11,30 @@ pub(super) fn apply(
     fandom: Option<&str>,
 ) -> String {
     let kinds = [
-        ("book-genre", "genre", "Жанр", "Все жанры", genre, options.map(|o| &o.genres)),
-        ("book-tag", "tag", "Тег", "Все теги", tag, options.map(|o| &o.tags)),
-        ("book-fandom", "fandom", "Фэндом", "Все фэндомы", fandom, options.map(|o| &o.fandoms)),
+        (
+            "book-genre",
+            "genre",
+            "Жанр",
+            "Все жанры",
+            genre,
+            options.map(|o| &o.genres),
+        ),
+        (
+            "book-tag",
+            "tag",
+            "Тег",
+            "Все теги",
+            tag,
+            options.map(|o| &o.tags),
+        ),
+        (
+            "book-fandom",
+            "fandom",
+            "Фэндом",
+            "Все фэндомы",
+            fandom,
+            options.map(|o| &o.fandoms),
+        ),
     ];
     for (id, key, label, empty, current, available) in kinds {
         let Some(at) = html.find(&format!("id=\"{id}\"")) else {
@@ -73,7 +94,13 @@ mod tests {
             tags: vec!["Попаданцы".into()],
             fandoms: vec!["Аниме".into()],
         };
-        let result = apply(form(), Some(&options), Some("Фэнтези"), Some("Попаданцы"), None);
+        let result = apply(
+            form(),
+            Some(&options),
+            Some("Фэнтези"),
+            Some("Попаданцы"),
+            None,
+        );
         assert!(result.contains("<option value=\"Фэнтези\" selected>Фэнтези</option>"));
         assert!(result.contains("<option value=\"Попаданцы\" selected>Попаданцы</option>"));
         assert!(result.contains("Все фэндомы"));
