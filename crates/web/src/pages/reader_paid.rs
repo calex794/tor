@@ -33,12 +33,47 @@ pub fn paid_reader_shell(
              data-s3-origin="{s3_origin}" aria-labelledby="reader-title">
            <div class="container reader-width">
              <header class="reader-topbar" aria-label="Панель чтения">
-               <a class="reader-topbar__back" href="/me/purchases"><span aria-hidden="true">←</span> К купленным главам</a>
+               <a class="reader-topbar__back" href="/me/purchases" aria-label="К купленным главам"><span aria-hidden="true">←</span><span class="reader-topbar__back-label">К купленным главам</span></a>
                <div class="reader-topbar__title">
                  <span class="reader-topbar__book" title="{book}">{book}</span>
                  <span class="reader-topbar__chapter" title="{chapter_label}">{chapter_label}</span>
                </div>
+               <div class="reader-topbar__actions">
+                 <button class="reader-topbar__settings" type="button" data-paid-settings-open
+                   aria-controls="paid-reader-settings" aria-expanded="false"
+                   aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+               </div>
              </header>
+             <section id="paid-reader-settings" class="reader-paid__settings"
+               data-paid-reader-settings aria-labelledby="paid-reader-settings-title" hidden>
+               <div class="reader-paid__settings-head">
+                 <h2 id="paid-reader-settings-title">Настройки чтения</h2>
+                 <button type="button" data-paid-settings-close aria-label="Закрыть настройки">Закрыть</button>
+               </div>
+               <div class="reader-paid__settings-fields">
+                 <div class="reader-paid__settings-field" role="group" aria-label="Тема чтения">
+                   <span>Тема</span>
+                   <div class="reader-paid__themes">
+                     <button type="button" data-paid-theme="light" aria-pressed="false">Светлая</button>
+                     <button type="button" data-paid-theme="sepia" aria-pressed="false">Сепия</button>
+                     <button type="button" data-paid-theme="dark" aria-pressed="false">Тёмная</button>
+                   </div>
+                 </div>
+                 <label class="reader-paid__settings-field">Размер текста
+                   <input type="range" min="82" max="142" step="4" value="100" data-paid-font-scale>
+                   <output data-paid-font-output>100%</output>
+                 </label>
+                 <label class="reader-paid__settings-field">Межстрочный интервал
+                   <input type="range" min="150" max="220" step="5" value="185" data-paid-line-height>
+                   <output data-paid-line-output>1.85</output>
+                 </label>
+                 <label class="reader-paid__settings-field">Ширина текста
+                   <input type="range" min="620" max="980" step="20" value="860" data-paid-reader-width>
+                   <output data-paid-width-output>860 px</output>
+                 </label>
+               </div>
+               <button type="button" data-paid-settings-reset>Сбросить настройки</button>
+             </section>
              <div class="reader-page__header">
                <p class="reader-page__meta">Купленная редакция {version_no}</p>
                <h1 id="reader-title" class="reader-page__title">{chapter_label}</h1>
@@ -161,6 +196,12 @@ mod tests {
         assert!(body.contains("data-purchase-id=\"31\""));
         assert!(body.contains("data-chapter-id=\"23\""));
         assert!(body.contains("Купленная редакция 1"));
+        assert!(body.contains("data-paid-settings-open"));
+        assert!(body.contains("data-paid-reader-settings"));
+        assert!(body.contains("data-paid-font-scale"));
+        assert!(body.contains("data-paid-reader-width"));
+        assert!(body.contains("data-paid-theme=\"sepia\""));
+        assert!(!body.contains("data-reader-toc-url"));
         assert!(body.contains("Глава 2. Вторая &quot;глава&quot;"));
         assert!(body.contains("Книга &lt;script&gt;опасно&lt;/script&gt;"));
         assert!(!body.contains("<script>опасно</script>"));
