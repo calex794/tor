@@ -141,13 +141,12 @@ async fn post_grant(
 async fn request_completion(
     app: &Router,
     method: &str,
-    chapter: i64,
-    purchase: i64,
-    version: i64,
+    edition: (i64, i64, i64),
     session: &str,
     csrf: &str,
     body: Option<Value>,
 ) -> Response {
+    let (chapter, purchase, version) = edition;
     let url = format!(
         "/api/v1/me/progress/purchased/complete?chapter_id={chapter}&purchase_id={purchase}&version_id={version}"
     );
@@ -531,9 +530,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let before_finish = request_completion(
         &app,
         "GET",
-        chapter,
-        purchase_id,
-        v1,
+        (chapter, purchase_id, v1),
         &buyer_cookie,
         &csrf,
         None,
@@ -557,9 +554,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let denied = request_completion(
         &app,
         "POST",
-        chapter,
-        purchase_id,
-        v1,
+        (chapter, purchase_id, v1),
         &stranger_cookie,
         &csrf,
         Some(command.clone()),
@@ -571,9 +566,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let fake_response = request_completion(
         &app,
         "POST",
-        chapter,
-        purchase_id,
-        v1,
+        (chapter, purchase_id, v1),
         &buyer_cookie,
         &csrf,
         Some(fake),
@@ -588,9 +581,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let done = request_completion(
         &app,
         "POST",
-        chapter,
-        purchase_id,
-        v1,
+        (chapter, purchase_id, v1),
         &buyer_cookie,
         &csrf,
         Some(command.clone()),
@@ -601,9 +592,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let duplicate = request_completion(
         &app,
         "POST",
-        chapter,
-        purchase_id,
-        v1,
+        (chapter, purchase_id, v1),
         &buyer_cookie,
         &csrf,
         Some(command.clone()),
@@ -621,9 +610,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         request_completion(
             &app,
             "GET",
-            chapter,
-            purchase_id,
-            v1,
+            (chapter, purchase_id, v1),
             &buyer_cookie,
             &csrf,
             None,
@@ -742,9 +729,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let revoked_finish = request_completion(
         &app,
         "POST",
-        chapter,
-        purchase_id,
-        v1,
+        (chapter, purchase_id, v1),
         &buyer_cookie,
         &csrf,
         Some(command),
