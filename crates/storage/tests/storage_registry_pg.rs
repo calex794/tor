@@ -4,7 +4,10 @@
 
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, Row};
-use std::{sync::{Arc, Mutex}, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tor_contracts::paid_delivery::{
     ChapterVersionRef, ContentCodec, EncryptedObjectRef, ObjectId, ObjectRef, PositiveId,
     PrivateObjectDeliveryPort, SecretValue,
@@ -16,7 +19,9 @@ use tor_storage::{
         registry::{ObjectState, PgStorageRegistry, RegistryError},
     },
     services::{
-        crypto::{seal_chapter, seal_chapter_with_keyring, sha256_bytes, ContentKek, ContentKeyring},
+        crypto::{
+            seal_chapter, seal_chapter_with_keyring, sha256_bytes, ContentKek, ContentKeyring,
+        },
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
@@ -281,13 +286,9 @@ async fn s334_new_v2_envelope_is_registered_and_read_alongside_old_v1() {
         &old_keyring,
     )
     .unwrap();
-    let new_sealed = seal_chapter_with_keyring(
-        v2,
-        new_id.clone(),
-        "Новое платное издание V2",
-        &new_keyring,
-    )
-    .unwrap();
+    let new_sealed =
+        seal_chapter_with_keyring(v2, new_id.clone(), "Новое платное издание V2", &new_keyring)
+            .unwrap();
     assert_eq!(old_sealed.kek_id, "content-kek-v1");
     assert_eq!(new_sealed.kek_id, "content-kek-v2");
     assert_eq!(
@@ -361,13 +362,12 @@ async fn s334_new_v2_envelope_is_registered_and_read_alongside_old_v1() {
     .await
     .unwrap();
     assert_eq!(snapshot, after, "V1 encrypted material never changes");
-    let persisted_id: String = sqlx::query_scalar(
-        "SELECT kek_id FROM storage_objects WHERE id=$1::uuid",
-    )
-    .bind(new_id.as_str())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let persisted_id: String =
+        sqlx::query_scalar("SELECT kek_id FROM storage_objects WHERE id=$1::uuid")
+            .bind(new_id.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(persisted_id, "content-kek-v2");
 
     let old_encrypted = EncryptedObjectRef {
@@ -387,7 +387,7 @@ async fn s334_new_v2_envelope_is_registered_and_read_alongside_old_v1() {
     let old_signer = PgPrivateDelivery::with_keyring(
         pool.clone(),
         old_store,
-        Arc::new(ContentKeyring::with_v2(old.clone(), Arc::new(ContentKek::from_bytes([0x82; 32]))).unwrap()),
+        Arc::new(old_keyring),
         "tor-private-chapter-ci".to_owned(),
     )
     .unwrap();
