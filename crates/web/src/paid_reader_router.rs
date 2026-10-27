@@ -27,6 +27,7 @@ pub fn router_with_postgres_reading_auth_paid_grants(
         public_origin,
         (paid_storage, None),
         cover,
+        None,
     )
     .expect("API-only grant constructor has no browser S3 origin")
 }
@@ -56,6 +57,40 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser(
         public_origin,
         (paid.0, Some(paid.1)),
         cover,
+        None,
+    )
+}
+
+/// Fully opt-in writer: HTTP author Save is enabled only when the caller
+/// supplies a real configured private S3 store and a versioned KEK.
+#[cfg(feature = "s3-paid")]
+pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+    paid: (
+        Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
+        String,
+    ),
+    cover: Option<(
+        Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
+        bool,
+    )>,
+    author: crate::paid_author_publish::PgPaidAuthorPublisher<
+        tor_storage::repositories::s3::S3PrivateStore,
+    >,
+) -> Result<Router, &'static str> {
+    paid_grants_router(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        (paid.0, Some(paid.1)),
+        cover,
+        Some(Arc::new(author)),
     )
 }
 
@@ -73,6 +108,7 @@ fn paid_grants_router(
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
         bool,
     )>,
+    author: Option<Arc<dyn crate::author_chapter_http::PaidChapterPublisher>>,
 ) -> Result<Router, &'static str> {
     let (cover_storage, enable_cover_uploads) = match cover {
         Some((store, enabled)) => (Some(store), enabled),
@@ -89,18 +125,24 @@ fn paid_grants_router(
     } else {
         paid_grants_http::router(accounts.clone(), cookies, paid.0)
     };
-    let author = if browser_enabled {
-        auth::router_with_paid_reader(
-            accounts,
-            auth_reader,
-            secure,
-            public_origin,
-            if enable_cover_uploads {
-                cover_storage.clone()
-            } else {
-                None
-            },
-        )
+    let author_router = if browser_enabled {
+        let covers = if enable_cover_uploads {
+            cover_storage.clone()
+        } else {
+            None
+        };
+        if let Some(publisher) = author {
+            auth::router_with_paid_reader_author(
+                accounts,
+                auth_reader,
+                secure,
+                public_origin,
+                covers,
+                publisher,
+            )
+        } else {
+            auth::router_with_paid_reader(accounts, auth_reader, secure, public_origin, covers)
+        }
     } else if enable_cover_uploads {
         match cover_storage.as_ref() {
             Some(store) => auth::router_with_cover_uploads(
@@ -123,7 +165,7 @@ fn paid_grants_router(
             true,
             cover_storage,
         )
-        .merge(author)
+        .merge(author_router)
         .merge(grants),
     ))
 }
