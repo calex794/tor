@@ -107,9 +107,8 @@ fn seal_with_key(
     let wrap_nonce = random_bytes::<12>()?;
     let ciphertext = encrypt_raw(&dek, &object_nonce, &aad, image)?;
     let wrapped_dek = encrypt_raw(&kek.0, &wrap_nonce, &wrap_aad(&object_id), &dek[..])?;
-    if wrapped_dek.len() != 48
-        || unwrap_bytes(&object_id, &wrapped_dek, &wrap_nonce, kek)?[..] != dek[..]
-    {
+    let checked = unwrap_bytes(&object_id, &wrapped_dek, &wrap_nonce, kek)?;
+    if wrapped_dek.len() != 48 || checked.as_slice() != &dek[..] {
         return Err(CryptoError::AuthenticationFailed);
     }
     Ok(EncryptedAsset {
