@@ -2,7 +2,12 @@
 //! The route is disabled unless TOR_PAID_CHECKOUT_ENABLED=1 was set at startup.
 use super::{deny, session_user, AuthState};
 use crate::auth_cookies::private_response;
-use axum::{extract::State, http::{HeaderMap, StatusCode}, response::Response, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::Response,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use tor_commerce::{
     domain::money::{
@@ -38,9 +43,10 @@ fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
 
 fn checkout_status(error: CheckoutError) -> StatusCode {
     match error {
-        CheckoutError::InsufficientBalance | CheckoutError::StaleOffer
-        | CheckoutError::AlreadyOwned | CheckoutError::DuplicateKeyDifferentRequest =>
-            StatusCode::CONFLICT,
+        CheckoutError::InsufficientBalance
+        | CheckoutError::StaleOffer
+        | CheckoutError::AlreadyOwned
+        | CheckoutError::DuplicateKeyDifferentRequest => StatusCode::CONFLICT,
         CheckoutError::Inaccessible => StatusCode::NOT_FOUND,
         CheckoutError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
@@ -81,11 +87,13 @@ pub(super) async fn buy(
         Ok(actor) => actor,
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    let (chapter_id, version_id) =
-        match (positive(&input.chapter_id), positive(&input.expected_version_id)) {
-            (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
-            (Err(status), _) | (_, Err(status)) => return deny(status),
-        };
+    let (chapter_id, version_id) = match (
+        positive(&input.chapter_id),
+        positive(&input.expected_version_id),
+    ) {
+        (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
+        (Err(status), _) | (_, Err(status)) => return deny(status),
+    };
     let price = match MoneyMinor::new(input.expected_price_minor) {
         Ok(price) if price.get() > 0 => price,
         _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
@@ -97,7 +105,10 @@ pub(super) async fn buy(
     let command = match PurchaseCommand::new(
         actor,
         wallet,
-        ChapterVersionRef { chapter_id, version_id },
+        ChapterVersionRef {
+            chapter_id,
+            version_id,
+        },
         price,
         key,
     ) {
@@ -129,7 +140,13 @@ mod tests {
             assert_eq!(positive(bad), Err(StatusCode::UNPROCESSABLE_ENTITY));
         }
         assert_eq!(positive("123").unwrap().get(), 123);
-        assert_eq!(checkout_status(CheckoutError::AlreadyOwned), StatusCode::CONFLICT);
-        assert_eq!(checkout_status(CheckoutError::Unavailable), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            checkout_status(CheckoutError::AlreadyOwned),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            checkout_status(CheckoutError::Unavailable),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 }
