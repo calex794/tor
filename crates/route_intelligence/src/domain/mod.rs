@@ -99,7 +99,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 50] = [
+const ROUTES: [RouteRegistration; 52] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -425,6 +425,24 @@ const ROUTES: [RouteRegistration; 50] = [
         Dashboard,
         Write,
     ), // 49
+    RouteRegistration::new(
+        "/me/books/{id}/settings/covers",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 50
+    RouteRegistration::new(
+        "/assets/newboo-cover-picker.js",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 51
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -538,6 +556,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/ops/overview"), "GET") => Some(47),
         (Some("/covers/{id}/{variant}"), "GET") => Some(48),
         (Some("/me/books/{id}/cover"), "POST") => Some(49),
+        (Some("/me/books/{id}/settings/covers"), "GET") => Some(50),
+        (Some("/assets/newboo-cover-picker.js"), "GET") => Some(51),
         _ => None,
     };
     index
