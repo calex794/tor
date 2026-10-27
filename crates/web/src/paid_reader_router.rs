@@ -82,8 +82,7 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
     catalog: PgCatalog,
     reader: PgReader,
     accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
+    origin: (bool, String),
     paid: (
         Arc<dyn tor_contracts::paid_delivery::PrivateObjectDeliveryPort>,
         String,
@@ -96,6 +95,7 @@ pub fn router_with_postgres_reading_auth_paid_grants_browser_author(
         tor_storage::repositories::s3::S3PrivateStore,
     >,
 ) -> Result<Router, &'static str> {
+    let (secure, public_origin) = origin;
     paid_grants_router(
         catalog,
         reader,
