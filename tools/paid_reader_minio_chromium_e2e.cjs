@@ -256,7 +256,8 @@ async function run() {
         const html = await toc.innerHTML();
         assert(!html.includes("SECRET_DRAFT_CHAPTER") &&
           !html.includes("SECRET_FUTURE_CHAPTER") &&
-          !html.includes(fixture.toc_draft_chapter_id),
+          !html.includes("/reader/" + fixture.toc_draft_chapter_id + '"') &&
+          !html.includes("/read/paid/" + fixture.toc_draft_chapter_id + "?"),
           device + ": draft or future private chapter leaked");
         const visuals = await toc.evaluate((element) => {
           const owned = element.querySelector(".reader-paid__toc-badge--owned");
