@@ -70,6 +70,7 @@ pub struct ContentKeyring {
     v2: Option<Arc<ContentKek>>,
 }
 
+#[cfg(any(feature = "pg", test))]
 impl ContentKeyring {
     /// Preserve all existing v1 callers without activating key rotation.
     pub fn v1_only(v1: Arc<ContentKek>) -> Self {
