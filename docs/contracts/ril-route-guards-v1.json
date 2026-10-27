@@ -444,6 +444,13 @@
       "policy": "session"
     },
     {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "asset_grants::grant_asset",
+      "policy": "session"
+    },
+    {
       "method": "GET",
       "template": "/read/paid/{chapter_id}",
       "source": "crates/web/src/paid_grants_http.rs",
