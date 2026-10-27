@@ -22,7 +22,42 @@ const pageUrl = SITE + "/read/paid/" + chapter + "?purchase_id=" + purchase;
 const data = fixture.reader_html;
 const csp = fixture.reader_csp;
 const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
-const stylesheet = fs.readFileSync("crates/web/assets/newboo-reader.css");
+// Serve the EXACT two stylesheets used by pages::layout and
+// pages::newboo_stylesheet, not reader-only CSS as both URLs.
+const siteCss = fs.readFileSync("crates/web/assets/site.css");
+const orderedNewbooFiles = [
+  "newboo-port.css",
+  "newboo-book-detail.css",
+  "newboo-reader.css",
+  "newboo-cover-picker.css",
+];
+// Extract the actual Rust handler's include_str! order, so future changes
+// cannot silently turn this Chromium smoke into a stale visual fixture.
+const pageSource = fs.readFileSync("crates/web/src/pages.rs", "utf8");
+const start = pageSource.indexOf("pub async fn newboo_stylesheet()");
+const end = pageSource.indexOf("pub async fn paid_reader_script()", start);
+assert(start >= 0 && end > start, "NEwBOO Rust CSS handler missing");
+const sourceOrder = [...pageSource.slice(start, end).matchAll(
+  /include_str!\("\.\.\/assets\/([^"]+\.css)"\)/g
+)].map((match) => match[1]);
+assert.deepEqual(sourceOrder, orderedNewbooFiles,
+  "Rust pages::newboo_stylesheet CSS list changed: update visual baseline");
+const newbooCss = orderedNewbooFiles
+  .map((file) => fs.readFileSync(path.join("crates/web/assets", file), "utf8"))
+  .join("\n");
+const brandLogo = fs.readFileSync("crates/web/assets/brand/pandaolate-header.png");
+const brandLogoDark = fs.readFileSync("crates/web/assets/brand/pandaolate-header-dark.png");
+const screenshotRoot = process.env.TOR_PAID_READER_SHOTS;
+assert(screenshotRoot && path.resolve(screenshotRoot).startsWith(
+  path.resolve(process.env.RUNNER_TEMP) + path.sep
+), "Visual screenshots must remain in the disposable CI temp directory");
+fs.mkdirSync(screenshotRoot, { recursive: true });
+assert(data.includes('<html lang="ru">') &&
+  data.includes('<link rel="stylesheet" href="/assets/site.css">') &&
+  data.includes('<link rel="stylesheet" href="/assets/newboo.css">') &&
+  data.includes('class="site-logo"') &&
+  data.includes("data-paid-chapter-reader"),
+"Actual Rust page must include the full NEwBOO site shell and styles");
 assert(data.includes("data-paid-chapter-reader") &&
   !data.includes(fixture.expected_markdown) && !data.includes(grant.content.dek_b64u));
 assert(csp.includes("script-src 'self'") && csp.includes(S3));
@@ -64,9 +99,17 @@ const server = http.createServer(async (req, reply) => {
     } else if (req.method === "GET" && uri.pathname === "/assets/newboo-paid-reader.mjs") {
       send(reply, 200, script, "application/javascript; charset=utf-8",
         { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/site.css") {
+      send(reply, 200, siteCss, "text/css; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/newboo.css") {
+      send(reply, 200, newbooCss, "text/css; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/brand/pandaolate-header.png") {
+      send(reply, 200, brandLogo, "image/png", { "cache-control": "public, max-age=3600" });
     } else if (req.method === "GET" &&
-      ["/assets/newboo.css", "/assets/site.css"].includes(uri.pathname)) {
-      send(reply, 200, stylesheet, "text/css; charset=utf-8",
+      uri.pathname === "/assets/brand/pandaolate-header-dark.png") {
+      send(reply, 200, brandLogoDark, "image/png",
         { "cache-control": "public, max-age=3600" });
     } else if (req.method === "POST" &&
       uri.pathname === "/api/v1/reader/chapters/" + chapter + "/delivery-grants") {
@@ -129,12 +172,17 @@ async function run() {
     for (const [device, width, height] of [
       ["desktop", 1440, 900], ["mobile", 390, 844],
     ]) {
-      const page = await browser.newPage({ viewport: { width, height } });
+      const page = await browser.newPage({ viewport: { width, height },
+        colorScheme: "light" });
       let realS3 = 0;
+      const loadedAssets = new Set();
       page.on("response", (response) => {
         const url = new URL(response.url());
         if (url.origin === S3 && url.pathname.endsWith(".enc")) {
           if (response.status() === 200) realS3++;
+        }
+        if (url.origin === SITE && response.status() === 200) {
+          loadedAssets.add(url.pathname);
         }
       });
       try {
@@ -144,7 +192,8 @@ async function run() {
           .getByText("Защищённая загрузка завершена", { exact: false })
           .waitFor({ timeout: 20000 });
         const chunks = await page.locator(".reader-piece__text").allTextContents();
-        assert.equal(chunks.join("\n\n"), fixture.expected_markdown);
+        assert(chunks.join("\n\n") === fixture.expected_markdown,
+          "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
         const state = await page.evaluate(async () => ({
           overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
@@ -155,6 +204,58 @@ async function run() {
         }));
         assert(!state.overflow && !state.xss && !state.local &&
           !state.caches && !state.indexed, device + ": unsafe reader state");
+
+        for (const resource of ["/assets/site.css", "/assets/newboo.css",
+          "/assets/brand/pandaolate-header.png"]) {
+          assert(loadedAssets.has(resource), device + ": missing real NEwBOO asset " + resource);
+        }
+        const metrics = await page.evaluate(() => {
+          const readerWidth = document.querySelector(".reader-paid .reader-width");
+          const content = document.querySelector(".reader-paid__content");
+          const body = getComputedStyle(document.body);
+          const textStyle = getComputedStyle(document.querySelector(".reader-piece__text"));
+          const contentStyle = getComputedStyle(content);
+          const logoStyle = getComputedStyle(document.querySelector(".site-logo"));
+          return {
+            bodyMargin: body.marginTop,
+            background: body.backgroundColor,
+            readerWidth: readerWidth.getBoundingClientRect().width,
+            maxWidth: Number.parseFloat(getComputedStyle(readerWidth).maxWidth),
+            font: textStyle.fontFamily,
+            lineHeight: Number.parseFloat(textStyle.lineHeight),
+            padding: Number.parseFloat(contentStyle.paddingLeft),
+            border: contentStyle.borderTopStyle,
+            logoImage: logoStyle.backgroundImage,
+            stylesheets: document.styleSheets.length,
+          };
+        });
+        assert.equal(metrics.bodyMargin, "0px", device + ": site.css not applied");
+        assert(metrics.readerWidth <= 860 && metrics.readerWidth >= 300,
+          device + ": original NEwBOO reader width not respected");
+        assert(metrics.font.includes("Georgia") && metrics.lineHeight > 24,
+          device + ": reader typography lost");
+        assert(metrics.padding >= 12 && metrics.border === "solid",
+          device + ": paid reading surface lost its padding/border");
+        assert(metrics.logoImage.includes("pandaolate-header.png"),
+          device + ": authentic site logo CSS absent");
+        assert(metrics.stylesheets >= 2, device + ": layout stylesheets missing");
+
+        // Render the real Rust HTML + exact production CSS on two viewports.
+        // Mask decrypted synthetic text so CI artifacts never contain paid content.
+        const mask = [page.locator("[data-paid-content] .reader-piece__text")];
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s034-" + device + "-light.png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
+        await page.emulateMedia({ colorScheme: "dark" });
+        const darkBackground = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(darkBackground, metrics.background,
+          device + ": real NEwBOO dark tokens not applied");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s034-" + device + "-dark.png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
         await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
         await page.getByText("Место сохранено.").waitFor();
         const first = fixture.expected_markdown.split("\n\n")[0];
