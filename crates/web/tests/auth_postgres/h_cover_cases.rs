@@ -303,7 +303,7 @@ pub(super) async fn upload_and_show(
     let home = body_of(send(app, request("GET", "/", "", "", ORIGIN)).await).await;
     assert!(home.contains(&format!("src=\"/covers/{book_id}/card.webp\"")));
     let catalog_html =
-        body_of(send(app, request("GET", "/catalog?author=Alice", "", "", ORIGIN)).await).await;
+        body_of(send(app, request("GET", "/catalog?q=Alice", "", "", ORIGIN)).await).await;
     assert!(catalog_html.contains(&format!("src=\"/covers/{book_id}/card.webp\"")));
     for variant in ["card.webp", "main.webp"] {
         let response = send(
