@@ -80,7 +80,9 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         url.contains("/tor_ci"),
         "OBS-09 must run only against the disposable tor_ci database"
     );
-    let catalog = PgCatalog::connect(&url).await.expect("CI database connection");
+    let catalog = PgCatalog::connect(&url)
+        .await
+        .expect("CI database connection");
     let slots = PgCoverSlots::new(catalog.pool());
     let jobs = PgCoverJobs::new(catalog.pool());
     let client = local_client();
@@ -183,7 +185,9 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(response.headers()["cache-control"], "no-store");
     assert_eq!(response.headers()["x-content-type-options"], "nosniff");
     assert!(response.headers().get("location").is_none());
-    let public_bytes = to_bytes(response.into_body(), 8 * 1024 * 1024).await.unwrap();
+    let public_bytes = to_bytes(response.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
     assert_eq!(digest(&public_bytes), card.sha256);
     assert_eq!(public_bytes.as_ref(), card_original.as_slice());
     assert_eq!(
@@ -199,7 +203,11 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     // adapter still checks GET bytes and refuses to leak corrupted images.
     let mut damaged = card_original.clone();
     *damaged.last_mut().unwrap() ^= 0x7f;
-    let claimed_hash: String = card.sha256.iter().map(|byte| format!("{byte:02x}")).collect();
+    let claimed_hash: String = card
+        .sha256
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     client
         .put_object()
         .bucket(BUCKET)
@@ -216,7 +224,10 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .unwrap());
     let corrupted = request(&app, "/covers/950/card.webp").await;
     assert_eq!(corrupted.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert!(to_bytes(corrupted.into_body(), 1024).await.unwrap().is_empty());
+    assert!(to_bytes(corrupted.into_body(), 1024)
+        .await
+        .unwrap()
+        .is_empty());
 
     store
         .put_verified(&card.storage_key, &card_original)
