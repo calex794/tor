@@ -285,6 +285,70 @@ async function run() {
           path: path.join(screenshotRoot, "s034-" + device + "-dark.png"),
           fullPage: true, mask, maskColor: "#e5e7eb",
         });
+        // Controls must be real interactions, not decorative buttons. No
+        // browser storage is used for paid text, keys or preferences.
+        const panel = page.locator("#paid-reader-settings");
+        const control = page.getByRole("button", { name: "Настройки чтения" });
+        assert(await panel.isHidden(), device + ": reader settings shown by default");
+        await control.click();
+        assert(await panel.isVisible(), device + ": settings button does not open panel");
+        assert.equal(await control.getAttribute("aria-expanded"), "true");
+        const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => Number.parseFloat(getComputedStyle(element).fontSize));
+        await page.locator("[data-paid-font-scale]").evaluate((input) => {
+          input.value = "120";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        const sizeAfter = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => Number.parseFloat(getComputedStyle(element).fontSize));
+        assert(sizeAfter > sizeBefore, device + ": font size setting ignored");
+        assert.equal(await page.locator("[data-paid-font-output]").textContent(), "120%");
+        await page.locator("[data-paid-line-height]").evaluate((input) => {
+          input.value = "205";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        const spacing = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => Number.parseFloat(getComputedStyle(element).lineHeight));
+        assert(spacing > sizeAfter * 2, device + ": line spacing setting ignored");
+        await page.locator("[data-paid-reader-width]").evaluate((input) => {
+          input.value = "620";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        if (device === "desktop") {
+          const newWidth = await page.locator(".reader-paid .reader-width").evaluate(
+            (element) => element.getBoundingClientRect().width);
+          assert(newWidth <= 620 && newWidth < metrics.readerWidth,
+            "reader width setting ignored");
+        }
+        await page.getByRole("button", { name: "Сепия" }).click();
+        const sepiaBackground = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
+        assert.equal(await page.getByRole("button", { name: "Сепия" })
+          .getAttribute("aria-pressed"), "true");
+        if (device === "desktop") {
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-settings-desktop.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+        }
+        await page.getByRole("button", { name: "Сбросить настройки" }).click();
+        assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
+        assert.equal(await page.evaluate(() => document.body.hasAttribute(
+          "data-paid-reader-theme")), false, device + ": reset did not clear theme");
+        await page.getByRole("button", { name: "Закрыть настройки" }).click();
+        assert(await panel.isHidden(), device + ": settings close did not work");
+        assert.equal(await control.getAttribute("aria-expanded"), "false");
+        await control.click();
+        await page.keyboard.press("Escape");
+        assert(await panel.isHidden(), device + ": Escape must close reader controls");
+        assert(await control.evaluate((element) => element === document.activeElement),
+          device + ": Escape did not return keyboard focus");
+        const storageCount = await page.evaluate(async () =>
+          localStorage.length + sessionStorage.length + (await caches.keys()).length +
+          (await indexedDB.databases()).length);
+        assert.equal(storageCount, 0, device + ": settings wrote into persistent storage");
+
         await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
         await page.getByText("Место сохранено.").waitFor();
         const first = fixture.expected_markdown.split("\n\n")[0];

@@ -206,6 +206,89 @@ async function api(url, options) {
   return response.json();
 }
 
+// H/S065: active controls for the standalone NEwBOO reader.
+// Apply only enumerated themes and bounded numbers. Preferences live only
+// in this document; encrypted chapters, keys and settings never reach storage.
+export function installPaidReaderSettings(root) {
+  const panel = root.querySelector("[data-paid-reader-settings]");
+  if (!panel) return;
+  const toggle = root.querySelector("[data-paid-settings-open]");
+  const close = panel.querySelector("[data-paid-settings-close]");
+  const reset = panel.querySelector("[data-paid-settings-reset]");
+  const font = panel.querySelector("[data-paid-font-scale]");
+  const line = panel.querySelector("[data-paid-line-height]");
+  const width = panel.querySelector("[data-paid-reader-width]");
+  const fontOutput = panel.querySelector("[data-paid-font-output]");
+  const lineOutput = panel.querySelector("[data-paid-line-output]");
+  const widthOutput = panel.querySelector("[data-paid-width-output]");
+  const themes = [...panel.querySelectorAll("[data-paid-theme]")];
+  requireValue(toggle && close && reset && font && line && width &&
+    fontOutput && lineOutput && widthOutput && themes.length === 3);
+
+  const boundedValue = (input, min, max, step) => {
+    const number = Number(input.value);
+    requireValue(Number.isInteger(number) && number >= min &&
+      number <= max && (number - min) % step === 0);
+    return number;
+  };
+  const refresh = () => {
+    const scale = boundedValue(font, 80, 140, 5);
+    const spacing = boundedValue(line, 150, 220, 5);
+    const pixels = boundedValue(width, 620, 980, 20);
+    fontOutput.textContent = String(scale) + "%";
+    lineOutput.textContent = (spacing / 100).toFixed(2);
+    widthOutput.textContent = String(pixels) + " px";
+    if (scale === 100) root.style.removeProperty("--paid-font-size");
+    else root.style.setProperty("--paid-font-size", String(scale / 5) + "px");
+    if (spacing === 185) root.style.removeProperty("--paid-line-height");
+    else root.style.setProperty("--paid-line-height", String(spacing / 100));
+    if (pixels === 860) root.style.removeProperty("--paid-reader-width");
+    else root.style.setProperty("--paid-reader-width", String(pixels) + "px");
+  };
+  const selectTheme = (choice) => {
+    requireValue(["system", "light", "sepia", "dark"].includes(choice));
+    if (choice === "system") delete document.body.dataset.paidReaderTheme;
+    else document.body.dataset.paidReaderTheme = choice;
+    for (const button of themes) {
+      button.setAttribute("aria-pressed",
+        String(button.dataset.paidTheme === choice));
+    }
+  };
+  const hide = () => {
+    panel.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.focus();
+  };
+
+  toggle.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    toggle.setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) close.focus();
+  });
+  close.addEventListener("click", hide);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !panel.hidden) {
+      event.preventDefault();
+      hide();
+    }
+  });
+  for (const input of [font, line, width]) {
+    input.addEventListener("input", refresh);
+  }
+  for (const button of themes) {
+    button.addEventListener("click", () => selectTheme(button.dataset.paidTheme));
+  }
+  reset.addEventListener("click", () => {
+    font.value = "100";
+    line.value = "185";
+    width.value = "860";
+    refresh();
+    selectTheme("system");
+  });
+  refresh();
+  selectTheme("system");
+}
+
 export async function startPaidReader(root) {
   const chapter = checkedId(root.dataset.chapterId);
   const purchase = checkedId(root.dataset.purchaseId);
@@ -263,6 +346,7 @@ export async function startPaidReader(root) {
 if (typeof document !== "undefined") {
   const root = document.querySelector("[data-paid-chapter-reader]");
   if (root) {
+    installPaidReaderSettings(root);
     startPaidReader(root).catch(() => {
       const status = root.querySelector("[data-paid-status]");
       if (status) status.textContent = "Не удалось открыть главу. Проверьте доступ и повторите попытку.";
