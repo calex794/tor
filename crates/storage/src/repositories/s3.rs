@@ -246,3 +246,6 @@ impl OrphanDeletePort for S3PrivateStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
