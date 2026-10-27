@@ -28,6 +28,7 @@ impl PgPaidStorage {
             || request.book_id <= 0
             || chapter_id <= 0
             || request.expected_revision < 0
+            || request.expected_revision == i64::MAX
             || request.number <= 0
             || request.access != ChapterAccess::Paid
             || request.price_amount <= 0
