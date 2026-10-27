@@ -254,6 +254,37 @@ async function inspect(page, name, where) {
       await page.getByRole('link', { name: 'Продолжить' }).click();
       await page.waitForURL('**/read/101#p-1');
       assert(await page.getByRole('link', { name: 'Перейти к сохранённому месту' }).isVisible(), name + ': resume target missing');
+
+      // F-05: real browser, no script required in the reader itself.
+      // Saving an ordinary paragraph must not mint a completion or a ranking.
+      await page.goto(base + '/me/rankings');
+      assert(await page.getByText('Пока нет книг для сравнения').isVisible(),
+        name + ': saved position incorrectly counted as completed chapter');
+      await page.goto(base + '/read/101');
+      const completeButton = page.getByRole('button', { name: 'Глава прочитана' });
+      assert(await completeButton.isVisible(), name + ': explicit finish button missing');
+      assert(await page.locator('form[action="/read/101/complete"]').count() === 1,
+        name + ': exactly one completion form should exist');
+      await inspect(page, name, 'complete-action');
+      const completionPost = page.waitForResponse(response =>
+        response.url().endsWith('/read/101/complete') && response.request().method() === 'POST'
+      );
+      await completeButton.click();
+      assert((await completionPost).status() === 303, name + ': authenticated finish must redirect');
+      await page.waitForURL('**/me/rankings');
+      assert(await page.getByRole('heading', { name: 'Мои книги' }).isVisible(),
+        name + ': trusted completion was not immediately added to personal ranking');
+      assert(await page.locator('.ranking-books .ranking-book').count() === 1,
+        name + ': exactly one verified book should be ranked');
+      assert(await page.locator('.ranking-book__place').innerText() === 'Место 1',
+        name + ': verified first book must occupy first rank');
+      await inspect(page, name, 'completed-ranking');
+      await page.goto(base + '/read/101');
+      assert(await page.getByText('Глава уже отмечена прочитанной').isVisible(),
+        name + ': durable completed state missing after reload');
+      assert(await page.getByRole('button', { name: 'Глава прочитана' }).count() === 0,
+        name + ': repeat completion action must be hidden');
+
       for (const denied of ['/read/102', '/read/103', '/read/104', '/read/105']) {
         const response = await page.goto(base + denied);
         assert(response && response.status() === 404, name + ': private denied ' + denied);
