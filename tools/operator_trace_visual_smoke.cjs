@@ -45,6 +45,7 @@ if (!password || password.length < 32) throw new Error('missing test-only operat
       'PostgreSQL', 'Не подключена (демонстрационный режим)', 'Ресурсы процесса TOR',
       'HTTP с запуска процесса', 'RIL: маршруты и потери', 'Очередь аналитики RIL',
       'Очередь обработки обложек', 'Доставка трасс', 'Нет измерения',
+      'В этом процессе сборщик RIL не запускался', 'Живость отдельного исполнителя обложек',
     ]) {
       if (!overviewText.includes(required)) throw new Error('missing measured overview section: ' + required);
     }

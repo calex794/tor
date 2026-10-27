@@ -3,6 +3,98 @@
 use crate::{domain::RollupDelta, repositories::PgRilRollups, services::TrafficRecorder};
 use uuid::Uuid;
 
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
+/// Only this process's RIL pump. No user identity, SQL or batch identifiers.
+#[derive(Clone)]
+pub struct PgPumpMonitor(Arc<Mutex<PumpVitality>>);
+
+#[derive(Default)]
+struct PumpVitality {
+    since: Option<Instant>,
+    last_started: Option<Instant>,
+    last_completed: Option<Instant>,
+    active: bool,
+    cycles: u64,
+    failed_cycles: u64,
+    consecutive_failures: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PgPumpSnapshot {
+    pub active: bool,
+    pub cycles: u64,
+    pub failed_cycles: u64,
+    pub consecutive_failures: u64,
+    pub age_since_start_s: Option<u64>,
+    pub age_since_last_completion_s: Option<u64>,
+    pub running_for_s: Option<u64>,
+}
+
+impl Default for PgPumpMonitor {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(PumpVitality {
+            since: Some(Instant::now()),
+            ..PumpVitality::default()
+        })))
+    }
+}
+
+impl PgPumpMonitor {
+    fn begin(&self) {
+        let mut vital = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = Instant::now();
+        vital.since.get_or_insert(now);
+        vital.last_started = Some(now);
+        vital.active = true;
+    }
+
+    fn end(&self, failed: bool) {
+        let mut vital = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        vital.active = false;
+        vital.last_completed = Some(Instant::now());
+        vital.cycles = vital.cycles.saturating_add(1);
+        if failed {
+            vital.failed_cycles = vital.failed_cycles.saturating_add(1);
+            vital.consecutive_failures = vital.consecutive_failures.saturating_add(1);
+        } else {
+            vital.consecutive_failures = 0;
+        }
+    }
+
+    pub fn snapshot(&self) -> PgPumpSnapshot {
+        let vital = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = Instant::now();
+        let elapsed =
+            |at: Option<Instant>| at.map(|time| now.saturating_duration_since(time).as_secs());
+        PgPumpSnapshot {
+            active: vital.active,
+            cycles: vital.cycles,
+            failed_cycles: vital.failed_cycles,
+            consecutive_failures: vital.consecutive_failures,
+            age_since_start_s: elapsed(vital.since),
+            age_since_last_completion_s: elapsed(vital.last_completed),
+            running_for_s: if vital.active {
+                elapsed(vital.last_started)
+            } else {
+                None
+            },
+        }
+    }
+}
+
 struct Pending {
     id: String,
     delta: RollupDelta,
@@ -13,15 +105,25 @@ pub struct PgRollupPump {
     recorder: TrafficRecorder,
     pending: Option<Pending>,
     ticks: u64,
+    monitor: PgPumpMonitor,
 }
 
 impl PgRollupPump {
     pub fn new(repo: PgRilRollups, recorder: TrafficRecorder) -> Self {
+        Self::with_monitor(repo, recorder, PgPumpMonitor::default())
+    }
+
+    pub fn with_monitor(
+        repo: PgRilRollups,
+        recorder: TrafficRecorder,
+        monitor: PgPumpMonitor,
+    ) -> Self {
         Self {
             repo,
             recorder,
             pending: None,
             ticks: 0,
+            monitor,
         }
     }
 
@@ -29,23 +131,27 @@ impl PgRollupPump {
     /// If staging succeeded but PG's response was lost, the same UUID is
     /// retried rather than counting the in-memory delta twice.
     pub async fn run_once(&mut self) {
+        self.monitor.begin();
+        let mut failed = false;
+
         if self.pending.is_none() {
             let source = self.recorder.clone();
-            let snapshot = tokio::task::spawn_blocking(move || source.drain_for_persistence())
-                .await
-                .ok()
-                .flatten();
-            if let Some(delta) = snapshot.filter(|delta| !delta.is_empty()) {
-                self.pending = Some(Pending {
-                    id: Uuid::new_v4().to_string(),
-                    delta,
-                });
+            match tokio::task::spawn_blocking(move || source.drain_for_persistence()).await {
+                Ok(Some(delta)) if !delta.is_empty() => {
+                    self.pending = Some(Pending {
+                        id: Uuid::new_v4().to_string(),
+                        delta,
+                    });
+                }
+                Ok(Some(_)) => {}                   // healthy idle cycle
+                Ok(None) | Err(_) => failed = true, // worker refused the barrier
             }
         }
 
         if let Some(pending) = self.pending.as_ref() {
-            if self.repo.enqueue(&pending.id, &pending.delta).await.is_ok() {
-                self.pending = None;
+            match self.repo.enqueue(&pending.id, &pending.delta).await {
+                Ok(_) => self.pending = None,
+                Err(_) => failed = true, // retain exact batch id for retry
             }
         }
 
@@ -54,20 +160,23 @@ impl PgRollupPump {
         for _ in 0..4 {
             let claim = match self.repo.claim_next().await {
                 Ok(Some(claim)) => claim,
-                Ok(None) | Err(_) => break,
-            };
-            match self.repo.materialize(&claim).await {
-                Ok(true) | Ok(false) => {}
+                Ok(None) => break,
                 Err(_) => {
-                    let _ = self.repo.retry(&claim).await;
+                    failed = true;
                     break;
                 }
+            };
+            if self.repo.materialize(&claim).await.is_err() {
+                failed = true;
+                let _ = self.repo.retry(&claim).await;
+                break;
             }
         }
         self.ticks = self.ticks.wrapping_add(1);
-        if self.ticks.is_multiple_of(360) {
-            let _ = self.repo.prune_expired().await;
+        if self.ticks.is_multiple_of(360) && self.repo.prune_expired().await.is_err() {
+            failed = true;
         }
+        self.monitor.end(failed);
     }
 
     /// One long-lived task per PG-backed web process, sharing its existing pool.
@@ -78,5 +187,48 @@ impl PgRollupPump {
                 self.run_once().await;
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod vitality_tests {
+    use super::*;
+
+    #[test]
+    fn heartbeat_tracks_cycles_and_failure_streak_without_identity() {
+        let monitor = PgPumpMonitor::default();
+        let first = monitor.snapshot();
+        assert_eq!(first.cycles, 0);
+        assert!(first.age_since_start_s.is_some());
+        monitor.begin();
+        assert!(monitor.snapshot().active);
+        monitor.end(true);
+        assert_eq!(monitor.snapshot().consecutive_failures, 1);
+        monitor.begin();
+        monitor.end(true);
+        monitor.begin();
+        monitor.end(true);
+        let unhealthy = monitor.snapshot();
+        assert_eq!(unhealthy.cycles, 3);
+        assert_eq!(unhealthy.failed_cycles, 3);
+        assert_eq!(unhealthy.consecutive_failures, 3);
+        assert!(unhealthy.age_since_last_completion_s.is_some());
+        monitor.begin();
+        monitor.end(false);
+        let healthy = monitor.snapshot();
+        assert_eq!(healthy.cycles, 4);
+        assert_eq!(healthy.failed_cycles, 3);
+        assert_eq!(healthy.consecutive_failures, 0);
+        assert!(!format!("{healthy:?}").contains("batch_id"));
+    }
+
+    #[test]
+    fn an_active_cycle_is_visible_before_completion() {
+        let monitor = PgPumpMonitor::default();
+        monitor.begin();
+        let view = monitor.snapshot();
+        assert!(view.active);
+        assert!(view.running_for_s.is_some());
+        assert_eq!(view.cycles, 0);
     }
 }
