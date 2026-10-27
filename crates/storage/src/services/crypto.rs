@@ -238,5 +238,34 @@ pub(crate) fn unwrap_scoped_dek(
     Ok(dek)
 }
 
+/// Unwrap the immutable PostgreSQL G envelope after verifying B's exact
+/// object reference. Never returns an unprotected key and never logs it.
+pub(crate) fn unwrap_registered_dek(
+    object_id: &ObjectId,
+    kek_id: &str,
+    wrap_nonce: &[u8],
+    wrapped_dek: &[u8],
+    kek: &ContentKek,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    if kek_id != KEK_ID || wrap_nonce.len() != 12 || wrapped_dek.len() != 48 {
+        return Err(CryptoError::InvalidMaterial);
+    }
+    let nonce: [u8; 12] = wrap_nonce
+        .try_into()
+        .map_err(|_| CryptoError::InvalidMaterial)?;
+    let bytes = Zeroizing::new(decrypt_raw(
+        &kek.0,
+        &nonce,
+        &wrap_aad(object_id),
+        wrapped_dek,
+    )?);
+    if bytes.len() != 32 {
+        return Err(CryptoError::InvalidMaterial);
+    }
+    let mut dek = Zeroizing::new([0_u8; 32]);
+    dek[..].copy_from_slice(&bytes);
+    Ok(dek)
+}
+
 #[cfg(test)]
 mod tests;
