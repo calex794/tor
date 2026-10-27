@@ -50,4 +50,3 @@ pub(super) struct NewBookForm {
     pub(super) command_key: String,
     pub(super) csrf_token: Option<String>,
 }
-
