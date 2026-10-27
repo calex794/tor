@@ -17,9 +17,12 @@ function pg(sql) {
     { encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 function positive(value) {
-  const result = String(value).trim();
-  assert(/^[1-9][0-9]*$/.test(result), 'non-numeric database ID');
-  return result;
+  // psql prints a command tag after INSERT ... RETURNING even with -At.
+  // Select the single numeric row and reject missing/multiple IDs.
+  const rows = String(value).split(/\r?\n/).map(v => v.trim())
+    .filter(v => /^[1-9][0-9]*$/.test(v));
+  assert(rows.length === 1, 'non-numeric database ID');
+  return rows[0];
 }
 async function screenshot(page, name) {
   const size = await page.evaluate(() => ({
