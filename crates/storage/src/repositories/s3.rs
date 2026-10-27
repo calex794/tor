@@ -92,8 +92,22 @@ impl PrivateObjectStore for S3PrivateStore {
             .body(ByteStream::from(ciphertext.to_vec()))
             .send()
             .await;
-        if written.is_err() {
-            return Err(StorageError::Conflict);
+        match written {
+            Ok(_) => {}
+            Err(error) => {
+                use aws_sdk_s3::error::ProvideErrorMetadata;
+                let conflict = error
+                    .as_service_error()
+                    .and_then(|value| value.code())
+                    .is_some_and(|code| {
+                        matches!(code, "PreconditionFailed" | "ConditionalRequestConflict")
+                    });
+                return Err(if conflict {
+                    StorageError::Conflict
+                } else {
+                    StorageError::Unavailable
+                });
+            }
         }
         if !self.head_verified(object).await? {
             return Err(StorageError::Corrupt);
