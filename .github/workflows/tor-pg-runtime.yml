@@ -193,6 +193,12 @@ jobs:
           done
           if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/tor-d04-enabled.log"; exit 1; fi
           python3 tools/checkout_http_pg_smoke.py --mode enabled
+      - name: I-11 PostgreSQL outage, restart and durable public data
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_restart_smoke.sh
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |
