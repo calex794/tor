@@ -171,6 +171,115 @@ async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response 
         .unwrap()
 }
 
+/// S065 / C-12: the historical NEwBOO reader aliases must not become an
+/// alternative entitlement. Only the D-checked paid grant may sign G objects.
+/// Legacy endpoints are *not* implemented in TOR; a 404 proves absence on
+/// the actual authenticated router, not parity with NEwBOO functionality.
+async fn s065_alternate_reader_access_matrix(
+    browser: &Router,
+    pinned: (i64, i64, i64),
+    buyer: &str,
+    outsider: &str,
+    outsider_csrf: &str,
+) {
+    let (chapter, version, purchase) = pinned;
+    // Real public and account reader routes exist, but a forged preview or
+    // purchased flag must not turn a paid chapter into public Markdown.
+    for path in [
+        format!("/reader/{chapter}?preview=1&version_id={version}&purchase_id={purchase}"),
+        format!("/read/{chapter}?preview=1&version_id={version}&purchase_id={purchase}"),
+        format!("/api/v1/chapters/{chapter}/read?preview=1&purchase_id={purchase}"),
+    ] {
+        for session in [buyer, outsider] {
+            let response = read_page(browser, &path, Some(session)).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+            let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+            assert!(bytes.is_empty(), "paid read leaked on {path}");
+        }
+    }
+
+    // NEwBOO navigation/history, preview and media are not TOR routes yet.
+    // Keep them closed when the owner is logged in as well as for outsiders.
+    for path in [
+        format!("/reader/{chapter}/toc-fragment?limit=100"),
+        format!("/reader/{chapter}/comments-fragment"),
+        format!("/reader/{chapter}/history?version_id={version}"),
+        format!("/reader/{chapter}/preview?version_id={version}"),
+        format!("/api/v1/chapters/{chapter}/history"),
+        format!("/api/v1/chapters/{chapter}/versions/{version}"),
+        format!("/api/v1/chapters/{chapter}/preview"),
+        format!("/cdn/chapters/{chapter}/{version}.html"),
+        format!("/media/chapters/{chapter}/{version}"),
+    ] {
+        for session in [buyer, outsider] {
+            let response = read_page(browser, &path, Some(session)).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+            assert!(!bytes.windows(BODY.len()).any(|part| part == BODY.as_bytes()),
+                "paid plaintext in disabled compatibility route {path}");
+            assert!(!bytes.windows(15).any(|part| part == b"X-Amz-Signature"),
+                "signed S3 credential in disabled compatibility route {path}");
+        }
+    }
+
+    // Progress is data about a chapter, never an entitlement. In particular,
+    // a stolen purchase ID cannot be used to read someone else's V1 position.
+    let owned_query = format!(
+        "/api/v1/me/progress/purchased?purchase_id={purchase}&chapter_id={chapter}&version_id={version}"
+    );
+    let owned = read_page(browser, &owned_query, Some(buyer)).await;
+    assert_eq!(owned.status(), StatusCode::OK);
+    assert_eq!(owned.headers()[header::CACHE_CONTROL], "no-store");
+    let bytes = to_bytes(owned.into_body(), 8192).await.unwrap();
+    assert!(!bytes.windows(BODY.len()).any(|part| part == BODY.as_bytes()));
+
+    for path in [
+        owned_query,
+        format!(
+            "/api/v1/me/progress/purchased/complete?purchase_id={purchase}&chapter_id={chapter}&version_id={version}"
+        ),
+    ] {
+        let denied = read_page(browser, &path, Some(outsider)).await;
+        assert_eq!(denied.status(), StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(to_bytes(denied.into_body(), 8192).await.unwrap().is_empty());
+    }
+    let free = read_page(
+        browser,
+        &format!("/api/v1/me/progress/free?chapter_id={chapter}"),
+        Some(buyer),
+    ).await;
+    assert_eq!(free.status(), StatusCode::NOT_FOUND);
+    assert_eq!(free.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(free.into_body(), 8192).await.unwrap().is_empty());
+
+    let forged = json!({
+        "purchase_id": purchase.to_string(),
+        "chapter_id": chapter.to_string(),
+        "version_id": version.to_string(),
+        "block_id": 1,
+        "char_offset": 0,
+        "expected_revision": 0,
+    });
+    let request = Request::builder()
+        .uri("/api/v1/me/progress/purchased")
+        .method("PUT")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ORIGIN, ORIGIN)
+        .header("x-csrf-token", outsider_csrf)
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={outsider}; tor-dev-csrf={outsider_csrf}"),
+        )
+        .body(Body::from(forged.to_string()))
+        .unwrap();
+    let denied = browser.clone().oneshot(request).await.unwrap();
+    assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+    assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(denied.into_body(), 8192).await.unwrap().is_empty());
+}
+
 async fn json_body(reply: Response) -> Value {
     let bytes = to_bytes(reply.into_body(), 8192).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()
@@ -388,6 +497,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         "S034 raw plaintext must not enter SSR HTML"
     );
     assert!(!html.contains("dek_b64u"), "S034 no scoped DEK in SSR HTML");
+    s065_alternate_reader_access_matrix(
+        &browser,
+        (chapter, version, purchase_id),
+        &buyer_cookie,
+        &author_cookie,
+        &author_csrf,
+    )
+    .await;
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 0,
+        "alternate reader or progress routes must not sign G objects");
     for invalid in [
         r#"{"version_id":"2"}"#,
         r#"{"bucket":"public"}"#,
