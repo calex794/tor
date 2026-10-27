@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tor_reading::services::PublicReadingRepository;
 use tor_recommendations::{
     repositories::{RankingCommand, RankingStoreError},
-    services::ranking::{Outcome, RankingError},
+    services::ranking::Outcome,
 };
 
 #[derive(Serialize)]
