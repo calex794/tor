@@ -201,8 +201,7 @@ pub fn paid_reader_shell(
         r#"<section class="section reader-page reader-private reader-paid" data-paid-chapter-reader
              data-chapter-id="{chapter_id}" data-purchase-id="{purchase_id}" data-csrf-token="{csrf}"
              data-s3-origin="{s3_origin}" aria-labelledby="reader-title">
-           <div class="container reader-width">
-             <header class="reader-topbar" aria-label="Панель чтения">
+           <header class="reader-topbar" aria-label="Панель чтения">
                <a class="reader-topbar__back" href="/me/purchases" aria-label="К купленным главам"><span aria-hidden="true">←</span><span class="reader-topbar__back-label">К купленным главам</span></a>
                <div class="reader-topbar__title">
                  <span class="reader-topbar__book" title="{book}">{book}</span>
@@ -215,6 +214,7 @@ pub fn paid_reader_shell(
                    aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
                </div>
              </header>
+           <div class="container reader-width">
              <section id="paid-reader-settings" class="reader-paid__settings"
                data-paid-reader-settings aria-labelledby="paid-reader-settings-title" hidden>
                <div class="reader-paid__settings-head">
@@ -482,6 +482,10 @@ mod tests {
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
+        let toolbar = body.find("<header class=\"reader-topbar\"").unwrap();
+        let reader_column = body.find("<div class=\"container reader-width\"").unwrap();
+        assert!(toolbar < reader_column, "NEwBOO toolbar must be full width, outside text column");
+
         assert!(body.contains("data-paid-reader-settings"));
         assert!(body.contains("data-paid-font-scale"));
         assert!(body.contains("data-paid-reader-width"));
