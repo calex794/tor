@@ -189,6 +189,33 @@ CREATE TRIGGER b10_purchase_line_exact
     BEFORE INSERT ON chapter_purchase_share_lines
     FOR EACH ROW EXECUTE FUNCTION b10_check_purchase_share_line();
 
+-- A snapshot must enumerate the COMPLETE frozen revision exactly once.
+-- Deferred to transaction commit because D writes the header before its lines.
+CREATE FUNCTION b10_verify_snapshot_lines_complete()
+RETURNS trigger LANGUAGE plpgsql AS $
+DECLARE
+    actual_count BIGINT;
+    expected_count BIGINT;
+    actual_total BIGINT;
+BEGIN
+    SELECT COUNT(*), COALESCE(SUM(share_percent),0)
+      INTO actual_count,actual_total
+    FROM chapter_purchase_share_lines WHERE purchase_id=NEW.purchase_id;
+    SELECT COUNT(*) INTO expected_count
+    FROM revenue_share_assignments
+    WHERE book_id=NEW.book_id AND revision=NEW.share_revision;
+    IF actual_count<>expected_count OR actual_total<>100 THEN
+        RAISE EXCEPTION 'incomplete immutable purchase share snapshot'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$;
+CREATE CONSTRAINT TRIGGER b10_complete_purchase_snapshot
+    AFTER INSERT ON chapter_purchase_share_snapshots
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION b10_verify_snapshot_lines_complete();
+
 -- Versions, assignments and purchase snapshots cannot be rewritten after
 -- commit. A later economics revision does not mutate earlier purchases.
 CREATE TRIGGER b10_versions_immutable
