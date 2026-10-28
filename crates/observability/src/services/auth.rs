@@ -98,7 +98,7 @@ impl Default for LoginMetrics {
 impl LoginMetrics {
     pub fn record(&self, outcome: LoginOutcome) {
         // Never wrap a Prometheus counter, even if the process lives for years.
-        let _ = self.counters[outcome as usize].fetch_update(
+        let _ = self.counters[outcome as usize].try_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |current| Some(current.saturating_add(1)),
