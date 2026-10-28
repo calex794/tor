@@ -4,6 +4,7 @@ use super::*;
 #[derive(Clone)]
 pub(super) struct AuthState {
     pub(super) accounts: PgAccounts,
+    pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) checkout: tor_commerce::repositories::checkout::PgCheckout,
     pub(super) paid_checkout_enabled: bool,
     pub(super) paid_reader_available: bool,
