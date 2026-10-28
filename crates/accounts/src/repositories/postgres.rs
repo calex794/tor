@@ -143,6 +143,8 @@ impl PgAccounts {
         password_hash: &str,
         digest: &[u8; 32],
         ttl: NonZeroU32,
+        referral_guest_hash: Option<&[u8; 32]>,
+        referral_manual_code: Option<&str>,
     ) -> Result<i64, AccountWriteError> {
         let mut transaction = self.pool.begin().await?;
         let user_id: i64 = sqlx::query_scalar(
@@ -163,6 +165,17 @@ impl PgAccounts {
         .bind(ttl.get() as f64)
         .execute(&mut *transaction)
         .await?;
+        if referral_guest_hash.is_some() || referral_manual_code.is_some() {
+            sqlx::query(
+                "INSERT INTO account_registration_referral_outbox(user_id,guest_hash,manual_code) \
+                 VALUES($1,$2,$3)",
+            )
+            .bind(user_id)
+            .bind(referral_guest_hash.map(|hash| hash.as_slice()))
+            .bind(referral_manual_code)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         Ok(user_id)
     }
