@@ -43,6 +43,7 @@ mod behavior_consent;
 mod book_description;
 mod book_stars;
 mod checkout;
+mod layer_checkout;
 mod complete_chapter;
 mod library_actions;
 mod login_limiter;
@@ -178,6 +179,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .route("/api/v1/layers/{id}/purchase", post(layer_checkout::buy))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
