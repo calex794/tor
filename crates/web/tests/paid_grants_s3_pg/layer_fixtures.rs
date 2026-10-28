@@ -60,7 +60,7 @@ pub(super) async fn assert_layer_s3_grants(
             offer: PositiveId::new(offer).unwrap(),
             version: PositiveId::new(version).unwrap(),
             expected_price: MoneyMinor::new(90).unwrap(),
-            key: IdempotencyKey::parse(&format!("{}7", "Q".repeat(42))).unwrap(),
+            key: IdempotencyKey::parse(&format!("{}7", "A".repeat(42))).unwrap(),
         })
         .await
         .unwrap();
