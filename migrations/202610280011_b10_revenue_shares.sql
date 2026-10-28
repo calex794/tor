@@ -32,7 +32,7 @@ CREATE INDEX revenue_share_assignments_recipient
 -- race this check under READ COMMITTED. A new future revision is populated
 -- before its state pointer advances in the same B-owned transaction.
 CREATE FUNCTION b10_reject_late_assignment_append()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     current_rev BIGINT;
 BEGIN
@@ -44,7 +44,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 CREATE TRIGGER b10_sealed_revision_lines
     BEFORE INSERT ON revenue_share_assignments
     FOR EACH ROW EXECUTE FUNCTION b10_reject_late_assignment_append();
@@ -215,7 +215,7 @@ CREATE TRIGGER b10_purchase_line_exact
 -- A snapshot must enumerate the COMPLETE frozen revision exactly once.
 -- Deferred to transaction commit because D writes the header before its lines.
 CREATE FUNCTION b10_verify_snapshot_lines_complete()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     actual_count BIGINT;
     expected_count BIGINT;
@@ -233,7 +233,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$;
+$$;
 CREATE CONSTRAINT TRIGGER b10_complete_purchase_snapshot
     AFTER INSERT ON chapter_purchase_share_snapshots
     DEFERRABLE INITIALLY DEFERRED
