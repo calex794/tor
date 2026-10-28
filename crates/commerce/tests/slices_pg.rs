@@ -35,11 +35,22 @@ async fn fixture(name: &str, balance: i64, price: i64) -> (PgPool, i64, i64, i64
     .execute(&pool)
     .await
     .unwrap();
+    // Every sellable owned Book has a server-derived B-10 economic schedule.
+    // Anonymous legacy catalog rows must never fabricate historical shares.
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Commerce CI owner','$argon2id$ci') RETURNING id",
+    )
+    .bind(format!("d02_owner_{name}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Проверка покупки','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','Проверка покупки','public',$2) RETURNING id",
     )
     .bind(format!("ci:d02:{name}"))
+    .bind(owner)
     .fetch_one(&pool)
     .await
     .unwrap();
