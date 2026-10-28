@@ -69,7 +69,7 @@ fn b_09_transfer_denies_unknown_tiers_and_unverified_layer_history() {
     );
     assert_eq!(
         authorize_owner_transfer(OwnerTransferFacts {
-            layer_state: LayerTransferState::ActiveOrHistoricalEntitlement,
+            layer_state: LayerTransferState::ActiveEntitlementFromAnyLayerVersion,
             ..base
         }),
         Err(OwnerTransferDenial::ExistingLayerEntitlement),
