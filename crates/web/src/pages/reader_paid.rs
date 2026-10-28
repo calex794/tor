@@ -449,7 +449,11 @@ mod tests {
         assert_eq!(blocked.matches("data-paid-toc-bottom").count(), 1);
         assert!(blocked.contains("reader-topbar__toc--bottom"));
         assert!(blocked.contains("href=\"/reader/21\""));
-        assert!(blocked.contains("href=\"/read/paid/24?purchase_id=32\""));
+        // The current paid edition is represented by aria-current, never
+        // by a self-navigation link. The previous paid chapter is navigable.
+        assert!(blocked.contains("href=\"/read/paid/23?purchase_id=31\""));
+        assert!(!blocked.contains("href=\"/read/paid/24?purchase_id=32\""));
+        assert!(blocked.contains("aria-current=\"page\""));
         assert!(!blocked.contains("href=\"/reader/25\""));
         assert!(blocked.contains("data-paid-nav-next aria-disabled=\"true\""));
         assert!(blocked.contains("Не куплено"));
