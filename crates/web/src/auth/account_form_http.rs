@@ -174,26 +174,44 @@ pub(super) async fn register(
     };
     let manual_code = match tor_referrals::domain::manual_code(form.manual_invite_code.as_deref()) {
         Ok(code) => code,
-        Err(_) => return auth_problem(StatusCode::BAD_REQUEST, "Неверный код приглашения",
-            "Проверьте код и повторите регистрацию.", true),
+        Err(_) => {
+            return auth_problem(
+                StatusCode::BAD_REQUEST,
+                "Неверный код приглашения",
+                "Проверьте код и повторите регистрацию.",
+                true,
+            )
+        }
     };
-    let guest_hash = state.cookies.guest_token(&headers)
+    let guest_hash = state
+        .cookies
+        .guest_token(&headers)
         .map(|token| session_token_digest(&token));
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     match state
         .accounts
-        .register_with_session(&account.email, &account.display_name, &hashed, &digest, ttl, guest_hash.as_ref(), manual_code)
+        .register_with_session(
+            &account.email,
+            &account.display_name,
+            &hashed,
+            &digest,
+            ttl,
+            guest_hash.as_ref(),
+            manual_code,
+        )
         .await
     {
         Ok(user_id) => {
             // The pending event is already committed with the account. A failure
             // here must not lose attribution or turn a valid signup into an error.
             let referrals = state.referrals.clone();
-            tokio::spawn(async move { let _ = referrals.finalize_one(user_id).await; });
+            tokio::spawn(async move {
+                let _ = referrals.finalize_one(user_id).await;
+            });
             private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
-        },
+        }
         Err(tor_accounts::repositories::postgres::AccountWriteError::Duplicate) => {
             // No account ID, email or database exception is disclosed.
             auth_problem(
