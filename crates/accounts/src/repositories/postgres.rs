@@ -27,6 +27,12 @@ pub struct PgAccounts {
     pool: PgPool,
 }
 
+#[derive(Default)]
+pub struct RegistrationReferral<'a> {
+    pub guest_hash: Option<&'a [u8; 32]>,
+    pub manual_code: Option<&'a str>,
+}
+
 pub struct StoredUser {
     pub id: i64,
     pub email_normalized: String,
@@ -143,8 +149,28 @@ impl PgAccounts {
         password_hash: &str,
         digest: &[u8; 32],
         ttl: NonZeroU32,
-        referral_guest_hash: Option<&[u8; 32]>,
-        referral_manual_code: Option<&str>,
+    ) -> Result<i64, AccountWriteError> {
+        self.register_with_session_referral(
+            email,
+            name,
+            password_hash,
+            digest,
+            ttl,
+            RegistrationReferral::default(),
+        )
+        .await
+    }
+
+    /// Referrals share the same commit as the account and its initial session.
+    /// This extension keeps the original five-argument registration API intact.
+    pub async fn register_with_session_referral(
+        &self,
+        email: &str,
+        name: &str,
+        password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        referral: RegistrationReferral<'_>,
     ) -> Result<i64, AccountWriteError> {
         let mut transaction = self.pool.begin().await?;
         let user_id: i64 = sqlx::query_scalar(
@@ -165,14 +191,14 @@ impl PgAccounts {
         .bind(ttl.get() as f64)
         .execute(&mut *transaction)
         .await?;
-        if referral_guest_hash.is_some() || referral_manual_code.is_some() {
+        if referral.guest_hash.is_some() || referral.manual_code.is_some() {
             sqlx::query(
                 "INSERT INTO account_registration_referral_outbox(user_id,guest_hash,manual_code) \
                  VALUES($1,$2,$3)",
             )
             .bind(user_id)
-            .bind(referral_guest_hash.map(|hash| hash.as_slice()))
-            .bind(referral_manual_code)
+            .bind(referral.guest_hash.map(|hash| hash.as_slice()))
+            .bind(referral.manual_code)
             .execute(&mut *transaction)
             .await?;
         }
