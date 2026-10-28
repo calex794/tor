@@ -632,6 +632,19 @@ async function run() {
           .getAttribute("aria-pressed"), "true");
         await control.click();
         assert(await panel.isVisible(), device + ": settings not reopenable after cycling");
+        const serifFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(serifFamily.includes("Georgia"),
+          device + ": original serif reading font missing");
+        await page.getByRole("button", { name: "Без засечек" }).click();
+        const sansFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(sansFamily.includes("Arial") && sansFamily !== serifFamily,
+          device + ": changing NEwBOO reader font does not change actual text");
+        assert.equal(await page.locator('[data-paid-font-family="sans"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "false");
         const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
           (element) => Number.parseFloat(getComputedStyle(element).fontSize));
         await page.locator("[data-paid-font-scale]").evaluate((input) => {
@@ -670,6 +683,12 @@ async function run() {
           fullPage: true, mask, maskColor: "#e5e7eb",
         });
         await page.getByRole("button", { name: "Сбросить настройки" }).click();
+        const resetFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert.equal(resetFamily, serifFamily,
+          device + ": resetting reader preferences does not restore serif");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "true");
         assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
         assert.equal(await page.evaluate(() => document.body.hasAttribute(
           "data-paid-reader-theme")), false, device + ": reset did not clear theme");
