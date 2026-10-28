@@ -221,3 +221,27 @@ async fn G_response_with_wrong_codec_is_never_exposed() {
     ));
     assert_eq!(d.calls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn paid_purchase_without_exact_b_asset_membership_never_reaches_g() {
+    let d = D {
+        revoked: Arc::new(AtomicBool::new(false)),
+        calls: AtomicUsize::new(0),
+    };
+    let b = B {
+        available: false,
+        calls: AtomicUsize::new(0),
+    };
+    let g = G {
+        revoked_after_sign: Arc::new(AtomicBool::new(false)),
+        tampered_codec: false,
+        calls: AtomicUsize::new(0),
+    };
+    assert!(matches!(
+        issue(&d, &b, &g, &object()).await,
+        Err(DeliveryError::Hidden)
+    ));
+    assert_eq!(d.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(b.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(g.calls.load(Ordering::SeqCst), 0);
+}
