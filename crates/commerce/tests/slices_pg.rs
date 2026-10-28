@@ -718,3 +718,39 @@ async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentag
     assert_eq!(fresh, (3, 100));
     pool.close().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
+    let (pool, buyer, _, _, _) = fixture("unverified_sale", 900, 100).await;
+    let legacy_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES('ci:b10:unknown:commerce','ru','Unknown old economics','public')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (chapter, version) = chapter_with_offer(&pool, legacy_book, 1, 100).await;
+    let r = PgCheckout::new(pool.clone())
+        .checkout_once(&command(buyer, chapter, version, 100, 'C'))
+        .await;
+    assert_eq!(r, Err(CheckoutError::Inaccessible));
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(balance, 900);
+    let purchases: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_purchase_facts WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(purchases, 0);
+    pool.close().await;
+}
