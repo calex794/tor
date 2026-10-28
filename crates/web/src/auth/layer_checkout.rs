@@ -53,6 +53,11 @@ fn layer_status(error: LayerError) -> StatusCode {
     }
 }
 
+/// Explicit operator opt-in for Layer charges, independent of chapter checkout.
+pub(super) fn configured() -> bool {
+    std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref() == Ok("1")
+}
+
 pub(super) async fn buy(
     State(state): State<AuthState>,
     Path(layer_id): Path<String>,

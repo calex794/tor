@@ -135,8 +135,7 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    let layer_checkout_enabled = paid_checkout_enabled
-        && std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    let layer_checkout_enabled = paid_checkout_enabled && layer_checkout::configured();
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
