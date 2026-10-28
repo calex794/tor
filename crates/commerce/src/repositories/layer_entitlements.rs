@@ -152,10 +152,8 @@ impl EntitlementPort for PgReaderEntitlements {
                     .resolve_entitlement(actor, chapter_id, None)
                     .await?;
                 match layer {
-                    EntitlementDecision::Denied {
-                        reason: DenialReason::NotPurchased,
-                    } => Ok(direct),
-                    _ => Ok(layer),
+                    EntitlementDecision::Allowed { .. } => Ok(layer),
+                    EntitlementDecision::Denied { .. } => Ok(direct),
                 }
             }
         }
