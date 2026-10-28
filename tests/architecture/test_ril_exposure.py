@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 76)  # 74 route pairs, 76 reviewed bindings.
-        self.assertEqual(report["route_pairs"], 73)  # Includes Layer reader and its browser asset.
+        self.assertEqual(report["route_pairs"], 74)  # Includes Layer reader, asset, and checkout.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
