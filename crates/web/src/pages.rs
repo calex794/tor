@@ -357,6 +357,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
     static CSS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         let mut css = String::from(include_str!("../assets/newboo-port.css"));
         css.push('\n');
+        css.push_str(include_str!("../assets/newboo-home-carousel.css"));
+        css.push('\n');
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));

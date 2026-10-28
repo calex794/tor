@@ -6,6 +6,7 @@ use tor_search::repositories::catalog::TaxonomyOptions;
 
 mod catalog_active_filters;
 mod catalog_taxonomy_selects;
+mod home_spotlight;
 
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
@@ -75,40 +76,6 @@ fn book_cards(
     html
 }
 
-/// The public NEwBOO spotlight is populated only from actual published rows.
-fn spotlight(book: &PublicBookCard, covers: &HashSet<u64>) -> String {
-    let title = escape_html(&book.title);
-    let details = book
-        .author_name
-        .as_deref()
-        .map(escape_html)
-        .unwrap_or_else(|| format!("Язык: {}", escape_html(&book.language)));
-    let cover = if covers.contains(&book.id) {
-        format!(
-            r#"<img class="home-spotlight-card__cover" src="/covers/{}/main.webp" alt="" decoding="async" draggable="false">"#,
-            book.id
-        )
-    } else {
-        r#"<div class="home-spotlight-card__cover home-spotlight-card__cover--empty">Нет обложки</div>"#
-            .to_owned()
-    };
-    format!(
-        r#"<a class="home-spotlight-card" href="/books/{id}" aria-label="Открыть книгу {title}">
-           <div class="home-spotlight-card__inner">
-             <div class="home-spotlight-card__content">
-               <span class="home-spotlight-card__eyebrow">Недавно добавлена</span>
-               <h2 class="home-spotlight-card__title">{title}</h2>
-               <p class="home-spotlight-card__text">{details}</p>
-             </div>
-             <div class="home-spotlight-card__cover-wrap">
-               {cover}
-             </div>
-           </div>
-         </a>"#,
-        id = book.id
-    )
-}
-
 /// Group the already authorized latest-book rows without extra SQL queries.
 /// These are shelves of recent books, never a popularity/rating recommendation.
 fn recent_genre_shelves(books: &[PublicBookCard], covers: &HashSet<u64>) -> String {
@@ -165,11 +132,8 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
         <a class="ui-button ui-button--ghost" href="/catalog">Открыть каталог</a>
     </div>"#;
-    let hero = if latest {
-        books
-            .first()
-            .map(|book| spotlight(book, covers))
-            .unwrap_or_else(|| fallback.to_owned())
+    let hero = if latest && !books.is_empty() {
+        home_spotlight::render(books, covers)
     } else {
         fallback.to_owned()
     };
