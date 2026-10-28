@@ -231,6 +231,8 @@ pub fn paid_reader_shell(
                  <button class="reader-topbar__settings" type="button" data-paid-settings-open
                    aria-controls="paid-reader-settings" aria-expanded="false"
                    aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+                 <button class="reader-topbar__theme" type="button" data-paid-theme-cycle
+                   aria-label="Сменить тему" title="Сменить тему"><span aria-hidden="true">☾</span></button>
                </div>
              </header>
            <div class="container reader-width">
@@ -449,8 +451,7 @@ mod tests {
         assert_eq!(blocked.matches("data-paid-toc-bottom").count(), 1);
         assert!(blocked.contains("reader-topbar__toc--bottom"));
         assert!(blocked.contains("href=\"/reader/21\""));
-        // The current paid edition is represented by aria-current, never
-        // by a self-navigation link. The previous paid chapter is navigable.
+        // The current edition is represented by aria-current, not a self-link.
         assert!(blocked.contains("href=\"/read/paid/23?purchase_id=31\""));
         assert!(!blocked.contains("href=\"/read/paid/24?purchase_id=32\""));
         assert!(blocked.contains("aria-current=\"page\""));
@@ -516,6 +517,8 @@ mod tests {
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
+        assert!(body.contains("data-paid-theme-cycle"));
+        assert!(body.contains("aria-label=\"Сменить тему\""));
         let toolbar = body.find("<header class=\"reader-topbar\"").unwrap();
         let reader_column = body.find("<div class=\"container reader-width\"").unwrap();
         assert!(

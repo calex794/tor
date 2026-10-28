@@ -361,7 +361,8 @@
   align-items: center;
   gap: 8px;
 }
-.reader-paid .reader-topbar__settings {
+.reader-paid .reader-topbar__settings,
+.reader-paid .reader-topbar__theme {
   min-width: 44px;
   min-height: 44px;
   border: 1px solid var(--border-color);
@@ -372,10 +373,27 @@
   cursor: pointer;
 }
 .reader-paid .reader-topbar__settings:focus-visible,
+.reader-paid .reader-topbar__theme:focus-visible,
 .reader-paid__settings button:focus-visible,
 .reader-paid__settings input:focus-visible {
   outline: 3px solid var(--primary-color);
   outline-offset: 2px;
+}
+/* The original NEwBOO topbar has a separate one-tap theme control.
+   Reuse the real 44px accessible action geometry in both color schemes. */
+.reader-paid .reader-topbar__theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 23px;
+  line-height: 1;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.reader-paid .reader-topbar__theme:hover,
+.reader-paid .reader-topbar__settings:hover {
+  background: var(--bg-secondary);
+  border-color: var(--primary-color);
 }
 .reader-paid__settings[hidden] {
   display: none !important;
@@ -772,8 +790,7 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
     min-width: 44px;
     min-height: 44px;
   }
-  /* Anchor above the 44px trigger instead of the viewport bottom.
-     A fixed-bottom menu intercepted its own summary and could not close. */
+  /* Keep the mobile lower TOC above its trigger, avoiding pointer capture. */
   .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
     position: absolute;
     top: auto;
