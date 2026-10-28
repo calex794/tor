@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 71] = [
+const ROUTES: [RouteRegistration; 73] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -528,6 +528,24 @@ const ROUTES: [RouteRegistration; 71] = [
         Reading,
         CostClass::ExpensiveRead,
     ), // 70
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "GET",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 71
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "POST",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 72
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.

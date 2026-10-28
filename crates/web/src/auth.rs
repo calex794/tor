@@ -40,6 +40,7 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_comments;
 mod book_description;
 mod book_stars;
 mod checkout;
@@ -49,10 +50,8 @@ mod login_limiter;
 mod paid_completion;
 mod rankings;
 mod sync_actions;
-
 mod types;
 use types::*;
-
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -171,6 +170,10 @@ fn router_inner(
         .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route(
+            "/books/{id}/comments",
+            get(book_comments::page).post(book_comments::submit),
         )
         .route("/me/rankings/choice", post(rankings::browser_choice))
         .route("/me/rankings/resume", post(rankings::browser_resume))
