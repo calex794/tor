@@ -50,10 +50,8 @@ mod login_limiter;
 mod paid_completion;
 mod rankings;
 mod sync_actions;
-
 mod types;
 use types::*;
-
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
