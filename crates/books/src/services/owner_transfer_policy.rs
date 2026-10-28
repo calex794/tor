@@ -268,5 +268,4 @@ mod tests {
             Err(OwnerTransferDenial::InvalidActorOrRecipient)
         );
     }
-
 }
