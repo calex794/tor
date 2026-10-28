@@ -9,14 +9,13 @@ pub(super) async fn assert_layer_s3_grants(
     repo: PgLayers,
     app: &Router,
     url: &str,
-    author: i64,
-    subscriber: i64,
-    book: i64,
-    chapter: i64,
-    published: i64,
-    cookie: &str,
-    csrf: &str,
+    users: (i64, i64),
+    edition: (i64, i64, i64),
+    credentials: (&str, &str),
 ) {
+    let (author, subscriber) = users;
+    let (book, chapter, published) = edition;
+    let (cookie, csrf) = credentials;
     pg(
         url,
         &format!(
