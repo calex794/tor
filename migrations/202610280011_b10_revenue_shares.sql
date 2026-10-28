@@ -27,6 +27,29 @@ CREATE TABLE revenue_share_assignments (
 CREATE INDEX revenue_share_assignments_recipient
     ON revenue_share_assignments(user_id,book_id,revision);
 
+-- An INSERT into an existing current/previous revision is also a mutation
+-- of economic history. Lock state so a simultaneous pointer advance cannot
+-- race this check under READ COMMITTED. A new future revision is populated
+-- before its state pointer advances in the same B-owned transaction.
+CREATE FUNCTION b10_reject_late_assignment_append()
+RETURNS trigger LANGUAGE plpgsql AS $
+DECLARE
+    current_rev BIGINT;
+BEGIN
+    SELECT current_revision INTO current_rev FROM revenue_share_states
+    WHERE book_id=NEW.book_id FOR SHARE;
+    IF current_rev IS NOT NULL AND current_rev>=NEW.revision THEN
+        RAISE EXCEPTION 'cannot append to an activated revenue share revision'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$;
+CREATE TRIGGER b10_sealed_revision_lines
+    BEFORE INSERT ON revenue_share_assignments
+    FOR EACH ROW EXECUTE FUNCTION b10_reject_late_assignment_append();
+
+
 CREATE TABLE revenue_share_states (
     book_id BIGINT PRIMARY KEY REFERENCES books(id) ON DELETE RESTRICT,
     current_revision BIGINT NOT NULL CHECK (current_revision >= 1),
