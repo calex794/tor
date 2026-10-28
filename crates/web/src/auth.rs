@@ -164,6 +164,7 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/r/{code}", get(referral_capture::capture))
         .route("/me", get(me))
         .route("/me/library", get(my_library))
         .route("/me/rankings", get(rankings::page))
