@@ -497,6 +497,31 @@ async function run() {
         assert.equal(await page.locator(".reader-topbar__back").getAttribute("href"),
           "/me/purchases", device + ": buyer has no safe way out");
 
+        // Full-page screenshots taken after scrolling can visually move a
+        // sticky header across the title. Check the real initial viewport,
+        // with both header and heading in their actual on-screen positions.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY < 2);
+        const topLayout = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.getElementById("reader-title").getBoundingClientRect();
+          return {
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            viewport: document.documentElement.clientWidth,
+            barWidth: bar.width,
+          };
+        });
+        assert(topLayout.barBottom <= topLayout.headingTop + 1 &&
+          topLayout.barWidth <= topLayout.viewport + 1,
+          device + ": NEwBOO sticky toolbar overlaps reader title at page start");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-viewport-top-" + device + ".png"),
+          fullPage: false,
+          mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
         const metrics = await page.evaluate(() => {
           const readerWidth = document.querySelector(".reader-paid .reader-width");
           const content = document.querySelector(".reader-paid__content");
