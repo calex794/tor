@@ -391,6 +391,7 @@ export function privateImageLoader(root, chapter, version, purchase, csrf, s3Ori
   const work = [];
   const live = new Map();
   const queued = new Set();
+  const waitUntilOffscreen = new WeakSet();
   const MAX_VISIBLE_URLS = 12;
   let observer = null;
 
@@ -429,6 +430,9 @@ export function privateImageLoader(root, chapter, version, purchase, csrf, s3Ori
         live.delete(previous);
         URL.revokeObjectURL(previousURL);
         placeholder(previous, "Прокрутите к изображению для повторной загрузки.");
+        // Never create a reload loop if more than twelve images happen to be
+        // visible at once. Re-arm only after the evicted frame leaves view.
+        waitUntilOffscreen.add(previous);
         if (!closed && previous.isConnected) observer?.observe(previous);
       }
       live.set(frame, url);
@@ -445,6 +449,7 @@ export function privateImageLoader(root, chapter, version, purchase, csrf, s3Ori
       }, { once: true });
       image.addEventListener("error", () => {
         URL.revokeObjectURL(url);
+        if (live.get(frame) !== url) return;
         live.delete(frame);
         placeholder(frame, "Не удалось отобразить иллюстрацию.");
       }, { once: true });
@@ -478,6 +483,10 @@ export function privateImageLoader(root, chapter, version, purchase, csrf, s3Ori
   if (typeof IntersectionObserver === "function") {
     observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
+        if (waitUntilOffscreen.has(entry.target)) {
+          if (!entry.isIntersecting) waitUntilOffscreen.delete(entry.target);
+          continue;
+        }
         if (!entry.isIntersecting) continue;
         observer.unobserve(entry.target);
         const task = known.get(entry.target);
