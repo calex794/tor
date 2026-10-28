@@ -727,6 +727,15 @@ export async function startPaidReader(root) {
       resume.textContent = "Не удалось сохранить место. Обновите страницу и повторите.";
     }
   }, showPrivateImage);
+  // A BFCache return must ask D again, not resurrect decrypted text and Blob
+  // URLs from a previously authorized purchase that may have been refunded.
+  window.addEventListener("pagehide", () => {
+    article.replaceChildren();
+    status.textContent = "Защищённая глава закрыта.";
+  }, { once: true });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) window.location.reload();
+  });
   if (stored.block_id && document.getElementById("p-" + stored.block_id)) {
     const anchor = document.createElement("a");
     anchor.href = "#p-" + stored.block_id;
