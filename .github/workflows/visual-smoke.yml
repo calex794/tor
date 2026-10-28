@@ -1,23 +1,19 @@
 name: TOR visual smoke
 on:
   pull_request:
-    paths:
-      - 'crates/web/**'
-      - 'tools/operator_trace_visual_smoke.cjs'
-      - 'tools/newboo_cover_visual_smoke.cjs'
-      - '.github/workflows/visual-smoke.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/web/**'
-      - 'tools/operator_trace_visual_smoke.cjs'
-      - 'tools/newboo_cover_visual_smoke.cjs'
-      - '.github/workflows/visual-smoke.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: visual
   visual:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"visual":true}').visual) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

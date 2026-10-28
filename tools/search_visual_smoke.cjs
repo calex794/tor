@@ -41,17 +41,44 @@ async function apiHas(page, id, query) {
   assert(Array.isArray(body.items) && Object.hasOwn(body, 'next_cursor'), 'invalid search JSON');
   return body.items.some(book => book.id === id);
 }
+// The NEwBOO UI exposes taxonomy as native selects. Values hidden from the
+// public taxonomy list cannot be chosen in the form; test these via direct URL.
+async function setTaxonomy(page, label, value) {
+  const control = page.getByLabel(label, { exact: true });
+  const isSelect = await control.evaluate(el => el.tagName === 'SELECT');
+  if (!isSelect) {
+    await control.fill(value);
+    return true;
+  }
+  const hasValue = await control.evaluate((el, selected) =>
+    Array.from(el.options).some(option => option.value === selected), value);
+  if (!hasValue) return false;
+  await control.selectOption(value);
+  return true;
+}
 async function search(page, { q = '', genre = '', language = '', tag = '', fandom = '' }) {
   const res = await page.goto(base + '/catalog', { waitUntil: 'networkidle' });
   assert(res && res.status() === 200, 'catalog HTTP failed');
   await page.getByLabel('Название или автор').fill(q);
-  await page.getByLabel('Жанр', { exact: true }).fill(genre);
-  await page.getByLabel('Тег', { exact: true }).fill(tag);
-  await page.getByLabel('Фэндом', { exact: true }).fill(fandom);
+  const available = [
+    await setTaxonomy(page, 'Жанр', genre),
+    await setTaxonomy(page, 'Тег', tag),
+    await setTaxonomy(page, 'Фэндом', fandom),
+  ];
   await page.getByLabel('Язык перевода').fill(language);
-  await page.getByRole('button', { name: 'Найти' }).click();
-  await page.waitForLoadState('networkidle');
-  assert(new URL(page.url()).pathname === '/catalog', 'search form navigation failed');
+  if (available.every(Boolean)) {
+    await page.getByRole('button', { name: 'Найти' }).click();
+    await page.waitForLoadState('networkidle');
+  } else {
+    // Test direct GET rejection for unpublished/nonexistent taxonomy values.
+    // Do not add hidden/private options to a public dropdown just for CI.
+    const params = new URLSearchParams({ q, genre, language, tag, fandom });
+    const direct = await page.goto(base + '/catalog?' + params, {
+      waitUntil: 'networkidle',
+    });
+    assert(direct && direct.status() === 200, 'direct catalog filter HTTP failed');
+  }
+  assert(new URL(page.url()).pathname === '/catalog', 'search navigation failed');
 }
 async function snapshot(page, name) {
   const x = await page.evaluate(() => ({
@@ -65,6 +92,65 @@ async function snapshot(page, name) {
     name + ': missing catalog heading');
   await page.screenshot({ path: path.join(shots, 'search-' + name + '.png'), fullPage: true });
 }
+// H-10: inspect the real PostgreSQL-backed BookCard, not an injected HTML
+// mock. Visual proportions and author metadata follow original NEwBOO.
+async function verifyOriginalBookCard(page, id, viewport) {
+  const card = bookLink(page, id);
+  assert(await card.isVisible(), viewport + ': real published book card not visible');
+  assert((await card.locator('.book-mini-card__meta').allTextContents())
+    .some(text => text.trim() === 'АвторПоиска'),
+    viewport + ': original public author missing');
+  const text = await card.innerText();
+  assert(!text.includes('Язык:') && !text.includes('Жанры:') &&
+    !text.includes('Лайков:') && !text.includes('Комментарии:'),
+    viewport + ': invented metadata is polluting NEwBOO book card');
+  const dimensions = await card.evaluate(node => {
+    const cover = node.querySelector('.book-mini-card__cover');
+    const title = node.querySelector('.book-mini-card__title');
+    const author = node.querySelector('.book-mini-card__meta');
+    const c = cover.getBoundingClientRect();
+    const titleCss = getComputedStyle(title);
+    const authorCss = getComputedStyle(author);
+    return {
+      ratio: c.width / c.height,
+      titleClamp: titleCss.webkitLineClamp,
+      titleOverflow: titleCss.overflow,
+      authorOverflow: authorCss.textOverflow,
+      authorWhiteSpace: authorCss.whiteSpace,
+      container: node.getBoundingClientRect().toJSON(),
+      viewport: document.documentElement.clientWidth,
+      cardColor: getComputedStyle(node).backgroundColor,
+      coverColor: getComputedStyle(cover).backgroundColor,
+    };
+  });
+  assert(Math.abs(dimensions.ratio - 2 / 3) < 0.035,
+    viewport + ': original NEwBOO 2:3 book cover lost');
+  assert(dimensions.titleClamp === '2' && dimensions.titleOverflow === 'hidden',
+    viewport + ': original two-line BookCard title lost');
+  assert(dimensions.authorOverflow === 'ellipsis' &&
+    dimensions.authorWhiteSpace === 'nowrap',
+    viewport + ': original author ellipsis lost');
+  assert(dimensions.container.right <= dimensions.viewport + 1,
+    viewport + ': BookCard extends outside viewport');
+
+  await page.screenshot({
+    path: path.join(shots, 'newboo-book-card-' + viewport + '-light.png'),
+    fullPage: true,
+  });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const dark = await card.evaluate(node => {
+    const c = node.querySelector('.book-mini-card__cover');
+    return getComputedStyle(c).backgroundColor;
+  });
+  assert(dark !== dimensions.coverColor,
+    viewport + ': NEwBOO BookCard dark background tokens not applied');
+  await page.screenshot({
+    path: path.join(shots, 'newboo-book-card-' + viewport + '-dark.png'),
+    fullPage: true,
+  });
+  await page.emulateMedia({ colorScheme: 'light' });
+}
+
 async function draftBook(page, viewport) {
   const title = 'Книга поиска F03 ' + viewport;
   await page.goto(base + '/register');
@@ -116,15 +202,19 @@ async function draftBook(page, viewport) {
         await search(guest, filters);
         assert(await bookLink(guest, id).count() === 0, viewport + ': draft leaked to HTML');
         assert(!(await apiHas(guest, id, filters)), viewport + ': draft leaked to JSON');
-        assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 0,
-          viewport + ': private tag leaked to options');
+        // The searched URL can echo its explicitly supplied selection. Check
+        // the unfiltered public taxonomy, not the caller's own query string.
+        await guest.goto(base + '/catalog', { waitUntil: 'networkidle' });
+        assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 0,
+          viewport + ': private tag leaked to public options');
 
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await page.waitForURL(base + '/books/' + id);
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
+        await verifyOriginalBookCard(guest, id, viewport);
         assert(await apiHas(guest, id, filters), viewport + ': public JSON not found');
-        assert(await guest.locator('#catalog-tags option[value="f02tag-' + viewport + '"]').count() === 1,
+        assert(await guest.locator('#book-tag option[value="f02tag-' + viewport + '"]').count() === 1,
           viewport + ': published tag missing from options');
         await search(guest, { ...filters, tag: 'not-the-tag' });
         assert(await bookLink(guest, id).count() === 0, viewport + ': wrong tag matched');

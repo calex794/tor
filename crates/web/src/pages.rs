@@ -107,6 +107,47 @@ pub fn book_detail_with_chapters_cover(
     book_detail_body(&card, Some(&section), first_free, has_cover)
 }
 
+/// F-05: two independent public indicators, copied from NEwBOO's
+/// translation/work split. No personal pairwise rank appears in this card.
+pub fn book_detail_with_chapters_cover_stars(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+    has_cover: bool,
+    stars: &tor_recommendations::repositories::BookStars,
+) -> Html<String> {
+    let html = book_detail_with_chapters_cover(book, limit, has_cover);
+    Html(
+        html.0
+            .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
+    )
+}
+
+fn book_star_strip(book_id: u64, stars: &tor_recommendations::repositories::BookStars) -> String {
+    use tor_recommendations::repositories::StarTotal;
+    fn value(score: StarTotal, kind: &str, label: &str) -> String {
+        let (number, details) = if let Some(average) = score.display_average() {
+            (average, format!("Голосов: {}", score.votes))
+        } else {
+            ("—".to_owned(), "Пока нет оценок".to_owned())
+        };
+        format!(
+            "<div class=\"book-rating-summary__item book-rating-summary__item--{kind}\">
+             <span class=\"book-rating-summary__glyph\" aria-hidden=\"true\">☆</span>
+             <span class=\"book-rating-summary__name\">{label}</span>
+             <strong class=\"book-rating-summary__value\" aria-label=\"{label}: {number} из 5\">{number}</strong>
+             <span class=\"book-rating-summary__votes\">{details}</span></div>"
+        )
+    }
+    format!(
+        "<section class=\"book-rating-summary\" aria-label=\"Оценки книги\">
+         {work}{translation}
+         <a class=\"book-rating-summary__action\" href=\"/me/books/{book_id}/rate\">
+          Оценить произведение и перевод</a></section>",
+        work = value(stars.work, "work", "Произведение"),
+        translation = value(stars.translation, "translation", "Перевод"),
+    )
+}
+
 fn book_detail_body(
     book: &PublicBookCard,
     toc: Option<&str>,
@@ -315,6 +356,8 @@ pub async fn stylesheet() -> impl IntoResponse {
 pub async fn newboo_stylesheet() -> impl IntoResponse {
     static CSS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         let mut css = String::from(include_str!("../assets/newboo-port.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-home-carousel.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
         css.push('\n');

@@ -16,10 +16,11 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
+use tokio::sync::oneshot;
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -99,6 +100,8 @@ async fn account(accounts: &PgAccounts, email: &str) -> (i64, String) {
 #[derive(Default)]
 struct FakeG {
     signed: AtomicUsize,
+    // Test-only barrier allows a refund to commit after G begins signing.
+    pause_next: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
 }
 
 #[async_trait]
@@ -110,6 +113,11 @@ impl PrivateObjectDeliveryPort for FakeG {
     ) -> Result<GrantedContent, DeliveryError> {
         assert_eq!(ttl, Duration::from_secs(90));
         self.signed.fetch_add(1, Ordering::SeqCst);
+        let barrier = { self.pause_next.lock().unwrap().take() };
+        if let Some((entered, release)) = barrier {
+            let _ = entered.send(());
+            release.await.map_err(|_| DeliveryError::Unavailable)?;
+        }
         Ok(GrantedContent {
             ciphertext_url: SecretValue::new(
                 "https://private.invalid/V1.enc?X-Amz-Signature=TEST-ONLY".to_owned(),
@@ -619,6 +627,30 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     );
+    // The already-authorized request enters G signing before the refund.
+    // Once D commits the reversal, C's final check must discard its bearer URL.
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    *fake.pause_next.lock().unwrap() = Some((entered_tx, release_rx));
+    let race_app = app.clone();
+    let race_path = path.clone();
+    let race_session = buyer_cookie.clone();
+    let race_csrf = csrf.clone();
+    let in_flight = tokio::spawn(async move {
+        send(
+            &race_app,
+            &race_path,
+            Some(&race_session),
+            Some(&race_csrf),
+            Some(ORIGIN),
+            "{}",
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(10), entered_rx)
+        .await
+        .expect("G must be reached before refund")
+        .expect("signing barrier must remain open");
     pg(
         &url,
         &format!(
@@ -626,6 +658,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
              VALUES({purchase_id},'ci:s034-http-refund','refund')"
         ),
     );
+    release_tx
+        .send(())
+        .expect("resume signer after committed refund");
+    let raced = tokio::time::timeout(Duration::from_secs(10), in_flight)
+        .await
+        .expect("no grant/refund deadlock")
+        .expect("join grant handler");
+    assert_eq!(raced.status(), StatusCode::FORBIDDEN);
+    assert_eq!(raced.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(raced.into_body(), 8192).await.unwrap().is_empty());
+    assert_eq!(
+        fake.signed.load(Ordering::SeqCst),
+        3,
+        "G signed once, but C must discard the token after D revocation"
+    );
+    // A subsequent request is rejected by D before reaching G.
     assert_eq!(
         send(
             &app,
@@ -639,7 +687,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .status(),
         StatusCode::FORBIDDEN,
     );
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
     assert_eq!(
         read_page(&browser, &reader_path, Some(&buyer_cookie))
             .await

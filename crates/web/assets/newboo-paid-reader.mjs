@@ -220,6 +220,7 @@ export function installPaidReaderSettings(root) {
   const panel = root.querySelector("[data-paid-reader-settings]");
   if (!panel) return;
   const toggle = root.querySelector("[data-paid-settings-open]");
+  const themeCycle = root.querySelector("[data-paid-theme-cycle]");
   const close = panel.querySelector("[data-paid-settings-close]");
   const reset = panel.querySelector("[data-paid-settings-reset]");
   const font = panel.querySelector("[data-paid-font-scale]");
@@ -229,7 +230,7 @@ export function installPaidReaderSettings(root) {
   const lineOutput = panel.querySelector("[data-paid-line-output]");
   const widthOutput = panel.querySelector("[data-paid-width-output]");
   const themes = [...panel.querySelectorAll("[data-paid-theme]")];
-  requireValue(toggle && close && reset && font && line && width &&
+  requireValue(toggle && themeCycle && close && reset && font && line && width &&
     fontOutput && lineOutput && widthOutput && themes.length === 3);
 
   const boundedValue = (input, min, max, step) => {
@@ -260,6 +261,11 @@ export function installPaidReaderSettings(root) {
       button.setAttribute("aria-pressed",
         String(button.dataset.paidTheme === choice));
     }
+    const current = {
+      system: "системная", light: "светлая", sepia: "сепия", dark: "тёмная",
+    }[choice];
+    themeCycle.setAttribute("aria-label", "Сменить тему. Сейчас: " + current);
+    themeCycle.title = "Сменить тему. Сейчас: " + current;
   };
   const hide = () => {
     panel.hidden = true;
@@ -285,6 +291,15 @@ export function installPaidReaderSettings(root) {
   for (const button of themes) {
     button.addEventListener("click", () => selectTheme(button.dataset.paidTheme));
   }
+  // NEwBOO one-tap theme switch: changing a mode updates the same settings
+  // controls. An untouched page still follows the operating system.
+  themeCycle.addEventListener("click", () => {
+    const effective = document.body.dataset.paidReaderTheme ||
+      (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const next = { light: "sepia", sepia: "dark", dark: "light" }[effective];
+    requireValue(next);
+    selectTheme(next);
+  });
   reset.addEventListener("click", () => {
     font.value = "100";
     line.value = "185";

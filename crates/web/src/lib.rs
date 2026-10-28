@@ -219,6 +219,22 @@ async fn book_detail(
         } else {
             false
         };
+        if let Some(catalog) = state.postgres.as_ref() {
+            let id = match i64::try_from(book.id) {
+                Ok(id) => id,
+                Err(_) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+            };
+            let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
+            let stars = match store.visible_summary(id).await {
+                Ok(Some(stars)) => stars,
+                Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+                Err(_) => {
+                    return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
+                }
+            };
+            return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
+                .into_response();
+        }
         return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
     }
     let repo = state.books.as_ref();

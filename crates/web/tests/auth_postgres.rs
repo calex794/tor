@@ -532,8 +532,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         StatusCode::NOT_FOUND,
         "published chapter text cannot be edited as a draft"
     );
-    // B-06: after the first release, new chapters stay hidden until an
-    // explicit owner confirmation of the current immutable version.
+    // BKR-96: normal Save in a published book is an immediate release; the
+    // historical B-06 explicit release API remains available for old drafts.
     b06_cases::publish_second_chapter(&app, book_id, &book_path, &session, &author_cookies).await;
     assert_eq!(
         send(
@@ -943,6 +943,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let bad_login =
         format!("email=tor_ci_account%40example.com&password=badpass&csrf_token={login_csrf}");
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
+    h_account_cases::seed_exhausted_proxy_counter(&lookup).await;
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
     let logged = send(
         &app,
