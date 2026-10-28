@@ -225,11 +225,12 @@ fn save_ephemeral_fixture(
     grant: Value,
     version: i64,
     purchase: i64,
-    reader_html: String,
+    readers: (String, String),
     reader_csp: String,
     expiry_probe_url: Value,
     toc_target: (i64, i64, i64, i64, i64),
 ) {
+    let (reader_html, layer_reader_html) = readers;
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
     assert!(
@@ -246,6 +247,7 @@ fn save_ephemeral_fixture(
         "purchased_version_id": version.to_string(),
         "purchase_id": purchase.to_string(),
         "reader_html": reader_html,
+        "layer_reader_html": layer_reader_html,
         "reader_csp": reader_csp,
         "expiry_probe_url": expiry_probe_url,
         "expected_markdown": MARKDOWN,
@@ -410,7 +412,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
-    layer_fixtures::assert_layer_s3_grants(
+    let layer_reader_html = layer_fixtures::assert_layer_s3_grants(
         tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
         &app,
         &url,
@@ -885,7 +887,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         still_v1,
         v1,
         purchase_id,
-        visible_html,
+        (visible_html, layer_reader_html),
         reader_csp,
         expiry_probe_url,
         (
