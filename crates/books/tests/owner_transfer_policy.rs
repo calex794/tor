@@ -37,7 +37,10 @@ fn b_09_transfer_tiers_are_monotonic_including_pro_adult_on_adult_book() {
             assert_eq!(authorize_owner_transfer(facts), expected);
         }
     }
-    assert_eq!(AccessTier::from_persisted("pro_adult"), Some(AccessTier::ProAdult));
+    assert_eq!(
+        AccessTier::from_persisted("pro_adult"),
+        Some(AccessTier::ProAdult)
+    );
     assert_eq!(AccessTier::from_persisted("adult"), Some(AccessTier::Adult));
     assert_eq!(AccessTier::from_persisted("basic"), Some(AccessTier::Basic));
     assert_eq!(AccessTier::from_persisted("untrusted"), None);
