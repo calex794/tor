@@ -200,7 +200,7 @@ async fn missing_edition_membership_refuses_signing_and_refund_discards_result()
 }
 
 #[tokio::test]
-async fn G_response_with_wrong_codec_is_never_exposed() {
+async fn g_response_with_wrong_codec_is_never_exposed() {
     let revoked = Arc::new(AtomicBool::new(false));
     let d = D {
         revoked,
