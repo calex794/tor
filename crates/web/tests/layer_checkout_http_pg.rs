@@ -28,7 +28,10 @@ async fn account(accounts: &PgAccounts, role: &str) -> (i64, String) {
     let token = generate_session_token();
     let password = hash_password("D05LayerHttpTestStrongPassword2026").unwrap();
     // The canonical PostgreSQL email column enforces lower-case values.
-    let email = format!("d05-http-{role}-{}@example.test", token[..12].to_ascii_lowercase());
+    let email = format!(
+        "d05-http-{role}-{}@example.test",
+        token[..12].to_ascii_lowercase()
+    );
     let id = accounts
         .register_with_session(
             &email,
