@@ -159,7 +159,11 @@ impl PgReferrals {
              SET processed_at=now(),result=$2 WHERE user_id=$1",
         )
         .bind(user_id)
-        .bind(if attributed { "attributed" } else { "unattributed" })
+        .bind(if attributed {
+            "attributed"
+        } else {
+            "unattributed"
+        })
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
