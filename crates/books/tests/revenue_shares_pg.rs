@@ -115,7 +115,10 @@ async fn b_10_pg_atomic_revisions_preserve_100_percent_and_old_schedule() {
             owner,
             book,
             2,
-            &[ShareAssignment { user_id: owner, share_percent: 80 }],
+            &[ShareAssignment {
+                user_id: owner,
+                share_percent: 80
+            }],
             "invalid eighty"
         )
         .await,
@@ -147,17 +150,18 @@ async fn b_10_pg_two_concurrent_replacements_have_one_winner() {
     );
     assert_eq!([a, b].iter().filter(|v| v.is_ok()).count(), 1);
     assert_eq!(
-        [a, b].iter().filter(|v| **v == Err(RevenueShareError::Conflict)).count(),
+        [a, b]
+            .iter()
+            .filter(|v| **v == Err(RevenueShareError::Conflict))
+            .count(),
         1
     );
     assert_eq!(revision(&pool, book).await, 2);
-    let n: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM revenue_share_versions WHERE book_id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM revenue_share_versions WHERE book_id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(n, 2);
     pool.close().await;
 }
@@ -172,23 +176,24 @@ async fn b_10_pg_active_share_holder_cannot_be_deactivated() {
             .await,
         Ok(2)
     );
-    assert!(
-        sqlx::query(
-            "UPDATE book_members SET is_active=FALSE
+    assert!(sqlx::query(
+        "UPDATE book_members SET is_active=FALSE
              WHERE book_id=$1 AND user_id=$2",
-        )
-        .bind(book)
-        .bind(editor)
-        .execute(&pool)
-        .await
-        .is_err()
-    );
+    )
+    .bind(book)
+    .bind(editor)
+    .execute(&pool)
+    .await
+    .is_err());
     assert_eq!(
         repo.replace_schedule(
             owner,
             book,
             2,
-            &[ShareAssignment { user_id: owner, share_percent: 100 }],
+            &[ShareAssignment {
+                user_id: owner,
+                share_percent: 100
+            }],
             "remove editor share"
         )
         .await,
