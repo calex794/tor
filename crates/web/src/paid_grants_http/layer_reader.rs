@@ -22,8 +22,7 @@ pub(super) async fn layer_reader(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (Some(chapter_id), Ok(actor_id)) = (positive(&raw_chapter), PositiveId::new(actor))
-    else {
+    let (Some(chapter_id), Ok(actor_id)) = (positive(&raw_chapter), PositiveId::new(actor)) else {
         return deny(StatusCode::NOT_FOUND);
     };
 
@@ -60,7 +59,9 @@ pub(super) async fn layer_reader(
     let Ok(value) = HeaderValue::from_str(&csp) else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     };
-    response.headers_mut().insert("content-security-policy", value);
+    response
+        .headers_mut()
+        .insert("content-security-policy", value);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
