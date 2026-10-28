@@ -418,7 +418,9 @@
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: color-mix(in srgb, var(--text-main) 38%, transparent);
+  /* The scrim must darken both light and dark themes.
+     --text-main becomes white in dark mode and was washing the reader out. */
+  background: color-mix(in srgb, #09101d 36%, transparent);
   cursor: pointer;
 }
 .reader-paid .reader-paid__settings-panel {
