@@ -23,6 +23,7 @@ mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
 mod catalog_http;
+mod book_error_pages;
 pub mod cover_delivery;
 mod cover_http;
 pub use cover_http::{
@@ -34,7 +35,6 @@ mod observability;
 mod operator_overview;
 mod operator_traces;
 mod pages;
-mod book_error_pages;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
 mod paid_grants_http;
@@ -196,8 +196,8 @@ async fn book_toc(
 }
 
 // H-11: never disclose whether a missing book was hidden or never existed.
-fn book_error(status: StatusCode) -> Response {
-    book_error_pages::book_error(status)
+async fn book_error(state: &AppState, status: StatusCode) -> Response {
+    book_error_pages::public_book_error(state, status).await
 }
 
 async fn book_detail(
@@ -212,15 +212,13 @@ async fn book_detail(
             .await
         {
             Ok(Some(book)) => book,
-            Ok(None) => return book_error(StatusCode::NOT_FOUND),
-            Err(error) => return book_error(reading_status(error)),
+            Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+            Err(error) => return book_error(&state, reading_status(error)).await,
         };
         let has_cover = if let Some(delivery) = state.covers.as_ref() {
             match delivery.available_card_ids(&[book.id]).await {
                 Ok(ids) => ids.contains(&book.id),
-                Err(_) => {
-                    return book_error(StatusCode::SERVICE_UNAVAILABLE)
-                }
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             }
         } else {
             false
@@ -228,15 +226,13 @@ async fn book_detail(
         if let Some(catalog) = state.postgres.as_ref() {
             let id = match i64::try_from(book.id) {
                 Ok(id) => id,
-                Err(_) => return book_error(StatusCode::NOT_FOUND),
+                Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
             };
             let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
             let stars = match store.visible_summary(id).await {
                 Ok(Some(stars)) => stars,
-                Ok(None) => return book_error(StatusCode::NOT_FOUND),
-                Err(_) => {
-                    return book_error(StatusCode::SERVICE_UNAVAILABLE)
-                }
+                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
             return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
                 .into_response();
@@ -246,8 +242,8 @@ async fn book_detail(
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
         Ok(Some(book)) => book,
-        Ok(None) => return book_error(StatusCode::NOT_FOUND),
-        Err(_) => return book_error(StatusCode::SERVICE_UNAVAILABLE),
+        Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+        Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
     };
     pages::book_detail(&pages::PublicBookCard {
         id: book.id(),

@@ -80,6 +80,17 @@ async function inspect(page, name, where) {
         assert(response && response.status() === 404, name + ': denied URL ' + denied);
         assert((response.headers()['cache-control'] || '').includes('no-store'),
           name + ': shared-cacheable denied URL ' + denied);
+        if (denied === '/books/2') {
+          const cards = page.locator('.book-error-promos__card');
+          assert(await cards.count() >= 1 && await cards.count() <= 3,
+            name + ': missing published-book recovery links');
+          assert(await page.getByRole('heading', { name: 'Другие книги на сайте' }).isVisible(),
+            name + ': book recovery heading missing');
+          assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
+            name + ': private chapter body leaked into 404');
+          assert((await page.locator('meta[name="robots"]').getAttribute('content')).includes('noindex'),
+            name + ': 404 indexed');
+        }
       }
       await page.close();
     }

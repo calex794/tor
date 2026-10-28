@@ -1009,3 +1009,16 @@ img.home-spotlight-card__cover {
 .not-found-card__button--ghost { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-dark); }
 .not-found-card__button:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
 @media (max-width: 560px) { .not-found-card { padding: 26px 18px; } }
+/* H-11: internal public-book discovery, only for a missing book (404). */
+.book-error-promos { max-width: 940px; margin: 28px auto 0; }
+.book-error-promos h2 { margin: 0 0 14px; color: var(--text-main); font-size: 21px; }
+.book-error-promos__grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.book-error-promos__card { display: flex; align-items: flex-start; gap: 12px; padding: 12px; min-width: 0; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-main); text-decoration: none; }
+.book-error-promos__card:hover { border-color: var(--primary-color); }
+.book-error-promos__card:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+.book-error-promos__cover { flex: 0 0 68px; width: 68px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); background: var(--book-card-cover-bg); }
+.book-error-promos__cover--empty { display: grid; place-items: center; padding: 4px; color: var(--book-card-cover-text); font-size: 12px; text-align: center; }
+.book-error-promos__body { display: block; min-width: 0; overflow-wrap: anywhere; }
+.book-error-promos__title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.35; }
+.book-error-promos__author { display: block; margin-top: 8px; color: var(--text-muted); font-size: 13px; }
+@media (max-width: 640px) { .book-error-promos__grid { grid-template-columns: minmax(0,1fr); } .book-error-promos__card { min-height: 118px; } }
