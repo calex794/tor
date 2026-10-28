@@ -26,7 +26,11 @@ impl CookiePolicy {
     }
 
     fn guest_name(&self) -> &'static str {
-        if self.secure { "__Host-tor-guest" } else { "tor-dev-guest" }
+        if self.secure {
+            "__Host-tor-guest"
+        } else {
+            "tor-dev-guest"
+        }
     }
 
     pub(crate) fn guest_token(&self, headers: &HeaderMap) -> Option<String> {
