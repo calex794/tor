@@ -512,6 +512,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_description::save",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::submit",
+      "policy": "session"
     }
   ]
 }
