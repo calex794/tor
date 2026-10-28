@@ -7,8 +7,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, process::Command};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -85,25 +84,54 @@ async fn json_body(response: Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
-async fn financial_state(pool: &PgPool, buyer: i64) -> (i64, i64, i64) {
-    let balance =
-        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
-            .bind(buyer)
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    let terms = sqlx::query_scalar("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1")
-        .bind(buyer)
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    let entries = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id=$1 AND kind='layer_purchase'",
-    )
-    .bind(buyer)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+fn pg(url: &str, sql: &str) -> String {
+    assert!(
+        url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"),
+        "only disposable tor_ci may be queried by the money test"
+    );
+    let output = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .output()
+        .expect("isolated PostgreSQL client required");
+    assert!(
+        output.status.success(),
+        "PostgreSQL fixture: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn scalar(url: &str, sql: &str) -> i64 {
+    pg(url, sql).parse().expect("one integer PostgreSQL result")
+}
+
+fn financial_state(url: &str, buyer: i64) -> (i64, i64, i64) {
+    let balance = scalar(
+        url,
+        &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}"),
+    );
+    let terms = scalar(
+        url,
+        &format!("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id={buyer}"),
+    );
+    let entries = scalar(
+        url,
+        &format!(
+            "SELECT COUNT(*) FROM reader_wallet_entries
+             WHERE user_id={buyer} AND kind='layer_purchase'"
+        ),
+    );
     (balance, terms, entries)
 }
 
@@ -135,25 +163,22 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     let (owner, _) = account(&accounts, "author").await;
     let (buyer, buyer_token) = account(&accounts, "buyer").await;
     let (poor, poor_token) = account(&accounts, "low-balance").await;
-    sqlx::query(
-        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
-         VALUES($1,300,'RUB'),($2,20,'RUB')",
-    )
-    .bind(buyer)
-    .bind(poor)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+             VALUES({buyer},300,'RUB'),({poor},20,'RUB')"
+        ),
+    );
 
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','D05 HTTP book','public',$2) RETURNING id",
-    )
-    .bind(format!("ci:d05:http:{owner}"))
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let book = scalar(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:d05:http:{owner}','ru','D05 HTTP book','public',{owner})
+             RETURNING id"
+        ),
+    );
     let layers = PgLayers::new(pool.clone());
     let layer = layers
         .create_layer(id(owner), "D05 HTTP package")
@@ -277,7 +302,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
         .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
-    assert_eq!(financial_state(&pool, buyer).await, (300, 0, 0));
+    assert_eq!(financial_state(&url, buyer), (300, 0, 0));
 
     let poor_csrf = generate_session_token();
     assert_eq!(
@@ -298,7 +323,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
         StatusCode::CONFLICT,
         "insufficient balance must fail without a paid term"
     );
-    assert_eq!(financial_state(&pool, poor).await, (20, 0, 0));
+    assert_eq!(financial_state(&url, poor), (20, 0, 0));
 
     let wrong_price = json!({
         "expected_offer_id": offer.to_string(),
@@ -324,7 +349,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
         StatusCode::CONFLICT,
         "a changed price is never silently accepted"
     );
-    assert_eq!(financial_state(&pool, buyer).await, (300, 0, 0));
+    assert_eq!(financial_state(&url, buyer), (300, 0, 0));
 
     // Two concurrent identical HTTP requests must commit exactly one wallet debit.
     let (first, second) = tokio::join!(
@@ -363,7 +388,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     assert_eq!(a["balance_minor"], 210);
     assert_eq!(b["balance_minor"], 210);
     assert_ne!(a["replayed"], b["replayed"]);
-    assert_eq!(financial_state(&pool, buyer).await, (210, 1, 1));
+    assert_eq!(financial_state(&url, buyer), (210, 1, 1));
 
     assert_eq!(
         post(
@@ -383,7 +408,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
         StatusCode::CONFLICT,
         "same key with changed purchase intent must not consume money"
     );
-    assert_eq!(financial_state(&pool, buyer).await, (210, 1, 1));
+    assert_eq!(financial_state(&url, buyer), (210, 1, 1));
 
     // A fresh key purchases one additional prepaid period, not a duplicate charge.
     let renewed = post(
@@ -403,6 +428,6 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     let renewal = json_body(renewed).await;
     assert_ne!(renewal["term_id"], a["term_id"]);
     assert_eq!(renewal["balance_minor"], 120);
-    assert_eq!(financial_state(&pool, buyer).await, (120, 2, 2));
+    assert_eq!(financial_state(&url, buyer), (120, 2, 2));
     pool.close().await;
 }
