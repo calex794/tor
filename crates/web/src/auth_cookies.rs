@@ -25,6 +25,18 @@ impl CookiePolicy {
         }
     }
 
+    fn guest_name(&self) -> &\x27static str {
+        if self.secure { "__Host-tor-guest" } else { "tor-dev-guest" }
+    }
+
+    pub(crate) fn guest_token(&self, headers: &HeaderMap) -> Option<String> {
+        cookie_value(headers, self.guest_name()).filter(|token| valid_token(token))
+    }
+
+    pub(crate) fn guest_cookie(&self, token: &str) -> String {
+        self.cookie(self.guest_name(), token, 30 * 24 * 60 * 60)
+    }
+
     fn csrf_name(&self) -> &'static str {
         if self.secure {
             "__Host-tor-csrf"
