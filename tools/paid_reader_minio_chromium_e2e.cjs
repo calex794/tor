@@ -627,7 +627,7 @@ async function run() {
         // Controls must be real interactions, not decorative buttons. No
         // browser storage is used for paid text, keys or preferences.
         const panel = page.locator("#paid-reader-settings");
-        const control = page.getByRole("button", { name: "Настройки чтения" });
+        const control = page.locator("[data-paid-settings-open]");
         assert(await panel.isHidden(), device + ": reader settings shown by default");
         await control.click();
         assert(await panel.isVisible(), device + ": settings button does not open panel");
