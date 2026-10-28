@@ -29,10 +29,7 @@ pub fn validate_schedule(
     let mut total = 0i32;
     let mut previous = 0i64;
     for row in &sorted {
-        if row.user_id <= 0
-            || row.user_id == previous
-            || !(1..=100).contains(&row.share_percent)
-        {
+        if row.user_id <= 0 || row.user_id == previous || !(1..=100).contains(&row.share_percent) {
             return Err(RevenueShareError::Invalid);
         }
         previous = row.user_id;
@@ -52,12 +49,24 @@ mod tests {
     fn b_10_schedule_is_a_canonical_100_percent_batch() {
         assert_eq!(
             validate_schedule(&[
-                ShareAssignment { user_id: 8, share_percent: 20 },
-                ShareAssignment { user_id: 2, share_percent: 80 }
+                ShareAssignment {
+                    user_id: 8,
+                    share_percent: 20
+                },
+                ShareAssignment {
+                    user_id: 2,
+                    share_percent: 80
+                }
             ]),
             Ok(vec![
-                ShareAssignment { user_id: 2, share_percent: 80 },
-                ShareAssignment { user_id: 8, share_percent: 20 }
+                ShareAssignment {
+                    user_id: 2,
+                    share_percent: 80
+                },
+                ShareAssignment {
+                    user_id: 8,
+                    share_percent: 20
+                }
             ])
         );
     }
@@ -66,11 +75,38 @@ mod tests {
     fn b_10_rejects_invalid_duplicates_and_intermediate_totals() {
         for invalid in [
             vec![],
-            vec![ShareAssignment { user_id: 2, share_percent: 80 }],
-            vec![ShareAssignment { user_id: 2, share_percent: 110 }],
-            vec![ShareAssignment { user_id: 0, share_percent: 100 }],
-            vec![ShareAssignment { user_id: 2, share_percent: 0 }, ShareAssignment { user_id: 3, share_percent: 100 }],
-            vec![ShareAssignment { user_id: 2, share_percent: 50 }, ShareAssignment { user_id: 2, share_percent: 50 }],
+            vec![ShareAssignment {
+                user_id: 2,
+                share_percent: 80,
+            }],
+            vec![ShareAssignment {
+                user_id: 2,
+                share_percent: 110,
+            }],
+            vec![ShareAssignment {
+                user_id: 0,
+                share_percent: 100,
+            }],
+            vec![
+                ShareAssignment {
+                    user_id: 2,
+                    share_percent: 0,
+                },
+                ShareAssignment {
+                    user_id: 3,
+                    share_percent: 100,
+                },
+            ],
+            vec![
+                ShareAssignment {
+                    user_id: 2,
+                    share_percent: 50,
+                },
+                ShareAssignment {
+                    user_id: 2,
+                    share_percent: 50,
+                },
+            ],
         ] {
             assert_eq!(validate_schedule(&invalid), Err(RevenueShareError::Invalid));
         }
