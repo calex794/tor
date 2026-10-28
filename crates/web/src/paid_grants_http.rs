@@ -23,7 +23,9 @@ use std::{
 use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
-use tor_commerce::repositories::entitlements::PgDirectEntitlements;
+use tor_commerce::repositories::{
+    entitlements::PgDirectEntitlements, layer_entitlements::PgReaderEntitlements,
+};
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
     PrivateObjectDeliveryPort,
@@ -64,7 +66,8 @@ impl RateLimits {
 #[derive(Clone)]
 struct GrantState {
     accounts: PgAccounts,
-    entitlement: PgDirectEntitlements,
+    entitlement: PgReaderEntitlements,
+    direct: PgDirectEntitlements,
     versions: PgPaidStorage,
     assets: PgPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -255,7 +258,7 @@ async fn paid_reader(
         return deny(StatusCode::NOT_FOUND);
     };
     let pinned = match state
-        .entitlement
+        .direct
         .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, Some(purchase_id))
         .await
     {
@@ -273,7 +276,7 @@ async fn paid_reader(
     // Metadata is also scoped by D's canonical SQL policy. A concurrent
     // refund/hold between checks must not expose stale paid-page details.
     let details = match state
-        .entitlement
+        .direct
         .readable_purchase_detail(actor_id, chapter_id, purchase_id)
         .await
     {
@@ -283,7 +286,7 @@ async fn paid_reader(
         Err(error) => return deny(status(error)),
     };
     let toc = match state
-        .entitlement
+        .direct
         .mixed_book_toc(actor_id, chapter_id, purchase_id)
         .await
     {
@@ -362,7 +365,7 @@ async fn purchased_library(
         },
         None => None,
     };
-    let owned = match state.entitlement.readable_purchases(actor, after).await {
+    let owned = match state.direct.readable_purchases(actor, after).await {
         Ok(owned) => owned,
         Err(error) => return deny(status(error)),
     };
@@ -415,7 +418,8 @@ fn router_inner(
     let pool = accounts.pool().clone();
     let state = GrantState {
         accounts,
-        entitlement: PgDirectEntitlements::new(pool.clone()),
+        entitlement: PgReaderEntitlements::new(pool.clone()),
+        direct: PgDirectEntitlements::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         assets: PgPaidAssets::new(pool),
         storage,
