@@ -31,7 +31,7 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 CRITICAL_PACKAGES = {
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence",
+    "tor-route_intelligence", "tor-referrals",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
