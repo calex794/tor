@@ -6,6 +6,7 @@ pub(crate) mod owner_transfer;
 pub(crate) mod owner_transfer_tier;
 pub mod paid_storage;
 pub mod postgres;
+pub mod revenue_shares;
 pub mod shadow;
 pub use postgres::PgCatalog;
 pub use shadow::PgShadowCatalog;
