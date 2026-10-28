@@ -1,0 +1,52 @@
+name: TOR Pingora isolated experiment
+on:
+  pull_request:
+    paths:
+      - 'experiments/pingora/**'
+      - '.github/workflows/tor-pingora-experiment.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile-and-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Generate isolated dependency lock
+        run: cargo generate-lockfile --manifest-path experiments/pingora/Cargo.toml
+      - name: Check formatting
+        run: cargo fmt --manifest-path experiments/pingora/Cargo.toml -- --check
+      - name: Compile and test
+        run: cargo test --manifest-path experiments/pingora/Cargo.toml --locked --all-targets
+      - name: Clippy
+        run: cargo clippy --manifest-path experiments/pingora/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Loopback smoke
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd experiments/pingora
+          if PINGORA_EXPERIMENT=0 cargo run --locked --quiet; then exit 1; fi
+          if PINGORA_EXPERIMENT=1 PINGORA_EXPERIMENT_BIND=0.0.0.0:6193 cargo run --locked --quiet; then exit 1; fi
+          python3 -m http.server 6194 --bind 127.0.0.1 >/tmp/tor-pingora-upstream.log 2>&1 &
+          upstream_pid=$!
+          proxy_pid=''
+          trap 'kill "$upstream_pid" "$proxy_pid" 2>/dev/null || true' EXIT
+          PINGORA_EXPERIMENT=1 PINGORA_EXPERIMENT_UPSTREAM=127.0.0.1:6194 cargo run --locked --quiet >/tmp/tor-pingora.log 2>&1 &
+          proxy_pid=$!
+          ready=0
+          for _ in $(seq 1 40); do
+            if curl --fail --silent --max-time 1 http://127.0.0.1:6193/ -o /tmp/pingora-response; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1 || { cat /tmp/tor-pingora.log; exit 1; }
+          grep -q 'Directory listing' /tmp/pingora-response
+          test "$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:6193/not-a-file)" = 404
+          echo 'Pingora loopback smoke: PASS'
