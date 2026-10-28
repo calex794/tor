@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# Keep this intentionally out of the TOR production workspace.
+# A self-contained test crate, never part of TOR production builds.
 [workspace]
 
 [dependencies]
 async-trait = "0.1"
+axum = "0.8"
 pingora = { version = "=0.9.0", default-features = false, features = ["openssl", "proxy"] }
-# Pingora 0.9.0 constructs BufStream with read_capacity=0.
-# Tokio 1.54 panics on this path; tracked upstream as cloudflare/pingora#1059.
-# Isolated experiment ONLY: remove this pin when Pingora fixes the zero-capacity buffer.
-tokio = "=1.53.2"
+# Pingora 0.9.0 creates a zero-capacity BufStream; Tokio 1.54+ panics.
+# Temporary pin for the isolated experiment only: cloudflare/pingora#1059.
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread", "net"] }
