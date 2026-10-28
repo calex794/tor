@@ -595,18 +595,18 @@ async function run() {
         const quickLight = await page.evaluate(() =>
           getComputedStyle(document.body).backgroundColor);
         assert.notEqual(quickLight, darkBackground, device + ": quick light has no visual effect");
-        assert.equal(await page.getByRole("button", { name: "Светлая" })
+        assert.equal(await page.locator('[data-paid-theme="light"]')
           .getAttribute("aria-pressed"), "true");
         assert.equal(await quick.getAttribute("aria-label"), "Сменить тему. Сейчас: светлая");
         await quick.click();
         assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
           "sepia", device + ": quick sepia step missing");
-        assert.equal(await page.getByRole("button", { name: "Сепия" })
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
           .getAttribute("aria-pressed"), "true");
         await quick.click();
         assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
           "dark", device + ": quick dark step missing");
-        assert.equal(await page.getByRole("button", { name: "Тёмная" })
+        assert.equal(await page.locator('[data-paid-theme="dark"]')
           .getAttribute("aria-pressed"), "true");
         const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
           (element) => Number.parseFloat(getComputedStyle(element).fontSize));
@@ -639,7 +639,7 @@ async function run() {
         const sepiaBackground = await page.evaluate(() =>
           getComputedStyle(document.body).backgroundColor);
         assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
-        assert.equal(await page.getByRole("button", { name: "Сепия" })
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
           .getAttribute("aria-pressed"), "true");
         if (device === "desktop") {
           await page.screenshot({
