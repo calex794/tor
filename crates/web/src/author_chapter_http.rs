@@ -218,7 +218,9 @@ async fn create_chapter(
             ),
         };
     }
-    // The existing free save flow is unchanged in this paid-only release.
+    // Saving to a published book releases the free chapter immediately.
+    // The B transaction writes its immutable edition, reader pointer and
+    // first-release fact together; a draft book remains hidden until release.
     let is_public = match state.authoring.owned_book_is_public(actor, id as i64).await {
         Ok(value) => value,
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
@@ -227,7 +229,7 @@ async fn create_chapter(
     let outcome = if is_public {
         state
             .authoring
-            .create_pending_free_chapter(actor, &request)
+            .create_published_free_chapter(actor, &request)
             .await
     } else {
         state.authoring.create_free_chapter(actor, &request).await

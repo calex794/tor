@@ -27,6 +27,7 @@ const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
 const siteCss = fs.readFileSync("crates/web/assets/site.css");
 const orderedNewbooFiles = [
   "newboo-port.css",
+  "newboo-home-carousel.css",
   "newboo-book-detail.css",
   "newboo-reader.css",
   "newboo-cover-picker.css",

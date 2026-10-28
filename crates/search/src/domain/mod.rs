@@ -1,3 +1,4 @@
+pub mod seo;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchBook {
     pub id: u64,

@@ -37,9 +37,10 @@ fn catalog_metadata_must_be_escaped_in_cards() {
     .0;
     assert!(html.contains("Найдено книг: 1"));
     assert!(html.contains("&lt;img"));
-    assert!(html.contains("&lt;script&gt;"));
+    assert!(!html.contains("фэнтези&lt;script&gt;"));
     assert!(!html.contains("<img src"));
     assert!(!html.contains("<script>"));
+    assert!(!html.contains("Жанры:"));
 }
 
 #[test]
@@ -130,8 +131,9 @@ fn ne_wboo_public_shell_and_catalog_reuse_source_components() {
     assert!(html.contains("Старый &lt;каталог&gt;"));
     assert!(!html.contains("Старый <каталог>"));
     assert!(html.contains("href=\"/books/4\""));
-    assert!(html.contains("Автор: Автор"));
-    assert!(html.contains("Жанры: Фэнтези"));
+    assert!(html.contains("<div class=\"book-mini-card__meta\">Автор</div>"));
+    assert!(!html.contains("Жанры: Фэнтези"));
+    assert!(!html.contains("Язык: ru"));
     assert!(html.contains("Нижняя навигация"));
     assert!(!html.contains("Выберите свою следующую историю"));
 }
