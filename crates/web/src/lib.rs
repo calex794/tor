@@ -205,7 +205,7 @@ async fn book_detail(
     Path(id): Path<u64>,
     Query(query): Query<TocQuery>,
 ) -> Response {
-    if let Some(reader) = state.reader {
+    if let Some(reader) = state.reader.as_ref() {
         let limit = query.limit.unwrap_or(100);
         let book = match reader
             .public_book_page(id, limit, query.after.as_deref())
