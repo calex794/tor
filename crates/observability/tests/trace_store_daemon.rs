@@ -235,3 +235,27 @@ fn no_public_tcp_or_world_readable_socket() {
     assert!(!source.contains("TcpListener"));
     assert!(source.contains("from_mode(0o600)"));
 }
+
+#[test]
+fn operator_systemd_template_shares_the_web_service_socket_account() {
+    let web = include_str!("../../../ops/tor-web.service.example");
+    let writer = include_str!("../../../ops/tor-trace-store.service.example");
+    // A private 0600 socket cannot be reached by a different service user.
+    for setting in ["User=tor-deploy", "Group=tor-deploy"] {
+        assert!(web.lines().any(|line| line == setting), "web: {setting}");
+        assert!(
+            writer.lines().any(|line| line == setting),
+            "trace-store: {setting}"
+        );
+    }
+    for setting in [
+        "RuntimeDirectoryMode=0700",
+        "StateDirectoryMode=0700",
+        "UMask=0077",
+        "NoNewPrivileges=yes",
+        "MemoryMax=128M",
+    ] {
+        assert!(writer.lines().any(|line| line == setting), "{setting}");
+    }
+    assert!(writer.contains("DO NOT enable"));
+}
