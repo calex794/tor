@@ -512,6 +512,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_description::save",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/read/layer/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "layer_reader::layer_reader",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-layer-reader.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::layer_reader_script",
+      "policy": "public"
     }
   ]
 }
