@@ -13,12 +13,11 @@ pub async fn verified_effective_user_tier(
     if user_id <= 0 {
         return Ok(None);
     }
-    let adult: Option<bool> = sqlx::query_scalar(
-        "SELECT adult_enabled FROM users WHERE id=$1 FOR SHARE",
-    )
-    .bind(user_id)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let adult: Option<bool> =
+        sqlx::query_scalar("SELECT adult_enabled FROM users WHERE id=$1 FOR SHARE")
+            .bind(user_id)
+            .fetch_optional(&mut **tx)
+            .await?;
     let Some(adult) = adult else {
         return Ok(None);
     };
@@ -97,13 +96,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(read(&pool, user).await, Some(EffectiveUserTier::ProAdult));
-        sqlx::query(
-            "UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1",
-        )
-        .bind(user)
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(read(&pool, user).await, Some(EffectiveUserTier::Basic));
 
         assert!(
