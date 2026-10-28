@@ -88,17 +88,23 @@ for round in 1 2 3 4 5; do
       port=$(port_for "$scheme")
       filename="$results/run-$round-$scheme-$(echo "$route" | tr / _).log"
       wrk -t1 -c16 -d10s --latency -s "$root/wrk_metrics.lua" \
-        "http://127.0.0.1:$port/$route" > "$filename"
+        "http://127.0.0.1:$port/$route" > "$filename" &
+      wrk_pid=$!
+      # Sample the *whole container* during active load, not after wrk exits.
+      sleep 2
+      sample=$(docker stats --no-stream --format 'cpu={{.CPUPerc}} memory={{.MemUsage}}' "$container")
+      printf 'round=%s route=%s scheme=%s %s\n' "$round" "$route" "$scheme" "$sample" \
+        >> "$results/resource-samples.txt"
+      wait "$wrk_pid"
       metric=$(grep '^TOR_PINGORA_METRIC ' "$filename" || true)
       if [ -z "$metric" ]; then
         echo "MISSING_WRK_METRIC $filename" >&2
         exit 1
       fi
       printf 'round=%s route=%s scheme=%s %s\n' "$round" "$route" "$scheme" "$metric" | tee -a "$results/measurements.txt"
-      printf 'round=%s route=%s scheme=%s %s\n' "$round" "$route" "$scheme" \
-        "$(docker stats --no-stream --format 'cpu={{.CPUPerc}} memory={{.MemUsage}}' "$container")" \
-        >> "$results/resource-samples.txt"
+      # The CPU/RAM snapshot above was taken while the request load was active.
     done
   done
 done
-echo 'BENCHMARK_DONE repeats=5 routes=3 schemes=3 duration=10s_each'
+python3 "$root/summarize.py" "$results/measurements.txt" "$results/summary.csv"
+echo 'BENCHMARK_DONE repeats=5 routes=3 schemes=3 duration=10s_each profile=release'

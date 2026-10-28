@@ -64,7 +64,7 @@ jobs:
       - name: Generate isolated dependency lock
         run: cargo generate-lockfile --manifest-path experiments/pingora/Cargo.toml
       - name: Build synthetic Axum fixture and Pingora
-        run: cargo build --manifest-path experiments/pingora/Cargo.toml --locked --bins --examples
+        run: cargo build --manifest-path experiments/pingora/Cargo.toml --locked --release --bins --examples
       - name: Three-way controlled benchmark (1 vCPU, 1 GiB)
         run: bash experiments/pingora/benchmark.sh
       - name: Preserve all benchmark measurements
