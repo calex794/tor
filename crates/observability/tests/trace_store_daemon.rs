@@ -117,7 +117,6 @@ fn actual_separate_process_rejects_bad_frames_and_persists_numeric_traces() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-
 fn wait_for(mut predicate: impl FnMut() -> bool) -> bool {
     for _ in 0..150 {
         if predicate() {
@@ -149,10 +148,8 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "tor-obs10-recovery-{}-{stamp}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("tor-obs10-recovery-{}-{stamp}", std::process::id()));
     fs::create_dir(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
     let db = dir.join("traces.sqlite3");
@@ -214,7 +211,10 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
     let previous = lookup::request(&socket, before.trace_id).unwrap();
     assert_eq!(previous.found.unwrap().1, before);
     let lost = lookup::request(&socket, during.trace_id).unwrap();
-    assert_eq!(lost.matches, 0, "lost IPC frames must not be reported as stored");
+    assert_eq!(
+        lost.matches, 0,
+        "lost IPC frames must not be reported as stored"
+    );
 
     assert!(publisher.try_publish(&after));
     assert!(wait_for(|| publisher.counts().sent == 2));
