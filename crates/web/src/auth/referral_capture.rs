@@ -31,7 +31,10 @@ pub(super) async fn capture(
     let guest_token = existing.clone().unwrap_or_else(generate_session_token);
     let hash = session_token_digest(&guest_token);
     let path = format!("/r/{code}");
-    let result = state.referrals.capture(&hash, &code, "direct_ref_link", &path).await;
+    let result = state
+        .referrals
+        .capture(&hash, &code, "direct_ref_link", &path)
+        .await;
     match result {
         Ok(CaptureResult::Saved | CaptureResult::Existing) => {
             let cookies = if existing.is_none() {
