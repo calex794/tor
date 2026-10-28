@@ -224,6 +224,9 @@ async function caseInBrowser(browser, { mode, viewport }) {
       await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
       assert((await page.evaluate(() => window.__revokedBlobs)) >= 1,
         "paid blob URLs must be revoked on pagehide");
+      assert(await page.evaluate(() =>
+        document.querySelector("[data-paid-content]").childElementCount === 0),
+      "BFCache must not retain the plaintext DOM after navigation");
     } else {
       await frame.getByText("Иллюстрация недоступна", { exact: false }).waitFor();
       assert.equal(await frame.locator("img").count(), 0);
