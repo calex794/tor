@@ -118,10 +118,13 @@ impl PgReferrals {
             sqlx::query(
                 "SELECT c.code,c.owner_user_id,c.program_type,r.id AS capture_id \
                  FROM referral_captures r JOIN referral_codes c ON c.code=r.referral_code \
-                 WHERE r.guest_hash=$1 AND r.status='active' AND r.expires_at > now() \
+                 JOIN account_registration_referral_outbox o ON o.user_id=$2 \
+                 WHERE r.guest_hash=$1 AND r.status='active' \
+                   AND r.captured_at <= o.registered_at AND r.expires_at > o.registered_at \
                    AND c.status='active' LIMIT 1",
             )
             .bind(hash)
+            .bind(user_id)
             .fetch_optional(&mut *tx)
             .await?
             .map(|row| (row, "guest_capture"))
