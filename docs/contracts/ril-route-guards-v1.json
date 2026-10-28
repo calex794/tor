@@ -491,6 +491,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_stars::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/description",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_description::edit",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/description",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_description::save",
+      "policy": "owner"
     }
   ]
 }

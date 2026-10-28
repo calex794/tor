@@ -8,6 +8,8 @@ pub mod publisher;
 pub mod trace;
 pub mod wire;
 
+pub mod auth;
+
 use crate::domain::{RouteGroup, StatusGroup, BOUNDS};
 use std::fmt::Write;
 use std::sync::Mutex;

@@ -1,3 +1,4 @@
+pub mod shares;
 use std::{error::Error, fmt};
 
 #[derive(Clone, Debug, Eq, PartialEq)]

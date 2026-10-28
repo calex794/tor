@@ -23,7 +23,9 @@ use tor_accounts::{
 };
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{new_book_with_taxonomy, AuthorError, TaxonomyFields},
+    services::authoring::{
+        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
+    },
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
@@ -38,6 +40,7 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -201,13 +204,17 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
+        .route(
+            "/me/books/{id}/description",
+            get(book_description::edit).post(book_description::save),
+        )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
         .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
-        .layer(DefaultBodyLimit::max(4096))
+        .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
             observation_state,
@@ -350,7 +357,9 @@ async fn create_book(
             tags: form.tags.as_deref().unwrap_or(""),
             fandoms: form.fandoms.as_deref().unwrap_or(""),
         },
-    ) {
+    )
+    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
+    {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };

@@ -29,6 +29,9 @@ pub struct PublicBookPage {
     pub id: u64,
     pub title: String,
     pub language: String,
+    pub author_name: String,
+    pub genres: Vec<String>,
+    pub description: String,
     pub chapters: Vec<PublicChapterLink>,
     pub next_cursor: Option<String>,
 }

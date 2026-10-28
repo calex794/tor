@@ -24,6 +24,12 @@ pub(super) fn payload_hash(book: &NewBook) -> [u8; 32] {
             hasher.update(part.as_bytes());
         }
     }
+    // Empty descriptions preserve legacy idempotency hashes.
+    if !book.description.is_empty() {
+        hasher.update(b"book-description-v1");
+        hasher.update((book.description.len() as u64).to_be_bytes());
+        hasher.update(book.description.as_bytes());
+    }
     let digest: [u8; 32] = hasher.finalize().into();
 
     digest

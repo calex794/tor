@@ -107,13 +107,15 @@ pub fn detail_with_covers(
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
         {upload}
+        <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <h2>Главы</h2>{items}
         {add_action}
         {action}
         <p><a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
         book.id,
-        escape_html(&book.title)
+        escape_html(&book.title),
+        id = book.id
     );
     layout(&book.title, "Управление своей книгой", &body)
 }
@@ -208,9 +210,9 @@ pub fn new_chapter(
         .replace(
             "<!--CHAPTER_INFO-->",
             if paid_enabled {
-                "Платная глава публикуется сразу после защищённого сохранения. Для бесплатных глав пока действует отдельное подтверждение выпуска."
+                "В опубликованной книге новая глава появляется у читателей сразу после сохранения. Платная глава дополнительно проверяется в защищённом хранилище."
             } else {
-                "Бесплатная глава сначала сохраняется скрытой. В опубликованной книге для неё пока требуется отдельное подтверждение."
+                "Если книга уже опубликована, новая глава появится у читателей сразу после сохранения. Для неопубликованной книги глава останется скрытой до выпуска книги."
             },
         )
         .replace("<!--SAVE_LABEL-->", "Сохранить главу");
@@ -297,7 +299,7 @@ mod tests {
         let enabled = new_chapter(42, "csrf", "command", true).0;
         assert!(enabled.contains("<option value=\"paid\">"));
         assert!(enabled.contains("name=\"price_amount\""));
-        assert!(enabled.contains("сразу после защищённого сохранения"));
+        assert!(enabled.contains("сразу после сохранения"));
         assert!(!enabled.contains("<!--CHAPTER_ACCESS-->"));
     }
 

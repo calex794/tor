@@ -118,9 +118,11 @@ impl CheckoutRepository for PgCheckout {
         // Hold share locks on the exact published version, current price and
         // moderation state while the money transaction is in progress.
         let offer = sqlx::query(
-            "SELECT p.version_id, c.price_amount
+            "SELECT p.version_id, c.price_amount, b.id AS book_id,
+                    st.current_revision AS share_revision
              FROM chapters c
              JOIN books b ON b.id=c.book_id
+             JOIN revenue_share_states st ON st.book_id=b.id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
              WHERE c.id=$1 AND c.visibility='public' AND c.access_level='paid'
@@ -143,6 +145,25 @@ impl CheckoutRepository for PgCheckout {
                 != price
         {
             return Err(CheckoutError::StaleOffer);
+        }
+
+        // B-10 economics is authoritative ONLY through immutable revisions.
+        // The FOR SHARE Book lock above fences B-owned schedule CAS until
+        // purchase, snapshot and buyer debit commit atomically.
+        let economic_book_id: i64 = offer.try_get("book_id").map_err(unavailable)?;
+        let share_revision: i64 = offer.try_get("share_revision").map_err(unavailable)?;
+        let share_total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(share_percent),0)::BIGINT
+             FROM revenue_share_assignments
+             WHERE book_id=$1 AND revision=$2",
+        )
+        .bind(economic_book_id)
+        .bind(share_revision)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if share_total != 100 {
+            return Err(CheckoutError::Unavailable);
         }
 
         // Lock the wallet across DISTINCT purchase keys to prohibit overspend.
@@ -212,6 +233,35 @@ impl CheckoutRepository for PgCheckout {
                 CheckoutError::Unavailable
             }
         })?;
+
+        // Provenance and exact beneficiary percentages are frozen alongside
+        // the purchase. These rows are NOT payouts or platform-fee accounting;
+        // D's fee, rounding, hold and earnings ledger remains a separate gate.
+        sqlx::query(
+            "INSERT INTO chapter_purchase_share_snapshots
+             (purchase_id,book_id,share_revision,gross_amount_minor)
+             VALUES($1,$2,$3,$4)",
+        )
+        .bind(purchase_id)
+        .bind(economic_book_id)
+        .bind(share_revision)
+        .bind(price)
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        sqlx::query(
+            "INSERT INTO chapter_purchase_share_lines
+             (purchase_id,user_id,share_percent)
+             SELECT $1,user_id,share_percent
+             FROM revenue_share_assignments
+             WHERE book_id=$2 AND revision=$3",
+        )
+        .bind(purchase_id)
+        .bind(economic_book_id)
+        .bind(share_revision)
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
 
         sqlx::query(
             "INSERT INTO reader_wallet_entries

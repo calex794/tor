@@ -219,20 +219,24 @@
 .reader-paid {
   padding-block: 0 56px;
 }
+/* The original NEwBOO reader has a viewport-wide sticky bar, not a
+   narrow bar nested inside the 860px text column. Keep safe-area padding. */
 .reader-paid .reader-topbar {
   position: sticky;
   top: 0;
   z-index: 80;
   display: grid;
-  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
+  box-sizing: border-box;
+  width: 100%;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) minmax(120px, auto);
   align-items: center;
   gap: 12px;
   min-height: 58px;
-  padding: 8px 14px;
+  padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
   margin: 0 0 24px;
-  border: 1px solid var(--border-color);
-  border-top: 0;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
   background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
   box-shadow: 0 10px 22px color-mix(in srgb, var(--text-main) 6%, transparent);
   backdrop-filter: blur(14px);
@@ -279,18 +283,41 @@
   font-size: var(--paid-font-size, clamp(17px, 2.3vw, 20px));
   line-height: var(--paid-line-height, 1.85);
 }
+/* The save-position action must read as a button, never an underlined
+   Markdown link. Match the 44px NEwBOO reader control minimum on touch. */
 .reader-paid .reader-save-button {
-  min-height: 42px;
-  padding: 9px 13px;
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-main);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.reader-paid .reader-save-button:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-surface);
 }
 .reader-paid .reader-save-button:focus-visible {
-  outline: 2px solid var(--primary-color);
+  outline: 3px solid var(--primary-color);
   outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-paid .reader-save-button {
+    transition: none;
+  }
 }
 .reader-paid .reader-resume {
   padding: 14px;
@@ -304,7 +331,7 @@
   .reader-paid .reader-topbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
-    padding: 8px;
+    padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
   }
   .reader-paid .reader-topbar__back-label {
     display: none;
@@ -334,7 +361,8 @@
   align-items: center;
   gap: 8px;
 }
-.reader-paid .reader-topbar__settings {
+.reader-paid .reader-topbar__settings,
+.reader-paid .reader-topbar__theme {
   min-width: 44px;
   min-height: 44px;
   border: 1px solid var(--border-color);
@@ -345,10 +373,27 @@
   cursor: pointer;
 }
 .reader-paid .reader-topbar__settings:focus-visible,
+.reader-paid .reader-topbar__theme:focus-visible,
 .reader-paid__settings button:focus-visible,
 .reader-paid__settings input:focus-visible {
   outline: 3px solid var(--primary-color);
   outline-offset: 2px;
+}
+/* The original NEwBOO topbar has a separate one-tap theme control.
+   Reuse the real 44px accessible action geometry in both color schemes. */
+.reader-paid .reader-topbar__theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 23px;
+  line-height: 1;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.reader-paid .reader-topbar__theme:hover,
+.reader-paid .reader-topbar__settings:hover {
+  background: var(--bg-secondary);
+  border-color: var(--primary-color);
 }
 .reader-paid__settings[hidden] {
   display: none !important;
@@ -612,5 +657,164 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
     right: 16px;
     width: auto;
     max-height: min(65dvh, 520px);
+  }
+}
+
+
+/* H/S065: authentic NEwBOO prev/next reading cards.
+   A closed neighbouring chapter has no href, even if its title is public. */
+.reader-paid .reader-paid__chapter-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 10px;
+  margin: -8px 0 20px;
+}
+.reader-paid .reader-paid__chapter-nav--bottom {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  margin-bottom: 20px;
+}
+/* The original NEwBOO bottom row has a working TOC between both arrows. */
+.reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc {
+  justify-self: center;
+  min-width: 220px;
+  width: 100%;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc > summary {
+  min-height: 44px;
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  border-color: var(--text-main);
+  border-radius: var(--radius-md);
+  background: var(--text-main);
+  color: var(--bg-surface);
+  font-weight: 700;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-name,
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-badge {
+  display: none;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-direction {
+  font-size: 14px;
+  color: inherit;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  right: 50%;
+  transform: translateX(50%);
+}
+.reader-paid .reader-paid__nav-card {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.reader-paid .reader-paid__nav-card[data-paid-nav-next] {
+  text-align: right;
+  justify-items: end;
+}
+.reader-paid .reader-paid__nav-card--active:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-secondary);
+}
+.reader-paid .reader-paid__nav-card--active:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 3px;
+}
+.reader-paid .reader-paid__nav-direction {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+.reader-paid .reader-paid__nav-name {
+  display: -webkit-box;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.reader-paid .reader-paid__nav-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+.reader-paid .reader-paid__nav-card--locked,
+.reader-paid .reader-paid__nav-card--disabled {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-surface));
+  border-style: dashed;
+  cursor: not-allowed;
+}
+.reader-paid .reader-paid__nav-card--locked .reader-paid__nav-badge,
+.reader-paid .reader-paid__nav-card--disabled .reader-paid__nav-name {
+  color: var(--text-muted);
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-paid__chapter-nav {
+    gap: 8px;
+    margin: 12px 0 22px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom {
+    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc {
+    min-width: 44px;
+    width: 44px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc > summary {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /* Keep the mobile lower TOC above its trigger, avoiding pointer capture. */
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
+    position: absolute;
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    right: auto;
+    width: min(360px, calc(100vw - 32px));
+    max-height: min(42dvh, 360px);
+    transform: translateX(-50%);
+  }
+  .reader-paid .reader-paid__nav-card {
+    padding: 11px;
+    min-height: 88px;
+    gap: 5px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-card {
+    min-height: 44px;
+    padding: 8px;
+  }
+  .reader-paid .reader-paid__nav-name {
+    font-size: 13px;
+  }
+  .reader-paid .reader-paid__nav-direction,
+  .reader-paid .reader-paid__nav-badge {
+    font-size: 11px;
   }
 }

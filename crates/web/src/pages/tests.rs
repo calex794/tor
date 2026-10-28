@@ -37,9 +37,10 @@ fn catalog_metadata_must_be_escaped_in_cards() {
     .0;
     assert!(html.contains("Найдено книг: 1"));
     assert!(html.contains("&lt;img"));
-    assert!(html.contains("&lt;script&gt;"));
+    assert!(!html.contains("фэнтези&lt;script&gt;"));
     assert!(!html.contains("<img src"));
     assert!(!html.contains("<script>"));
+    assert!(!html.contains("Жанры:"));
 }
 
 #[test]
@@ -48,6 +49,9 @@ fn toc_cursor_is_escaped_in_html_attribute() {
         id: 7,
         title: "Test".into(),
         language: "ru".into(),
+        author_name: String::new(),
+        genres: Vec::new(),
+        description: String::new(),
         chapters: vec![],
         next_cursor: Some("\" onclick=\"alert(1)".into()),
     };
@@ -130,8 +134,9 @@ fn ne_wboo_public_shell_and_catalog_reuse_source_components() {
     assert!(html.contains("Старый &lt;каталог&gt;"));
     assert!(!html.contains("Старый <каталог>"));
     assert!(html.contains("href=\"/books/4\""));
-    assert!(html.contains("Автор: Автор"));
-    assert!(html.contains("Жанры: Фэнтези"));
+    assert!(html.contains("<div class=\"book-mini-card__meta\">Автор</div>"));
+    assert!(!html.contains("Жанры: Фэнтези"));
+    assert!(!html.contains("Язык: ru"));
     assert!(html.contains("Нижняя навигация"));
     assert!(!html.contains("Выберите свою следующую историю"));
 }
@@ -171,6 +176,9 @@ fn book_detail_toc_keeps_approved_library_action_and_free_only_policy() {
         id: 7,
         title: "Публичная".into(),
         language: "ru".into(),
+        author_name: String::new(),
+        genres: Vec::new(),
+        description: String::new(),
         chapters: vec![],
         next_cursor: None,
     };
@@ -193,4 +201,41 @@ fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
     assert!(!template.contains("data-reader-theme-cycle"));
     assert!(!template.contains("Сохранение прогресса появится"));
     assert!(include_str!("../../assets/newboo-reader.css").contains(".reader-topbar__back"));
+}
+
+#[test]
+fn seo02_public_book_renders_real_author_genres_and_escaped_description() {
+    let book = tor_reading::services::PublicBookPage {
+        id: 77,
+        title: "Рассказ".into(),
+        language: "ru".into(),
+        author_name: "<Автор>".into(),
+        genres: vec!["Фэнтези".into()],
+        description: "Книга о природе\n</p><script>alert(1)</script>".into(),
+        chapters: Vec::new(),
+        next_cursor: None,
+    };
+    let html = book_detail_with_chapters(&book, 20).0;
+    assert!(html.contains("&lt;Автор&gt;"));
+    assert!(html.contains("Фэнтези"));
+    assert!(html.contains("Книга о природе<br>&lt;/p&gt;&lt;script&gt;"));
+    assert!(!html.contains("</p><script>"));
+    assert!(!html.contains("Карточка книги в каталоге Пандаолейт."));
+}
+
+#[test]
+fn seo02_old_books_with_no_description_do_not_invent_plot() {
+    let book = tor_reading::services::PublicBookPage {
+        id: 78,
+        title: "Старая книга".into(),
+        language: "ru".into(),
+        author_name: String::new(),
+        genres: Vec::new(),
+        description: String::new(),
+        chapters: Vec::new(),
+        next_cursor: None,
+    };
+    let html = book_detail_with_chapters(&book, 20).0;
+    assert!(html.contains("Аннотация пока не добавлена."));
+    assert!(!html.contains("Откройте оглавление, чтобы читать доступные главы бесплатно."));
 }

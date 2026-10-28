@@ -43,7 +43,7 @@ class RilCoverageTests(unittest.TestCase):
 
     def test_missing_classifier_method_is_detected(self):
         self.mutate(
-            "crates/route_intelligence/src/domain/routes.rs",
+            "crates/route_intelligence/src/domain/routes/classifier.rs",
             '(Some("/login"), "POST") => Some(8)',
             '(Some("/login"), "PATCH") => Some(8)',
         )
