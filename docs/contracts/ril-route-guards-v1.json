@@ -256,6 +256,13 @@
     },
     {
       "method": "GET",
+      "template": "/r/{code}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "referral_capture::capture",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/register",
       "source": "crates/web/src/auth.rs",
       "handler": "account_form_http::show_registration",
