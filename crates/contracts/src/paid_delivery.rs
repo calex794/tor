@@ -231,6 +231,37 @@ impl DeliveryGrant {
     }
 }
 
+/// Private encrypted image response; its media type is deliberately not
+/// supplied by a browser or inferred from an arbitrary S3 path. H verifies
+/// decrypted image magic before creating a Blob and keeps the bytes in memory.
+#[derive(Debug, Serialize)]
+pub struct AssetDeliveryGrant {
+    pub schema: &'static str,
+    pub chapter_id: String,
+    pub version_id: String,
+    pub object_id: String,
+    pub expires_at: String,
+    pub content: GrantedContent,
+}
+
+impl AssetDeliveryGrant {
+    pub fn for_pinned_asset(
+        pinned: ChapterVersionRef,
+        object_id: &ObjectId,
+        expires_at: String,
+        content: GrantedContent,
+    ) -> Self {
+        Self {
+            schema: "tor.paid_asset_delivery.v1",
+            chapter_id: pinned.chapter_id.wire(),
+            version_id: pinned.version_id.wire(),
+            object_id: object_id.as_str().to_owned(),
+            expires_at,
+            content,
+        }
+    }
+}
+
 /// D is the sole source of entitlement. No version_id from the client.
 #[async_trait]
 pub trait EntitlementPort: Send + Sync {
@@ -248,6 +279,17 @@ pub trait ChapterVersionPort: Send + Sync {
     async fn encrypted_chapter(
         &self,
         pinned: ChapterVersionRef,
+    ) -> Result<Option<EncryptedObjectRef>, DeliveryError>;
+}
+
+/// B alone resolves a private image of the exact D-authorized edition.
+/// No actor, purchase ID, public URL or browser-selected version reaches B.
+#[async_trait]
+pub trait ChapterAssetPort: Send + Sync {
+    async fn encrypted_asset(
+        &self,
+        pinned: ChapterVersionRef,
+        object_id: &ObjectId,
     ) -> Result<Option<EncryptedObjectRef>, DeliveryError>;
 }
 

@@ -76,7 +76,7 @@ def _reference(source: str) -> tuple[set[tuple[str, str]], set[tuple[str, str]],
         re.S,
     )
     matches = re.findall(
-        r'\(\s*Some\(\s*"([^"]+)"\s*\)\s*,\s*"([A-Z]+)"\s*\)\s*=>\s*Some\(\d+\)',
+        r'\(\s*Some\(\s*"([^"]+)"\s*\)\s*,\s*"([A-Z]+)"\s*,?\s*\)\s*=>\s*Some\(\d+\)',
         source,
         re.S,
     )
