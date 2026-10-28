@@ -10,3 +10,7 @@ publish = false
 [dependencies]
 async-trait = "0.1"
 pingora = { version = "=0.9.0", default-features = false, features = ["openssl", "proxy"] }
+# Pingora 0.9.0 constructs BufStream with read_capacity=0.
+# Tokio 1.54 panics on this path; tracked upstream as cloudflare/pingora#1059.
+# Isolated experiment ONLY: remove this pin when Pingora fixes the zero-capacity buffer.
+tokio = "=1.53.2"
