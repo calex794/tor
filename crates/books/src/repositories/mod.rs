@@ -1,3 +1,4 @@
+pub mod book_members;
 pub mod cover_slots;
 pub mod paid_storage;
 pub mod postgres;
