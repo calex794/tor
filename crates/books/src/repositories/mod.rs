@@ -1,5 +1,7 @@
 pub mod book_members;
 pub mod cover_slots;
+// B-09c sealed ownership-transfer transaction. Not exposed to HTTP.
+pub(crate) mod owner_transfer;
 pub mod paid_storage;
 pub mod postgres;
 pub mod shadow;
