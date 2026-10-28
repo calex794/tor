@@ -331,7 +331,7 @@ export function renderPaidBlocks(container, text, onSave, onImage = null) {
     // ![caption](asset:uuid) marker is upgraded to a private image figure.
     // No external URL, HTML, data: or arbitrary Markdown is interpreted.
     const imagePattern =
-      /^!\\[([^\\]\\r\\n]{0,160})\\]\\(asset:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\\)$/gm;
+      /^!\[([^\]\r\n]{0,160})\]\(asset:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\)$/gm;
     let cursor = 0;
     let media = 0;
     const mediaFrames = [];
