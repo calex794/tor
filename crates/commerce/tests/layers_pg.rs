@@ -173,10 +173,130 @@ async fn d_05_removed_books_are_accumulated_across_continuous_renewals() {
     // Removed from the offer, retained by the immutable earlier version.
     assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
     assert!(repo.can_read_book(id(buyer), id(new_book)).await.unwrap());
+
+    // B-10 economics may change after removal from the CURRENT composition.
+    // Paid subscriber history must retain the original 100% owner revision;
+    // renewal snapshots use rev2 of the inherited old Book and rev1 of new.
+    let collaborator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('d05-b10-collaborator@example.test','D05 collaborator','$argon2id$ci')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role,is_active)
+         VALUES($1,$2,'translator',TRUE)",
+    )
+    .bind(book)
+    .bind(collaborator)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM books WHERE id=$1 FOR UPDATE")
+        .bind(book)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_versions
+         (book_id,revision,changed_by_user_id,reason)
+         VALUES($1,2,$2,'layer purchase regression')",
+    )
+    .bind(book)
+    .bind(owner)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for (recipient, percentage) in [(owner, 80_i16), (collaborator, 20_i16)] {
+        sqlx::query(
+            "INSERT INTO revenue_share_assignments
+             (book_id,revision,user_id,share_percent) VALUES($1,2,$2,$3)",
+        )
+        .bind(book)
+        .bind(recipient)
+        .bind(percentage)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "UPDATE revenue_share_states SET current_revision=2 WHERE book_id=$1",
+    )
+    .bind(book)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
     let second = repo
         .buy(&cmd(buyer, layer, offer, removed_version, 200, 'B'))
         .await
         .unwrap();
+    let first_revisions: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT book_id,share_revision
+         FROM commerce_layer_term_share_snapshots WHERE term_id=$1 ORDER BY book_id",
+    )
+    .bind(first.term_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(first_revisions, vec![(book, 1)], "first purchase froze rev1");
+    let second_revisions: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT book_id,share_revision
+         FROM commerce_layer_term_share_snapshots WHERE term_id=$1 ORDER BY book_id",
+    )
+    .bind(second.term_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let mut expected = vec![(book, 2), (new_book, 1)];
+    expected.sort();
+    assert_eq!(second_revisions, expected, "renewal freezes old+new books");
+    let first_split: Vec<(i64, i16)> = sqlx::query_as(
+        "SELECT user_id,share_percent FROM commerce_layer_term_share_lines
+         WHERE term_id=$1 AND book_id=$2",
+    )
+    .bind(first.term_id)
+    .bind(book)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(first_split, vec![(owner, 100)]);
+    let second_split: Vec<(i64, i16)> = sqlx::query_as(
+        "SELECT user_id,share_percent FROM commerce_layer_term_share_lines
+         WHERE term_id=$1 AND book_id=$2 ORDER BY user_id",
+    )
+    .bind(second.term_id)
+    .bind(book)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(second_split.len(), 2);
+    assert!(second_split.contains(&(owner, 80)));
+    assert!(second_split.contains(&(collaborator, 20)));
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offer, version, 200, 'A'))
+            .await
+            .unwrap()
+            .term_id,
+        first.term_id,
+        "replay keeps the original rev1 provenance and wallet settlement"
+    );
+    assert!(
+        sqlx::query(
+            "UPDATE commerce_layer_term_share_snapshots SET share_revision=2
+             WHERE term_id=$1 AND book_id=$2",
+        )
+        .bind(first.term_id)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .is_err(),
+        "historical Layer finance provenance cannot be retargeted"
+    );
     let (contiguous, inherited): (bool, bool) = sqlx::query_as(
         "SELECT p2.started_at=p1.expires_at,
                 p2.access_origin_version_id=p1.access_origin_version_id
