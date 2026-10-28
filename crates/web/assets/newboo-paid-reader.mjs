@@ -232,9 +232,10 @@ export function installPaidReaderSettings(root) {
   const lineOutput = panel.querySelector("[data-paid-line-output]");
   const widthOutput = panel.querySelector("[data-paid-width-output]");
   const themes = [...panel.querySelectorAll("[data-paid-theme]")];
+  const fonts = [...panel.querySelectorAll("[data-paid-font-family]")];
   requireValue(toggle && themeCycle && dialog && backdrop && close && reset &&
     font && line && width && fontOutput && lineOutput &&
-    themes.length === 3);
+    themes.length === 3 && fonts.length === 2);
 
   const boundedValue = (input, min, max, step) => {
     const number = Number(input.value);
@@ -269,6 +270,17 @@ export function installPaidReaderSettings(root) {
     }[choice];
     themeCycle.setAttribute("aria-label", "Сменить тему. Сейчас: " + current);
     themeCycle.title = "Сменить тему. Сейчас: " + current;
+  };
+  // The original NEwBOO dialog offers serif/sans-serif selection. Neither
+  // web fonts nor a network request are required: only trusted CSS stacks.
+  const selectFont = (value) => {
+    requireValue(value === "serif" || value === "sans");
+    if (value === "serif") root.style.removeProperty("--paid-font-family");
+    else root.style.setProperty("--paid-font-family", "Arial, Helvetica, sans-serif");
+    for (const button of fonts) {
+      button.setAttribute("aria-pressed",
+        String(button.dataset.paidFontFamily === value));
+    }
   };
   // The original NEwBOO settings are modal. Make the rest of the reader
   // inert while the panel is open; do not hide any content from the DOM.
@@ -337,6 +349,9 @@ export function installPaidReaderSettings(root) {
   for (const button of themes) {
     button.addEventListener("click", () => selectTheme(button.dataset.paidTheme));
   }
+  for (const button of fonts) {
+    button.addEventListener("click", () => selectFont(button.dataset.paidFontFamily));
+  }
   // NEwBOO one-tap theme switch: changing a mode updates the same settings
   // controls. An untouched page still follows the operating system.
   themeCycle.addEventListener("click", () => {
@@ -352,9 +367,11 @@ export function installPaidReaderSettings(root) {
     width.value = "860";
     refresh();
     selectTheme("system");
+    selectFont("serif");
   });
   refresh();
   selectTheme("system");
+  selectFont("serif");
 }
 
 export async function startPaidReader(root) {
