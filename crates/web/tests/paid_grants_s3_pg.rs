@@ -414,13 +414,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
         &app,
         &url,
-        author,
-        stranger,
-        book,
-        chapter,
-        v1,
-        &stranger_cookie,
-        &csrf,
+        (author, stranger),
+        (book, chapter, v1),
+        (&stranger_cookie, &csrf),
     )
     .await;
     let purchase = PgCheckout::new(pool.clone())
