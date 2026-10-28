@@ -431,6 +431,13 @@
     },
     {
       "method": "POST",
+      "template": "/api/v1/layers/{id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_checkout::buy",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
       "template": "/api/v1/purchases",
       "source": "crates/web/src/auth.rs",
       "handler": "checkout::buy",
