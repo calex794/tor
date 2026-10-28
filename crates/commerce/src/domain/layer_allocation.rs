@@ -144,16 +144,13 @@ fn largest_remainder(
         .iter()
         .map(|(id, weight)| {
             let product = i128::from(total_minor) * i128::from(*weight);
-            (
+            Ok((
                 *id,
-                i64::try_from(product / denominator).unwrap_or(i64::MAX),
+                i64::try_from(product / denominator).map_err(|_| AttributionError::Overflow)?,
                 product % denominator,
-            )
+            ))
         })
-        .collect();
-    if shares.iter().any(|(_, value, _)| *value == i64::MAX && total_minor != i64::MAX) {
-        return Err(AttributionError::Overflow);
-    }
+        .collect::<Result<Vec<_>, AttributionError>>()?;
     let assigned: i128 = shares.iter().map(|(_, value, _)| i128::from(*value)).sum();
     let left = i128::from(total_minor) - assigned;
     if left < 0 || left > shares.len() as i128 {
