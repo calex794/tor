@@ -22,8 +22,8 @@ mod author_chapter_http;
 mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
-mod catalog_http;
 mod book_error_pages;
+mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
 pub use cover_http::{
