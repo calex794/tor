@@ -1,4 +1,5 @@
 //! D-05: real PostgreSQL contract; isolated tor_ci database only.
+mod layer_delivery;
 use sqlx::PgPool;
 use tor_commerce::{
     domain::{
