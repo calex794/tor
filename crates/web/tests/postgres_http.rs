@@ -151,7 +151,13 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(!text.contains("PRIVATE-PAID-MARKER"));
         assert!(!text.contains("PRIVATE-DRAFT-MARKER"));
-        if code == StatusCode::NOT_FOUND {
+        if code == StatusCode::NOT_FOUND && path == "/books/2" {
+            // Browser-only book 404 uses the NEwBOO recovery page, never a private body.
+            assert!(text.contains("Страница не найдена"));
+            assert!(text.contains("noindex, nofollow"));
+            assert!(text.contains("href=\"/catalog\""));
+        } else if code == StatusCode::NOT_FOUND {
+            // Reader and API errors must still have empty bodies.
             assert!(text.is_empty(), "protected read error must not expose data");
         } else {
             assert!(text.contains("&lt;script&gt;"));
