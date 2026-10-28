@@ -48,6 +48,8 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -292,7 +294,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
-    let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let csrf = generate_session_token();
 
     pg(
@@ -408,6 +410,19 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
+    layer_fixtures::assert_layer_s3_grants(
+        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
+        &app,
+        &url,
+        author,
+        stranger,
+        book,
+        chapter,
+        v1,
+        &stranger_cookie,
+        &csrf,
+    )
+    .await;
     let purchase = PgCheckout::new(pool.clone())
         .checkout_once(
             &PurchaseCommand::new(
