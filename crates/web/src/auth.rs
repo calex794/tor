@@ -40,6 +40,7 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -203,6 +204,10 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
+        .route(
+            "/me/books/{id}/description",
+            get(book_description::edit).post(book_description::save),
+        )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
