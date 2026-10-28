@@ -1,10 +1,18 @@
 //! D-05: opt-in internal-wallet Layer checkout. No external payment provider.
 use super::{deny, session_user, AuthState};
 use crate::auth_cookies::private_response;
-use axum::{extract::{Path, State}, http::{HeaderMap, StatusCode}, response::Response, Json};
+use axum::{
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
+    response::Response,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use tor_commerce::{
-    domain::{layers::{LayerCheckoutCommand, LayerError}, money::{IdempotencyKey, MoneyMinor, WalletId}},
+    domain::{
+        layers::{LayerCheckoutCommand, LayerError},
+        money::{IdempotencyKey, MoneyMinor, WalletId},
+    },
     repositories::layers::PgLayers,
 };
 use tor_contracts::paid_delivery::PositiveId;
@@ -38,7 +46,9 @@ fn layer_status(error: LayerError) -> StatusCode {
     match error {
         LayerError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         LayerError::Inaccessible => StatusCode::NOT_FOUND,
-        LayerError::StaleOffer | LayerError::InsufficientFunds | LayerError::ReplayConflict => StatusCode::CONFLICT,
+        LayerError::StaleOffer | LayerError::InsufficientFunds | LayerError::ReplayConflict => {
+            StatusCode::CONFLICT
+        }
         LayerError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
@@ -58,12 +68,16 @@ pub(super) async fn buy(
         Err(error) => return deny(error),
     };
     if !state.cookies.same_origin(&headers)
-        || !headers.get("x-csrf-token").and_then(|v| v.to_str().ok())
+        || !headers
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
             .is_some_and(|token| state.cookies.valid_csrf(&headers, token))
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let key = match headers.get("idempotency-key").and_then(|v| v.to_str().ok())
+    let key = match headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
         .and_then(|raw| IdempotencyKey::parse(raw).ok())
     {
         Some(key) => key,
@@ -87,14 +101,23 @@ pub(super) async fn buy(
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
     let cmd = LayerCheckoutCommand {
-        actor, wallet, layer, offer, version, expected_price: price, key,
+        actor,
+        wallet,
+        layer,
+        offer,
+        version,
+        expected_price: price,
+        key,
     };
     match PgLayers::new(state.accounts.pool().clone()).buy(&cmd).await {
-        Ok(receipt) => private_response(Json(LayerPurchaseReceipt {
-            term_id: receipt.term_id.to_string(),
-            balance_minor: receipt.balance_after_minor,
-            replayed: receipt.replayed,
-        }), &[]),
+        Ok(receipt) => private_response(
+            Json(LayerPurchaseReceipt {
+                term_id: receipt.term_id.to_string(),
+                balance_minor: receipt.balance_after_minor,
+                replayed: receipt.replayed,
+            }),
+            &[],
+        ),
         Err(error) => deny(layer_status(error)),
     }
 }
@@ -108,7 +131,13 @@ mod tests {
             assert_eq!(positive(bad), Err(StatusCode::UNPROCESSABLE_ENTITY));
         }
         assert_eq!(positive("12").unwrap().get(), 12);
-        assert_eq!(layer_status(LayerError::ReplayConflict), StatusCode::CONFLICT);
-        assert_eq!(layer_status(LayerError::Unavailable), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            layer_status(LayerError::ReplayConflict),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            layer_status(LayerError::Unavailable),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 }
