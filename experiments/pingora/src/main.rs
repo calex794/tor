@@ -11,7 +11,11 @@ struct Config {
 }
 
 impl Config {
-    fn parse(active: Option<&str>, listen: &str, upstream: &str) -> std::result::Result<Self, String> {
+    fn parse(
+        active: Option<&str>,
+        listen: &str,
+        upstream: &str,
+    ) -> std::result::Result<Self, String> {
         if active != Some("1") {
             return Err("set PINGORA_EXPERIMENT=1 explicitly".into());
         }
@@ -40,19 +44,15 @@ impl ProxyHttp for TransparentProxy {
     async fn upstream_peer(&self, _session: &mut Session, _ctx: &mut ()) -> Result<Box<HttpPeer>> {
         // Plain HTTP only, loopback upstream only. Pingora's safe default
         // hop-by-hop header policy stays enabled; do not use preserve().
-        Ok(Box::new(HttpPeer::new(
-            self.upstream,
-            false,
-            String::new(),
-        )))
+        Ok(Box::new(HttpPeer::new(self.upstream, false, String::new())))
     }
 }
 
 fn main() {
-    let listen = env::var("PINGORA_EXPERIMENT_BIND")
-        .unwrap_or_else(|_| "127.0.0.1:6193".to_string());
-    let upstream = env::var("PINGORA_EXPERIMENT_UPSTREAM")
-        .unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let listen =
+        env::var("PINGORA_EXPERIMENT_BIND").unwrap_or_else(|_| "127.0.0.1:6193".to_string());
+    let upstream =
+        env::var("PINGORA_EXPERIMENT_UPSTREAM").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     let config = Config::parse(
         env::var("PINGORA_EXPERIMENT").ok().as_deref(),
         &listen,
