@@ -123,3 +123,6 @@ mod tests {
 
 /// Owner-scoped authoring validation (B-01/B-03).
 pub mod authoring;
+
+/// Per-book manual Shadow SEO eligibility and indexing owner.
+pub mod shadow_seo;
