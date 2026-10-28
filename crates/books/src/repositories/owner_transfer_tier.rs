@@ -73,7 +73,10 @@ mod tests {
                 .await
                 .unwrap();
             let mut tx = pool.begin().await.unwrap();
-            assert_eq!(verified_book_tier(&mut tx, book_id).await.unwrap(), Some(expected));
+            assert_eq!(
+                verified_book_tier(&mut tx, book_id).await.unwrap(),
+                Some(expected)
+            );
             tx.commit().await.unwrap();
         }
         assert!(
