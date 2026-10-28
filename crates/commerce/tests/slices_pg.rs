@@ -548,8 +548,6 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
     );
 }
 
-
-
 /// D-owned test fixture, not an economics mutation API. The B-10 PG suite
 /// separately tests owner authorization and revision CAS in tor-books.
 async fn set_fixture_economics_revision(
@@ -629,14 +627,7 @@ async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentag
     .await
     .unwrap();
 
-    set_fixture_economics_revision(
-        &pool,
-        book,
-        owner,
-        1,
-        &[(owner, 80), (editor, 20)],
-    )
-    .await;
+    set_fixture_economics_revision(&pool, book, owner, 1, &[(owner, 80), (editor, 20)]).await;
 
     let checkout = PgCheckout::new(pool.clone());
     let command_one = command(buyer, chapter, version, 100, 'A');
@@ -665,7 +656,11 @@ async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentag
 
     set_fixture_economics_revision(&pool, book, owner, 2, &[(owner, 100)]).await;
     assert_eq!(
-        checkout.checkout_once(&command_one).await.unwrap().purchase_id,
+        checkout
+            .checkout_once(&command_one)
+            .await
+            .unwrap()
+            .purchase_id,
         first.purchase_id,
         "historical idempotent receipt must ignore later share revision"
     );
@@ -719,7 +714,6 @@ async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentag
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
@@ -737,13 +731,12 @@ async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
         .checkout_once(&command(buyer, chapter, version, 100, 'C'))
         .await;
     assert_eq!(r, Err(CheckoutError::Inaccessible));
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(balance, 900);
     let purchases: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM chapter_purchase_facts WHERE chapter_id=$1")
