@@ -330,6 +330,9 @@ async function run() {
               left: bounds.left,
               right: bounds.right,
               bottom: bounds.bottom,
+              top: bounds.top,
+              summaryTop: element.closest("details").querySelector("summary")
+                .getBoundingClientRect().top,
               viewportWidth: document.documentElement.clientWidth,
               viewportHeight: window.innerHeight,
             };
@@ -338,6 +341,10 @@ async function run() {
           footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
           footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
           device + ": footer menu clips beyond viewport");
+        assert(footerGeometry.bottom <= footerGeometry.summaryTop - 4,
+          device + ": footer menu covers the button required to close it");
+        assert(footerGeometry.top >= -1,
+          device + ": footer menu begins outside the visible viewport");
         await page.screenshot({
           path: path.join(screenshotRoot, "s065-reader-bottom-toc-" + device + ".png"),
           fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
