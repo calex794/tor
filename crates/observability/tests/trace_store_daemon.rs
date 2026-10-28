@@ -236,8 +236,7 @@ fn a_stalled_trace_socket_never_blocks_http_and_enforces_queue_limit() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir =
-        std::env::temp_dir().join(format!("tor-obs10-stall-{}-{stamp}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("tor-obs10-stall-{}-{stamp}", std::process::id()));
     fs::create_dir(&dir).unwrap();
     fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
     let socket = dir.join("slow-writer.sock");
