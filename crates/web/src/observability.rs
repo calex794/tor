@@ -13,12 +13,14 @@ use std::{
 use tor_observability::{
     domain::{RouteGroup, StatusGroup},
     services::{
+        auth::{LoginMetrics, LoginOutcome, LoginSnapshot},
         trace::{RequestTrace, SqlEvidence, TraceBuffer},
         HttpMetrics,
     },
 };
 
 static METRICS: OnceLock<HttpMetrics> = OnceLock::new();
+static LOGIN_METRICS: OnceLock<LoginMetrics> = OnceLock::new();
 static TRACES: OnceLock<TraceBuffer> = OnceLock::new();
 static TRACE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(unix)]
@@ -96,6 +98,17 @@ pub(crate) fn record_http(family: &str, status: u16, elapsed: Duration) {
     );
 }
 
+/// One low-cost counter per completed login attempt, never a user dimension.
+pub(crate) fn record_login_outcome(outcome: LoginOutcome) {
+    LOGIN_METRICS
+        .get_or_init(LoginMetrics::default)
+        .record(outcome);
+}
+
+pub(crate) fn login_summary() -> LoginSnapshot {
+    LOGIN_METRICS.get_or_init(LoginMetrics::default).snapshot()
+}
+
 fn equal_secret(a: &[u8], b: &[u8]) -> bool {
     // Constant work over bounded, validated token sizes.
     if a.len() != b.len() || a.len() < 32 || a.len() > 256 {
@@ -125,6 +138,11 @@ fn authorized(headers: &HeaderMap, token: Option<&str>) -> bool {
 
 fn collected_metrics(metrics: &HttpMetrics) -> String {
     let mut text = metrics.prometheus();
+    text.push_str(
+        &LOGIN_METRICS
+            .get_or_init(LoginMetrics::default)
+            .prometheus(),
+    );
     #[cfg(unix)]
     {
         let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();
@@ -216,6 +234,22 @@ mod tests {
             let response = endpoint(auth, expected, &metrics);
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        }
+    }
+
+    #[tokio::test]
+    async fn login_outcome_series_are_also_protected_and_never_contain_identity() {
+        let secret = "o".repeat(48);
+        let metrics = HttpMetrics::default();
+        let denied = endpoint(HeaderMap::new(), Some(&secret), &metrics);
+        assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+        let response = endpoint(headers(&secret), Some(&secret), &metrics);
+        let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("tor_auth_login_outcomes_total{outcome=\"lookup_unavailable\"}"));
+        assert!(text.contains("tor_auth_login_outcomes_total{outcome=\"rate_limited\"}"));
+        for forbidden in ["email=", "user_id", "cookie=", "request_id", "sql_text"] {
+            assert!(!text.contains(forbidden), "{forbidden}");
         }
     }
 

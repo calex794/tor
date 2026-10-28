@@ -43,7 +43,8 @@ if (!password || password.length < 32) throw new Error('missing test-only operat
     const overviewText = await page.locator('main').innerText();
     for (const required of [
       'PostgreSQL', 'Не подключена (демонстрационный режим)', 'Ресурсы процесса TOR',
-      'HTTP с запуска процесса', 'RIL: маршруты и потери', 'Очередь аналитики RIL',
+      'HTTP с запуска процесса', 'Вход: причины ответов', 'Всего попыток с запуска',
+      'Сбой поиска учётной записи', 'RIL: маршруты и потери', 'Очередь аналитики RIL',
       'Очередь обработки обложек', 'Доставка трасс', 'Нет измерения',
       'В этом процессе сборщик RIL не запускался', 'Локальный исполнитель не включён или не запускался',
     ]) {
@@ -114,7 +115,7 @@ if (!password || password.length < 32) throw new Error('missing test-only operat
       throw new Error('missing trace explanation not visible');
 
     await context.close();
-    console.log('OBS-04/05 browser PASS: protected overview and traces, isolated SQLite, 404 and responsive layout');
+    console.log('OBS-04/05/11 browser PASS: private overview/login outcomes and traces, SQLite, 404, responsive layout');
   } finally {
     await browser.close();
   }
