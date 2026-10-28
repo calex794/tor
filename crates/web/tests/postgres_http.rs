@@ -469,7 +469,18 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     fn sql(url: &str, query: &str) -> String {
         assert!(url.ends_with("/tor_ci"), "production database forbidden");
         let out = Command::new("psql")
-            .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", query])
+            .args([
+                "-X",
+                "-A",
+                "-t",
+                "-q",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "--dbname",
+                url,
+                "--command",
+                query,
+            ])
             .output()
             .expect("psql for isolated fixture");
         assert!(
@@ -504,14 +515,18 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
              VALUES({book},1,'Открытая глава','public','free',0) RETURNING id"
         ),
-    ).parse().expect("chapter id");
+    )
+    .parse()
+    .expect("chapter id");
     let version: i64 = sql(
         &url,
         &format!(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
              VALUES({chapter},1,'SEO-AVAILABILITY-PUBLIC-{nonce}') RETURNING id"
         ),
-    ).parse().expect("chapter version id");
+    )
+    .parse()
+    .expect("chapter version id");
     sql(
         &url,
         &format!(
@@ -522,15 +537,26 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     let read = format!("/reader/{chapter}");
 
     let (status, html) = get(app.clone(), &detail).await;
-    assert_eq!(status, StatusCode::OK, "published book must be publicly reachable");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "published book must be publicly reachable"
+    );
     assert!(html.contains("SEO доступность"));
     let (status, html) = get(app.clone(), &read).await;
-    assert_eq!(status, StatusCode::OK, "free published chapter must be reachable");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "free published chapter must be reachable"
+    );
     assert!(html.contains("SEO-AVAILABILITY-PUBLIC-"));
 
     // A moderation hold must change HTTP immediately, not wait for a
     // sitemap rebuild or any SEO projection to be refreshed.
-    sql(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    sql(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
     let (status, html) = get(app.clone(), &detail).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(html.contains("noindex, nofollow"));
@@ -540,18 +566,27 @@ async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
     assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
 
     // Restoring a book makes its canonical public URLs reachable again.
-    sql(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    sql(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
     assert_eq!(get(app.clone(), &detail).await.0, StatusCode::OK);
     assert_eq!(get(app.clone(), &read).await.0, StatusCode::OK);
 
     // Book revocation and chapter revocation are independent authorities.
-    sql(&url, &format!("UPDATE chapters SET visibility='hidden' WHERE id={chapter}"));
+    sql(
+        &url,
+        &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
+    );
     assert_eq!(get(app.clone(), &detail).await.0, StatusCode::OK);
     let (status, html) = get(app.clone(), &read).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
 
-    sql(&url, &format!("UPDATE books SET visibility='hidden' WHERE id={book}"));
+    sql(
+        &url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
+    );
     let (status, html) = get(app.clone(), &detail).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(html.contains("noindex, nofollow"));
