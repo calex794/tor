@@ -528,6 +528,8 @@ impl PgLayers {
     /// Active term and version union. This is NOT a direct pinned-V1 purchase.
     /// A term obtains each version published until its expiry, even if a later
     /// version removes a book. Revoking one term preserves rights from others.
+    /// Hiding or platform-blocking the storefront never revokes a paid term;
+    /// independent Book holds/deletion and term revocations still deny.
     pub async fn can_read_book(
         &self,
         actor: PositiveId,
@@ -547,7 +549,7 @@ impl PgLayers {
               JOIN books b ON b.id=vb.book_id
               WHERE t.user_id=$1 AND vb.book_id=$2
                 AND t.started_at<=now() AND (t.expires_at IS NULL OR t.expires_at>now())
-                AND l.status <> 'blocked' AND NOT b.admin_hold AND NOT b.is_deleted
+                AND NOT b.admin_hold AND NOT b.is_deleted
                 AND NOT EXISTS(SELECT 1 FROM commerce_layer_term_revocations r WHERE r.term_id=t.id)
             )",
         )
