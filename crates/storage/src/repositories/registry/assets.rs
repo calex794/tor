@@ -1,8 +1,6 @@
 //! G S065: private image registration, separate from gzip chapter bodies.
 use super::*;
-use crate::services::crypto::{
-    asset_aad, unwrap_registered_dek_from_keyring, EncryptedAsset,
-};
+use crate::services::crypto::{asset_aad, unwrap_registered_dek_from_keyring, EncryptedAsset};
 
 impl PgStorageRegistry {
     /// Reserve only G-produced, authenticated bytes, never public or
@@ -34,7 +32,8 @@ impl PgStorageRegistry {
                 &asset.wrap_nonce,
                 asset.kek_id,
                 keyring,
-            ).is_err()
+            )
+            .is_err()
         {
             return Err(RegistryError::Invalid);
         }

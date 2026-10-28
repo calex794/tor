@@ -10,10 +10,8 @@ fn valid_media(bytes: &[u8], mime: &str) -> bool {
     }
     match mime {
         "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff])
-            && bytes.ends_with(&[0xff, 0xd9]),
-        "image/webp" => bytes.starts_with(b"RIFF")
-            && bytes.get(8..12) == Some(&b"WEBP"[..]),
+        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]) && bytes.ends_with(&[0xff, 0xd9]),
+        "image/webp" => bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(&b"WEBP"[..]),
         _ => false,
     }
 }
@@ -154,15 +152,23 @@ mod tests {
         assert_eq!(
             decrypt_raw(
                 &unwrap_bytes(&id, &first.wrapped_dek, &first.wrap_nonce, &kek).unwrap(),
-                &first.object_nonce, &first.aad, &first.ciphertext
-            ).unwrap(),
+                &first.object_nonce,
+                &first.aad,
+                &first.ciphertext
+            )
+            .unwrap(),
             image
         );
         assert!(!format!("{first:?}").contains(&hex::encode(&image)));
         let secret = unwrap_bytes(&id, &first.wrapped_dek, &first.wrap_nonce, &kek).unwrap();
         let swapped_version = asset_aad(pin(12), &id, &first.plaintext_sha256);
         assert_eq!(
-            decrypt_raw(&secret, &first.object_nonce, &swapped_version, &first.ciphertext),
+            decrypt_raw(
+                &secret,
+                &first.object_nonce,
+                &swapped_version,
+                &first.ciphertext
+            ),
             Err(CryptoError::AuthenticationFailed),
             "V1 ciphertext is not valid with the V2 AAD",
         );

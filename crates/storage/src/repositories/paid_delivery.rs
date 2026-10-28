@@ -251,7 +251,12 @@ mod tests {
             version_id: PositiveId::new(42).unwrap(),
         };
         let canonical = chapter_aad(pinned, &id, &digest);
-        assert!(canonical_aad(&canonical, &id, &digest, EncryptedObjectKind::Chapter));
+        assert!(canonical_aad(
+            &canonical,
+            &id,
+            &digest,
+            EncryptedObjectKind::Chapter
+        ));
         assert!(!canonical_aad(
             &canonical,
             &id,

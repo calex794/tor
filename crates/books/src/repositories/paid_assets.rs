@@ -1,10 +1,10 @@
 //! B/S065: immutable paid-image membership, never a reader entitlement.
 //! Only G-verified, exact-version assets may be attached to an unpublished
 //! edition. C must resolve D rights before requesting any B asset reference.
-use async_trait::async_trait;
-use tor_contracts::paid_delivery::ChapterAssetPort;
 use crate::services::authoring::AuthorError;
+use async_trait::async_trait;
 use sqlx::{PgPool, Row};
+use tor_contracts::paid_delivery::ChapterAssetPort;
 use tor_contracts::paid_delivery::{
     ChapterVersionRef, ContentCodec, DeliveryError, EncryptedObjectKind, EncryptedObjectRef,
     ObjectId, ObjectRef,

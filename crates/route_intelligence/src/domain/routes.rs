@@ -500,8 +500,12 @@ const ROUTES: [RouteRegistration; 69] = [
     ), // 67
     RouteRegistration::new(
         "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
-        "POST", "/api/v1/reader/chapters/", Prefix, Api,
-        Reading, CostClass::ExpensiveRead,
+        "POST",
+        "/api/v1/reader/chapters/",
+        Prefix,
+        Api,
+        Reading,
+        CostClass::ExpensiveRead,
     ), // 68
 ];
 
@@ -584,7 +588,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/progress/purchased/complete"), "POST") => Some(65),
         (Some("/me/books/{id}/rate"), "GET") => Some(66),
         (Some("/me/books/{id}/rate"), "POST") => Some(67),
-        (Some("/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants"), "POST") => Some(68),
+        (
+            Some("/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants"),
+            "POST",
+        ) => Some(68),
         _ => None,
     };
     index
