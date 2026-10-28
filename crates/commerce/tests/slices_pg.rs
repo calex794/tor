@@ -1,7 +1,5 @@
 //! D-02: only test against disposable tor_ci, never a real user wallet.
 use sqlx::PgPool;
-use tor_books::domain::shares::ShareAssignment;
-use tor_books::repositories::revenue_shares::PgRevenueShares;
 use tor_commerce::repositories::entitlements::PgDirectEntitlements;
 use tor_commerce::{
     domain::money::{
@@ -551,6 +549,60 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
 }
 
 
+
+/// D-owned test fixture, not an economics mutation API. The B-10 PG suite
+/// separately tests owner authorization and revision CAS in tor-books.
+async fn set_fixture_economics_revision(
+    pool: &PgPool,
+    book: i64,
+    actor: i64,
+    expected: i64,
+    recipients: &[(i64, i16)],
+) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM books WHERE id=$1 FOR UPDATE")
+        .bind(book)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_versions
+         (book_id,revision,changed_by_user_id,reason)
+         VALUES($1,$2,$3,'checkout fixture transition')",
+    )
+    .bind(book)
+    .bind(expected + 1)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for &(user_id, percent) in recipients {
+        sqlx::query(
+            "INSERT INTO revenue_share_assignments
+             (book_id,revision,user_id,share_percent)
+             VALUES($1,$2,$3,$4)",
+        )
+        .bind(book)
+        .bind(expected + 1)
+        .bind(user_id)
+        .bind(percent)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "UPDATE revenue_share_states SET current_revision=$2
+         WHERE book_id=$1 AND current_revision=$3",
+    )
+    .bind(book)
+    .bind(expected + 1)
+    .bind(expected)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentages() {
@@ -577,27 +629,14 @@ async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentag
     .await
     .unwrap();
 
-    let shares = PgRevenueShares::new(pool.clone());
-    let revision_two = shares
-        .replace_schedule(
-            owner,
-            book,
-            1,
-            &[
-                ShareAssignment {
-                    user_id: owner,
-                    share_percent: 80,
-                },
-                ShareAssignment {
-                    user_id: editor,
-                    share_percent: 20,
-                },
-            ],
-            "B10 chapter purchase economics",
-        )
-        .await
-        .unwrap();
-    assert_eq!(revision_two, 2);
+    set_fixture_economics_revision(
+        &pool,
+        book,
+        owner,
+        1,
+        &[(owner, 80), (editor, 20)],
+    )
+    .await;
 
     let checkout = PgCheckout::new(pool.clone());
     let command_one = command(buyer, chapter, version, 100, 'A');
@@ -624,21 +663,7 @@ async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentag
     assert!(old_lines.contains(&(owner, 80)));
     assert!(old_lines.contains(&(editor, 20)));
 
-    assert_eq!(
-        shares
-            .replace_schedule(
-                owner,
-                book,
-                2,
-                &[ShareAssignment {
-                    user_id: owner,
-                    share_percent: 100,
-                }],
-                "B10 after purchase",
-            )
-            .await,
-        Ok(3)
-    );
+    set_fixture_economics_revision(&pool, book, owner, 2, &[(owner, 100)]).await;
     assert_eq!(
         checkout.checkout_once(&command_one).await.unwrap().purchase_id,
         first.purchase_id,
