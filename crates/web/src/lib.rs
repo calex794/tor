@@ -1,6 +1,6 @@
 //! Routing shell only: book business logic remains in tor-books.
 use axum::{
-    extract::{Path, Query, State},
+    extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -197,8 +197,16 @@ async fn book_toc(
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
 ) -> Response {
+    // Only /books/{nonzero decimal id} is a public book identity.
+    // An alias must not create a duplicate page or reveal a hidden book.
+    if !tor_search::domain::seo_urls::BookUrl::from_id(id)
+        .is_some_and(|book_url| book_url.matches_path(uri.path()))
+    {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    }
     if let Some(reader) = state.reader {
         let limit = query.limit.unwrap_or(100);
         let book = match reader
@@ -495,6 +503,29 @@ mod tests {
             assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
         }
     }
+    #[tokio::test]
+    async fn seo_03_book_urls_have_one_public_spelling() {
+        for path in ["/books/1", "/books/1?limit=1"] {
+            assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
+        }
+        for path in ["/books/0", "/books/01", "/books/0001"] {
+            assert_eq!(get(path).await.0, StatusCode::NOT_FOUND, "{path}");
+        }
+        for path in [
+            "/books/+1",
+            "/books/%31",
+            "/books/1/",
+            "/books/18446744073709551616",
+            "/books/%D0%BA",
+        ] {
+            let (status, html) = get(path).await;
+            assert_ne!(status, StatusCode::OK, "{path}");
+            assert!(!html.contains("book-hero-card"), "{path}");
+        }
+        // The former numeric URL remains stable; no slug/redirect is needed.
+        assert_eq!(get("/books/3").await.0, StatusCode::NOT_FOUND);
+    }
+
     #[tokio::test]
     async fn hidden_book_never_reaches_public_pages() {
         for path in ["/", "/catalog", "/api/v1/books"] {

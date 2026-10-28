@@ -1,6 +1,7 @@
 //! Pure SEO policy. Rendering, SQL and access control belong to other layers.
 
 use crate::domain::seo::SeoChapterAccess;
+use crate::domain::seo_urls::BookUrl;
 use crate::domain::seo::{
     SeoBookFacts, SeoBookView, SeoCatalogView, SeoDecision, SeoMode, SeoPage, SeoReason, SeoRobots,
     SeoSite, SeoVisibility,
@@ -29,7 +30,10 @@ impl SeoPolicy {
                     return denied(SeoReason::DuplicateView);
                 }
                 match self.book_gate(book) {
-                    Ok(()) => indexable(format!("/books/{}", book.book_id)),
+                    Ok(()) => match BookUrl::from_id(book.book_id) {
+                        Some(url) => indexable(url.path()),
+                        None => denied(SeoReason::InvalidIdentity),
+                    },
                     Err(reason) => denied(reason),
                 }
             }
