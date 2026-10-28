@@ -192,14 +192,16 @@ pub(super) async fn register(
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     match state
         .accounts
-        .register_with_session(
+        .register_with_session_referral(
             &account.email,
             &account.display_name,
             &hashed,
             &digest,
             ttl,
-            guest_hash.as_ref(),
-            manual_code,
+            tor_accounts::repositories::postgres::RegistrationReferral {
+                guest_hash: guest_hash.as_ref(),
+                manual_code,
+            },
         )
         .await
     {
