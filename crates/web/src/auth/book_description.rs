@@ -1,7 +1,11 @@
 //! Only the authenticated owner may edit a book description.
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
-use axum::{extract::{Form, Path, State}, http::{HeaderMap, StatusCode}, response::{Redirect, Response}};
+use axum::{
+    extract::{Form, Path, State},
+    http::{HeaderMap, StatusCode},
+    response::{Redirect, Response},
+};
 use serde::Deserialize;
 use tor_books::services::authoring::AuthorError;
 
@@ -46,7 +50,10 @@ pub(super) async fn edit(
         pages::escape_html(&csrf),
         pages::escape_html(&description),
     );
-    private_response(pages::layout("Аннотация книги", "Редактирование аннотации.", &content), &cookies)
+    private_response(
+        pages::layout("Аннотация книги", "Редактирование аннотации.", &content),
+        &cookies,
+    )
 }
 
 pub(super) async fn save(
@@ -56,7 +63,9 @@ pub(super) async fn save(
     Form(form): Form<DescriptionForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -65,7 +74,11 @@ pub(super) async fn save(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    match state.authoring.update_book_description(actor, book_id, &form.description).await {
+    match state
+        .authoring
+        .update_book_description(actor, book_id, &form.description)
+        .await
+    {
         Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}")), &[]),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),

@@ -498,8 +498,24 @@ const ROUTES: [RouteRegistration; 70] = [
         Reading,
         Write,
     ), // 67
-    RouteRegistration::new("/me/books/{id}/description", "GET", "/me/", Prefix, Page, Dashboard, Read), // 68
-    RouteRegistration::new("/me/books/{id}/description", "POST", "/me/", Prefix, Page, Dashboard, Write), // 69
+    RouteRegistration::new(
+        "/me/books/{id}/description",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 68
+    RouteRegistration::new(
+        "/me/books/{id}/description",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 69
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
