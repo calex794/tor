@@ -3,7 +3,7 @@ use super::{deny, session_user, AuthState};
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::Response,
     Json,
 };
@@ -67,7 +67,11 @@ pub(super) async fn buy(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(error) => return deny(error),
     };
-    if !state.cookies.same_origin(&headers)
+    // Money-changing JSON requests require an explicit trusted browser Origin.
+    // A valid CSRF cookie alone is not sufficient for this endpoint.
+    if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
+        != Some(state.cookies.origin.as_str())
+        || !state.cookies.same_origin(&headers)
         || !headers
             .get("x-csrf-token")
             .and_then(|v| v.to_str().ok())
