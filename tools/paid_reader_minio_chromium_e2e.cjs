@@ -27,6 +27,7 @@ const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
 const siteCss = fs.readFileSync("crates/web/assets/site.css");
 const orderedNewbooFiles = [
   "newboo-port.css",
+  "newboo-home-carousel.css",
   "newboo-book-detail.css",
   "newboo-reader.css",
   "newboo-cover-picker.css",
@@ -242,6 +243,30 @@ async function run() {
         assert(chunks.join("\n\n") === fixture.expected_markdown,
           "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        // Design reference: capture the ACTUAL first screen at scroll=0.
+        // Full-page screenshots taken after clicking bottom controls move
+        // sticky headers into the middle and are not valid initial-state QA.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY === 0);
+        const initial = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.querySelector("#reader-title").getBoundingClientRect();
+          return {
+            barTop: bar.top,
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            overflow: document.documentElement.scrollWidth >
+              document.documentElement.clientWidth + 1,
+          };
+        });
+        assert(initial.barTop >= -1 && initial.barTop < 8 &&
+          initial.headingTop >= initial.barBottom - 2 && !initial.overflow,
+          device + ": first-screen NEwBOO reader header overlaps chapter title");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-first-screen-" + device + ".png"),
+          fullPage: false, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
         // Compare the real control with the source NEwBOO 44px touch targets.
         // A save action must look like a button, not an underlined text link.
         const saveStyle = await page.locator(".reader-save-button").first()
@@ -329,6 +354,9 @@ async function run() {
               left: bounds.left,
               right: bounds.right,
               bottom: bounds.bottom,
+              top: bounds.top,
+              summaryTop: element.closest("details").querySelector("summary")
+                .getBoundingClientRect().top,
               viewportWidth: document.documentElement.clientWidth,
               viewportHeight: window.innerHeight,
             };
@@ -337,6 +365,10 @@ async function run() {
           footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
           footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
           device + ": footer menu clips beyond viewport");
+        assert(footerGeometry.bottom <= footerGeometry.summaryTop - 4,
+          device + ": footer menu covers the button required to close it");
+        assert(footerGeometry.top >= -1,
+          device + ": footer menu begins outside the visible viewport");
         await page.screenshot({
           path: path.join(screenshotRoot, "s065-reader-bottom-toc-" + device + ".png"),
           fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
