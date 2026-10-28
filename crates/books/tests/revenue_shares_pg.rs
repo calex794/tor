@@ -136,6 +136,38 @@ async fn b_10_pg_atomic_revisions_preserve_100_percent_and_old_schedule() {
         .is_err(),
         "history cannot be edited"
     );
+
+    // INSERT is forbidden as well: otherwise a writer could add 1% to an
+    // activated revision without triggering the state-conservation fence.
+    let third: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b10-late-editor@example.test','Late contributor','$argon2id$ci')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role)
+         VALUES($1,$2,'translator')",
+    )
+    .bind(book)
+    .bind(third)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO revenue_share_assignments
+             (book_id,revision,user_id,share_percent) VALUES($1,2,$2,1)",
+        )
+        .bind(book)
+        .bind(third)
+        .execute(&pool)
+        .await
+        .is_err(),
+        "activated revisions cannot gain unapproved percentages"
+    );
     pool.close().await;
 }
 
