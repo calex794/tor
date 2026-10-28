@@ -53,17 +53,14 @@ pub(super) fn book_error(status: StatusCode) -> Response {
 mod tests {
     use super::*;
 
-    #[test]
-    fn h_11_book_error_404_is_a_real_neboo_page_and_never_discloses_book() {
+    #[tokio::test]
+    async fn h_11_book_error_404_is_a_real_neboo_page_and_never_discloses_book() {
         let response = book_error(StatusCode::NOT_FOUND);
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         assert!(!response.headers().contains_key(header::RETRY_AFTER));
         let body = response.into_body();
-        let bytes = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(axum::body::to_bytes(body, 32_768))
-            .unwrap();
+        let bytes = axum::body::to_bytes(body, 32_768).await.unwrap();
         let html = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(html.contains("lang=\"ru\""));
         assert!(html.contains("not-found-card"));
