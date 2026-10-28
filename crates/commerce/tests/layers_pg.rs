@@ -1,4 +1,6 @@
 //! D-05: real PostgreSQL contract; isolated tor_ci database only.
+#[path = "layers_pg/layer_allocation.rs"]
+mod layer_allocation;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
 use sqlx::PgPool;
