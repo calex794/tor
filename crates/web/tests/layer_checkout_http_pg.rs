@@ -46,11 +46,13 @@ async fn post(
     app: &Router,
     path: &str,
     body: &str,
-    session: Option<&str>,
-    csrf_cookie: Option<&str>,
-    csrf_header: Option<&str>,
-    origin: Option<&str>,
-    key: Option<&str>,
+    (session, csrf_cookie, csrf_header, origin, key): (
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+    ),
 ) -> Response {
     let mut request = Request::builder()
         .method("POST")
@@ -172,7 +174,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     let other_key = format!("{}8", "B".repeat(42));
 
     assert_eq!(
-        post(&app, &path, &valid, None, None, None, Some(ORIGIN), Some(&key))
+        post(&app, &path, &valid, (None, None, None, Some(ORIGIN), Some(&key)))
             .await
             .status(),
         StatusCode::UNAUTHORIZED
@@ -186,7 +188,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
         (Some(csrf.as_str()), Some(csrf.as_str()), Some(ORIGIN), Some("invalid"), StatusCode::UNPROCESSABLE_ENTITY),
     ] {
         assert_eq!(
-            post(&app, &path, &valid, Some(&buyer_token), cookie, posted, origin, idem)
+            post(&app, &path, &valid, (Some(&buyer_token), cookie, posted, origin, idem))
                 .await
                 .status(),
             expected
@@ -200,7 +202,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     })
     .to_string();
     assert_eq!(
-        post(&app, &path, &tampered, Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key))
+        post(&app, &path, &tampered, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key)))
             .await
             .status(),
         StatusCode::UNPROCESSABLE_ENTITY
@@ -209,7 +211,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
 
     let poor_csrf = generate_session_token();
     assert_eq!(
-        post(&app, &path, &valid, Some(&poor_token), Some(&poor_csrf), Some(&poor_csrf), Some(ORIGIN), Some(&other_key))
+        post(&app, &path, &valid, (Some(&poor_token), Some(&poor_csrf), Some(&poor_csrf), Some(ORIGIN), Some(&other_key)))
             .await
             .status(),
         StatusCode::CONFLICT,
@@ -224,7 +226,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     })
     .to_string();
     assert_eq!(
-        post(&app, &path, &wrong_price, Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&other_key))
+        post(&app, &path, &wrong_price, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&other_key)))
             .await
             .status(),
         StatusCode::CONFLICT,
@@ -234,8 +236,8 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
 
     // Two concurrent identical HTTP requests must commit exactly one wallet debit.
     let (first, second) = tokio::join!(
-        post(&app, &path, &valid, Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key)),
-        post(&app, &path, &valid, Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key)),
+        post(&app, &path, &valid, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key))),
+        post(&app, &path, &valid, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key))),
     );
     assert_eq!(first.status(), StatusCode::OK);
     assert_eq!(second.status(), StatusCode::OK);
@@ -250,7 +252,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     assert_eq!(financial_state(&pool, buyer).await, (210, 1, 1));
 
     assert_eq!(
-        post(&app, &path, &wrong_price, Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key))
+        post(&app, &path, &wrong_price, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key)))
             .await
             .status(),
         StatusCode::CONFLICT,
@@ -259,10 +261,7 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     assert_eq!(financial_state(&pool, buyer).await, (210, 1, 1));
 
     // A fresh key purchases one additional prepaid period, not a duplicate charge.
-    let renewed = post(
-        &app, &path, &valid, Some(&buyer_token), Some(&csrf),
-        Some(&csrf), Some(ORIGIN), Some(&other_key),
-    )
+    let renewed = post(&app, &path, &valid, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&other_key)))
     .await;
     assert_eq!(renewed.status(), StatusCode::OK);
     let renewal = json_body(renewed).await;
