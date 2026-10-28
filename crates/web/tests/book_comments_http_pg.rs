@@ -118,7 +118,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let anonymous = call(&app, "GET", &comments_path, "", ORIGIN, "").await;
     assert_eq!(anonymous.status(), StatusCode::OK);
     let anonymous_html = html(anonymous).await;
-    assert!(anonymous_html.contains("Войдите"));
+    assert!(anonymous_html.contains("Войти, чтобы оставить комментарий"));
     assert!(!anonymous_html.contains("name=\"csrf_token\""));
 
     let detail = html(call(&app, "GET", &format!("/books/{book}"), "", ORIGIN, "").await).await;
