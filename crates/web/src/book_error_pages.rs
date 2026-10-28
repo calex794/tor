@@ -206,11 +206,8 @@ mod tests {
             card(12, "<script>Название</script>", Some("\" onclick=\"bad")),
             card(9, "Без обложки", None),
         ];
-        let response = book_error_with_cards(
-            StatusCode::NOT_FOUND,
-            &books,
-            &HashSet::from([12_u64]),
-        );
+        let response =
+            book_error_with_cards(StatusCode::NOT_FOUND, &books, &HashSet::from([12_u64]));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let body = axum::body::to_bytes(response.into_body(), 65_536)
             .await
@@ -229,9 +226,7 @@ mod tests {
 
     #[tokio::test]
     async fn h_11_503_never_promotes_and_404_limits_to_three_books() {
-        let books = (1..=9)
-            .map(|id| card(id, "Тест", None))
-            .collect::<Vec<_>>();
+        let books = (1..=9).map(|id| card(id, "Тест", None)).collect::<Vec<_>>();
         let covers = HashSet::new();
         let down = book_error_with_cards(StatusCode::SERVICE_UNAVAILABLE, &books, &covers);
         assert_eq!(down.status(), StatusCode::SERVICE_UNAVAILABLE);
