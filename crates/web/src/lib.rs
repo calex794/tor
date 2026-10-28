@@ -48,6 +48,7 @@ pub use paid_reader_router::{
 };
 mod password_jobs;
 pub mod ranking_consumer;
+pub mod referral_consumer;
 mod ril;
 mod worker_health;
 
