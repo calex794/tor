@@ -94,7 +94,9 @@ pub fn authorize_owner_transfer(facts: OwnerTransferFacts) -> Result<(), OwnerTr
     if facts.book_blocked_or_deleted {
         return Err(OwnerTransferDenial::BookHeldOrUnavailable);
     }
-    let book_tier = facts.book_tier.ok_or(OwnerTransferDenial::UnknownBookTier)?;
+    let book_tier = facts
+        .book_tier
+        .ok_or(OwnerTransferDenial::UnknownBookTier)?;
     let recipient_tier = facts
         .recipient_effective_tier
         .ok_or(OwnerTransferDenial::UnknownRecipientTier)?;
