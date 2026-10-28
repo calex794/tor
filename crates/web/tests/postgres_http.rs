@@ -459,3 +459,105 @@ async fn f_03_nfkc_search_normalization_works_through_public_http() {
     assert_eq!(code, StatusCode::OK);
     assert!(legacy.starts_with('['));
 }
+
+#[tokio::test]
+#[ignore = "requires disposable isolated PostgreSQL tor_ci; never run on production"]
+async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn sql(url: &str, query: &str) -> String {
+        assert!(url.ends_with("/tor_ci"), "production database forbidden");
+        let out = Command::new("psql")
+            .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", query])
+            .output()
+            .expect("psql for isolated fixture");
+        assert!(
+            out.status.success(),
+            "fixture query failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    }
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG test URL");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.expect("tor_app pool");
+    let reader = tor_reading::repositories::PgReader::connect(&url)
+        .await
+        .expect("tor_app reader");
+    let app = tor_web::router_with_postgres_reading(catalog, reader);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book: i64 = sql(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:seo:availability:{nonce}','ru','SEO доступность {nonce}','public') RETURNING id"
+        ),
+    ).parse().expect("book id");
+    let chapter: i64 = sql(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'Открытая глава','public','free',0) RETURNING id"
+        ),
+    ).parse().expect("chapter id");
+    let version: i64 = sql(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'SEO-AVAILABILITY-PUBLIC-{nonce}') RETURNING id"
+        ),
+    ).parse().expect("chapter version id");
+    sql(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
+    let detail = format!("/books/{book}");
+    let read = format!("/reader/{chapter}");
+
+    let (status, html) = get(app.clone(), &detail).await;
+    assert_eq!(status, StatusCode::OK, "published book must be publicly reachable");
+    assert!(html.contains("SEO доступность"));
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::OK, "free published chapter must be reachable");
+    assert!(html.contains("SEO-AVAILABILITY-PUBLIC-"));
+
+    // A moderation hold must change HTTP immediately, not wait for a
+    // sitemap rebuild or any SEO projection to be refreshed.
+    sql(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    let (status, html) = get(app.clone(), &detail).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("noindex, nofollow"));
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+
+    // Restoring a book makes its canonical public URLs reachable again.
+    sql(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    assert_eq!(get(app.clone(), &detail).await.0, StatusCode::OK);
+    assert_eq!(get(app.clone(), &read).await.0, StatusCode::OK);
+
+    // Book revocation and chapter revocation are independent authorities.
+    sql(&url, &format!("UPDATE chapters SET visibility='hidden' WHERE id={chapter}"));
+    assert_eq!(get(app.clone(), &detail).await.0, StatusCode::OK);
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+
+    sql(&url, &format!("UPDATE books SET visibility='hidden' WHERE id={book}"));
+    let (status, html) = get(app.clone(), &detail).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("noindex, nofollow"));
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+    // User-specific purchased-version read paths are not changed by SEO.
+}
