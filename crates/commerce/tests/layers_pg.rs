@@ -411,6 +411,45 @@ async fn d_05_expired_term_and_wrong_owner_are_denied() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_storefront_block_does_not_revoke_paid_reading_but_book_hold_does() {
+    let (pool, repo, owner, buyer, book) = setup("storefront-block").await;
+    let (layer, version, offer_id) = offer(&repo, owner, book, 200, false).await;
+    let receipt = repo
+        .buy(&cmd(buyer, layer, offer_id, version, 200, 'A'))
+        .await
+        .unwrap();
+    assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
+    sqlx::query("UPDATE commerce_layers SET status='blocked' WHERE id=$1")
+        .bind(layer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(
+        repo.can_read_book(id(buyer), id(book)).await.unwrap(),
+        "storefront block is not a paid-term revocation"
+    );
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(
+        !repo.can_read_book(id(buyer), id(book)).await.unwrap(),
+        "book-level hold overrides an otherwise paid term"
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_term_revocations WHERE term_id=$1",
+    )
+    .bind(receipt.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0, "storefront block must not forge a revocation");
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_pg_owner_transfer_guard_covers_live_and_historical_subscribers() {
     let (pool, repo, owner, buyer, book) = setup("owner-fence").await;
     let (layer, version, offer_id) = offer(&repo, owner, book, 200, false).await;
