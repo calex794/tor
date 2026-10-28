@@ -28,7 +28,7 @@ impl AccessTier {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayerTransferState {
     Unverified,
-    ActiveOrHistoricalEntitlement,
+    ActiveEntitlementFromAnyLayerVersion,
     VerifiedClearIncludingHistorical,
 }
 
@@ -105,7 +105,7 @@ pub fn authorize_owner_transfer(facts: OwnerTransferFacts) -> Result<(), OwnerTr
         LayerTransferState::Unverified => {
             return Err(OwnerTransferDenial::UnverifiedLayerEntitlements);
         }
-        LayerTransferState::ActiveOrHistoricalEntitlement => {
+        LayerTransferState::ActiveEntitlementFromAnyLayerVersion => {
             return Err(OwnerTransferDenial::ExistingLayerEntitlement);
         }
         LayerTransferState::VerifiedClearIncludingHistorical => {}
