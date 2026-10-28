@@ -148,10 +148,9 @@ fn paid_nav_item(chapter: Option<&MixedTocChapter>, previous: bool) -> String {
             )),
             "Куплено",
         ),
-        MixedTocAccess::PublicFree => (
-            Some(format!("/reader/{}", chapter.chapter_id)),
-            "Бесплатно",
-        ),
+        MixedTocAccess::PublicFree => {
+            (Some(format!("/reader/{}", chapter.chapter_id)), "Бесплатно")
+        }
         MixedTocAccess::Locked { .. } => (None, "Не куплено"),
     };
     match href {
@@ -438,8 +437,12 @@ mod tests {
         assert!(!nav.contains("href=\"/reader/25\""));
         // Chapter 3 is followed by unpurchased 4: show lock, no link.
         let next_edition = ReadablePurchase {
-            purchase_id: 32, chapter_id: 24, version_id: 42,
-            version_no: 1, chapter_no: 3, book_title: "Book".to_owned(),
+            purchase_id: 32,
+            chapter_id: 24,
+            version_id: 42,
+            version_no: 1,
+            chapter_no: 3,
+            book_title: "Book".to_owned(),
             chapter_title: "Next".to_owned(),
         };
         let blocked = paid_chapter_nav(&next_edition, &toc, true);
@@ -511,7 +514,10 @@ mod tests {
         assert!(body.contains("data-paid-settings-open"));
         let toolbar = body.find("<header class=\"reader-topbar\"").unwrap();
         let reader_column = body.find("<div class=\"container reader-width\"").unwrap();
-        assert!(toolbar < reader_column, "NEwBOO toolbar must be full width, outside text column");
+        assert!(
+            toolbar < reader_column,
+            "NEwBOO toolbar must be full width, outside text column"
+        );
 
         assert!(body.contains("data-paid-reader-settings"));
         assert!(body.contains("data-paid-font-scale"));
