@@ -20,6 +20,15 @@ pub(super) async fn assert_layer_s3_grants(
              VALUES({subscriber},300,'RUB')"
         ),
     );
+    let layer_page = format!("/read/layer/{chapter}");
+    assert_eq!(
+        private_get(app, &layer_page, None).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::FORBIDDEN
+    );
     let unowned = post_grant(
         app,
         chapter,
@@ -66,6 +75,20 @@ pub(super) async fn assert_layer_s3_grants(
         .unwrap();
     assert!(!paid.replayed);
     assert_eq!(paid.balance_after_minor, 210);
+    let shell = private_get(app, &layer_page, Some(cookie)).await;
+    assert_eq!(shell.status(), StatusCode::OK);
+    assert_eq!(shell.headers()[header::CACHE_CONTROL], "no-store");
+    let csp = shell.headers()["content-security-policy"].to_str().unwrap();
+    assert!(csp.contains("connect-src 'self' http://127.0.0.1:9000"));
+    assert!(csp.contains("frame-ancestors 'none'"));
+    let body = html_body(shell).await;
+    assert!(body.contains("data-layer-chapter-reader"));
+    assert!(body.contains("data-chapter-id"));
+    assert!(body.contains("newboo-layer-reader.mjs"));
+    assert!(!body.contains("data-purchase-id"));
+    assert!(!body.contains(MARKDOWN));
+    assert!(!body.contains("dek_b64u"));
+    assert!(!body.contains("ciphertext_url"));
 
     let mixed = post_grant(
         app,
@@ -143,5 +166,10 @@ pub(super) async fn assert_layer_s3_grants(
         .status(),
         StatusCode::FORBIDDEN,
         "revoked Layer must never authorize another signed URL"
+    );
+    assert_eq!(
+        private_get(app, &layer_page, Some(cookie)).await.status(),
+        StatusCode::FORBIDDEN,
+        "revoked Layer must never receive a fresh browser reader shell"
     );
 }
