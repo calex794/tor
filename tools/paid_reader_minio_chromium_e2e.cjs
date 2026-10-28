@@ -733,7 +733,7 @@ async function run() {
         const sepiaBackground = await page.evaluate(() =>
           getComputedStyle(document.body).backgroundColor);
         assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
-        assert.equal(await page.getByRole("button", { name: "Сепия" })
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
           .getAttribute("aria-pressed"), "true");
         await page.screenshot({
           path: path.join(screenshotRoot, "s065-reader-settings-" + device + ".png"),
