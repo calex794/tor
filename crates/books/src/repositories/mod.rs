@@ -1,7 +1,9 @@
 pub mod cover_slots;
 pub mod paid_storage;
 pub mod postgres;
+pub mod shadow;
 pub use postgres::PgCatalog;
+pub use shadow::PgShadowCatalog;
 
 use crate::domain::{Book, Visibility};
 use crate::services::{CatalogError, PublicBookRepository};
