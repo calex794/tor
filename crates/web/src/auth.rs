@@ -45,6 +45,7 @@ mod library_actions;
 mod login_limiter;
 mod paid_completion;
 mod rankings;
+mod referral_capture;
 mod sync_actions;
 
 mod types;
@@ -136,6 +137,7 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         accounts,
         checkout,
         paid_checkout_enabled,
