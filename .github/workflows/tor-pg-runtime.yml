@@ -153,6 +153,8 @@ jobs:
           cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
+          cargo test -p tor-accounts --lib a_b09_pg_user_tier -- --ignored --test-threads=1
+          cargo test -p tor-books --lib b_09_pg_book_tier -- --ignored --test-threads=1
           cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_release_pg -- --ignored
