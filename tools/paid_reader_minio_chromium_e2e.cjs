@@ -635,7 +635,7 @@ async function run() {
           assert(newWidth <= 620 && newWidth < metrics.readerWidth,
             "reader width setting ignored");
         }
-        await page.getByRole("button", { name: "Сепия" }).click();
+        await page.locator('[data-paid-theme="sepia"]').click();
         const sepiaBackground = await page.evaluate(() =>
           getComputedStyle(document.body).backgroundColor);
         assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
