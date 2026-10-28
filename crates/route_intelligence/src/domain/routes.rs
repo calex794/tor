@@ -8,7 +8,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 68] = [
+const ROUTES: [RouteRegistration; 69] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -498,6 +498,8 @@ const ROUTES: [RouteRegistration; 68] = [
         Reading,
         Write,
     ), // 67
+    // Public invitation redirects; family is finite and excludes raw referral codes.
+    RouteRegistration::new("/r/{code}", "GET", "/r/", Prefix, Page, Auth, Write), // 68
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
@@ -579,6 +581,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/progress/purchased/complete"), "POST") => Some(65),
         (Some("/me/books/{id}/rate"), "GET") => Some(66),
         (Some("/me/books/{id}/rate"), "POST") => Some(67),
+        (Some("/r/{code}"), "GET") => Some(68),
         _ => None,
     };
     index
