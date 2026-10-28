@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 71] = [
+const ROUTES: [RouteRegistration; 73] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -528,6 +528,26 @@ const ROUTES: [RouteRegistration; 71] = [
         Reading,
         CostClass::ExpensiveRead,
     ), // 70
+    // D-05 Layer CURRENT: the shell does not release content without
+    // a second D check at the signed S3 grant endpoint.
+    RouteRegistration::new(
+        "/read/layer/{chapter_id}",
+        "GET",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 71
+    RouteRegistration::new(
+        "/assets/newboo-layer-reader.mjs",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 72
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
