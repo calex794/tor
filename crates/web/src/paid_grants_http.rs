@@ -2,6 +2,7 @@
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod asset_grants;
+mod layer_reader;
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
@@ -458,6 +459,7 @@ fn router_inner(
         );
     if state.reader_s3_origin.is_some() {
         app = app
+            .route("/read/layer/{chapter_id}", get(layer_reader::layer_reader))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route("/me/purchases", get(purchased_library));
     }
