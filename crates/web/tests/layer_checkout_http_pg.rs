@@ -115,6 +115,11 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
         Ok("1"),
         "explicit opt-in required to exercise the real checkout router"
     );
+    assert_eq!(
+        std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref(),
+        Ok("1"),
+        "Layer checkout must be enabled separately from chapter checkout"
+    );
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated TEST_DATABASE_URL");
     assert!(
         url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"),

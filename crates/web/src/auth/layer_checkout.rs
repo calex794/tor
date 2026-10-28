@@ -59,7 +59,9 @@ pub(super) async fn buy(
     headers: HeaderMap,
     Json(input): Json<BuyLayer>,
 ) -> Response {
-    if !state.paid_checkout_enabled {
+    // Never inherit the ordinary chapter checkout switch: Layer financial
+    // settlement and user-facing contracts are a separate operator opt-in.
+    if !state.layer_checkout_enabled {
         return deny(StatusCode::NOT_FOUND);
     }
     let actor = match session_user(&state, &headers).await {

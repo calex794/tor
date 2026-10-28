@@ -137,7 +137,7 @@ def enabled() -> None:
              "expected_price_minor": 90},
             origin=BASE, key="A" * 42 + "8",
         ),
-        401, "Enabled Layer purchase must still require an authenticated session",
+        404, "Chapter checkout must not implicitly enable unfinished Layer purchases",
     )
     expect(Client().call("POST", "/api/v1/reader/chapters/1/delivery-grants", {}),
            404, "Checkout opt-in must not automatically enable paid S3 grants")

@@ -123,7 +123,7 @@ jobs:
           node --check crates/web/assets/newboo-layer-reader.mjs
           node --check tools/layer_reader_minio_chromium_e2e.cjs
           node --check tools/paid_reader_minio_chromium_e2e.cjs
-          TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test layer_checkout_http_pg -- --ignored --test-threads=1
+          TOR_LAYER_CHECKOUT_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test layer_checkout_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
