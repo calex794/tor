@@ -279,7 +279,7 @@
 .reader-paid .reader-piece__text.reader-markdown {
   margin: 0 0 14px;
   white-space: pre-wrap;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--paid-font-family, Georgia, "Times New Roman", serif);
   font-size: var(--paid-font-size, clamp(17px, 2.3vw, 20px));
   line-height: var(--paid-line-height, 1.85);
 }
