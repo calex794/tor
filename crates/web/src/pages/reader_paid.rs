@@ -531,7 +531,8 @@ mod tests {
         assert!(body.contains("data-paid-settings-open"));
         assert!(body.contains("data-paid-font-family=\"serif\""));
         assert!(body.contains("data-paid-font-family=\"sans\""));
-        assert!(body.contains("class=\"reader-paid__settings-panel\" role=\"dialog\" aria-modal=\"true\""));
+        assert!(body
+            .contains("class=\"reader-paid__settings-panel\" role=\"dialog\" aria-modal=\"true\""));
         assert!(body.contains("data-paid-settings-close aria-label=\"Закрыть настройки чтения\""));
         assert!(body.contains("aria-haspopup=\"dialog\""));
         assert!(body.contains("data-paid-theme-cycle"));
