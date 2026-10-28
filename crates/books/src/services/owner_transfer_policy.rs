@@ -32,6 +32,14 @@ pub enum LayerTransferState {
     VerifiedClearIncludingHistorical,
 }
 
+/// A missing Book lifecycle/hold decision cannot silently become "clear".
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BookTransferState {
+    Unverified,
+    Available,
+    HeldOrDeleted,
+}
+
 /// Ownership must never rewrite a revenue-share snapshot of an existing sale.
 /// Unknown B-10/D financial provenance is a hard stop, not a default to zero.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,7 +74,7 @@ pub struct OwnerTransferFacts {
     pub(crate) actual_owner_id: i64,
     pub(crate) recipient_id: i64,
     pub(crate) active_owner_member_id: Option<i64>,
-    pub(crate) book_blocked_or_deleted: bool,
+    pub(crate) book_state: BookTransferState,
     pub(crate) book_tier: Option<AccessTier>,
     pub(crate) recipient_effective_tier: Option<AccessTier>,
     pub(crate) layer_state: LayerTransferState,
@@ -91,7 +99,7 @@ pub fn authorize_owner_transfer(facts: OwnerTransferFacts) -> Result<(), OwnerTr
     {
         return Err(OwnerTransferDenial::StaleOrUnverifiedOwner);
     }
-    if facts.book_blocked_or_deleted {
+    if facts.book_state != BookTransferState::Available {
         return Err(OwnerTransferDenial::BookHeldOrUnavailable);
     }
     let book_tier = facts
@@ -136,7 +144,7 @@ mod tests {
             actual_owner_id: 11,
             recipient_id: 12,
             active_owner_member_id: Some(11),
-            book_blocked_or_deleted: false,
+            book_state: BookTransferState::Available,
             book_tier: Some(AccessTier::Basic),
             recipient_effective_tier: Some(AccessTier::Basic),
             layer_state: LayerTransferState::VerifiedClearIncludingHistorical,
@@ -248,7 +256,14 @@ mod tests {
         }
         assert_eq!(
             authorize_owner_transfer(OwnerTransferFacts {
-                book_blocked_or_deleted: true,
+                book_state: BookTransferState::HeldOrDeleted,
+                ..base
+            }),
+            Err(OwnerTransferDenial::BookHeldOrUnavailable)
+        );
+        assert_eq!(
+            authorize_owner_transfer(OwnerTransferFacts {
+                book_state: BookTransferState::Unverified,
                 ..base
             }),
             Err(OwnerTransferDenial::BookHeldOrUnavailable)
