@@ -320,27 +320,176 @@ export async function decryptPaidAsset(
   }
 }
 
-export function renderPaidBlocks(container, text, onSave) {
+export function renderPaidBlocks(container, text, onSave, onImage = null) {
   const blocks = readerBlocks(text);
   container.replaceChildren();
   blocks.forEach((block, index) => {
     const section = document.createElement("section");
     section.className = "reader-piece";
     section.id = "p-" + (index + 1);
-    const paragraph = document.createElement("p");
-    paragraph.className = "reader-piece__text reader-markdown";
-    // Source Markdown is treated as data, never evaluated as raw HTML.
-    paragraph.textContent = block;
+    // Paid Markdown remains inert text. Only an isolated, exact
+    // ![caption](asset:uuid) marker is upgraded to a private image figure.
+    // No external URL, HTML, data: or arbitrary Markdown is interpreted.
+    const imagePattern =
+      /^!\\[([^\\]\\r\\n]{0,160})\\]\\(asset:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\\)$/gm;
+    let cursor = 0;
+    let media = 0;
+    if (onImage) {
+      for (const match of block.matchAll(imagePattern)) {
+        const before = block.slice(cursor, match.index);
+        if (before.trim()) {
+          const paragraph = document.createElement("p");
+          paragraph.className = "reader-piece__text reader-markdown";
+          paragraph.textContent = before.trim();
+          section.append(paragraph);
+        }
+        const figure = document.createElement("figure");
+        figure.className = "reader-content__image-block reader-paid__image-block";
+        const frame = document.createElement("div");
+        frame.className = "reader-content__image-frame";
+        frame.textContent = "Иллюстрация загружается…";
+        frame.setAttribute("role", "status");
+        figure.append(frame);
+        if (match[1]) {
+          const caption = document.createElement("figcaption");
+          caption.className = "reader-content__image-caption";
+          caption.textContent = match[1];
+          figure.append(caption);
+        }
+        section.append(figure);
+        onImage(frame, match[2], match[1]);
+        media++;
+        cursor = match.index + match[0].length;
+      }
+    }
+    if (media === 0 || block.slice(cursor).trim()) {
+      const paragraph = document.createElement("p");
+      paragraph.className = "reader-piece__text reader-markdown";
+      paragraph.textContent = media ? block.slice(cursor).trim() : block;
+      section.append(paragraph);
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.className = "reader-save-button";
     button.textContent = "Сохранить место здесь";
     button.setAttribute("aria-label", "Сохранить после фрагмента " + (index + 1));
     button.addEventListener("click", () => onSave(index + 1, block.length));
-    section.append(paragraph, button);
+    section.append(button);
     container.append(section);
   });
   return blocks;
+}
+
+// A small lazy queue avoids issuing dozens of purchase+S3 grants for images
+// outside the viewport. No signed URL, key, image or Blob is stored beyond
+// this page. Revoke cached Blob URLs on navigation and bound resident images.
+export function privateImageLoader(root, chapter, version, purchase, csrf, s3Origin) {
+  let closed = false;
+  let running = 0;
+  const work = [];
+  const live = new Map();
+  const queued = new Set();
+  const MAX_VISIBLE_URLS = 12;
+  let observer = null;
+
+  const placeholder = (frame, message) => {
+    frame.classList.remove("is-loaded");
+    frame.classList.add("is-error");
+    frame.replaceChildren(document.createTextNode(message));
+    frame.setAttribute("role", "status");
+  };
+  const dispose = () => {
+    closed = true;
+    observer?.disconnect();
+    for (const url of live.values()) URL.revokeObjectURL(url);
+    live.clear();
+    work.length = 0;
+    queued.clear();
+  };
+  window.addEventListener("pagehide", dispose, { once: true });
+  const load = async ({ frame, id, alt }) => {
+    if (closed || !frame.isConnected) return;
+    try {
+      const grant = await api(
+        "/api/v1/reader/chapters/" + chapter + "/assets/" + id + "/delivery-grants",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify({ purchase_id: purchase }),
+        }
+      );
+      const blob = await decryptPaidAsset(grant, chapter, version, id, s3Origin);
+      if (closed || !frame.isConnected) return;
+      const url = URL.createObjectURL(blob);
+      // Never retain unbounded image Blobs while reading a long chapter.
+      while (live.size >= MAX_VISIBLE_URLS) {
+        const [previous, previousURL] = live.entries().next().value;
+        live.delete(previous);
+        URL.revokeObjectURL(previousURL);
+        placeholder(previous, "Прокрутите к изображению для повторной загрузки.");
+        if (!closed && previous.isConnected) observer?.observe(previous);
+      }
+      live.set(frame, url);
+      const image = document.createElement("img");
+      image.className = "reader-content__image";
+      image.alt = alt;
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.addEventListener("load", () => {
+        frame.classList.add("is-loaded");
+        frame.classList.remove("is-error");
+        frame.removeAttribute("role");
+      }, { once: true });
+      image.addEventListener("error", () => {
+        URL.revokeObjectURL(url);
+        live.delete(frame);
+        placeholder(frame, "Не удалось отобразить иллюстрацию.");
+      }, { once: true });
+      image.src = url;
+      frame.replaceChildren(image);
+    } catch {
+      if (!closed && frame.isConnected) {
+        placeholder(frame, "Иллюстрация недоступна. Проверьте покупку и обновите страницу.");
+      }
+    }
+  };
+  const drain = () => {
+    while (!closed && running < 2 && work.length) {
+      const task = work.shift();
+      if (!task.frame.isConnected) { queued.delete(task.frame); continue; }
+      running++;
+      load(task).finally(() => {
+        running--;
+        queued.delete(task.frame);
+        drain();
+      });
+    }
+  };
+  const schedule = (task) => {
+    if (closed || queued.has(task.frame) || live.has(task.frame)) return;
+    queued.add(task.frame);
+    work.push(task);
+    drain();
+  };
+  const known = new Map();
+  if (typeof IntersectionObserver === "function") {
+    observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        const task = known.get(entry.target);
+        if (task) schedule(task);
+      }
+    }, { rootMargin: "300px" });
+  }
+  return (frame, id, alt) => {
+    requireValue(root.contains(frame) === false && known.size < 64);
+    const task = { frame, id, alt };
+    known.set(frame, task);
+    if (observer) observer.observe(frame);
+    else schedule(task);
+  };
 }
 
 function checkedId(value) {
@@ -548,6 +697,9 @@ export async function startPaidReader(root) {
   });
   const stored = await api(url + "?" + lookup.toString());
   revision = stored.revision;
+  const showPrivateImage = privateImageLoader(
+    root, chapter, versionId, purchase, csrf, s3Origin
+  );
   const blocks = renderPaidBlocks(article, text, async (blockId, charOffset) => {
     try {
       const saved = await api(url, {
@@ -563,7 +715,7 @@ export async function startPaidReader(root) {
     } catch {
       resume.textContent = "Не удалось сохранить место. Обновите страницу и повторите.";
     }
-  });
+  }, showPrivateImage);
   if (stored.block_id && document.getElementById("p-" + stored.block_id)) {
     const anchor = document.createElement("a");
     anchor.href = "#p-" + stored.block_id;
