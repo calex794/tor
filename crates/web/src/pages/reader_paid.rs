@@ -255,6 +255,13 @@ pub fn paid_reader_shell(
                      <button type="button" data-paid-theme="dark" aria-pressed="false">Тёмная</button>
                    </div>
                  </div>
+                 <div class="reader-paid__settings-field" role="group" aria-label="Шрифт чтения">
+                   <span>Шрифт</span>
+                   <div class="reader-paid__themes" data-paid-font-choice>
+                     <button type="button" data-paid-font-family="serif" aria-pressed="true">С засечками</button>
+                     <button type="button" data-paid-font-family="sans" aria-pressed="false">Без засечек</button>
+                   </div>
+                 </div>
                  <label class="reader-paid__settings-field">Размер текста
                    <input type="range" min="80" max="140" step="5" value="100" data-paid-font-scale>
                    <output data-paid-font-output>100%</output>
@@ -522,6 +529,8 @@ mod tests {
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
+        assert!(body.contains("data-paid-font-family=\"serif\""));
+        assert!(body.contains("data-paid-font-family=\"sans\""));
         assert!(body.contains("class=\"reader-paid__settings-panel\" role=\"dialog\" aria-modal=\"true\""));
         assert!(body.contains("data-paid-settings-close aria-label=\"Закрыть настройки чтения\""));
         assert!(body.contains("aria-haspopup=\"dialog\""));
