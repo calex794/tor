@@ -3,6 +3,10 @@
 const MAX_CIPHERTEXT_BYTES = 16 * 1024 * 1024;
 const MAX_PLAINTEXT_BYTES = 1024 * 1024;
 const MAX_SIGNED_SECONDS = 120;
+const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+const MAX_MEDIA_CIPHERTEXT_BYTES = MAX_MEDIA_BYTES + 16;
+const MAX_MEDIA_DIMENSION = 8192;
+const MAX_MEDIA_PIXELS = 32 * 1024 * 1024;
 
 const fail = () => new Error("Не удалось безопасно открыть оплаченную главу.");
 
@@ -27,7 +31,7 @@ export function readerBlocks(source) {
   return result;
 }
 
-function verifiedS3URL(raw, configuredOrigin) {
+function verifiedS3URL(raw, configuredOrigin, assetId = null) {
   requireValue(typeof raw === "string" && raw.length < 4096);
   const url = new URL(raw);
   const origin = new URL(configuredOrigin);
@@ -38,7 +42,9 @@ function verifiedS3URL(raw, configuredOrigin) {
           (url.hostname === "127.0.0.1" || url.hostname === "localhost"))) &&
       origin.pathname === "/" && !origin.username && !origin.password &&
       !url.username && !url.password && !url.hash &&
-      /\/private\/chapter-versions\/[0-9a-f-]{36}\.enc$/.test(url.pathname) &&
+      (assetId === null
+        ? /\/private\/chapter-versions\/[0-9a-f-]{36}\.enc$/.test(url.pathname)
+        : url.pathname.endsWith("/private/chapter-assets/" + assetId + ".enc")) &&
       url.searchParams.has("X-Amz-Signature")
   );
   return url.toString();
@@ -69,6 +75,58 @@ async function decompressBounded(zipped) {
     offset += chunk.length;
   }
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+// Validate the S3 ciphertext stream before buffering it (Content-Length is
+// advisory and CORS may hide it). Shared by chapter and image grants.
+async function fetchVerifiedCiphertext(url, content, maxCiphertextBytes, fetchCiphertext) {
+  const reply = await fetchCiphertext(url, {
+    method: "GET",
+    mode: "cors",
+    credentials: "omit",
+    redirect: "error",
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+  });
+  requireValue(reply.ok && reply.status === 200);
+  // Do not buffer an untrusted S3 response before validating its real size.
+  // Content-Length can be absent, wrong or inaccessible through CORS.
+  const declared = reply.headers.get("content-length");
+  if (declared !== null) {
+    requireValue(/^(0|[1-9][0-9]*)$/.test(declared));
+    requireValue(Number.isSafeInteger(Number(declared)) &&
+      Number(declared) <= maxCiphertextBytes);
+  }
+  requireValue(reply.body && typeof reply.body.getReader === "function");
+  const reader = reply.body.getReader();
+  const chunks = [];
+  let received = 0;
+  let complete = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) { complete = true; break; }
+      requireValue(value instanceof Uint8Array);
+      received += value.byteLength;
+      requireValue(received <= maxCiphertextBytes);
+      chunks.push(value);
+    }
+  } finally {
+    if (!complete) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  requireValue(received >= 17 &&
+    (declared === null || Number(declared) === received));
+  const cipher = new Uint8Array(received);
+  let copied = 0;
+  for (const chunk of chunks) {
+    cipher.set(chunk, copied);
+    copied += chunk.byteLength;
+  }
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", cipher));
+  const checksum = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+  requireValue(checksum === content.object_sha256);
+  return cipher;
 }
 
 export async function decryptPaidGrant(
@@ -103,52 +161,9 @@ export async function decryptPaidGrant(
     /^[0-9a-f-]{36}$/.test(parts[3]) &&
     /^[0-9a-f]{64}$/.test(parts[4]) && parts[5] === "");
 
-  const reply = await fetchCiphertext(url, {
-    method: "GET",
-    mode: "cors",
-    credentials: "omit",
-    redirect: "error",
-    cache: "no-store",
-    referrerPolicy: "no-referrer",
-  });
-  requireValue(reply.ok && reply.status === 200);
-  // Do not buffer an untrusted S3 response before validating its real size.
-  // Content-Length can be absent, wrong or inaccessible through CORS.
-  const declared = reply.headers.get("content-length");
-  if (declared !== null) {
-    requireValue(/^(0|[1-9][0-9]*)$/.test(declared));
-    requireValue(Number.isSafeInteger(Number(declared)) &&
-      Number(declared) <= MAX_CIPHERTEXT_BYTES);
-  }
-  requireValue(reply.body && typeof reply.body.getReader === "function");
-  const reader = reply.body.getReader();
-  const chunks = [];
-  let received = 0;
-  let complete = false;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) { complete = true; break; }
-      requireValue(value instanceof Uint8Array);
-      received += value.byteLength;
-      requireValue(received <= MAX_CIPHERTEXT_BYTES);
-      chunks.push(value);
-    }
-  } finally {
-    if (!complete) await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-  requireValue(received >= 17 &&
-    (declared === null || Number(declared) === received));
-  const cipher = new Uint8Array(received);
-  let copied = 0;
-  for (const chunk of chunks) {
-    cipher.set(chunk, copied);
-    copied += chunk.byteLength;
-  }
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", cipher));
-  const checksum = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
-  requireValue(checksum === content.object_sha256);
+  const cipher = await fetchVerifiedCiphertext(
+    url, content, MAX_CIPHERTEXT_BYTES, fetchCiphertext
+  );
 
   const key = await crypto.subtle.importKey("raw", dek, { name: "AES-GCM" }, false, ["decrypt"]);
   let zipped;
@@ -172,6 +187,137 @@ export async function decryptPaidGrant(
   const plainHex = Array.from(plain, (b) => b.toString(16).padStart(2, "0")).join("");
   requireValue(plainHex === parts[4]);
   return { versionId: grant.version_id, text, plaintextSha256: plainHex };
+}
+
+// Inspect dimensions before asking the image decoder to allocate a large
+// bitmap. Never trust a Content-Type header or an author-supplied suffix.
+function boundedImageInfo(bytes) {
+  const u16 = (i) => (bytes[i] << 8) | bytes[i + 1];
+  const u32 = (i) => ((bytes[i] * 16777216) +
+    (bytes[i + 1] << 16) + (bytes[i + 2] << 8) + bytes[i + 3]);
+  let mime, width, height;
+  if (bytes.length >= 33 &&
+      bytes.subarray(0, 8).every((n, i) =>
+        n === [137, 80, 78, 71, 13, 10, 26, 10][i]) &&
+      u32(8) === 13 && String.fromCharCode(...bytes.subarray(12, 16)) === "IHDR") {
+    mime = "image/png";
+    width = u32(16);
+    height = u32(20);
+  } else if (bytes.length >= 16 && bytes[0] === 255 &&
+      bytes[1] === 216 && bytes.at(-2) === 255 && bytes.at(-1) === 217) {
+    let pos = 2;
+    while (pos + 9 < bytes.length && pos < 262144) {
+      if (bytes[pos++] !== 255) break;
+      while (bytes[pos] === 255) pos++;
+      const marker = bytes[pos++];
+      if (marker === 0xda || marker === 0xd9) break;
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (pos + 2 > bytes.length) break;
+      const length = u16(pos);
+      if (length < 2 || pos + length > bytes.length) break;
+      if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7,
+           0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
+        requireValue(length >= 7);
+        mime = "image/jpeg";
+        height = u16(pos + 3);
+        width = u16(pos + 5);
+        break;
+      }
+      pos += length;
+    }
+  } else if (bytes.length >= 30 &&
+      String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" &&
+      String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP" &&
+      (bytes[4] + bytes[5] * 256 + bytes[6] * 65536 +
+       bytes[7] * 16777216) + 8 === bytes.length) {
+    const kind = String.fromCharCode(...bytes.subarray(12, 16));
+    mime = "image/webp";
+    if (kind === "VP8X") {
+      width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+      height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+    } else if (kind === "VP8L" && bytes[20] === 47) {
+      width = 1 + bytes[21] + ((bytes[22] & 63) << 8);
+      height = 1 + (bytes[22] >> 6) + (bytes[23] << 2) +
+        ((bytes[24] & 15) << 10);
+    } else if (kind === "VP8 " &&
+        bytes[23] === 157 && bytes[24] === 1 && bytes[25] === 42) {
+      width = (bytes[26] | (bytes[27] << 8)) & 16383;
+      height = (bytes[28] | (bytes[29] << 8)) & 16383;
+    }
+  }
+  requireValue(mime && Number.isInteger(width) && Number.isInteger(height) &&
+    width > 0 && height > 0 &&
+    width <= MAX_MEDIA_DIMENSION && height <= MAX_MEDIA_DIMENSION &&
+    width * height <= MAX_MEDIA_PIXELS);
+  return { mime, width, height };
+}
+
+// A scoped D -> B -> G grant is still untrusted until its ciphertext hash,
+// exact edition-specific AAD, plaintext hash, GCM tag and file signature match.
+// Return only decoded in-memory Blob bytes, never a public S3 object URL.
+export async function decryptPaidAsset(
+  grant, chapterId, versionId, objectId, configuredS3Origin,
+  fetchCiphertext = fetch, now = Date.now()
+) {
+  requireValue(
+    grant?.schema === "tor.paid_asset_delivery.v1" &&
+    grant.chapter_id === chapterId && grant.version_id === versionId &&
+    grant.object_id === objectId &&
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(objectId) &&
+    grant.content?.cipher === "AES-256-GCM" &&
+    grant.content.codec === "none" &&
+    /^[0-9a-f]{64}$/.test(grant.content.object_sha256 || "")
+  );
+  const expires = Date.parse(grant.expires_at);
+  requireValue(Number.isFinite(expires) && expires > now &&
+    expires - now <= (MAX_SIGNED_SECONDS + 10) * 1000);
+  const url = verifiedS3URL(
+    grant.content.ciphertext_url, configuredS3Origin, objectId
+  );
+  const nonce = decodeBase64Url(grant.content.nonce_b64u);
+  const aad = decodeBase64Url(grant.content.aad_b64u);
+  const dek = decodeBase64Url(grant.content.dek_b64u);
+  requireValue(nonce.length === 12 && dek.length === 32 && aad.length < 256);
+  const metadata = new TextDecoder("utf-8", { fatal: true }).decode(aad).split("\n");
+  requireValue(metadata.length === 6 &&
+    metadata[0] === "tor.encrypted.asset.v1" &&
+    metadata[1] === chapterId && metadata[2] === versionId &&
+    metadata[3] === objectId && /^[0-9a-f]{64}$/.test(metadata[4]) &&
+    metadata[5] === "");
+  const ciphertext = await fetchVerifiedCiphertext(
+    url, grant.content, MAX_MEDIA_CIPHERTEXT_BYTES, fetchCiphertext
+  );
+  let clear;
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw", dek, { name: "AES-GCM" }, false, ["decrypt"]
+    );
+    clear = new Uint8Array(await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: 128 },
+      key, ciphertext
+    ));
+  } catch {
+    throw fail();
+  } finally {
+    dek.fill(0);
+  }
+  try {
+    requireValue(clear.length >= 16 && clear.length <= MAX_MEDIA_BYTES);
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", clear));
+    const hex = Array.from(hash, b => b.toString(16).padStart(2, "0")).join("");
+    requireValue(hex === metadata[4]);
+    const { mime, width, height } = boundedImageInfo(clear);
+    const blob = new Blob([clear], { type: mime });
+    const bitmap = await createImageBitmap(blob);
+    try {
+      requireValue(bitmap.width === width && bitmap.height === height);
+    } finally {
+      bitmap.close();
+    }
+    return blob;
+  } finally {
+    clear.fill(0);
+  }
 }
 
 export function renderPaidBlocks(container, text, onSave) {
