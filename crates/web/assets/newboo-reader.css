@@ -827,15 +827,16 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
     min-width: 44px;
     min-height: 44px;
   }
+  /* Keep the mobile lower TOC above its trigger, avoiding pointer capture. */
   .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
-    position: fixed;
+    position: absolute;
     top: auto;
-    bottom: max(16px, env(safe-area-inset-bottom));
-    left: 16px;
-    right: 16px;
-    width: auto;
-    max-height: min(70dvh, 520px);
-    transform: none;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    right: auto;
+    width: min(360px, calc(100vw - 32px));
+    max-height: min(42dvh, 360px);
+    transform: translateX(-50%);
   }
   .reader-paid .reader-paid__nav-card {
     padding: 11px;
