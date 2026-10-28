@@ -6,6 +6,7 @@ use tor_search::repositories::catalog::TaxonomyOptions;
 
 mod catalog_active_filters;
 mod catalog_taxonomy_selects;
+mod home_spotlight;
 
 #[derive(Clone, Debug)]
 pub struct PublicBookCard {
@@ -36,21 +37,18 @@ fn book_cards(
     };
     for book in books {
         let title = escape_html(&book.title);
-        let language = escape_html(&book.language);
         let mut details = String::new();
-        if let Some(author) = &book.author_name {
+        // Match the original NEwBOO BookCard: public author if present, not
+        // invented likes/comments or an extra language/genre metadata block.
+        if let Some(author) = book
+            .author_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+        {
             write!(
                 details,
-                "<p class=\"book-card__meta book-mini-card__meta\">Автор: {}</p>",
+                "<div class=\"book-mini-card__meta\">{}</div>",
                 escape_html(author),
-            )
-            .expect("format String");
-        }
-        if !book.genres.is_empty() {
-            write!(
-                details,
-                "<p class=\"book-card__meta book-mini-card__meta\">Жанры: {}</p>",
-                escape_html(&book.genres.join(", ")),
             )
             .expect("format String");
         }
@@ -69,47 +67,13 @@ fn book_cards(
         };
         write!(
             html,
-            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3><p class=\"book-mini-card__meta\">Язык: {language}</p>{details}</div></a></article>",
+            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
             book.id,
         )
         .expect("format String");
     }
     html.push_str("</div>");
     html
-}
-
-/// The public NEwBOO spotlight is populated only from actual published rows.
-fn spotlight(book: &PublicBookCard, covers: &HashSet<u64>) -> String {
-    let title = escape_html(&book.title);
-    let details = book
-        .author_name
-        .as_deref()
-        .map(escape_html)
-        .unwrap_or_else(|| format!("Язык: {}", escape_html(&book.language)));
-    let cover = if covers.contains(&book.id) {
-        format!(
-            r#"<img class="home-spotlight-card__cover" src="/covers/{}/main.webp" alt="" decoding="async" draggable="false">"#,
-            book.id
-        )
-    } else {
-        r#"<div class="home-spotlight-card__cover home-spotlight-card__cover--empty">Нет обложки</div>"#
-            .to_owned()
-    };
-    format!(
-        r#"<a class="home-spotlight-card" href="/books/{id}" aria-label="Открыть книгу {title}">
-           <div class="home-spotlight-card__inner">
-             <div class="home-spotlight-card__content">
-               <span class="home-spotlight-card__eyebrow">Недавно добавлена</span>
-               <h2 class="home-spotlight-card__title">{title}</h2>
-               <p class="home-spotlight-card__text">{details}</p>
-             </div>
-             <div class="home-spotlight-card__cover-wrap">
-               {cover}
-             </div>
-           </div>
-         </a>"#,
-        id = book.id
-    )
 }
 
 /// Group the already authorized latest-book rows without extra SQL queries.
@@ -168,11 +132,8 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
         <p class="home-showcase__text">Читайте опубликованные книги. Выберите доступную главу и продолжайте чтение в личной библиотеке.</p></div>
         <a class="ui-button ui-button--ghost" href="/catalog">Открыть каталог</a>
     </div>"#;
-    let hero = if latest {
-        books
-            .first()
-            .map(|book| spotlight(book, covers))
-            .unwrap_or_else(|| fallback.to_owned())
+    let hero = if latest && !books.is_empty() {
+        home_spotlight::render(books, covers)
     } else {
         fallback.to_owned()
     };
@@ -494,6 +455,28 @@ mod home_tests {
         .0;
         assert!(catalog.contains(r#"src="/covers/8/card.webp""#));
         assert!(!catalog.contains("/covers/3/"));
+    }
+
+    #[test]
+    fn h_10_cards_match_original_public_neboo_author_only_metadata() {
+        let mut card = book(42, "Пробная новелла");
+        card.author_name = Some("Имя автора".into());
+        card.genres = vec!["Детектив".into()];
+        let html = catalog(&[card]).0;
+        assert!(html.contains("book-mini-card__cover book-shimmer"));
+        assert!(html.contains("<div class=\"book-mini-card__meta\">Имя автора</div>"));
+        assert!(!html.contains("Язык: ru"));
+        assert!(!html.contains("Жанры:"));
+        assert!(!html.contains("Лайков:"));
+    }
+
+    #[test]
+    fn h_11_card_author_is_html_escaped() {
+        let mut card = book(43, "Название");
+        card.author_name = Some("<img src=x onerror=evil()>".into());
+        let html = catalog(&[card]).0;
+        assert!(html.contains("&lt;img src=x onerror=evil()&gt;"));
+        assert!(!html.contains("<img src=x"));
     }
 
     #[test]
