@@ -563,3 +563,49 @@ async fn d_05_pg_layer_requires_exactly_one_active_owner_member() {
     );
     pool.close().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_layer_unknown_revenue_schedule_cannot_debit() {
+    let (pool, repo, owner, buyer, book) = setup("unknown-economics").await;
+    let (layer, version, offer_id) = offer(&repo, owner, book, 250, false).await;
+
+    // Simulate a legacy/imported Book whose economic configuration has not
+    // been attested. Never replace missing data with fabricated owner 100%.
+    sqlx::query("DELETE FROM revenue_share_states WHERE book_id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offer_id, version, 250, 'A'))
+            .await,
+        Err(LayerError::Inaccessible)
+    );
+    let wallet: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(wallet, 1500);
+    let terms: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let commands: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM commerce_layer_commands WHERE user_id=$1",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((terms, commands), (0, 0), "no partial financial commit");
+    pool.close().await;
+}
