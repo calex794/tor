@@ -23,6 +23,7 @@ aws-sdk-s3 = { version = "1", optional = true }
 async-trait.workspace = true
 tor-reading = { path = "../reading" }
 tor-accounts = { path = "../accounts" }
+tor-referrals = { path = "../referrals" }
 tor-route_intelligence = { path = "../route_intelligence" }
 tor-traffic_behavior = { path = "../traffic_behavior" }
 tor-observability = { path = "../observability" }
