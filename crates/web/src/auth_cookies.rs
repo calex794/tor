@@ -25,7 +25,7 @@ impl CookiePolicy {
         }
     }
 
-    fn guest_name(&self) -> &\x27static str {
+    fn guest_name(&self) -> &'static str {
         if self.secure { "__Host-tor-guest" } else { "tor-dev-guest" }
     }
 
