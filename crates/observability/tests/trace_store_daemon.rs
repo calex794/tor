@@ -229,6 +229,49 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
 }
 
 #[test]
+fn a_stalled_trace_socket_never_blocks_http_and_enforces_queue_limit() {
+    use std::os::unix::net::UnixListener;
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("tor-obs10-stall-{}-{stamp}", std::process::id()));
+    fs::create_dir(&dir).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = dir.join("slow-writer.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    // Deliberately never accept or acknowledge: the background publisher
+    // must not wait on this socket from the visitor's request path.
+    let publisher = TracePublisher::new(Some(socket.clone()));
+    let started = Instant::now();
+    let trace = RequestTrace {
+        trace_id: 0x9f,
+        route: RouteGroup::Reader,
+        status: StatusGroup::ServerError,
+        duration_us: 40_000,
+        sqlx: None,
+    };
+    let mut rejected = 0_u64;
+    for _ in 0..2_000 {
+        if !publisher.try_publish(&trace) {
+            rejected += 1;
+        }
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "visitors must never wait for SQLite writer or IPC"
+    );
+    assert!(rejected > 0, "bounded queue must drop excess traces");
+    assert_eq!(publisher.counts().dropped, rejected);
+    assert_eq!(publisher.counts().sent, 0, "the writer sent no ACK");
+    drop(listener);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn no_public_tcp_or_world_readable_socket() {
     let source = include_str!("../bin/trace_store.rs");
     assert!(source.contains("UnixListener::bind"));
