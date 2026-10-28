@@ -222,13 +222,11 @@ async fn d_05_removed_books_are_accumulated_across_continuous_renewals() {
         .await
         .unwrap();
     }
-    sqlx::query(
-        "UPDATE revenue_share_states SET current_revision=2 WHERE book_id=$1",
-    )
-    .bind(book)
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE revenue_share_states SET current_revision=2 WHERE book_id=$1")
+        .bind(book)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
 
     let second = repo
@@ -243,7 +241,11 @@ async fn d_05_removed_books_are_accumulated_across_continuous_renewals() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(first_revisions, vec![(book, 1)], "first purchase froze rev1");
+    assert_eq!(
+        first_revisions,
+        vec![(book, 1)],
+        "first purchase froze rev1"
+    );
     let second_revisions: Vec<(i64, i64)> = sqlx::query_as(
         "SELECT book_id,share_revision
          FROM commerce_layer_term_share_snapshots WHERE term_id=$1 ORDER BY book_id",
@@ -564,7 +566,6 @@ async fn d_05_pg_layer_requires_exactly_one_active_owner_member() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_layer_unknown_revenue_schedule_cannot_debit() {
@@ -584,28 +585,25 @@ async fn d_05_layer_unknown_revenue_schedule_cannot_debit() {
             .await,
         Err(LayerError::Inaccessible)
     );
-    let wallet: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let wallet: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(wallet, 1500);
-    let terms: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let commands: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM commerce_layer_commands WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let terms: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let commands: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM commerce_layer_commands WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!((terms, commands), (0, 0), "no partial financial commit");
     pool.close().await;
 }
