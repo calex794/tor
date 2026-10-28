@@ -437,13 +437,12 @@ async fn d_05_storefront_block_does_not_revoke_paid_reading_but_book_hold_does()
         !repo.can_read_book(id(buyer), id(book)).await.unwrap(),
         "book-level hold overrides an otherwise paid term"
     );
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM commerce_layer_term_revocations WHERE term_id=$1",
-    )
-    .bind(receipt.term_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM commerce_layer_term_revocations WHERE term_id=$1")
+            .bind(receipt.term_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 0, "storefront block must not forge a revocation");
     pool.close().await;
 }
