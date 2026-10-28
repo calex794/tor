@@ -12,6 +12,11 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::{fmt, io::Write};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
+mod asset;
+#[cfg(any(feature = "pg", test))]
+pub use asset::seal_asset_with_keyring;
+pub use asset::{asset_aad, seal_asset, EncryptedAsset};
+
 use zeroize::Zeroizing;
 
 const KEK_ID: &str = "content-kek-v1";
