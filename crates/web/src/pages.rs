@@ -209,6 +209,14 @@ fn book_detail_body(
         r#"<div class="book-cover-xl" aria-label="Обложка пока не загружена"><span>Нет обложки</span></div>"#
             .to_owned()
     };
+    let discussion = if toc.is_some() {
+        format!(
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a></section>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let content = include_str!("../templates/book_detail.html")
         .replace("<!--BOOK_COVER-->", &cover)
         .replace("<!--BOOK_TITLE-->", &title)
@@ -217,7 +225,8 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
-        .replace("<!--CHAPTERS-->", toc.unwrap_or(""));
+        .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
+        .replace("<!--BOOK_DISCUSSION-->", &discussion);
     layout(
         &book.title,
         "Карточка книги в каталоге Пандаолейт.",
@@ -360,6 +369,7 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-home-carousel.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
+        css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');

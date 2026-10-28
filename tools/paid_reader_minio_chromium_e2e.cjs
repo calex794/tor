@@ -29,6 +29,7 @@ const orderedNewbooFiles = [
   "newboo-port.css",
   "newboo-home-carousel.css",
   "newboo-book-detail.css",
+  "newboo-comments.css",
   "newboo-reader.css",
   "newboo-cover-picker.css",
 ];

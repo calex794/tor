@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLASSIFIERS = (
     Path("crates/route_intelligence/src/domain/mod.rs"),
     Path("crates/route_intelligence/src/domain/routes.rs"),
+    Path("crates/route_intelligence/src/domain/route_classify.rs"),
 )
 _METHODS = r"get|post|put|patch|delete|head|options|trace"
 
