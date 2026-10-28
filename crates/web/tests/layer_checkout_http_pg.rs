@@ -86,13 +86,12 @@ async fn json_body(response: Response) -> Value {
 }
 
 async fn financial_state(pool: &PgPool, buyer: i64) -> (i64, i64, i64) {
-    let balance = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let balance =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     let terms = sqlx::query_scalar("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1")
         .bind(buyer)
         .fetch_one(pool)
@@ -151,9 +150,18 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     .await
     .unwrap();
     let layers = PgLayers::new(pool.clone());
-    let layer = layers.create_layer(id(owner), "D05 HTTP package").await.unwrap();
-    let version = layers.add_book(id(owner), id(layer), id(book)).await.unwrap();
-    let offer = layers.publish_offer(id(owner), id(layer), 90, false).await.unwrap();
+    let layer = layers
+        .create_layer(id(owner), "D05 HTTP package")
+        .await
+        .unwrap();
+    let version = layers
+        .add_book(id(owner), id(layer), id(book))
+        .await
+        .unwrap();
+    let offer = layers
+        .publish_offer(id(owner), id(layer), 90, false)
+        .await
+        .unwrap();
 
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
@@ -174,23 +182,69 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     let other_key = format!("{}8", "B".repeat(42));
 
     assert_eq!(
-        post(&app, &path, &valid, (None, None, None, Some(ORIGIN), Some(&key)))
-            .await
-            .status(),
+        post(
+            &app,
+            &path,
+            &valid,
+            (None, None, None, Some(ORIGIN), Some(&key))
+        )
+        .await
+        .status(),
         StatusCode::UNAUTHORIZED
     );
     for (cookie, posted, origin, idem, expected) in [
-        (Some(csrf.as_str()), Some(csrf.as_str()), None, Some(key.as_str()), StatusCode::FORBIDDEN),
-        (Some(csrf.as_str()), Some(csrf.as_str()), Some("https://evil.example"), Some(key.as_str()), StatusCode::FORBIDDEN),
-        (Some(csrf.as_str()), None, Some(ORIGIN), Some(key.as_str()), StatusCode::FORBIDDEN),
-        (None, Some(csrf.as_str()), Some(ORIGIN), Some(key.as_str()), StatusCode::FORBIDDEN),
-        (Some(csrf.as_str()), Some(csrf.as_str()), Some(ORIGIN), None, StatusCode::UNPROCESSABLE_ENTITY),
-        (Some(csrf.as_str()), Some(csrf.as_str()), Some(ORIGIN), Some("invalid"), StatusCode::UNPROCESSABLE_ENTITY),
+        (
+            Some(csrf.as_str()),
+            Some(csrf.as_str()),
+            None,
+            Some(key.as_str()),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(csrf.as_str()),
+            Some(csrf.as_str()),
+            Some("https://evil.example"),
+            Some(key.as_str()),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(csrf.as_str()),
+            None,
+            Some(ORIGIN),
+            Some(key.as_str()),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            None,
+            Some(csrf.as_str()),
+            Some(ORIGIN),
+            Some(key.as_str()),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(csrf.as_str()),
+            Some(csrf.as_str()),
+            Some(ORIGIN),
+            None,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            Some(csrf.as_str()),
+            Some(csrf.as_str()),
+            Some(ORIGIN),
+            Some("invalid"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
     ] {
         assert_eq!(
-            post(&app, &path, &valid, (Some(&buyer_token), cookie, posted, origin, idem))
-                .await
-                .status(),
+            post(
+                &app,
+                &path,
+                &valid,
+                (Some(&buyer_token), cookie, posted, origin, idem)
+            )
+            .await
+            .status(),
             expected
         );
     }
@@ -202,18 +256,40 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     })
     .to_string();
     assert_eq!(
-        post(&app, &path, &tampered, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key)))
-            .await
-            .status(),
+        post(
+            &app,
+            &path,
+            &tampered,
+            (
+                Some(&buyer_token),
+                Some(&csrf),
+                Some(&csrf),
+                Some(ORIGIN),
+                Some(&key)
+            )
+        )
+        .await
+        .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(financial_state(&pool, buyer).await, (300, 0, 0));
 
     let poor_csrf = generate_session_token();
     assert_eq!(
-        post(&app, &path, &valid, (Some(&poor_token), Some(&poor_csrf), Some(&poor_csrf), Some(ORIGIN), Some(&other_key)))
-            .await
-            .status(),
+        post(
+            &app,
+            &path,
+            &valid,
+            (
+                Some(&poor_token),
+                Some(&poor_csrf),
+                Some(&poor_csrf),
+                Some(ORIGIN),
+                Some(&other_key)
+            )
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "insufficient balance must fail without a paid term"
     );
@@ -226,9 +302,20 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     })
     .to_string();
     assert_eq!(
-        post(&app, &path, &wrong_price, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&other_key)))
-            .await
-            .status(),
+        post(
+            &app,
+            &path,
+            &wrong_price,
+            (
+                Some(&buyer_token),
+                Some(&csrf),
+                Some(&csrf),
+                Some(ORIGIN),
+                Some(&other_key)
+            )
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "a changed price is never silently accepted"
     );
@@ -236,8 +323,30 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
 
     // Two concurrent identical HTTP requests must commit exactly one wallet debit.
     let (first, second) = tokio::join!(
-        post(&app, &path, &valid, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key))),
-        post(&app, &path, &valid, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key))),
+        post(
+            &app,
+            &path,
+            &valid,
+            (
+                Some(&buyer_token),
+                Some(&csrf),
+                Some(&csrf),
+                Some(ORIGIN),
+                Some(&key)
+            )
+        ),
+        post(
+            &app,
+            &path,
+            &valid,
+            (
+                Some(&buyer_token),
+                Some(&csrf),
+                Some(&csrf),
+                Some(ORIGIN),
+                Some(&key)
+            )
+        ),
     );
     assert_eq!(first.status(), StatusCode::OK);
     assert_eq!(second.status(), StatusCode::OK);
@@ -252,16 +361,38 @@ async fn d_05_real_layer_http_pg_session_csrf_replay_and_wallet() {
     assert_eq!(financial_state(&pool, buyer).await, (210, 1, 1));
 
     assert_eq!(
-        post(&app, &path, &wrong_price, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&key)))
-            .await
-            .status(),
+        post(
+            &app,
+            &path,
+            &wrong_price,
+            (
+                Some(&buyer_token),
+                Some(&csrf),
+                Some(&csrf),
+                Some(ORIGIN),
+                Some(&key)
+            )
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "same key with changed purchase intent must not consume money"
     );
     assert_eq!(financial_state(&pool, buyer).await, (210, 1, 1));
 
     // A fresh key purchases one additional prepaid period, not a duplicate charge.
-    let renewed = post(&app, &path, &valid, (Some(&buyer_token), Some(&csrf), Some(&csrf), Some(ORIGIN), Some(&other_key)))
+    let renewed = post(
+        &app,
+        &path,
+        &valid,
+        (
+            Some(&buyer_token),
+            Some(&csrf),
+            Some(&csrf),
+            Some(ORIGIN),
+            Some(&other_key),
+        ),
+    )
     .await;
     assert_eq!(renewed.status(), StatusCode::OK);
     let renewal = json_body(renewed).await;
