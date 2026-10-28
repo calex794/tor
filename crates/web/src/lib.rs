@@ -34,6 +34,7 @@ mod observability;
 mod operator_overview;
 mod operator_traces;
 mod pages;
+mod book_error_pages;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
 mod paid_grants_http;
@@ -194,6 +195,11 @@ async fn book_toc(
     .into_response()
 }
 
+// H-11: never disclose whether a missing book was hidden or never existed.
+fn book_error(status: StatusCode) -> Response {
+    book_error_pages::book_error(status)
+}
+
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
@@ -206,14 +212,14 @@ async fn book_detail(
             .await
         {
             Ok(Some(book)) => book,
-            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-            Err(error) => return auth_cookies::private_response(reading_status(error), &[]),
+            Ok(None) => return book_error(StatusCode::NOT_FOUND),
+            Err(error) => return book_error(reading_status(error)),
         };
         let has_cover = if let Some(delivery) = state.covers.as_ref() {
             match delivery.available_card_ids(&[book.id]).await {
                 Ok(ids) => ids.contains(&book.id),
                 Err(_) => {
-                    return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
+                    return book_error(StatusCode::SERVICE_UNAVAILABLE)
                 }
             }
         } else {
@@ -222,14 +228,14 @@ async fn book_detail(
         if let Some(catalog) = state.postgres.as_ref() {
             let id = match i64::try_from(book.id) {
                 Ok(id) => id,
-                Err(_) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+                Err(_) => return book_error(StatusCode::NOT_FOUND),
             };
             let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
             let stars = match store.visible_summary(id).await {
                 Ok(Some(stars)) => stars,
-                Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+                Ok(None) => return book_error(StatusCode::NOT_FOUND),
                 Err(_) => {
-                    return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
+                    return book_error(StatusCode::SERVICE_UNAVAILABLE)
                 }
             };
             return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
@@ -240,8 +246,8 @@ async fn book_detail(
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
         Ok(Some(book)) => book,
-        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Ok(None) => return book_error(StatusCode::NOT_FOUND),
+        Err(_) => return book_error(StatusCode::SERVICE_UNAVAILABLE),
     };
     pages::book_detail(&pages::PublicBookCard {
         id: book.id(),
