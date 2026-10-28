@@ -1,4 +1,4 @@
-// Real desktop/mobile acceptance: register -> draft -> chapter -> release -> read.
+// Real desktop/mobile acceptance: draft-book release and immediate public free Save.
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -98,48 +98,54 @@ async function inspect(page, viewport, name) {
         viewport + ': published chapter text missing');
       await inspect(page, viewport, 'reader');
 
-      // B-06: a second chapter on this ALREADY PUBLIC book remains hidden.
+      // BKR-96: one Save on an already public book immediately publishes
+      // the new free chapter, without a second release confirmation.
       await page.goto(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
+      assert(await page.getByText(/сразу после сохранения/).isVisible(),
+        viewport + ': immediate release help text missing');
       await page.getByLabel('Номер главы').fill('2');
-      await page.getByLabel('Название главы').fill('Вторая глава закрыта');
-      await page.getByLabel('Текст главы').fill('PRIVATE B06 old');
+      await page.getByLabel('Название главы').fill('Вторая глава опубликована');
+      await page.getByLabel('Текст главы').fill('PUBLIC B06 new');
+      await inspect(page, viewport, 'second-editor');
       await page.getByRole('button', { name: 'Сохранить главу' }).click();
       await page.waitForURL(base + '/me/books/' + bookId);
-      assert(await page.getByText(/Черновик \(не виден читателям\)/).isVisible(),
-        viewport + ': chapter draft visibility marker missing');
-      await inspect(page, viewport, 'second-draft');
-      const publicDraftBook = await page.goto(base + '/books/' + bookId);
-      assert(publicDraftBook && publicDraftBook.status() === 200,
-        viewport + ': public book lost when second chapter saved');
-      assert(!(await page.content()).includes('Вторая глава закрыта'),
-        viewport + ': second chapter leaked into public table of contents');
+      assert(await page.getByText('Вторая глава опубликована').isVisible(),
+        viewport + ': second saved chapter missing in author list');
+      assert(!(await page.content()).includes('Черновик (не виден читателям)'),
+        viewport + ': saved free chapter must be released immediately');
+      assert(await page.getByRole('link', { name: 'Выпустить главу' }).count() === 0,
+        viewport + ': released free chapter still asks for confirmation');
+      await inspect(page, viewport, 'second-published-author');
 
-      await page.goto(base + '/me/books/' + bookId);
-      await page.getByRole('link', { name: 'Редактировать' }).click();
-      await page.waitForURL(/\/chapters\/\d+\/edit$/);
-      await page.getByLabel('Текст главы').fill('PUBLIC B06 new');
-      await page.getByRole('button', { name: 'Сохранить изменения' }).click();
-      await page.waitForURL(base + '/me/books/' + bookId);
-      await page.getByRole('link', { name: 'Выпустить главу' }).click();
-      await page.waitForURL(/\/chapters\/\d+\/release$/);
-      assert(await page.getByText('PUBLIC B06 new').isVisible(),
-        viewport + ': confirmation must preview the latest draft');
-      await inspect(page, viewport, 'release-confirmation');
-      await page.getByRole('button', { name: 'Опубликовать эту главу' }).click();
-      await page.waitForURL(base + '/books/' + bookId);
-      assert(await page.getByRole('link', { name: /Глава 2.*Вторая глава закрыта/ }).isVisible(),
-        viewport + ': second chapter not public after owner release');
-      await inspect(page, viewport, 'second-released');
-      await page.getByRole('link', { name: /Глава 2.*Вторая глава закрыта/ }).click();
+      const publicBook = await page.goto(base + '/books/' + bookId);
+      assert(publicBook && publicBook.status() === 200,
+        viewport + ': public book missing after second Save');
+      const secondLink = page.getByRole('link', { name: /Глава 2.*Вторая глава опубликована/ });
+      assert(await secondLink.isVisible(),
+        viewport + ': second free chapter not visible in public TOC');
+      const href = await secondLink.getAttribute('href');
+      assert(href && /^\/reader\/\d+$/.test(href),
+        viewport + ': released chapter reader link invalid');
+      await inspect(page, viewport, 'second-public-toc');
+      await secondLink.click();
       await page.waitForURL(/\/reader\/\d+$/);
       assert(await page.getByText('PUBLIC B06 new').isVisible(),
-        viewport + ': reader does not show approved second version');
+        viewport + ': reader did not display new public version');
       await inspect(page, viewport, 'second-reader');
+
+      // Already public free chapters cannot re-enter draft edit/release forms.
+      const chapterId = href.split('/').pop();
+      for (const action of ['edit', 'release']) {
+        const response = await page.goto(base + '/me/books/' + bookId +
+          '/chapters/' + chapterId + '/' + action);
+        assert(response && response.status() === 404,
+          viewport + ': public free chapter exposed a pending ' + action + ' route');
+      }
       await context.close();
     }
-    console.log('TOR B-06 browser PASS: 390/1440 public book, hidden second chapter, edit, confirm, release, reader');
+    console.log('TOR BKR-96 browser PASS: 390/1440 draft-book release, immediate second free Save, public reader');
   } finally {
     await browser.close();
   }

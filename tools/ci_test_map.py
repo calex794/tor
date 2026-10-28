@@ -35,6 +35,7 @@ CRITICAL_PACKAGES = {
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
+    "tor-discussions",
 }
 
 # Standalone test/harness edits do not change the library consumed by other suites.
@@ -52,6 +53,8 @@ TEST_SUITES = {
     "crates/search/tests/search_pg.rs": {"rust", "postgres"},
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/discussions/tests/public_book_comments_pg.rs": {"rust", "postgres"},
     "crates/observability/tests/store_sqlite.rs": {"rust"},
     "crates/observability/tests/trace_store_daemon.rs": {"rust"},
     "tools/visual-smoke.cjs": {"visual"},

@@ -532,8 +532,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         StatusCode::NOT_FOUND,
         "published chapter text cannot be edited as a draft"
     );
-    // B-06: after the first release, new chapters stay hidden until an
-    // explicit owner confirmation of the current immutable version.
+    // BKR-96: normal Save in a published book is an immediate release; the
+    // historical B-06 explicit release API remains available for old drafts.
     b06_cases::publish_second_chapter(&app, book_id, &book_path, &session, &author_cookies).await;
     assert_eq!(
         send(
