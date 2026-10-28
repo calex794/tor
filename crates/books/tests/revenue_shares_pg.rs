@@ -176,9 +176,11 @@ async fn b_10_pg_atomic_revisions_preserve_100_percent_and_old_schedule() {
 async fn b_10_pg_two_concurrent_replacements_have_one_winner() {
     let (pool, owner, editor, book) = fixture("race").await;
     let repo = PgRevenueShares::new(pool.clone());
+    let proposed_a = shares(owner, editor, 60);
+    let proposed_b = shares(owner, editor, 70);
     let (a, b) = tokio::join!(
-        repo.replace_schedule(owner, book, 1, &shares(owner, editor, 60), "racer A"),
-        repo.replace_schedule(owner, book, 1, &shares(owner, editor, 70), "racer B")
+        repo.replace_schedule(owner, book, 1, &proposed_a, "racer A"),
+        repo.replace_schedule(owner, book, 1, &proposed_b, "racer B")
     );
     assert_eq!([a, b].iter().filter(|v| v.is_ok()).count(), 1);
     assert_eq!(
