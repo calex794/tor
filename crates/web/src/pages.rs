@@ -104,7 +104,13 @@ pub fn book_detail_with_chapters_cover(
         .iter()
         .find(|chapter| !chapter.is_paid)
         .map(|chapter| chapter.id);
-    book_detail_body(&card, Some(&section), first_free, has_cover, Some(&book.description))
+    book_detail_body(
+        &card,
+        Some(&section),
+        first_free,
+        has_cover,
+        Some(&book.description),
+    )
 }
 
 /// F-05: two independent public indicators, copied from NEwBOO's

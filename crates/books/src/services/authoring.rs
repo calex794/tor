@@ -140,7 +140,9 @@ pub fn new_book_with_taxonomy(
 pub fn normalize_book_description(raw: &str) -> Result<String, AuthorError> {
     let clean = raw.trim().replace("\r\n", "\n").replace('\r', "\n");
     if clean.chars().count() > 4000
-        || clean.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
+        || clean
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
     {
         return Err(AuthorError::Invalid);
     }
