@@ -11,7 +11,8 @@ impl BookUrl {
 
     pub fn from_exact_path(path: &str) -> Option<Self> {
         let raw = path.strip_prefix("/books/")?;
-        if raw.is_empty() || raw.starts_with('0') || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
+        if raw.is_empty() || raw.starts_with('0') || !raw.bytes().all(|byte| byte.is_ascii_digit())
+        {
             return None;
         }
         let url = Self::from_id(raw.parse::<u64>().ok()?)?;
@@ -43,9 +44,9 @@ impl TrustedSeoOrigin {
         let authority = authority.strip_suffix('/').unwrap_or(authority);
         if authority.is_empty()
             || authority.len() > 253
-            || !authority
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.' || byte == b'-')
+            || !authority.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.' || byte == b'-'
+            })
         {
             return None;
         }
