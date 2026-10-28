@@ -50,4 +50,45 @@ async fn seo02_author_create_is_idempotent_and_description_is_persisted() {
         repo.create_owned_book(user, &changed).await,
         Err(AuthorError::Conflict)
     );
+
+    let stranger: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'SEO Stranger','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("seo02-stranger-{stamp}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(repo.owned_book_description(stranger, id).await.unwrap(), None);
+    assert_eq!(
+        repo.update_book_description(stranger, id, "подмена").await,
+        Err(AuthorError::Missing)
+    );
+    assert_eq!(
+        repo.update_book_description(user, id, &"Ж".repeat(4001)).await,
+        Err(AuthorError::Invalid)
+    );
+    let injected = "</textarea><script>не исполнять</script>";
+    assert_eq!(repo.update_book_description(user, id, injected).await, Ok(()));
+    assert_eq!(
+        repo.owned_book_description(user, id).await.unwrap().as_deref(),
+        Some(injected)
+    );
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(repo.owned_book_description(user, id).await.unwrap(), None);
+    assert_eq!(
+        repo.update_book_description(user, id, "после блокировки").await,
+        Err(AuthorError::Missing)
+    );
+    let stored: String = sqlx::query_scalar("SELECT description FROM books WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, injected);
 }
+

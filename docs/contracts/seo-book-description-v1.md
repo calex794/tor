@@ -29,3 +29,12 @@ canonical/robots/OG/JSON-LD.
 
 Эталон: https://github.com/HeisLuka/newboo/blob/main/backend/app/services/seo/metadata.py
 План: https://app.notion.com/p/40632a84beec81bc9fa7eba5030367f6
+
+## SEO-02b (отдельная ветка)
+
+Добавлены операторски проверяемые `GET/POST /me/books/{id}/description`:
+форма только для владельца, CSRF/Origin, жёсткая проверка owner_user_id,
+блокировок и удаления; RIL-08 реестр охраны и отрицательные проверки.
+Проверка `seo_description_pg` расширена сценарием другого автора,
+запретом изменения блокированной книги и недопущением HTML-инъекции.
+Отдельные права на платное чтение не затрагиваются.
