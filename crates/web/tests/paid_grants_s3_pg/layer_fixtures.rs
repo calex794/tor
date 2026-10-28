@@ -9,7 +9,7 @@ pub(super) async fn assert_layer_s3_grants(
     users: (i64, i64),
     edition: (i64, i64, i64),
     credentials: (&str, &str),
-) {
+) -> String {
     let (author, subscriber) = users;
     let (book, chapter, published) = edition;
     let (cookie, csrf) = credentials;
@@ -172,4 +172,5 @@ pub(super) async fn assert_layer_s3_grants(
         StatusCode::FORBIDDEN,
         "revoked Layer must never receive a fresh browser reader shell"
     );
+    body
 }
