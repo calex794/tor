@@ -49,13 +49,9 @@ async fn decision(
     chapter: i64,
     purchase: Option<i64>,
 ) -> EntitlementDecision {
-    repo.resolve_entitlement(
-        Actor { user_id: id(actor) },
-        id(chapter),
-        purchase.map(id),
-    )
-    .await
-    .unwrap()
+    repo.resolve_entitlement(Actor { user_id: id(actor) }, id(chapter), purchase.map(id))
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -88,13 +84,11 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
 
     // Future publication and unpublished content are never revealed by
     // the book-level Layer right.
-    sqlx::query(
-        "UPDATE chapters SET reader_released_at=now()+INTERVAL '1 day' WHERE id=$1",
-    )
-    .bind(chapter)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE chapters SET reader_released_at=now()+INTERVAL '1 day' WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         decision(&resolver, buyer, chapter, None).await,
         EntitlementDecision::Denied {

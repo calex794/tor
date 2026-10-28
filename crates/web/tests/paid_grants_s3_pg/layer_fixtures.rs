@@ -1,9 +1,6 @@
 //! A real PostgreSQL Layer purchase through the already configured S3 grant.
 use super::*;
-use tor_commerce::{
-    domain::layers::LayerCheckoutCommand,
-    repositories::layers::PgLayers,
-};
+use tor_commerce::{domain::layers::LayerCheckoutCommand, repositories::layers::PgLayers};
 
 pub(super) async fn assert_layer_s3_grants(
     repo: PgLayers,
@@ -90,7 +87,10 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(granted.status(), StatusCode::OK);
-    assert_eq!(granted.headers()[header::CACHE_CONTROL], "private, no-store");
+    assert_eq!(
+        granted.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
     let payload = decode(granted).await;
     assert_eq!(payload["version_id"], published.to_string());
     assert_eq!(payload["schema"], "tor.paid_delivery.v1");
