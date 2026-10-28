@@ -9,6 +9,8 @@ mod account;
 pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
+mod reader_layer;
+pub use reader_layer::layer_reader_shell;
 mod reader_private;
 pub use reader_private::private_reader;
 mod reader_paid;
@@ -409,6 +411,17 @@ pub async fn paid_reader_script() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         include_str!("../assets/newboo-paid-reader.mjs"),
+    )
+}
+
+/// Browser-only Layer CURRENT reader. Imports the existing paid WebCrypto module.
+pub async fn layer_reader_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-layer-reader.mjs"),
     )
 }
 
