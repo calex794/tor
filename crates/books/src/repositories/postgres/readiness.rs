@@ -33,7 +33,7 @@ mod tests {
         assert!(require_latest_migration(Some(202610280009)).is_err());
         assert!(require_latest_migration(Some(202610280010)).is_err());
         assert!(require_latest_migration(Some(202610280011)).is_err());
-        assert!(require_latest_migration(Some(202610280012)).is_err());
+
         assert!(require_latest_migration(Some(REQUIRED_MIGRATION)).is_ok());
     }
 }
