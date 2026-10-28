@@ -238,3 +238,152 @@ $$;
 CREATE TRIGGER b09_layer_member_fence
     BEFORE INSERT OR UPDATE OF role,is_active ON book_members
     FOR EACH ROW EXECUTE FUNCTION b09_layer_block_membership_changes();
+
+
+-- D-05 x B-10: an immutable, per-Book economic provenance snapshot for
+-- every paid Layer term. This is NOT a creator payout or fee allocation.
+-- Initial and renewed terms freeze versions of all Books actually included
+-- in the buyer's origin..base Layer composition at PURCHASE time.
+-- Later Book additions may create reader rights but require a separate
+-- future economic-accrual policy; never retroactively alter this snapshot.
+CREATE TABLE commerce_layer_term_share_snapshots (
+    term_id BIGINT NOT NULL REFERENCES commerce_layer_terms(id) ON DELETE RESTRICT,
+    book_id BIGINT NOT NULL REFERENCES books(id) ON DELETE RESTRICT,
+    share_revision BIGINT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY(term_id,book_id),
+    FOREIGN KEY(book_id,share_revision)
+        REFERENCES revenue_share_versions(book_id,revision) ON DELETE RESTRICT
+);
+
+CREATE TABLE commerce_layer_term_share_lines (
+    term_id BIGINT NOT NULL,
+    book_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    share_percent SMALLINT NOT NULL CHECK(share_percent BETWEEN 1 AND 100),
+    PRIMARY KEY(term_id,book_id,user_id),
+    FOREIGN KEY(term_id,book_id)
+        REFERENCES commerce_layer_term_share_snapshots(term_id,book_id)
+        ON DELETE RESTRICT
+);
+
+-- A snapshot cannot point at a different Layer, a Book absent from this
+-- term's paid version range, or a stale/currently invalid economics revision.
+CREATE FUNCTION d05_verify_term_share_source()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM commerce_layer_terms t
+        JOIN commerce_layer_versions origin
+          ON origin.id=t.access_origin_version_id AND origin.layer_id=t.layer_id
+        JOIN commerce_layer_versions base
+          ON base.id=t.base_version_id AND base.layer_id=t.layer_id
+        JOIN commerce_layer_versions v
+          ON v.layer_id=t.layer_id
+          AND v.version_no BETWEEN origin.version_no AND base.version_no
+        JOIN commerce_layer_version_books vb
+          ON vb.layer_version_id=v.id AND vb.book_id=NEW.book_id
+        JOIN revenue_share_states s
+          ON s.book_id=vb.book_id AND s.current_revision=NEW.share_revision
+        WHERE t.id=NEW.term_id
+    ) THEN
+        RAISE EXCEPTION 'term share book/revision is not current or in paid composition'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER d05_term_share_source
+    BEFORE INSERT ON commerce_layer_term_share_snapshots
+    FOR EACH ROW EXECUTE FUNCTION d05_verify_term_share_source();
+
+CREATE FUNCTION d05_verify_term_share_line()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM commerce_layer_term_share_snapshots s
+        JOIN revenue_share_assignments a
+          ON a.book_id=s.book_id AND a.revision=s.share_revision
+        WHERE s.term_id=NEW.term_id AND s.book_id=NEW.book_id
+          AND a.user_id=NEW.user_id AND a.share_percent=NEW.share_percent
+    ) THEN
+        RAISE EXCEPTION 'term participant share is not from the frozen revision'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER d05_term_share_line_exact
+    BEFORE INSERT ON commerce_layer_term_share_lines
+    FOR EACH ROW EXECUTE FUNCTION d05_verify_term_share_line();
+
+-- A Book row with revision N must include every participant of N and
+-- exactly 100%; nothing partial may become a committed paid entitlement.
+CREATE FUNCTION d05_verify_term_share_lines_complete()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    expected_count BIGINT;
+    actual_count BIGINT;
+    actual_total BIGINT;
+BEGIN
+    SELECT COUNT(*) INTO expected_count
+    FROM revenue_share_assignments
+    WHERE book_id=NEW.book_id AND revision=NEW.share_revision;
+
+    SELECT COUNT(*),COALESCE(SUM(share_percent),0)
+      INTO actual_count,actual_total
+    FROM commerce_layer_term_share_lines
+    WHERE term_id=NEW.term_id AND book_id=NEW.book_id;
+
+    IF actual_count<>expected_count OR actual_total<>100 THEN
+        RAISE EXCEPTION 'incomplete Layer Book revenue-share snapshot'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER d05_term_share_snapshot_complete
+    AFTER INSERT ON commerce_layer_term_share_snapshots
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION d05_verify_term_share_lines_complete();
+
+-- The term itself must have precisely one snapshot per Book whose paid
+-- composition version existed between the term origin and its base.
+-- Fail closed if even one legacy Book has no B-10 revenue authority.
+CREATE FUNCTION d05_verify_term_economic_coverage()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    expected_count BIGINT;
+    actual_count BIGINT;
+BEGIN
+    SELECT COUNT(DISTINCT vb.book_id) INTO expected_count
+    FROM commerce_layer_versions origin
+    JOIN commerce_layer_versions base ON base.layer_id=origin.layer_id
+    JOIN commerce_layer_versions v ON v.layer_id=origin.layer_id
+      AND v.version_no BETWEEN origin.version_no AND base.version_no
+    JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
+    WHERE origin.id=NEW.access_origin_version_id
+      AND base.id=NEW.base_version_id
+      AND origin.layer_id=NEW.layer_id;
+
+    SELECT COUNT(*) INTO actual_count
+    FROM commerce_layer_term_share_snapshots WHERE term_id=NEW.id;
+
+    IF expected_count=0 OR actual_count<>expected_count THEN
+        RAISE EXCEPTION 'Layer purchase lacks complete Book economics provenance'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER d05_term_coverage_complete
+    AFTER INSERT ON commerce_layer_terms
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION d05_verify_term_economic_coverage();
+
+CREATE TRIGGER d05_term_share_snapshots_immutable
+    BEFORE UPDATE OR DELETE ON commerce_layer_term_share_snapshots
+    FOR EACH ROW EXECUTE FUNCTION reject_purchase_history_mutation();
+CREATE TRIGGER d05_term_share_lines_immutable
+    BEFORE UPDATE OR DELETE ON commerce_layer_term_share_lines
+    FOR EACH ROW EXECUTE FUNCTION reject_purchase_history_mutation();
