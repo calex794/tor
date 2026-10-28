@@ -35,11 +35,22 @@ async fn fixture(name: &str, balance: i64, price: i64) -> (PgPool, i64, i64, i64
     .execute(&pool)
     .await
     .unwrap();
+    // Every sellable owned Book has a server-derived B-10 economic schedule.
+    // Anonymous legacy catalog rows must never fabricate historical shares.
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Commerce CI owner','$argon2id$ci') RETURNING id",
+    )
+    .bind(format!("d02_owner_{name}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Проверка покупки','public') RETURNING id",
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','Проверка покупки','public',$2) RETURNING id",
     )
     .bind(format!("ci:d02:{name}"))
+    .bind(owner)
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -535,4 +546,204 @@ async fn d_03_visibility_does_not_erase_purchase_but_hard_holds_always_deny() {
             .unwrap(),
         denied(DenialReason::Locked)
     );
+}
+
+/// D-owned test fixture, not an economics mutation API. The B-10 PG suite
+/// separately tests owner authorization and revision CAS in tor-books.
+async fn set_fixture_economics_revision(
+    pool: &PgPool,
+    book: i64,
+    actor: i64,
+    expected: i64,
+    recipients: &[(i64, i16)],
+) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM books WHERE id=$1 FOR UPDATE")
+        .bind(book)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_versions
+         (book_id,revision,changed_by_user_id,reason)
+         VALUES($1,$2,$3,'checkout fixture transition')",
+    )
+    .bind(book)
+    .bind(expected + 1)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for &(user_id, percent) in recipients {
+        sqlx::query(
+            "INSERT INTO revenue_share_assignments
+             (book_id,revision,user_id,share_percent)
+             VALUES($1,$2,$3,$4)",
+        )
+        .bind(book)
+        .bind(expected + 1)
+        .bind(user_id)
+        .bind(percent)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "UPDATE revenue_share_states SET current_revision=$2
+         WHERE book_id=$1 AND current_revision=$3",
+    )
+    .bind(book)
+    .bind(expected + 1)
+    .bind(expected)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn b_10_pg_paid_purchase_freezes_share_revision_and_exact_member_percentages() {
+    let (pool, buyer, book, chapter, version) = fixture("share_snapshot", 900, 100).await;
+    let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let editor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b10-commerce-editor@example.test','B10 editor','$argon2id$ci') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role,is_active)
+         VALUES($1,$2,'translator',TRUE)",
+    )
+    .bind(book)
+    .bind(editor)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    set_fixture_economics_revision(&pool, book, owner, 1, &[(owner, 80), (editor, 20)]).await;
+
+    let checkout = PgCheckout::new(pool.clone());
+    let command_one = command(buyer, chapter, version, 100, 'A');
+    let first = checkout.checkout_once(&command_one).await.unwrap();
+    assert_eq!(first.balance_after.get(), 800);
+    let (pinned_revision, gross): (i64, i64) = sqlx::query_as(
+        "SELECT share_revision,gross_amount_minor
+         FROM chapter_purchase_share_snapshots WHERE purchase_id=$1",
+    )
+    .bind(first.purchase_id.get())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((pinned_revision, gross), (2, 100));
+    let old_lines: Vec<(i64, i16)> = sqlx::query_as(
+        "SELECT user_id,share_percent FROM chapter_purchase_share_lines
+         WHERE purchase_id=$1 ORDER BY user_id",
+    )
+    .bind(first.purchase_id.get())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(old_lines.len(), 2);
+    assert!(old_lines.contains(&(owner, 80)));
+    assert!(old_lines.contains(&(editor, 20)));
+
+    set_fixture_economics_revision(&pool, book, owner, 2, &[(owner, 100)]).await;
+    assert_eq!(
+        checkout
+            .checkout_once(&command_one)
+            .await
+            .unwrap()
+            .purchase_id,
+        first.purchase_id,
+        "historical idempotent receipt must ignore later share revision"
+    );
+    let persisted: Vec<(i64, i16)> = sqlx::query_as(
+        "SELECT user_id,share_percent FROM chapter_purchase_share_lines
+         WHERE purchase_id=$1 ORDER BY user_id",
+    )
+    .bind(first.purchase_id.get())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(persisted, old_lines);
+    assert!(
+        sqlx::query(
+            "UPDATE chapter_purchase_share_snapshots SET share_revision=3
+             WHERE purchase_id=$1",
+        )
+        .bind(first.purchase_id.get())
+        .execute(&pool)
+        .await
+        .is_err(),
+        "old purchase must not be reassigned to current split"
+    );
+    assert!(
+        sqlx::query("DELETE FROM chapter_purchase_share_lines WHERE purchase_id=$1")
+            .bind(first.purchase_id.get())
+            .execute(&pool)
+            .await
+            .is_err(),
+        "historical split cannot be removed"
+    );
+
+    let (chapter_two, version_two) = chapter_with_offer(&pool, book, 2, 100).await;
+    let second = checkout
+        .checkout_once(&command(buyer, chapter_two, version_two, 100, 'B'))
+        .await
+        .unwrap();
+    assert_eq!(second.balance_after.get(), 700);
+    let fresh: (i64, i16) = sqlx::query_as(
+        "SELECT s.share_revision,l.share_percent
+         FROM chapter_purchase_share_snapshots s
+         JOIN chapter_purchase_share_lines l ON l.purchase_id=s.purchase_id
+         WHERE s.purchase_id=$1 AND l.user_id=$2",
+    )
+    .bind(second.purchase_id.get())
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(fresh, (3, 100));
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
+    let (pool, buyer, _, _, _) = fixture("unverified_sale", 900, 100).await;
+    let legacy_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES('ci:b10:unknown:commerce','ru','Unknown old economics','public')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (chapter, version) = chapter_with_offer(&pool, legacy_book, 1, 100).await;
+    let r = PgCheckout::new(pool.clone())
+        .checkout_once(&command(buyer, chapter, version, 100, 'C'))
+        .await;
+    assert_eq!(r, Err(CheckoutError::Inaccessible));
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, 900);
+    let purchases: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_purchase_facts WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(purchases, 0);
+    pool.close().await;
 }

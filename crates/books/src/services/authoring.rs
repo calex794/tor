@@ -32,6 +32,7 @@ pub struct NewBook {
     pub title: String,
     pub command_key: String,
     pub author_name: String,
+    pub description: String,
     pub genres: Vec<String>,
     pub tags: Vec<String>,
     pub fandoms: Vec<String>,
@@ -60,6 +61,7 @@ pub fn new_book(
         title: title.to_owned(),
         command_key: command_key.to_owned(),
         author_name: String::new(),
+        description: String::new(),
         genres: Vec::new(),
         tags: Vec::new(),
         fandoms: Vec::new(),
@@ -131,6 +133,24 @@ pub fn new_book_with_taxonomy(
         new_book_with_discovery(source, language, title, command_key, author_name, genres)?;
     book.tags = normalize_taxonomy_labels(taxonomy.tags)?;
     book.fandoms = normalize_taxonomy_labels(taxonomy.fandoms)?;
+    Ok(book)
+}
+
+/// B-owned optional description, never generated from private chapter content.
+pub fn normalize_book_description(raw: &str) -> Result<String, AuthorError> {
+    let clean = raw.trim().replace("\r\n", "\n").replace('\r', "\n");
+    if clean.chars().count() > 4000
+        || clean
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return Err(AuthorError::Invalid);
+    }
+    Ok(clean)
+}
+
+pub fn with_book_description(mut book: NewBook, value: &str) -> Result<NewBook, AuthorError> {
+    book.description = normalize_book_description(value)?;
     Ok(book)
 }
 
@@ -381,6 +401,17 @@ mod tests {
         .is_err());
         let legacy = new_book_with_discovery("source:1", "ru", "Роман", KEY, "", "").unwrap();
         assert!(legacy.tags.is_empty() && legacy.fandoms.is_empty());
+    }
+
+    #[test]
+    fn seo02_book_description_validates_control_chars_and_size() {
+        let book = new_book("source:seo", "ru", "Книга", KEY).unwrap();
+        assert!(book.description.is_empty());
+        let edited = with_book_description(book, "  Первая строка\r\nВторая  ").unwrap();
+        assert_eq!(edited.description, "Первая строка\nВторая");
+        assert!(normalize_book_description(&"Ж".repeat(4001)).is_err());
+        assert!(normalize_book_description("Текст\0ошибка").is_err());
+        assert_eq!(normalize_book_description("  "), Ok(String::new()));
     }
 
     #[test]

@@ -598,6 +598,11 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(visible_page.status(), StatusCode::OK);
     let visible_html = html_body(visible_page).await;
     assert!(visible_html.contains("data-toc-state=\"free\""));
+    assert_eq!(visible_html.matches("data-paid-chapter-nav").count(), 2);
+    assert!(visible_html.contains("data-paid-nav-prev aria-disabled=\"true\""));
+    assert!(visible_html.contains(&format!(
+        "data-paid-nav-next rel=\"next\" href=\"/read/paid/{chapter_two}?purchase_id={purchase_two_id}\""
+    )));
     assert!(visible_html.contains("data-toc-state=\"owned\""));
     assert!(visible_html.contains("data-toc-state=\"locked\""));
     assert!(visible_html.contains(&format!("href=\"/reader/{free_chapter}\"")));
@@ -611,6 +616,20 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert!(!visible_html.contains("SECRET_FUTURE_CHAPTER"));
     assert!(!visible_html.contains("<svg onload="));
     assert!(!visible_html.contains("<img src=x"));
+
+    // Chapter 2 has both a verified paid predecessor (V1) and a publicly
+    // readable free successor. Neither link is derived from progress data.
+    let adjacent = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
+    assert_eq!(adjacent.status(), StatusCode::OK);
+    let adjacent_html = html_body(adjacent).await;
+    assert!(adjacent_html.contains(&format!(
+        "data-paid-nav-prev rel=\"prev\" href=\"/read/paid/{chapter}?purchase_id={purchase_id}\""
+    )));
+    assert!(adjacent_html.contains(&format!(
+        "data-paid-nav-next rel=\"next\" href=\"/reader/{free_chapter}\""
+    )));
+    assert!(!adjacent_html.contains(&format!("href=\"/reader/{locked_chapter}\"")));
+    assert!(!adjacent_html.contains("SECRET_DRAFT_CHAPTER"));
 
     pg(
         &url,

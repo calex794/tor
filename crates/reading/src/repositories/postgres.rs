@@ -88,7 +88,7 @@ impl PgReader {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT id, title, target_language FROM books \
+            "SELECT id, title, target_language, author_name, genres, description FROM books \
              WHERE id = $1 AND visibility = 'public' AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(id)
@@ -143,6 +143,9 @@ impl PgReader {
             id: positive_id(book.try_get("id").map_err(map_db)?)?,
             title: book.try_get("title").map_err(map_db)?,
             language: book.try_get("target_language").map_err(map_db)?,
+            author_name: book.try_get("author_name").map_err(map_db)?,
+            genres: book.try_get("genres").map_err(map_db)?,
+            description: book.try_get("description").map_err(map_db)?,
             chapters,
             next_cursor,
         }))
