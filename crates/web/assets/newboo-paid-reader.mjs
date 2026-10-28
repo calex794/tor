@@ -334,6 +334,7 @@ export function renderPaidBlocks(container, text, onSave, onImage = null) {
       /^!\\[([^\\]\\r\\n]{0,160})\\]\\(asset:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\\)$/gm;
     let cursor = 0;
     let media = 0;
+    const mediaFrames = [];
     if (onImage) {
       for (const match of block.matchAll(imagePattern)) {
         const before = block.slice(cursor, match.index);
@@ -357,7 +358,7 @@ export function renderPaidBlocks(container, text, onSave, onImage = null) {
           figure.append(caption);
         }
         section.append(figure);
-        onImage(frame, match[2], match[1]);
+        mediaFrames.push([frame, match[2], match[1]]);
         media++;
         cursor = match.index + match[0].length;
       }
@@ -376,6 +377,7 @@ export function renderPaidBlocks(container, text, onSave, onImage = null) {
     button.addEventListener("click", () => onSave(index + 1, block.length));
     section.append(button);
     container.append(section);
+    for (const [frame, id, alt] of mediaFrames) onImage(frame, id, alt);
   });
   return blocks;
 }
@@ -484,7 +486,7 @@ export function privateImageLoader(root, chapter, version, purchase, csrf, s3Ori
     }, { rootMargin: "300px" });
   }
   return (frame, id, alt) => {
-    requireValue(root.contains(frame) === false && known.size < 64);
+    requireValue(root.contains(frame) && known.size < 64);
     const task = { frame, id, alt };
     known.set(frame, task);
     if (observer) observer.observe(frame);
