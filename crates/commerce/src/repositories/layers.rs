@@ -1,6 +1,6 @@
 //! D-05: PostgreSQL versioned layer checkout. No HTTP endpoint or external funding.
-use crate::domain::layers::{LayerCheckoutCommand, LayerError, LayerReceipt};
 use super::layer_economics::{freeze_term_economics, preflight_term_economics};
+use crate::domain::layers::{LayerCheckoutCommand, LayerError, LayerReceipt};
 use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -438,14 +438,9 @@ impl PgLayers {
         if has_lifetime {
             return Err(LayerError::Inaccessible);
         }
-        let required_books = preflight_term_economics(
-            &mut tx,
-            actor,
-            cmd.layer.get(),
-            cmd.version.get(),
-            &kind,
-        )
-        .await?;
+        let required_books =
+            preflight_term_economics(&mut tx, actor, cmd.layer.get(), cmd.version.get(), &kind)
+                .await?;
 
         let balance: i64 = sqlx::query_scalar(
             "UPDATE reader_wallet_accounts SET balance_minor=balance_minor-$2
