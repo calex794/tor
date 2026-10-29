@@ -300,23 +300,6 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
     )
 }
 
-pub fn my_library(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-) -> Html<String> {
-    my_library_with_purchases(items, saved, csrf, false)
-}
-
-pub fn my_library_with_purchases(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    purchased_available: bool,
-) -> Html<String> {
-    my_library_with_options(items, saved, csrf, purchased_available, false)
-}
-
 pub fn my_library_with_options(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
