@@ -3,8 +3,7 @@
 //! rechecks every condition, including races with team membership changes.
 use super::layers::PgLayers;
 use crate::domain::layers::{
-    LayerBookCandidate, LayerBookCandidatePage, LayerCurrentBookPage, LayerError,
-    OwnedLayerSummary,
+    LayerBookCandidate, LayerBookCandidatePage, LayerCurrentBookPage, LayerError, OwnedLayerSummary,
 };
 use sqlx::Row;
 use tor_contracts::paid_delivery::PositiveId;
@@ -78,8 +77,12 @@ impl PgLayers {
         let mut books = Vec::with_capacity(records.len().min(usize::from(limit)));
         for record in records.into_iter().take(usize::from(limit)) {
             books.push(LayerBookCandidate {
-                book_id: record.try_get("book_id").map_err(|_| LayerError::Unavailable)?,
-                title: record.try_get("title").map_err(|_| LayerError::Unavailable)?,
+                book_id: record
+                    .try_get("book_id")
+                    .map_err(|_| LayerError::Unavailable)?,
+                title: record
+                    .try_get("title")
+                    .map_err(|_| LayerError::Unavailable)?,
             });
         }
         Ok(LayerCurrentBookPage {
