@@ -495,7 +495,10 @@ fn router_inner(
         app = app
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route("/me/purchases", get(purchased_library))
-            .route("/api/v1/me/purchases/{chapter_id}/upgrade", post(upgrade_purchased_chapter));
+            .route(
+                "/api/v1/me/purchases/{chapter_id}/upgrade",
+                post(upgrade_purchased_chapter),
+            );
     }
     app.layer(DefaultBodyLimit::max(512)).with_state(state)
 }
