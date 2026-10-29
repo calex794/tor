@@ -53,7 +53,8 @@ async fn page(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    let offer = match layer_storefront::storefront(state.accounts.pool(), layer.get(), actor).await {
+    let offer = match layer_storefront::storefront(state.accounts.pool(), layer.get(), actor).await
+    {
         Ok(Some(offer)) => offer,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -72,13 +73,7 @@ async fn page(
     let key = should_offer.then(generate_session_token);
     let purchased = query.purchased.as_deref() == Some("1") && offer.has_access;
     private_response(
-        pages::layer_offer_page(
-            &offer,
-            actor,
-            csrf.as_deref(),
-            key.as_deref(),
-            purchased,
-        ),
+        pages::layer_offer_page(&offer, actor, csrf.as_deref(), key.as_deref(), purchased),
         &cookies,
     )
 }
@@ -112,10 +107,7 @@ fn failure(error: LayerError, layer: i64) -> Response {
             "Повтор покупки отклонён",
             "Другая операция уже использовала этот ключ покупки. Обновите страницу.",
         ),
-        LayerError::Inaccessible => (
-            "Пакет недоступен",
-            "Этот пакет сейчас нельзя приобрести.",
-        ),
+        LayerError::Inaccessible => ("Пакет недоступен", "Этот пакет сейчас нельзя приобрести."),
         LayerError::Unavailable => (
             "Покупка временно недоступна",
             "Проверьте историю покупок перед повторной попыткой.",

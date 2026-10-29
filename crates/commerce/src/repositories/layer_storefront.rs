@@ -93,7 +93,9 @@ pub async fn storefront(
         books.push(StorefrontBook {
             id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
             title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
-            has_cover: row.try_get("has_cover").map_err(|_| LayerError::Unavailable)?,
+            has_cover: row
+                .try_get("has_cover")
+                .map_err(|_| LayerError::Unavailable)?,
         });
     }
     let has_access = if let Some(actor) = viewer {
@@ -119,11 +121,19 @@ pub async fn storefront(
     Ok(Some(LayerStorefront {
         id: layer_id,
         title: head.try_get("title").map_err(|_| LayerError::Unavailable)?,
-        owner_id: head.try_get("owner_user_id").map_err(|_| LayerError::Unavailable)?,
-        offer_id: head.try_get("offer_id").map_err(|_| LayerError::Unavailable)?,
+        owner_id: head
+            .try_get("owner_user_id")
+            .map_err(|_| LayerError::Unavailable)?,
+        offer_id: head
+            .try_get("offer_id")
+            .map_err(|_| LayerError::Unavailable)?,
         version_id,
-        price_minor: head.try_get("price_minor").map_err(|_| LayerError::Unavailable)?,
-        term_kind: head.try_get("term_kind").map_err(|_| LayerError::Unavailable)?,
+        price_minor: head
+            .try_get("price_minor")
+            .map_err(|_| LayerError::Unavailable)?,
+        term_kind: head
+            .try_get("term_kind")
+            .map_err(|_| LayerError::Unavailable)?,
         public_books: books,
         public_book_count,
         has_access,
@@ -132,10 +142,7 @@ pub async fn storefront(
 
 /// Historical terms are private even if a Layer was later hidden.
 /// Future prepaid renewals are shown as pending; refund facts mark revoked.
-pub async fn purchased_terms(
-    actor: i64,
-    pool: &PgPool,
-) -> Result<Vec<LayerTermCard>, LayerError> {
+pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermCard>, LayerError> {
     if actor <= 0 {
         return Err(LayerError::Invalid);
     }
@@ -160,14 +167,28 @@ pub async fn purchased_terms(
     rows.into_iter()
         .map(|row| {
             Ok(LayerTermCard {
-                layer_id: row.try_get("layer_id").map_err(|_| LayerError::Unavailable)?,
+                layer_id: row
+                    .try_get("layer_id")
+                    .map_err(|_| LayerError::Unavailable)?,
                 title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
-                term_id: row.try_get("term_id").map_err(|_| LayerError::Unavailable)?,
-                price_minor: row.try_get("amount_minor").map_err(|_| LayerError::Unavailable)?,
-                term_kind: row.try_get("term_kind").map_err(|_| LayerError::Unavailable)?,
-                starts_utc: row.try_get("starts_utc").map_err(|_| LayerError::Unavailable)?,
-                expires_utc: row.try_get("expires_utc").map_err(|_| LayerError::Unavailable)?,
-                state: row.try_get("term_state").map_err(|_| LayerError::Unavailable)?,
+                term_id: row
+                    .try_get("term_id")
+                    .map_err(|_| LayerError::Unavailable)?,
+                price_minor: row
+                    .try_get("amount_minor")
+                    .map_err(|_| LayerError::Unavailable)?,
+                term_kind: row
+                    .try_get("term_kind")
+                    .map_err(|_| LayerError::Unavailable)?,
+                starts_utc: row
+                    .try_get("starts_utc")
+                    .map_err(|_| LayerError::Unavailable)?,
+                expires_utc: row
+                    .try_get("expires_utc")
+                    .map_err(|_| LayerError::Unavailable)?,
+                state: row
+                    .try_get("term_state")
+                    .map_err(|_| LayerError::Unavailable)?,
             })
         })
         .collect()

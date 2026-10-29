@@ -10,7 +10,10 @@ pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
 mod layer_storefront;
-pub use layer_storefront::{offer_page as layer_offer_page, purchase_error as layer_purchase_error, purchased_page as purchased_layers_page};
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
 mod reader_private;

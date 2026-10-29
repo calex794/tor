@@ -88,7 +88,9 @@ pub(super) async fn charge(
         expected_price: price,
         key,
     };
-    PgLayers::new(state.accounts.pool().clone()).buy(&command).await
+    PgLayers::new(state.accounts.pool().clone())
+        .buy(&command)
+        .await
 }
 
 pub(super) async fn buy(

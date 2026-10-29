@@ -128,7 +128,11 @@ pub fn offer_page(
          </div></section>",
         offer.public_book_count, offer.public_book_count
     );
-    layout(&offer.title, "Состав пакета и условия разовой покупки.", &content)
+    layout(
+        &offer.title,
+        "Состав пакета и условия разовой покупки.",
+        &content,
+    )
 }
 
 pub fn purchase_error(title: &str, message: &str, layer: i64) -> Html<String> {
@@ -219,11 +223,13 @@ mod tests {
             price_minor: 1234,
             term_kind: "prepaid_30d".into(),
             public_book_count: 1,
-            public_books: vec![tor_commerce::repositories::layer_storefront::StorefrontBook {
-                id: 33,
-                title: "Книга <img src=x>".into(),
-                has_cover: false,
-            }],
+            public_books: vec![
+                tor_commerce::repositories::layer_storefront::StorefrontBook {
+                    id: 33,
+                    title: "Книга <img src=x>".into(),
+                    has_cover: false,
+                },
+            ],
             has_access: false,
         };
         let page = offer_page(&offer, Some(40), Some("csrf"), Some("key"), false).0;

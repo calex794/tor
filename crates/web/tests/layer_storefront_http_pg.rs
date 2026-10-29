@@ -24,10 +24,25 @@ fn pg(url: &str, sql: &str) -> i64 {
         "financial HTTP test requires disposable tor_ci"
     );
     let output = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(output.stdout)
         .unwrap()
         .trim()
@@ -91,7 +106,13 @@ async fn form(
 }
 
 async fn html(reply: Response) -> String {
-    String::from_utf8(to_bytes(reply.into_body(), 128 * 1024).await.unwrap().to_vec()).unwrap()
+    String::from_utf8(
+        to_bytes(reply.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 fn input(html: &str, field: &str) -> String {
@@ -108,8 +129,16 @@ fn input(html: &str, field: &str) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable tor_ci and explicitly enabled Layer storefront"]
 async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
-    for name in ["TOR_LAYER_PAGES_ENABLED", "TOR_LAYER_CHECKOUT_ENABLED", "TOR_PAID_CHECKOUT_ENABLED"] {
-        assert_eq!(std::env::var(name).as_deref(), Ok("1"), "{name} must be explicitly enabled");
+    for name in [
+        "TOR_LAYER_PAGES_ENABLED",
+        "TOR_LAYER_CHECKOUT_ENABLED",
+        "TOR_PAID_CHECKOUT_ENABLED",
+    ] {
+        assert_eq!(
+            std::env::var(name).as_deref(),
+            Ok("1"),
+            "{name} must be explicitly enabled"
+        );
     }
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
@@ -122,8 +151,10 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     let (_, stranger_token) = user(&accounts, "stranger").await;
     pg(
         &url,
-        &format!("INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
-                 VALUES({buyer},450,'RUB') RETURNING balance_minor"),
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency)
+                 VALUES({buyer},450,'RUB') RETURNING balance_minor"
+        ),
     );
     let book = pg(
         &url,
@@ -160,11 +191,20 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         .unwrap();
     assert_ne!(current, first_version);
     let offer = layers
-        .publish_offer(PositiveId::new(author).unwrap(), PositiveId::new(layer).unwrap(), 125, false)
+        .publish_offer(
+            PositiveId::new(author).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            125,
+            false,
+        )
         .await
         .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, reader, accounts, false, ORIGIN.to_owned(),
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
     let path = format!("/layers/{layer}");
     let public = get(&app, &path, None).await;
@@ -199,41 +239,104 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         "csrf_token={csrf}&idempotency_key={key}&expected_offer_id={offer}&expected_version_id={current}&expected_price_minor=125&confirm=1"
     );
     assert_eq!(
-        form(&app, &format!("{path}/purchase"), &form_body, &buyer_token, &csrf, None)
-            .await
-            .status(),
+        form(
+            &app,
+            &format!("{path}/purchase"),
+            &form_body,
+            &buyer_token,
+            &csrf,
+            None
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN,
     );
     let without_consent = form_body.replace("&confirm=1", "");
     assert_eq!(
-        form(&app, &format!("{path}/purchase"), &without_consent, &buyer_token, &csrf, Some(ORIGIN))
-            .await
-            .status(),
+        form(
+            &app,
+            &format!("{path}/purchase"),
+            &without_consent,
+            &buyer_token,
+            &csrf,
+            Some(ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::UNPROCESSABLE_ENTITY,
     );
     assert_eq!(
-        form(&app, &format!("{path}/purchase"), &form_body, &stranger_token, &csrf, Some(ORIGIN))
-            .await
-            .status(),
+        form(
+            &app,
+            &format!("{path}/purchase"),
+            &form_body,
+            &stranger_token,
+            &csrf,
+            Some(ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "another session cannot charge the intended buyer's wallet",
     );
-    assert_eq!(pg(&url, &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")), 450);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        450
+    );
 
-    let purchased = form(&app, &format!("{path}/purchase"), &form_body, &buyer_token, &csrf, Some(ORIGIN)).await;
+    let purchased = form(
+        &app,
+        &format!("{path}/purchase"),
+        &form_body,
+        &buyer_token,
+        &csrf,
+        Some(ORIGIN),
+    )
+    .await;
     assert_eq!(purchased.status(), StatusCode::SEE_OTHER);
-    assert_eq!(purchased.headers()[header::LOCATION], format!("{path}?purchased=1"));
+    assert_eq!(
+        purchased.headers()[header::LOCATION],
+        format!("{path}?purchased=1")
+    );
     assert_eq!(purchased.headers()[header::CACHE_CONTROL], "no-store");
-    assert_eq!(pg(&url, &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")), 325);
-    assert_eq!(pg(&url, &format!("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id={buyer}")), 1);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        325
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id={buyer}")
+        ),
+        1
+    );
 
     assert_eq!(
-        form(&app, &format!("{path}/purchase"), &form_body, &buyer_token, &csrf, Some(ORIGIN))
-            .await
-            .status(),
+        form(
+            &app,
+            &format!("{path}/purchase"),
+            &form_body,
+            &buyer_token,
+            &csrf,
+            Some(ORIGIN)
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER,
     );
-    assert_eq!(pg(&url, &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")), 325);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        325
+    );
     assert_eq!(pg(&url, &format!("SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id={buyer} AND kind='layer_purchase'")), 1);
 
     let terms = get(&app, "/me/library/layers", Some(&buyer_token)).await;
@@ -242,7 +345,8 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     assert!(terms.contains("Пакет &lt;b&gt;автора&lt;/b&gt;"));
     assert!(terms.contains("Доступен"));
     assert!(!terms.contains("SECRET-DRAFT-LAYER"));
-    let bought_page = html(get(&app, &format!("{path}?purchased=1"), Some(&buyer_token)).await).await;
+    let bought_page =
+        html(get(&app, &format!("{path}?purchased=1"), Some(&buyer_token)).await).await;
     assert!(bought_page.contains("Покупка подтверждена"));
     pool.close().await;
 }
