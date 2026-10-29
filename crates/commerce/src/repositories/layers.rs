@@ -400,15 +400,17 @@ impl PgLayers {
         {
             return Err(LayerError::Inaccessible);
         }
-        let has_books: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM commerce_layer_version_books
-             WHERE layer_version_id=$1)",
+        let book_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM commerce_layer_version_books
+             WHERE layer_version_id=$1",
         )
         .bind(cmd.version.get())
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| LayerError::Unavailable)?;
-        if !has_books {
+        // S031 v1 refuses any sale whose complete composition cannot be
+        // displayed by the bounded, immutable quote page.
+        if !(1..=100).contains(&book_count) {
             return Err(LayerError::Inaccessible);
         }
         // The first subscription and every renewal take a Book SHARE lock
