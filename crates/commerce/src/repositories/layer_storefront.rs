@@ -133,8 +133,8 @@ pub async fn storefront(
 /// Historical terms are private even if a Layer was later hidden.
 /// Future prepaid renewals are shown as pending; refund facts mark revoked.
 pub async fn purchased_terms(
-    pool: &PgPool,
     actor: i64,
+    pool: &PgPool,
 ) -> Result<Vec<LayerTermCard>, LayerError> {
     if actor <= 0 {
         return Err(LayerError::Invalid);
