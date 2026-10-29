@@ -38,6 +38,7 @@ use tor_reading::{
     },
 };
 
+mod access_audit;
 mod account_form_http;
 mod behavior_consent;
 mod book_comments;

@@ -2,8 +2,17 @@
 //! This adapter never stores plaintext passwords or session tokens.
 #![forbid(unsafe_code)]
 
+use crate::domain::access_audit::LoginAuditContext;
 use sqlx::{PgPool, Row};
 use std::num::NonZeroU32;
+
+const INSERT_AUDITED_SESSION: &str = "WITH saved AS ( \
+    INSERT INTO sessions (user_id, token_hash, expires_at) \
+    VALUES ($1, $2, now() + ($3::double precision * INTERVAL '1 second')) \
+    RETURNING session_id, user_id \
+) INSERT INTO account_login_events \
+    (session_id, user_id, verified_ip, agent_family, event_kind) \
+  SELECT session_id, user_id, $4::text::inet, $5, $6 FROM saved";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountWriteError {
@@ -56,7 +65,10 @@ impl PgAccounts {
         sqlx::query("SELECT id FROM users LIMIT 0")
             .execute(&self.pool)
             .await?;
-        sqlx::query("SELECT token_hash FROM sessions LIMIT 0")
+        sqlx::query("SELECT token_hash, session_id FROM sessions LIMIT 0")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("SELECT session_id FROM account_login_events LIMIT 0")
             .execute(&self.pool)
             .await?;
         sqlx::query("SELECT key_hash FROM auth_attempts LIMIT 0")
@@ -124,6 +136,25 @@ impl PgAccounts {
         Ok(())
     }
 
+    pub async fn insert_audited_session(
+        &self,
+        user_id: i64,
+        digest: &[u8; 32],
+        ttl_seconds: NonZeroU32,
+        audit: LoginAuditContext,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(INSERT_AUDITED_SESSION)
+            .bind(user_id)
+            .bind(digest.as_slice())
+            .bind(ttl_seconds.get() as f64)
+            .bind(audit.verified_ip.map(|ip| ip.to_string()))
+            .bind(audit.agent_family.label())
+            .bind(audit.event_kind.label())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn active_session_user(&self, digest: &[u8; 32]) -> Result<Option<i64>, sqlx::Error> {
         sqlx::query_scalar(
             "SELECT user_id FROM sessions \
@@ -164,6 +195,38 @@ impl PgAccounts {
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
+        Ok(user_id)
+    }
+
+    pub async fn register_with_audited_session(
+        &self,
+        email: &str,
+        name: &str,
+        password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        audit: LoginAuditContext,
+    ) -> Result<i64, AccountWriteError> {
+        let mut tx = self.pool.begin().await?;
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (email_normalized, display_name, password_hash) \
+             VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(email)
+        .bind(name)
+        .bind(password_hash)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(INSERT_AUDITED_SESSION)
+            .bind(user_id)
+            .bind(digest.as_slice())
+            .bind(ttl.get() as f64)
+            .bind(audit.verified_ip.map(|ip| ip.to_string()))
+            .bind(audit.agent_family.label())
+            .bind(audit.event_kind.label())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(user_id)
     }
 

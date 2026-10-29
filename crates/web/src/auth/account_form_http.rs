@@ -1,5 +1,5 @@
 //! Standalone account forms and error responses; browser-only, no SQL in HTTP.
-use super::{login_limiter, AuthState};
+use super::{access_audit, login_limiter, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
     observability, pages,
@@ -12,6 +12,7 @@ use axum::{
 use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
+    domain::access_audit::LoginEventKind,
     services::security::{
         generate_session_token, hash_password, session_token_digest, verify_password,
     },
@@ -150,6 +151,7 @@ pub(super) async fn register(
             );
         }
     };
+    let audit = access_audit::context(&headers, peer.0, LoginEventKind::Registration);
     if let Err(status) =
         login_limiter::limit(&state, "register", &account.email, &headers, peer).await
     {
@@ -186,7 +188,14 @@ pub(super) async fn register(
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     match state
         .accounts
-        .register_with_session(&account.email, &account.display_name, &hashed, &digest, ttl)
+        .register_with_audited_session(
+            &account.email,
+            &account.display_name,
+            &hashed,
+            &digest,
+            ttl,
+            audit,
+        )
         .await
     {
         Ok(_) => private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)]),
@@ -231,6 +240,7 @@ pub(super) async fn login(
         Ok(email) => email,
         Err(_) => return invalid_credentials(),
     };
+    let audit = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
     let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
         Ok(key) => key,
         Err(status) => return auth_limit_error(status, false),
@@ -288,7 +298,7 @@ pub(super) async fn login(
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     if state
         .accounts
-        .insert_session(user.id, &digest, ttl)
+        .insert_audited_session(user.id, &digest, ttl, audit)
         .await
         .is_err()
     {
