@@ -1,10 +1,9 @@
 //! D/S035: batch counterpart of D-04 single-chapter HTTP checkout.
 //! The actor, wallet, CSRF and idempotency key are never trusted from JSON.
 use super::{checkout_status, positive};
-use crate::auth::{deny, session_user, AuthState};
+use crate::auth::{deny, AuthState};
 use crate::auth_cookies::private_response;
 use axum::{
-    extract::State,
     http::{HeaderMap, StatusCode},
     response::Response,
     Json,
@@ -47,29 +46,14 @@ struct BatchReceipt {
     replayed: bool,
 }
 
-pub(super) async fn buy(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Json(input): Json<BatchSelection>,
+/// Invoked only after the shared checkout handler has authenticated the
+/// session and verified same-origin CSRF at the route boundary.
+pub(super) async fn buy_for_actor(
+    state: &AuthState,
+    actor: i64,
+    headers: &HeaderMap,
+    input: BatchSelection,
 ) -> Response {
-    // This is internal, test-funded wallet money only, and the entire API
-    // remains absent by default. It never accepts a funding source or actor.
-    if !state.paid_checkout_enabled {
-        return deny(StatusCode::NOT_FOUND);
-    }
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
-        Err(error) => return deny(error),
-    };
-    if !state.cookies.same_origin(&headers)
-        || !headers
-            .get("x-csrf-token")
-            .and_then(|header| header.to_str().ok())
-            .is_some_and(|token| state.cookies.valid_csrf(&headers, token))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
     if !(2..=MAX_BATCH_CHAPTERS).contains(&input.chapters.len()) {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
