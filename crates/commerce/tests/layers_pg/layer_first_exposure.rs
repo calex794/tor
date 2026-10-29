@@ -76,6 +76,26 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
         Err(DeliveryError::Denied),
         "a browser-chosen/unpublished edition must not pass"
     );
+    assert_eq!(
+        barrier
+            .confirm_rendered(id(buyer), id(chapter), id(published))
+            .await,
+        Err(DeliveryError::Denied),
+        "no browser confirmation before first grant"
+    );
+    // A signed image can be a term's immutable FIRST GRANT. It cannot
+    // satisfy a later browser claim of opening the chapter text.
+    barrier
+        .record(id(buyer), id(chapter), id(published), LayerGrantKind::Asset)
+        .await
+        .unwrap();
+    assert_eq!(
+        barrier
+            .confirm_rendered(id(buyer), id(chapter), id(published))
+            .await,
+        Err(DeliveryError::Denied),
+        "an image grant must not count as opening protected text"
+    );
     let (a, b) = tokio::join!(
         barrier.record(
             id(buyer),
@@ -123,6 +143,43 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
     .await
     .unwrap();
     assert_eq!(after, (1, started));
+
+    // A signed grant is not a browser render: no confirmation until ACK.
+    let no_open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_term_render_confirmations WHERE term_id=$1",
+    )
+    .bind(paid.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(no_open, 0);
+    let (first_ack, replay_ack) = tokio::join!(
+        barrier.confirm_rendered(id(buyer), id(chapter), id(published)),
+        barrier.confirm_rendered(id(buyer), id(chapter), id(published)),
+    );
+    assert_eq!(first_ack, Ok(()));
+    assert_eq!(replay_ack, Ok(()));
+    assert_eq!(
+        barrier
+            .confirm_rendered(id(owner), id(chapter), id(published))
+            .await,
+        Err(DeliveryError::Denied),
+    );
+    let confirmed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_term_render_confirmations WHERE term_id=$1",
+    )
+    .bind(paid.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(confirmed, 1);
+    assert!(sqlx::query(
+        "UPDATE commerce_layer_term_render_confirmations SET confirmed_at=now() WHERE term_id=$1",
+    )
+    .bind(paid.term_id)
+    .execute(&pool)
+    .await
+    .is_err(), "first browser render confirmation is immutable");
 
     let mutating = sqlx::query(
         "UPDATE commerce_layer_term_first_exposures
@@ -194,6 +251,29 @@ async fn d_06_pg_future_renewal_is_not_marked_by_current_term_grant() {
         )
         .await
         .unwrap();
+    barrier
+        .confirm_rendered(id(buyer), id(chapter), id(published))
+        .await
+        .unwrap();
+    let active_open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_term_render_confirmations WHERE term_id=$1",
+    )
+    .bind(current.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let future_open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_term_render_confirmations WHERE term_id=$1",
+    )
+    .bind(future.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (active_open, future_open),
+        (1, 0),
+        "future P2 is not opened by P1"
+    );
     let first: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM commerce_layer_term_first_exposures
          WHERE term_id=$1",

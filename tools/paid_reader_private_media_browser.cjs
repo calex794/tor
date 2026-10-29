@@ -113,7 +113,7 @@ async function caseInBrowser(browser, { mode, viewport }) {
       "https://hostile.invalid/private/chapter-assets/" + IMAGE_ID +
       ".enc?X-Amz-Signature=attack";
   }
-  let s3Chapter = 0, s3Image = 0, assetGrants = 0;
+  let s3Chapter = 0, s3Image = 0, assetGrants = 0, openCalls = 0;
   await page.route("**/read/paid/103?purchase_id=501", (route) => route.fulfill({
     status: 200,
     contentType: "text/html; charset=utf-8",
@@ -171,6 +171,17 @@ async function caseInBrowser(browser, { mode, viewport }) {
       body: data,
     });
   });
+  await page.route("**/api/v1/reader/chapters/103/open-confirmations", route => {
+    assert.equal(route.request().method(), "POST");
+    assert.equal(route.request().headers()["x-csrf-token"], CSRF);
+    assert.deepEqual(route.request().postDataJSON(), {
+      purchase_id: PURCHASE, version_id: VERSION,
+    });
+    assert.equal(s3Chapter, 1, "text opening must follow verified chapter GET");
+    openCalls++;
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ status: "recorded" }) });
+  });
   await page.route("**/api/v1/me/progress/purchased**", route => {
     const u = new URL(route.request().url());
     const result = u.pathname.endsWith("/complete")
@@ -191,7 +202,8 @@ async function caseInBrowser(browser, { mode, viewport }) {
 
   try {
     await page.goto(SITE + "/read/paid/103?purchase_id=501", { waitUntil: "networkidle" });
-    await page.getByText("Защищённая загрузка завершена", { exact: false }).waitFor();
+    await page.getByText("Глава открыта", { exact: false }).waitFor();
+    assert.equal(openCalls, 1, "an image failure cannot suppress text-open evidence");
     const frame = page.locator(".reader-paid__image-block .reader-content__image-frame");
     assert.equal(await frame.count(), 1, "one private figure should replace exact image marker");
     assert.equal((await page.locator(".reader-paid__image-block figcaption").textContent()),

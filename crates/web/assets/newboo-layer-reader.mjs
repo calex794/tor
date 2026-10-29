@@ -53,7 +53,30 @@ export async function startLayerReader(root) {
     sections.append(section);
   });
   article.replaceChildren(sections);
-  status.textContent = "Текущая редакция " + versionId + " · Защищённая загрузка завершена";
+  // The grant was issued earlier. Only after verified S3/crypto and DOM
+  // rendering does this browser report a chapter opening.
+  let openConfirmed = false;
+  try {
+    const opened = await fetch(
+      "/api/v1/reader/chapters/" + chapter + "/open-confirmations",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        redirect: "error",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ source: "layer", version_id: versionId }),
+      }
+    );
+    if (opened.ok && opened.status === 200) {
+      const receipt = await opened.json();
+      openConfirmed = receipt.status === "recorded";
+    }
+  } catch { /* an absent ACK is UNKNOWN, not evidence of non-use */ }
+  status.textContent = openConfirmed
+    ? "Текущая редакция " + versionId + " · Глава открыта"
+    : "Глава открыта, но подтверждение открытия не записано. Проверьте соединение.";
 }
 
 if (typeof document !== "undefined") {

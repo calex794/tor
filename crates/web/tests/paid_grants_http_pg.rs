@@ -1,6 +1,8 @@
 //! S034: real PostgreSQL/Axum grant boundary, without a real payment provider.
 //! G is a deterministic signer fixture here; actual MinIO signing belongs to
 //! tor-storage/s3_private_provider and the final full-stack staging suite.
+#[path = "paid_grants_http_pg/render_confirmations.rs"]
+mod render_confirmations;
 use async_trait::async_trait;
 use axum::{
     body::{to_bytes, Body},
@@ -719,6 +721,15 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         ),
     );
 
+    let (open_route, open_body, first_open) = render_confirmations::assert_render_receipt(
+        &app,
+        &browser,
+        &url,
+        (chapter, version, purchase_id),
+        (&buyer_cookie, &csrf, &author_cookie, &author_csrf),
+    )
+    .await;
+
     let v2 = scalar(
         &url,
         &format!(
@@ -838,6 +849,23 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         first_granted_at,
         "failed final D recheck must not overwrite direct first grant"
     );
+    // An ACK arriving after a refund/revocation cannot write new evidence.
+    assert_eq!(
+        send(
+            &browser,
+            &open_route,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            &open_body
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(pg(&url, &format!(
+        "SELECT confirmed_at::TEXT FROM chapter_purchase_render_confirmations WHERE purchase_id={purchase_id}"
+    )), first_open);
     // A subsequent request is rejected by D before reaching G.
     assert_eq!(
         send(

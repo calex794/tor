@@ -438,6 +438,13 @@
     },
     {
       "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/open-confirmations",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "opened::confirm_open",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "grant",

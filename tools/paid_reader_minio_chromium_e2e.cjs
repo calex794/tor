@@ -94,6 +94,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
   req.on("error", reject);
 });
 let grantCalls = 0;
+let openCalls = 0;
 let saved = null;
 let progressRevision = 0;
 let markedComplete = false;
@@ -128,6 +129,16 @@ const server = http.createServer(async (req, reply) => {
       assert.deepEqual(JSON.parse(await readBody(req)), { purchase_id: purchase });
       grantCalls++;
       send(reply, 200, JSON.stringify(grant), "application/json");
+    } else if (uri.pathname === "/api/v1/reader/chapters/" + chapter + "/open-confirmations" &&
+      req.method === "POST") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      assert.deepEqual(JSON.parse(await readBody(req)), {
+        purchase_id: purchase, version_id: grant.version_id,
+      });
+      assert(grantCalls >= 1, "cannot ACK before authorized grant");
+      openCalls++;
+      send(reply, 200, JSON.stringify({ status: "recorded" }), "application/json");
     } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
       req.method === "GET") {
       assert.equal(uri.searchParams.get("chapter_id"), chapter);
@@ -251,12 +262,14 @@ async function run() {
         const response = await page.goto(pageUrl, { waitUntil: "networkidle" });
         assert.equal(response.status(), 200);
         await page.locator("[data-paid-status]")
-          .getByText("Защищённая загрузка завершена", { exact: false })
+          .getByText("Глава открыта", { exact: false })
           .waitFor({ timeout: 20000 });
         const chunks = await page.locator(".reader-piece__text").allTextContents();
         assert(chunks.join("\n\n") === fixture.expected_markdown,
           "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        assert.equal(openCalls, device === "desktop" ? 1 : 2,
+          "one confirmation after each verified reader render");
         // Design reference: capture the ACTUAL first screen at scroll=0.
         // Full-page screenshots taken after clicking bottom controls move
         // sticky headers into the middle and are not valid initial-state QA.

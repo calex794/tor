@@ -4,6 +4,7 @@
 mod asset_grants;
 mod exposure;
 mod layer_reader;
+mod opened;
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
@@ -484,6 +485,10 @@ fn router_inner(
         app = app
             .route("/read/layer/{chapter_id}", get(layer_reader::layer_reader))
             .route("/read/paid/{chapter_id}", get(paid_reader))
+            .route(
+                "/api/v1/reader/chapters/{chapter_id}/open-confirmations",
+                post(opened::confirm_open),
+            )
             .route("/me/purchases", get(purchased_library));
     }
     app.layer(DefaultBodyLimit::max(512)).with_state(state)

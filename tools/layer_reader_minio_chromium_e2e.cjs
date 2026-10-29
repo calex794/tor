@@ -61,6 +61,7 @@ function receive(req) {
 }
 let access = true;
 let grantCalls = 0;
+let openCalls = 0;
 let unexpectedProgress = 0;
 const server = http.createServer(async (req, reply) => {
   try {
@@ -84,6 +85,16 @@ const server = http.createServer(async (req, reply) => {
       grantCalls++;
       if (access) send(reply, 200, JSON.stringify(grant), "application/json");
       else send(reply, 403, "", "text/plain");
+    } else if (req.method === "POST" &&
+      url.pathname === "/api/v1/reader/chapters/" + chapter + "/open-confirmations") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      assert.deepEqual(JSON.parse(await receive(req)), {
+        source: "layer", version_id: grant.version_id,
+      });
+      assert(access && grantCalls >= 1, "only a successful Layer reader may ACK");
+      openCalls++;
+      send(reply, 200, JSON.stringify({ status: "recorded" }), "application/json");
     } else if (url.pathname.includes("/progress/purchased")) {
       unexpectedProgress++;
       send(reply, 403, "", "text/plain");
@@ -107,13 +118,14 @@ async function run() {
     const response = await page.goto(SITE + "/read/layer/" + chapter);
     assert.equal(response.status(), 200);
     await page.locator("[data-layer-status]").filter({
-      hasText: "Защищённая загрузка завершена",
+      hasText: "Глава открыта",
     }).waitFor({ timeout: 20000 });
     const visible = await page.locator("[data-layer-content]").textContent();
     assert(visible.includes(fixture.expected_markdown.split("\n\n")[0]));
     assert.equal(await page.locator("[data-purchase-id]").count(), 0);
     assert.equal(await page.locator("[data-paid-completion]").count(), 0);
     assert.equal(grantCalls, 1);
+    assert.equal(openCalls, 1, "a rendered Layer chapter must acknowledge once");
     await page.close();
 
     // Simulate revocation after the HTML shell was received but before POST.
@@ -125,6 +137,7 @@ async function run() {
     }).waitFor({ timeout: 10000 });
     assert.equal(await revoked.locator("[data-layer-content]").textContent(), "");
     assert.equal(grantCalls, 2);
+    assert.equal(openCalls, 1, "revoked grant must not create an opening ACK");
     assert.equal(unexpectedProgress, 0,
       "Layer must not fabricate a direct purchase to save progress");
     await revoked.close();
