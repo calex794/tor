@@ -1,8 +1,6 @@
-//! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
 
 mod classifier;
-mod continuation;
 pub use classifier::classify;
 
 use CostClass::{CheapRead as Read, Free, Write};
@@ -315,7 +313,6 @@ const ROUTES: [RouteRegistration; 79] = [
         ProductArea::Admin,
         Read,
     ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
     RouteRegistration::new(
         "/covers/{id}/{variant}",
         "GET",
@@ -415,7 +412,6 @@ const ROUTES: [RouteRegistration; 79] = [
         ProductArea::Billing,
         Write,
     ), // 58
-    // Signed, scoped paid content grant. Performs PG rights checks and S3 HEAD.
     RouteRegistration::new(
         "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
         "POST",
@@ -452,7 +448,6 @@ const ROUTES: [RouteRegistration; 79] = [
         System,
         Free,
     ), // 62
-    // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
         "GET",
@@ -561,7 +556,6 @@ const ROUTES: [RouteRegistration; 79] = [
         Dashboard,
         Write,
     ), // 74
-    // D/S035: strict authenticated batch checkout from the internal wallet.
     RouteRegistration::new(
         "/api/v1/purchases/batch",
         "POST",
@@ -589,10 +583,17 @@ const ROUTES: [RouteRegistration; 79] = [
         ProductArea::Billing,
         Write,
     ), // 77
-    continuation::REGISTRATION, // 78
+    RouteRegistration::new(
+        "/read/{id}/want-continuation",
+        "POST",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 78
 ];
 
-/// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
 }
