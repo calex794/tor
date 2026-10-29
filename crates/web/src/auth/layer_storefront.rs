@@ -23,7 +23,7 @@ pub(super) struct PageQuery {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PurchaseForm {
+pub(super) struct PurchaseForm {
     csrf_token: String,
     idempotency_key: String,
     expected_offer_id: String,

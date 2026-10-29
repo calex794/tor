@@ -88,4 +88,3 @@ pub fn my_library_with_options(
         &html,
     )
 }
-
