@@ -28,7 +28,10 @@ fn registry_is_finite_and_classifies_each_declared_method() {
     assert_eq!(purchase.cost_class, CostClass::Write);
     assert!(!classify(Some("/api/v1/layers/{id}/purchase"), "GET").route_known);
     assert!(classify(Some("/layers/{id}"), "GET").route_known);
-    assert_eq!(classify(Some("/layers/{id}/purchase"), "POST").cost_class, CostClass::Write);
+    assert_eq!(
+        classify(Some("/layers/{id}/purchase"), "POST").cost_class,
+        CostClass::Write
+    );
     assert!(classify(Some("/me/library/layers"), "GET").route_known);
 }
 
