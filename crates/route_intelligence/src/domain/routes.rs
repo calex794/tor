@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 // Explicit route table is independently checked by RIL parity and guard CI.
 // Keep its reviewed compact entries under the repository's 600-line limit.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 81] = [
+const ROUTES: [RouteRegistration; 84] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -588,6 +588,9 @@ const ROUTES: [RouteRegistration; 81] = [
         Write,
     ), // 79
     LAYER_CHECKOUT_ROUTE, // 80
+    LAYER_STOREFRONT_PAGE_ROUTE, // 81
+    LAYER_STOREFRONT_BUY_ROUTE, // 82
+    LAYER_PURCHASED_TERMS_ROUTE, // 83
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
