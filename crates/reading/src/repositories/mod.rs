@@ -3,6 +3,9 @@ pub use postgres::PgReader;
 pub mod progress;
 pub use progress::PgReadingProgress;
 
+pub mod book_follows;
+pub use book_follows::{FollowError, PgBookFollows};
+
 pub mod library;
 pub use library::PgLibrary;
 
