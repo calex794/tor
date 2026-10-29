@@ -25,6 +25,20 @@ pub struct LayerCheckoutCommand {
     pub expected_price: MoneyMinor,
     pub key: IdempotencyKey,
 }
+/// A read-only Layer picker entry. UI eligibility is advisory:
+/// add_book() always revalidates membership under the canonical Book lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerBookCandidate {
+    pub book_id: i64,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerBookCandidatePage {
+    pub books: Vec<LayerBookCandidate>,
+    pub next_after: Option<i64>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerReceipt {
     pub term_id: i64,
