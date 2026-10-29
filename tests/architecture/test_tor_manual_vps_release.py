@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import re
 import subprocess
 import textwrap
 import unittest
@@ -62,6 +63,31 @@ class ManualVpsReleaseTests(unittest.TestCase):
         self.assertIn("TARGET_SHA: ${{ github.sha }}", WORKFLOW)
         self.assertIn("AUTO_INSTALL: ${{ inputs.install }}", WORKFLOW)
         self.assertIn("INSTALL_CONFIRM_SHA: ${{ inputs.confirm_sha }}", WORKFLOW)
+
+
+    def test_retired_workflow_has_no_other_runnable_jobs(self):
+        jobs_source = WORKFLOW.split("\njobs:\n", 1)[1]
+        job_keys = re.findall(r"^  ([A-Za-z0-9_-]+):$", jobs_source, re.MULTILINE)
+        self.assertEqual(job_keys, ["stage"])
+        self.assertEqual(WORKFLOW.count("    if: ${{ false }}"), 1)
+
+    def test_only_expected_two_workflows_reference_deploy_secrets(self):
+        workflows = ROOT / ".github/workflows"
+        candidates = {
+            path.name for path in workflows.glob("*.yml")
+            if (
+                "TOR_DEPLOY_SSH_KEY" in path.read_text(encoding="utf-8")
+                or "environment: tor-staging" in path.read_text(encoding="utf-8")
+            )
+        }
+        self.assertEqual(candidates, {
+            "tor-one-click-release.yml",
+            "tor-vps-staging.yml",
+        })
+        active = (workflows / "tor-one-click-release.yml").read_text(encoding="utf-8")
+        self.assertIn("check_one_click_release_ci.py", active)
+        self.assertIn("sudo -n /usr/local/sbin/tor-one-click-release", active)
+        self.assertIn("    if: ${{ false }}", WORKFLOW)
 
     def test_verification_precedes_checkout_and_transfer(self):
         self.assertLess(
