@@ -47,7 +47,9 @@ pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
         .expect("S035 loopback port reserved for this CI test");
     let http = app.clone();
     let server = tokio::spawn(async move {
-        axum::serve(listener, http).await.expect("S035 real HTTP server");
+        axum::serve(listener, http)
+            .await
+            .expect("S035 real HTTP server");
     });
     let child_fixture = fixture_path.clone();
     let output = tokio::task::spawn_blocking(move || {
