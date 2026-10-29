@@ -200,14 +200,43 @@ async fn s065_alternate_reader_access_matrix(
     ] {
         for session in [buyer, outsider] {
             let response = read_page(browser, &path, Some(session)).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            let is_paywall = path.starts_with("/reader/");
+            let expected = if is_paywall {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_FOUND
+            };
+            assert_eq!(response.status(), expected, "{path}");
             assert_eq!(
                 response.headers()[header::CACHE_CONTROL],
                 "no-store",
                 "{path}"
             );
-            let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
-            assert!(bytes.is_empty(), "paid read leaked on {path}");
+            if is_paywall {
+                assert_eq!(response.headers()["x-robots-tag"], "noindex, nofollow");
+            }
+            let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+            assert!(
+                !bytes.windows(BODY.len()).any(|part| part == BODY.as_bytes()),
+                "paid plaintext leaked on {path}"
+            );
+            assert!(
+                !bytes
+                    .windows(b"X-Amz-Signature".len())
+                    .any(|part| part == b"X-Amz-Signature"),
+                "S3 signing data leaked on {path}"
+            );
+            if is_paywall {
+                let html = String::from_utf8(bytes.to_vec()).unwrap();
+                assert!(html.contains("Для чтения нужен доступ"));
+                assert!(html.contains("href=\"/login\""));
+                assert!(
+                    !html.contains(&format!("purchase_id={purchase}")),
+                    "untrusted public query must not echo a purchase token"
+                );
+            } else {
+                assert!(bytes.is_empty(), "paid compatibility route revealed data");
+            }
         }
     }
 
