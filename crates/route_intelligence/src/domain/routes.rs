@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 74] = [
+const ROUTES: [RouteRegistration; 73] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -546,16 +546,6 @@ const ROUTES: [RouteRegistration; 74] = [
         Reading,
         Write,
     ), // 72
-    // Preview parses user-supplied text without persisting chapters.
-    RouteRegistration::new(
-        "/api/v1/books/import-preview",
-        "POST",
-        "/api/v1/books/",
-        Exact,
-        Api,
-        Catalog,
-        Write,
-    ), // 73
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
