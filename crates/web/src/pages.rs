@@ -265,6 +265,7 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace("<!--BOOK_FOLLOW_ACTION-->", "")
         .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
         .replace("<!--BOOK_DISCUSSION-->", &discussion);
     // The current release has no authorized SEO-owner/approval projection wired
