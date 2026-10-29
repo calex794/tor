@@ -88,6 +88,9 @@ pub(crate) fn router(
     cookies: CookiePolicy,
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
 ) -> Router {
+    let images = paid_author.as_ref().map(|publisher| {
+        crate::author_chapter_images::router(accounts.clone(), cookies.clone(), publisher.clone())
+    });
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthorChapterState {
         accounts,
@@ -95,7 +98,7 @@ pub(crate) fn router(
         cookies,
         paid_author,
     };
-    Router::new()
+    let app = Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
         .route("/me/books/{id}/chapters", post(create_chapter))
         .route(
@@ -108,7 +111,12 @@ pub(crate) fn router(
         )
         .route("/me/books/{id}/publish", post(publish_book))
         .layer(DefaultBodyLimit::max(768 * 1024))
-        .with_state(state)
+        .with_state(state);
+    if let Some(images) = images {
+        app.merge(images)
+    } else {
+        app
+    }
 }
 
 async fn session_actor(
