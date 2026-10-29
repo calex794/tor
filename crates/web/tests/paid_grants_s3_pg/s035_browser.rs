@@ -33,14 +33,12 @@ async fn native_batch_post(
 pub(super) async fn checkout_and_verify(
     app: &Router,
     url: &str,
-    book: i64,
-    chapter: i64,
-    chapter_two: i64,
-    buyer: i64,
-    buyer_cookie: &str,
-    csrf: &str,
+    chapter_ids: (i64, i64, i64),
+    session: (i64, &str, &str),
     paid_marker: &str,
 ) -> (i64, i64) {
+    let (book, chapter, chapter_two) = chapter_ids;
+    let (buyer, buyer_cookie, csrf) = session;
     // S035 browser-facing HTTP: select both offers, see the aggregate quote,
     // then buy both real encrypted editions through one wallet transaction.
     assert_eq!(env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(), Ok("1"));

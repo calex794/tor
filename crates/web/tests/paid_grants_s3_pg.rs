@@ -460,12 +460,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let (purchase_id, purchase_two_id) = s035_browser::checkout_and_verify(
         &app,
         &url,
-        book,
-        chapter,
-        chapter_two,
-        buyer,
-        &buyer_cookie,
-        &csrf,
+        (book, chapter, chapter_two),
+        (buyer, &buyer_cookie, &csrf),
         MARKDOWN,
     )
     .await;
