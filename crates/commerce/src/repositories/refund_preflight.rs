@@ -1,7 +1,8 @@
 //! D-06: read-only refund preflight for evidenced Layer purchases.
 //! A wallet debit, term revocation or non-empty reason is NOT enough to
 //! establish the refund deadline, first-content exposure, or reversal authority.
-use crate::services::refunds::{LayerRefundIntent, RefundGateError};
+use crate::services::refunds::{LayerRefundIntent, RefundGateError, UseObservation};
+use crate::repositories::refund_use_evidence::PgRefundUseEvidence;
 use sqlx::PgPool;
 
 #[derive(Clone)]
@@ -12,6 +13,17 @@ pub struct PgLayerRefundPreflight {
 impl PgLayerRefundPreflight {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Read-only, actor-scoped evidence. Not a refund permission: this audit
+    /// can become stale before a separate eventual SERIALIZABLE money commit.
+    pub async fn observe_use(
+        &self,
+        intent: &LayerRefundIntent,
+    ) -> Result<UseObservation, RefundGateError> {
+        PgRefundUseEvidence::new(self.pool.clone())
+            .layer(intent.actor(), intent.term())
+            .await
     }
 
     /// Confirms actor/term ownership and immutable internal wallet evidence.
