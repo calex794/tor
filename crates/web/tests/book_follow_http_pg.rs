@@ -5,7 +5,11 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use std::{num::NonZeroU32, process::Command, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -19,11 +23,25 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let output = Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-               "--dbname", url, "--command", sql])
-        .output().expect("psql client");
-    assert!(output.status.success(),
-            "SQL: {}", String::from_utf8_lossy(&output.stderr));
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .output()
+        .expect("psql client");
+    assert!(
+        output.status.success(),
+        "SQL: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
@@ -36,7 +54,11 @@ async fn post(app: &Router, path: &str, cookies: &str, origin: &str, csrf: &str)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(format!("csrf_token={csrf}")))
         .expect("request");
-    app.clone().oneshot(request).await.expect("response").status()
+    app.clone()
+        .oneshot(request)
+        .await
+        .expect("response")
+        .status()
 }
 
 #[tokio::test]
@@ -47,30 +69,58 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     let catalog = PgCatalog::connect(&url).await.expect("pool");
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH)
-        .unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let password = hash_password("C15FollowIsolated2026").unwrap();
     let first_token = generate_session_token();
     let second_token = generate_session_token();
     let csrf = generate_session_token();
-    let first = accounts.register_with_session(
-        &format!("c15-follow-1-{nonce}@tor-ci.example"), "Reader 1", &password,
-        &session_token_digest(&first_token), NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    let second = accounts.register_with_session(
-        &format!("c15-follow-2-{nonce}@tor-ci.example"), "Reader 2", &password,
-        &session_token_digest(&second_token), NonZeroU32::new(3600).unwrap(),
-    ).await.unwrap();
-    let public: i64 = pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+    let first = accounts
+        .register_with_session(
+            &format!("c15-follow-1-{nonce}@tor-ci.example"),
+            "Reader 1",
+            &password,
+            &session_token_digest(&first_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let second = accounts
+        .register_with_session(
+            &format!("c15-follow-2-{nonce}@tor-ci.example"),
+            "Reader 2",
+            &password,
+            &session_token_digest(&second_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let public: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES('ci:c15:follow:{nonce}','ru','Public','public',{first}) RETURNING id"
-    )).parse().unwrap();
-    let hidden: i64 = pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+        ),
+    )
+    .parse()
+    .unwrap();
+    let hidden: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES('ci:c15:follow:hidden:{nonce}','ru','Hidden','draft',{first}) RETURNING id"
-    )).parse().unwrap();
+        ),
+    )
+    .parse()
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
-        catalog, PgReader::new(pool.clone()), accounts, false, ORIGIN.to_owned()
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts,
+        false,
+        ORIGIN.to_owned(),
     );
     let one = format!("tor-dev-session={first_token}; tor-dev-csrf={csrf}");
     let two = format!("tor-dev-session={second_token}; tor-dev-csrf={csrf}");
