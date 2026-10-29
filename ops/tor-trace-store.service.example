@@ -1,13 +1,16 @@
 # Optional service: DO NOT enable until the operator configures private paths.
-# Requires the same dedicated tor OS account as tor-web for socket access.
+# Keep the same Unix account as tor-web for the private 0600 Unix socket.
+# Current TOR VPS uses tor-deploy; verify deployed service user before enabling.
+# The one-click release does not yet bundle tor-trace-store: install and
+# verify its root-owned binary separately; NEVER enable this example as-is.
 [Unit]
 Description=TOR isolated diagnostic trace SQLite writer
 After=local-fs.target
 
 [Service]
 Type=simple
-User=tor
-Group=tor
+User=tor-deploy
+Group=tor-deploy
 StateDirectory=tor-traces
 RuntimeDirectory=tor-traces
 StateDirectoryMode=0700
