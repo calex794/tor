@@ -871,7 +871,9 @@ async fn f_02_taxonomy_combination_revocation_and_public_options() {
 #[ignore = "requires isolated tor_ci PostgreSQL and latest migrations"]
 async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test database URL");
-    let pool = PgPool::connect(&url).await.expect("connect to test database");
+    let pool = PgPool::connect(&url)
+        .await
+        .expect("connect to test database");
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&pool)
         .await
@@ -922,7 +924,11 @@ async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
         "UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1",
         "UPDATE books SET is_deleted=FALSE,genres='{}',tags='{}',fandoms='{}' WHERE id=$1",
     ] {
-        sqlx::query(statement).bind(book_id).execute(&pool).await.unwrap();
+        sqlx::query(statement)
+            .bind(book_id)
+            .execute(&pool)
+            .await
+            .unwrap();
         let hidden = search.taxonomy_options().await.unwrap();
         assert!(!hidden.genres.contains(&"aaa-perf233-genre".to_owned()));
         assert!(!hidden.tags.contains(&"aaa-perf233-tag".to_owned()));
