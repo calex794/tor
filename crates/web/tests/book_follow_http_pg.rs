@@ -127,38 +127,92 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     let follow = format!("/me/books/{public}/follow");
     let unfollow = format!("/me/books/{public}/unfollow");
     for _ in 0..2 {
-        assert_eq!(post(&app, &follow, &one, ORIGIN, &csrf).await,
-                   StatusCode::SEE_OTHER);
+        assert_eq!(
+            post(&app, &follow, &one, ORIGIN, &csrf).await,
+            StatusCode::SEE_OTHER
+        );
     }
-    assert_eq!(pg(&url, &format!(
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
         "SELECT count(*) FROM reader_book_follows WHERE book_id={public} AND user_id={first}"
-    )), "1", "replay must not duplicate follows");
+    )
+        ),
+        "1",
+        "replay must not duplicate follows"
+    );
 
-    assert_eq!(post(&app, &follow, &one, "https://other.invalid", &csrf).await,
-               StatusCode::FORBIDDEN);
-    assert_eq!(post(&app, &follow, &one, ORIGIN, "forged").await,
-               StatusCode::FORBIDDEN);
+    assert_eq!(
+        post(&app, &follow, &one, "https://other.invalid", &csrf).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&app, &follow, &one, ORIGIN, "forged").await,
+        StatusCode::FORBIDDEN
+    );
     let denied = post(&app, &follow, "", ORIGIN, &csrf).await;
-    assert!(matches!(denied, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN));
-    assert_eq!(post(&app, &format!("/me/books/{hidden}/follow"), &one, ORIGIN, &csrf).await,
-               StatusCode::NOT_FOUND);
+    assert!(matches!(
+        denied,
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+    ));
+    assert_eq!(
+        post(
+            &app,
+            &format!("/me/books/{hidden}/follow"),
+            &one,
+            ORIGIN,
+            &csrf
+        )
+        .await,
+        StatusCode::NOT_FOUND
+    );
 
-    assert_eq!(post(&app, &follow, &two, ORIGIN, &csrf).await,
-               StatusCode::SEE_OTHER);
-    assert_eq!(pg(&url, &format!(
-        "SELECT count(*) FROM reader_book_follows WHERE book_id={public}"
-    )), "2");
-    assert_eq!(post(&app, &unfollow, &one, ORIGIN, &csrf).await,
-               StatusCode::SEE_OTHER);
-    assert_eq!(post(&app, &unfollow, &one, ORIGIN, &csrf).await,
-               StatusCode::SEE_OTHER, "unfollow must be idempotent");
-    assert_eq!(pg(&url, &format!(
-        "SELECT user_id FROM reader_book_follows WHERE book_id={public}"
-    )), second.to_string(), "one reader cannot delete another reader's follow");
-    assert_eq!(pg(&url, &format!(
+    assert_eq!(
+        post(&app, &follow, &two, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM reader_book_follows WHERE book_id={public}")
+        ),
+        "2"
+    );
+    assert_eq!(
+        post(&app, &unfollow, &one, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        post(&app, &unfollow, &one, ORIGIN, &csrf).await,
+        StatusCode::SEE_OTHER,
+        "unfollow must be idempotent"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT user_id FROM reader_book_follows WHERE book_id={public}")
+        ),
+        second.to_string(),
+        "one reader cannot delete another reader's follow"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
         "SELECT count(*) FROM reader_chapter_completions WHERE user_id IN ({first},{second})"
-    )), "0", "following a book must not mark chapters read");
-    pg(&url, &format!("DELETE FROM books WHERE id IN ({public},{hidden})"));
-    pg(&url, &format!("DELETE FROM users WHERE id IN ({first},{second})"));
+    )
+        ),
+        "0",
+        "following a book must not mark chapters read"
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM books WHERE id IN ({public},{hidden})"),
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM users WHERE id IN ({first},{second})"),
+    );
     pool.close().await;
 }
