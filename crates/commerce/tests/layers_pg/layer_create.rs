@@ -10,6 +10,29 @@ fn create_key(letter: char) -> IdempotencyKey {
 async fn d_05_pg_layer_create_is_atomic_replay_safe_and_actor_scoped() {
     let (pool, repo, owner, other, _) = setup("create-idempotent").await;
     let key = create_key('C');
+    assert!(
+        sqlx::query(
+            "INSERT INTO commerce_layers(owner_user_id,title,create_command_title)
+             VALUES($1,'Invalid Layer','Unpaired title')"
+        )
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .is_err(),
+        "the SQL CHECK must reject a title without a command key"
+    );
+    assert!(
+        sqlx::query(
+            "INSERT INTO commerce_layers(owner_user_id,title,create_command_key)
+             VALUES($1,'Invalid Layer',$2)"
+        )
+        .bind(owner)
+        .bind(key.as_str())
+        .execute(&pool)
+        .await
+        .is_err(),
+        "the SQL CHECK must reject a command key without a frozen title"
+    );
     let first = repo
         .create_layer_once(id(owner), "  My Layer  ", &key)
         .await
