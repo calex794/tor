@@ -121,11 +121,6 @@ fn router_inner(
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
-    let image_routes = paid_author.as_ref().map(|publisher| {
-        crate::author_chapter_images::router(
-            accounts.clone(), cookies.clone(), publisher.clone(),
-        )
-    });
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
@@ -229,13 +224,8 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = if let Some(cover_routes) = cover_routes {
+    if let Some(cover_routes) = cover_routes {
         app.merge(cover_routes)
-    } else {
-        app
-    };
-    if let Some(image_routes) = image_routes {
-        app.merge(image_routes)
     } else {
         app
     }
