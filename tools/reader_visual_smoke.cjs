@@ -368,6 +368,7 @@ async function inspect(page, name, where) {
       await inspect(page, name + '-dark', 'registration-error');
       await page.close();
     }
+    await require('./comment_spoilers_browser.cjs')(browser, base, out);
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
     await browser.close();

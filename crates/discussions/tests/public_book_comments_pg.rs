@@ -24,13 +24,14 @@ async fn e_02_public_book_visibility_and_replay() {
     let repo = PgPublicBookComments::new(pool.clone());
     let command_key = "k".repeat(43);
     let hash = [3_u8; 32];
-    let first = repo.create(user, book, "Первый", &command_key, &hash).await;
+    let body = "Первый ||секрет @hidden_user|| после";
+    let first = repo.create(user, book, body, &command_key, &hash).await;
     let id = match first {
         CreateResult::Created(id) => id,
         other => panic!("first write was {other:?}"),
     };
     assert_eq!(
-        repo.create(user, book, "Первый", &command_key, &hash).await,
+        repo.create(user, book, body, &command_key, &hash).await,
         CreateResult::Replayed(id)
     );
     assert_eq!(
@@ -41,7 +42,11 @@ async fn e_02_public_book_visibility_and_replay() {
     let comments = repo.list(book, None, 50).await.unwrap().unwrap();
     assert_eq!(comments.len(), 1);
     assert_eq!(comments[0].id, id);
-    assert_eq!(comments[0].body, "Первый");
+    assert_eq!(comments[0].body, "Первый ||секрет @hidden_user|| после");
+    assert_eq!(
+        tor_discussions::domain::spoilers::delivery_preview(&comments[0].body, 240),
+        "Первый [спойлер] после"
+    );
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
         .bind(book)
         .execute(&pool)
