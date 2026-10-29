@@ -1,7 +1,7 @@
 //! C-15: follow intent stays private to the signed-in reader and never grants access.
 #![forbid(unsafe_code)]
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     http::{header, Request, StatusCode},
     Router,
 };
@@ -59,6 +59,19 @@ async fn post(app: &Router, path: &str, cookies: &str, origin: &str, csrf: &str)
         .await
         .expect("response")
         .status()
+}
+
+async fn book_page(app: &Router, book_id: i64, cookies: &str) -> String {
+    let request = Request::builder()
+        .uri(format!("/books/{book_id}"))
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await.unwrap().to_vec())
+        .unwrap()
 }
 
 #[tokio::test]
@@ -124,6 +137,11 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     );
     let one = format!("tor-dev-session={first_token}; tor-dev-csrf={csrf}");
     let two = format!("tor-dev-session={second_token}; tor-dev-csrf={csrf}");
+    let guest_page = book_page(&app, public, "").await;
+    assert!(guest_page.contains("href=\"/login\">Следить за книгой"));
+    let initial_page = book_page(&app, public, &one).await;
+    assert!(initial_page.contains(&format!("action=\"/me/books/{public}/follow\"")));
+    assert!(initial_page.contains(&format!("value=\"{csrf}\"")));
     let follow = format!("/me/books/{public}/follow");
     let unfollow = format!("/me/books/{public}/unfollow");
     for _ in 0..2 {
@@ -132,6 +150,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
             StatusCode::SEE_OTHER
         );
     }
+    let subscribed_page = book_page(&app, public, &one).await;
+    assert!(subscribed_page.contains(&format!("action=\"/me/books/{public}/unfollow\"")));
+    assert!(subscribed_page.contains("Отписаться от книги"));
     assert_eq!(
         pg(
             &url,
@@ -188,6 +209,8 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         StatusCode::SEE_OTHER,
         "unfollow must be idempotent"
     );
+    let unsubscribed_page = book_page(&app, public, &one).await;
+    assert!(unsubscribed_page.contains(&format!("action=\"/me/books/{public}/follow\"")));
     assert_eq!(
         pg(
             &url,
