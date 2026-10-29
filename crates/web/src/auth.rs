@@ -40,20 +40,20 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_comments;
 mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod library_actions;
 mod layer_books;
+mod logout;
 mod login_limiter;
 mod paid_completion;
 mod rankings;
 mod sync_actions;
-
 mod types;
 use types::*;
-
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -135,9 +135,6 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    // Deployment stays default-off until the complete Layer management
-    // route and transaction tests have passed on the final integrated SHA.
-    let layer_management_enabled = std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
@@ -146,7 +143,6 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
-        layer_management_enabled,
         paid_reader_available,
         authoring,
         progress,
@@ -177,6 +173,10 @@ fn router_inner(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
         )
+        .route(
+            "/books/{id}/comments",
+            get(book_comments::page).post(book_comments::submit),
+        )
         .route("/me/rankings/choice", post(rankings::browser_choice))
         .route("/me/rankings/resume", post(rankings::browser_resume))
         .route("/api/v1/me/rankings", get(rankings::api_state))
@@ -206,7 +206,6 @@ fn router_inner(
             "/api/v1/me/library/{id}",
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
-        .route("/me/layers/{layer_id}/books", get(layer_books::page).post(layer_books::add))
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
@@ -218,8 +217,9 @@ fn router_inner(
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
-        .route("/logout", post(logout))
+        .route("/logout", post(logout::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
+        .merge(layer_books::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
@@ -580,23 +580,3 @@ async fn save_place(
     }
 }
 
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
-}
