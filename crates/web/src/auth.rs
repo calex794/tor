@@ -45,10 +45,10 @@ mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
-mod library_actions;
 mod layer_books;
-mod logout;
+mod library_actions;
 mod login_limiter;
+mod logout;
 mod paid_completion;
 mod rankings;
 mod sync_actions;
@@ -579,4 +579,3 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
