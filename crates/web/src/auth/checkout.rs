@@ -1,6 +1,7 @@
 //! D-04: controlled internal-wallet checkout API. No external payment flow.
 //! The route is disabled unless TOR_PAID_CHECKOUT_ENABLED=1 was set at startup.
 mod batch;
+pub(super) use batch::buy as buy_batch;
 use super::{deny, session_user, AuthState};
 use crate::auth_cookies::private_response;
 use axum::{
