@@ -20,6 +20,8 @@
   const url = '/me/books/<!--BOOK_ID-->/chapters/import-preview';
   let text = '';
   const merged = new Set();
+  const history = [];
+  let lastPreview = null;
   async function refresh() {
     status.textContent = 'Распознавание…';
     button.disabled = true;
@@ -32,6 +34,20 @@
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const data = await response.json();
       results.replaceChildren();
+      lastPreview = data;
+      const toolbar = document.createElement('div');
+      const undo = document.createElement('button');
+      undo.type = 'button';
+      undo.className = 'button button--quiet';
+      undo.textContent = 'Отменить последнее объединение';
+      undo.disabled = history.length === 0;
+      undo.addEventListener('click', () => {
+        const previous = history.pop();
+        if (previous !== undefined) merged.delete(previous);
+        refresh();
+      });
+      toolbar.append(undo);
+      results.append(toolbar);
       data.chapters.forEach((chapter, index) => {
         const section = document.createElement('section');
         const heading = document.createElement('h2');
@@ -41,8 +57,16 @@
         pre.textContent = chapter.body.slice(0, 1200);
         section.append(pre);
         if (index > 0) {
-          const line = data.detected_boundaries.find(n => !merged.has(n) && n > 0);
-          // Boundary editing is intentionally deferred until line mapping is returned.
+          const merge = document.createElement('button');
+          merge.type = 'button';
+          merge.className = 'button button--quiet';
+          merge.textContent = 'Объединить с предыдущей главой';
+          merge.addEventListener('click', () => {
+            merged.add(chapter.line);
+            history.push(chapter.line);
+            refresh();
+          });
+          section.append(merge);
         }
         results.append(section);
       });
@@ -57,6 +81,7 @@
     if (file.size > 700000) { status.textContent = 'Файл превышает 700 КБ.'; return; }
     text = await file.text();
     merged.clear();
+    history.length = 0;
     await refresh();
   });
 })();
