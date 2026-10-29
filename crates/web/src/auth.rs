@@ -41,8 +41,8 @@ use tor_reading::{
 mod account_form_http;
 mod behavior_consent;
 mod book_comments;
-mod book_follow_actions;
 mod book_description;
+mod book_follow_actions;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -72,7 +72,6 @@ pub(crate) fn router_with_cover_uploads(
     router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
 
-/// Enable purchased-library navigation only when an authorized reader is mounted.
 pub(crate) fn router_with_paid_reader(
     accounts: PgAccounts,
     reader: PgReader,
@@ -91,8 +90,6 @@ pub(crate) fn router_with_paid_reader(
     )
 }
 
-/// Only the private, explicitly enabled paid-author router provides a writer.
-/// The existing grant-only constructor never changes author capabilities.
 pub(crate) fn router_with_paid_reader_author(
     accounts: PgAccounts,
     reader: PgReader,
