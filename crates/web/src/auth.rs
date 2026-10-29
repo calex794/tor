@@ -295,18 +295,6 @@ async fn my_library(
     private_response(page, &cookies)
 }
 
-/// Resolve actor from the session database, never client-supplied user IDs.
-async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
-    let Some(token) = state.cookies.session_token(headers) else {
-        return Ok(None);
-    };
-    state
-        .accounts
-        .active_session_user(&session_token_digest(&token))
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
-}
-
 /// Browser author workspace backed by the current PostgreSQL user session.
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {
