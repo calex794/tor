@@ -379,7 +379,10 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     let terms = html(terms).await;
     assert!(terms.contains("Пакет &lt;b&gt;автора&lt;/b&gt;"));
     assert!(terms.contains("Доступен"));
-    assert!(!terms.contains(&format!("/read/layer/{chapter}")), "no link to unmounted S3 reader");
+    assert!(
+        !terms.contains(&format!("/read/layer/{chapter}")),
+        "no link to unmounted S3 reader"
+    );
     assert!(!terms.contains("SECRET-LAYER-CHAPTER-PLAIN-TEXT"));
     assert!(!terms.contains("SECRET-DRAFT-LAYER"));
     let bought_page =
