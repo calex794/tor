@@ -72,6 +72,26 @@ impl PgDirectEntitlements {
         Self { pool }
     }
 
+    /// Select the latest verified paid edition exactly as NEwBOO's library
+    /// upgrade action. The database owns the version choice and locking.
+    pub async fn upgrade_purchased_chapter(
+        &self,
+        actor: PositiveId,
+        chapter_id: PositiveId,
+        purchase_id: PositiveId,
+    ) -> Result<Option<i64>, DeliveryError> {
+        let version: Option<i64> = sqlx::query_scalar(
+            "SELECT tor_select_latest_purchased_edition($1,$2,$3)",
+        )
+        .bind(actor.get())
+        .bind(purchase_id.get())
+        .bind(chapter_id.get())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        Ok(version)
+    }
+
     /// Resolve only display metadata for a confirmed, still-readable
     /// purchase. No historical or public visibility bypass, body, or S3 key.
     /// The caller must also check D entitlement before rendering the page.
@@ -82,18 +102,18 @@ impl PgDirectEntitlements {
         purchase_id: PositiveId,
     ) -> Result<Option<ReadablePurchase>, DeliveryError> {
         let row = sqlx::query(
-            "SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+            "SELECT p.id AS purchase_id, p.chapter_id, l.active_version_id AS version_id,
                     v.version_no, c.chapter_no,
                     b.title AS book_title, c.title AS chapter_title
              FROM library_purchased_chapters l
              JOIN chapter_purchase_facts p
                ON p.id=l.purchase_id AND p.user_id=l.user_id
-              AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+              AND p.chapter_id=l.chapter_id
              JOIN chapters c ON c.id=p.chapter_id
              JOIN books b ON b.id=c.book_id
-             JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=p.version_id
+             JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=l.active_version_id
              WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
-               AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)",
+               AND tor_purchase_version_readable($1,p.id,p.chapter_id,l.active_version_id)",
         )
         .bind(actor.get())
         .bind(chapter_id.get())
@@ -144,12 +164,12 @@ impl PgDirectEntitlements {
                 FROM library_purchased_chapters l
                 JOIN chapter_purchase_facts p
                   ON p.id=l.purchase_id AND p.user_id=l.user_id
-                 AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+                 AND p.chapter_id=l.chapter_id
                 JOIN chapters c ON c.id=p.chapter_id
                 WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
-                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,l.active_version_id)
             )
-            SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+            SELECT p.id AS purchase_id, p.chapter_id, l.active_version_id AS version_id,
                    v.version_no, c.chapter_no,
                    b.title AS book_title, c.title AS chapter_title
             FROM anchor a
@@ -158,10 +178,10 @@ impl PgDirectEntitlements {
             JOIN chapter_purchase_facts p ON p.chapter_id=c.id
             JOIN library_purchased_chapters l
               ON l.purchase_id=p.id AND l.user_id=p.user_id
-             AND l.chapter_id=p.chapter_id AND l.active_version_id=p.version_id
-            JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=p.chapter_id
+             AND l.chapter_id=p.chapter_id
+            JOIN chapter_versions v ON v.id=l.active_version_id AND v.chapter_id=p.chapter_id
             WHERE l.user_id=$1
-              AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+              AND tor_purchase_version_readable($1,p.id,p.chapter_id,l.active_version_id)
             ORDER BY ABS(c.chapter_no::BIGINT-a.chapter_no::BIGINT),
                      c.chapter_no, p.id
             LIMIT 101",
@@ -220,10 +240,10 @@ impl PgDirectEntitlements {
                 FROM library_purchased_chapters l
                 JOIN chapter_purchase_facts p
                   ON p.id=l.purchase_id AND p.user_id=l.user_id
-                 AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+                 AND p.chapter_id=l.chapter_id
                 JOIN chapters c ON c.id=p.chapter_id
                 WHERE l.user_id=$1 AND p.chapter_id=$2 AND p.id=$3
-                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,l.active_version_id)
             )
             SELECT c.id AS chapter_id, c.chapter_no, c.title AS chapter_title,
                    c.access_level, c.price_amount,
@@ -232,15 +252,15 @@ impl PgDirectEntitlements {
             JOIN chapters c ON c.book_id=a.book_id
             JOIN books b ON b.id=c.book_id
             LEFT JOIN LATERAL (
-                SELECT p.id AS purchase_id, p.version_id, v.version_no
+                SELECT p.id AS purchase_id, l.active_version_id AS version_id, v.version_no
                 FROM library_purchased_chapters l
                 JOIN chapter_purchase_facts p
                   ON p.id=l.purchase_id AND p.user_id=l.user_id
-                 AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+                 AND p.chapter_id=l.chapter_id
                 JOIN chapter_versions v
-                  ON v.chapter_id=p.chapter_id AND v.id=p.version_id
+                  ON v.chapter_id=p.chapter_id AND v.id=l.active_version_id
                 WHERE l.user_id=$1 AND l.chapter_id=c.id
-                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+                  AND tor_purchase_version_readable($1,p.id,p.chapter_id,l.active_version_id)
                 LIMIT 1
             ) owned ON TRUE
             WHERE owned.purchase_id IS NOT NULL
@@ -250,7 +270,7 @@ impl PgDirectEntitlements {
                    AND EXISTS (
                      SELECT 1 FROM chapter_publications cp
                      JOIN chapter_versions pv
-                       ON pv.chapter_id=cp.chapter_id AND pv.id=cp.version_id
+                       ON pv.chapter_id=cp.chapter_id AND pv.id=cl.active_version_id
                      WHERE cp.chapter_id=c.id
                    ))
             ORDER BY ABS(c.chapter_no::BIGINT-a.chapter_no::BIGINT),
@@ -322,19 +342,19 @@ impl PgDirectEntitlements {
         before: Option<PositiveId>,
     ) -> Result<ReadablePurchasesPage, DeliveryError> {
         let mut rows = sqlx::query(
-            "SELECT p.id AS purchase_id, p.chapter_id, p.version_id,
+            "SELECT p.id AS purchase_id, p.chapter_id, l.active_version_id AS version_id,
                     v.version_no, c.chapter_no,
                     b.title AS book_title, c.title AS chapter_title
              FROM library_purchased_chapters l
              JOIN chapter_purchase_facts p
                ON p.id=l.purchase_id AND p.user_id=l.user_id
-              AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+              AND p.chapter_id=l.chapter_id
              JOIN chapters c ON c.id=p.chapter_id
              JOIN books b ON b.id=c.book_id
-             JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=p.version_id
+             JOIN chapter_versions v ON v.chapter_id=p.chapter_id AND v.id=l.active_version_id
              WHERE l.user_id=$1
                AND ($2::BIGINT IS NULL OR p.id<$2)
-               AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+               AND tor_purchase_version_readable($1,p.id,p.chapter_id,l.active_version_id)
              ORDER BY p.id DESC
              LIMIT 31",
         )
@@ -396,14 +416,14 @@ impl EntitlementPort for PgDirectEntitlements {
                     (b.admin_hold OR c.admin_hold) AS admin_hold,
                     (b.is_deleted OR c.is_deleted) AS hard_deleted,
                     tor_purchase_version_readable(
-                        $1, p.id, p.chapter_id, p.version_id
+                        $1, p.id, p.chapter_id, l.active_version_id
                     ) AS canonical_readable
              FROM library_purchased_chapters l
              JOIN chapter_purchase_facts p
                ON p.id=l.purchase_id AND p.user_id=l.user_id
-              AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+              AND p.chapter_id=l.chapter_id
              JOIN chapter_versions v
-               ON v.id=p.version_id AND v.chapter_id=p.chapter_id
+               ON v.id=l.active_version_id AND v.chapter_id=p.chapter_id
              JOIN chapters c ON c.id=p.chapter_id
              JOIN books b ON b.id=c.book_id
              LEFT JOIN chapter_purchase_revocations r ON r.purchase_id=p.id
