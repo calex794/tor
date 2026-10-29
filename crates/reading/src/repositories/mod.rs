@@ -8,3 +8,6 @@ pub use library::PgLibrary;
 
 pub mod sync;
 pub use sync::PgReadingSync;
+
+pub mod demand;
+pub use demand::PgContinuationDemand;
