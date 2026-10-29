@@ -29,7 +29,9 @@ use tor_books::{
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
-use tor_reading::repositories::{PgContinuationDemand, PgLibrary, PgReadingProgress, PgReadingSync};
+use tor_reading::repositories::{
+    PgContinuationDemand, PgLibrary, PgReadingProgress, PgReadingSync,
+};
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -219,7 +221,10 @@ fn router_inner(
         .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
-        .route("/read/{id}/want-continuation", post(continuation_demand::submit))
+        .route(
+            "/read/{id}/want-continuation",
+            post(continuation_demand::submit),
+        )
         .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))

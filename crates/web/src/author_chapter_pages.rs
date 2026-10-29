@@ -17,7 +17,13 @@ pub fn detail_with_covers(
     latest_job: Option<&str>,
 ) -> Html<String> {
     detail_with_covers_with_demand(
-        book, published, chapters, csrf, uploads_enabled, latest_job, 0,
+        book,
+        published,
+        chapters,
+        csrf,
+        uploads_enabled,
+        latest_job,
+        0,
     )
 }
 

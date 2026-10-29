@@ -66,4 +66,3 @@ pub(super) async fn page(
         &cookies,
     )
 }
-

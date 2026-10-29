@@ -1,8 +1,8 @@
 //! Private, account-only reader UI. No client-side or inferred access grants.
 use super::{escape_html, layout};
-use tor_reading::repositories::demand::DemandState;
 use axum::response::Html;
 use std::fmt::Write;
+use tor_reading::repositories::demand::DemandState;
 use tor_reading::services::progress::{
     reader_blocks, valid_text_place, ReadingPlace, SavedPlaceState,
 };
@@ -17,7 +17,15 @@ pub fn private_reader(
     expected_revision: i64,
     completed: bool,
 ) -> Html<String> {
-    private_reader_with_demand(chapter_id, chapter, csrf, saved, expected_revision, completed, None)
+    private_reader_with_demand(
+        chapter_id,
+        chapter,
+        csrf,
+        saved,
+        expected_revision,
+        completed,
+        None,
+    )
 }
 
 pub fn private_reader_with_demand(
