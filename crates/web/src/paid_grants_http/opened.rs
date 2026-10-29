@@ -58,12 +58,14 @@ pub(super) async fn confirm_open(
     if !state.rate_limits.lock().await.allow(actor, Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
+    // Scoped D calls must receive the verified session actor directly.
+    let actor = actor_id;
     // Explicit source and purchase prevent accidental direct/Layer fallback.
     let result = match (body.source, body.purchase_id.as_deref()) {
         (Some(GrantSource::Layer), None) => {
             state
                 .first_layer_grant
-                .confirm_rendered(actor_id, chapter, version)
+                .confirm_rendered(actor, chapter, version)
                 .await
         }
         (None, Some(raw_purchase)) => {
@@ -72,7 +74,7 @@ pub(super) async fn confirm_open(
             };
             state
                 .first_direct_grant
-                .confirm_rendered(actor_id, chapter, version, purchase)
+                .confirm_rendered(actor, chapter, version, purchase)
                 .await
         }
         _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),

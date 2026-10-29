@@ -26,6 +26,8 @@ SCOPE_CALLS = {
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
+    # D validates paid ownership/term under a row lock in confirm_rendered.
+    "confirm_rendered",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",

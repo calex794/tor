@@ -62,6 +62,12 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .unwrap();
     assert_eq!(before, 0, "checkout alone does not read paid content");
     assert_eq!(
+        gate.confirm_rendered(id(buyer), id(chapter), id(version), id(purchase))
+            .await,
+        Err(DeliveryError::Denied),
+        "no browser render can precede a signed grant"
+    );
+    assert_eq!(
         gate.record(
             id(owner),
             id(chapter),
@@ -167,7 +173,10 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(empty, 0, "credential issuance does not imply chapter rendering");
+    assert_eq!(
+        empty, 0,
+        "credential issuance does not imply chapter rendering"
+    );
     let (first_ack, replay_ack) = tokio::join!(
         gate.confirm_rendered(id(buyer), id(chapter), id(version), id(purchase)),
         gate.confirm_rendered(id(buyer), id(chapter), id(version), id(purchase)),
@@ -175,11 +184,13 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     assert_eq!(first_ack, Ok(()));
     assert_eq!(replay_ack, Ok(()));
     assert_eq!(
-        gate.confirm_rendered(id(owner), id(chapter), id(version), id(purchase)).await,
+        gate.confirm_rendered(id(owner), id(chapter), id(version), id(purchase))
+            .await,
         Err(DeliveryError::Denied),
     );
     assert_eq!(
-        gate.confirm_rendered(id(buyer), id(chapter), id(i64::MAX), id(purchase)).await,
+        gate.confirm_rendered(id(buyer), id(chapter), id(i64::MAX), id(purchase))
+            .await,
         Err(DeliveryError::Denied),
     );
     let count: i64 = sqlx::query_scalar(
@@ -190,13 +201,14 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .await
     .unwrap();
     assert_eq!(count, 1);
-    assert!(sqlx::query(
-        "DELETE FROM chapter_purchase_render_confirmations WHERE purchase_id=$1",
-    )
-    .bind(purchase)
-    .execute(&pool)
-    .await
-    .is_err(), "render evidence is append-only");
+    assert!(
+        sqlx::query("DELETE FROM chapter_purchase_render_confirmations WHERE purchase_id=$1",)
+            .bind(purchase)
+            .execute(&pool)
+            .await
+            .is_err(),
+        "render evidence is append-only"
+    );
     let balance: i64 =
         sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
             .bind(buyer)

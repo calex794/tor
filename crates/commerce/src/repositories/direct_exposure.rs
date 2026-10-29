@@ -102,7 +102,11 @@ impl PgDirectFirstExposure {
         version: PositiveId,
         purchase: PositiveId,
     ) -> Result<(), DeliveryError> {
-        let mut tx = self.pool.begin().await.map_err(|_| DeliveryError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
         let owned: Option<i64> = sqlx::query_scalar(
             "SELECT p.id
              FROM chapter_purchase_facts p

@@ -150,7 +150,11 @@ impl PgLayerFirstExposure {
              JOIN commerce_layer_term_first_exposures g ON g.term_id=t.id
              WHERE t.id IN ({ELIGIBLE_TERMS}) ORDER BY t.id"
         );
-        let mut tx = self.pool.begin().await.map_err(|_| DeliveryError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
         let locked: Vec<i64> = sqlx::query_scalar(&format!("{eligible} FOR UPDATE OF t"))
             .bind(actor.get())
             .bind(chapter.get())

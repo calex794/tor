@@ -76,6 +76,12 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
         Err(DeliveryError::Denied),
         "a browser-chosen/unpublished edition must not pass"
     );
+    assert_eq!(
+        barrier.confirm_rendered(id(buyer), id(chapter), id(published))
+            .await,
+        Err(DeliveryError::Denied),
+        "no browser confirmation before first grant"
+    );
     let (a, b) = tokio::join!(
         barrier.record(
             id(buyer),
@@ -140,7 +146,9 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
     assert_eq!(first_ack, Ok(()));
     assert_eq!(replay_ack, Ok(()));
     assert_eq!(
-        barrier.confirm_rendered(id(owner), id(chapter), id(published)).await,
+        barrier
+            .confirm_rendered(id(owner), id(chapter), id(published))
+            .await,
         Err(DeliveryError::Denied),
     );
     let confirmed: i64 = sqlx::query_scalar(
@@ -229,14 +237,29 @@ async fn d_06_pg_future_renewal_is_not_marked_by_current_term_grant() {
         )
         .await
         .unwrap();
-    barrier.confirm_rendered(id(buyer), id(chapter), id(published)).await.unwrap();
+    barrier
+        .confirm_rendered(id(buyer), id(chapter), id(published))
+        .await
+        .unwrap();
     let active_open: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM commerce_layer_term_render_confirmations WHERE term_id=$1",
-    ).bind(current.term_id).fetch_one(&pool).await.unwrap();
+    )
+    .bind(current.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let future_open: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM commerce_layer_term_render_confirmations WHERE term_id=$1",
-    ).bind(future.term_id).fetch_one(&pool).await.unwrap();
-    assert_eq!((active_open, future_open), (1, 0), "future P2 is not opened by P1");
+    )
+    .bind(future.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (active_open, future_open),
+        (1, 0),
+        "future P2 is not opened by P1"
+    );
     let first: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM commerce_layer_term_first_exposures
          WHERE term_id=$1",
