@@ -265,3 +265,152 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci and TOR_LAYER_MANAGEMENT_ENABLED=1"]
+async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
+    assert_eq!(
+        std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref(),
+        Ok("1")
+    );
+    let url = std::env::var("TEST_DATABASE_URL").expect("PG test fixture");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool().clone();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let session = generate_session_token();
+    let csrf = generate_session_token();
+    let password = hash_password("D05CreateLayerPassword2026").unwrap();
+    let owner = accounts
+        .register_with_session(
+            &format!("d05-create-owner-{nonce}@tor-ci.example"),
+            "Layer owner",
+            &password,
+            &session_token_digest(&session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts,
+        false,
+        ORIGIN.to_owned(),
+    );
+    let route = "/me/layers/new";
+    assert_eq!(
+        request(&app, "GET", route, "", ORIGIN, "").await.status(),
+        StatusCode::SEE_OTHER
+    );
+    let page = request(&app, "GET", route, &cookie, ORIGIN, "").await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    let html = body(page).await;
+    assert!(html.contains("action=\"/me/layers/new\""));
+    assert!(html.contains("name=\"title\""));
+    assert!(!html.contains("name=\"user_id\""));
+    let key = html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    assert_eq!(key.len(), 43);
+    let form = format!("title=New+Layer&command_key={key}&csrf_token={csrf}");
+    let modified = format!("title=Changed+Layer&command_key={key}&csrf_token={csrf}");
+    assert_eq!(
+        request(&app, "POST", route, "", ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        request(&app, "POST", route, &cookie, "https://evil.invalid", &form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            route,
+            &cookie,
+            ORIGIN,
+            &format!("title=New+Layer&command_key={key}&csrf_token=invalid")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            route,
+            &cookie,
+            ORIGIN,
+            &format!("title=New+Layer&command_key=invalid&csrf_token={csrf}")
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let created = request(&app, "POST", route, &cookie, ORIGIN, &form).await;
+    assert_eq!(created.status(), StatusCode::SEE_OTHER);
+    let destination = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(destination.starts_with("/me/layers/"));
+    assert!(destination.ends_with("/books"));
+    let replay = request(&app, "POST", route, &cookie, ORIGIN, &form).await;
+    assert_eq!(replay.status(), StatusCode::SEE_OTHER);
+    assert_eq!(replay.headers()[header::LOCATION], destination);
+    assert_eq!(
+        request(&app, "POST", route, &cookie, ORIGIN, &modified)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let count: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM commerce_layers
+             WHERE owner_user_id={owner} AND create_command_key='{key}'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(count, 1);
+    let id: i64 = destination
+        .trim_start_matches("/me/layers/")
+        .trim_end_matches("/books")
+        .parse()
+        .unwrap();
+    let versions: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM commerce_layer_versions WHERE layer_id={id}"),
+    )
+    .parse()
+    .unwrap();
+    let books: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM commerce_layer_version_books
+             WHERE layer_version_id IN
+                (SELECT id FROM commerce_layer_versions WHERE layer_id={id})"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!((versions, books), (1, 0));
+    let dashboard = body(request(&app, "GET", "/me/books", &cookie, ORIGIN, "").await).await;
+    assert!(dashboard.contains(&destination));
+    assert!(dashboard.contains("New Layer"));
+    pool.close().await;
+}
