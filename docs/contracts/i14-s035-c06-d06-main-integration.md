@@ -59,3 +59,12 @@ refund settlement, create provider payouts, enable flags, merge into main or
 deploy. Finance still needs purchase-time immutable policy plus a separate
 SERIALIZABLE refund approval/reversal transaction and FIN-B05…B11.
 Issues #235 and #236 remain authoritative release/integration gates.
+
+## Test fixture ownership
+
+The actual S035 live-Chromium helper explicitly owns its local
+`OpenOptions`/`Path` imports. The C-06 first-open batch regression obtains
+its read-only PostgreSQL audit pool through `PgCatalog`, rather than
+introducing a new direct `sqlx` dependency into `tor-web` tests.
+Credentials remain only in isolated runner-temp files and are deleted after
+the browser check. This separation keeps the S3 test root below 1000 lines.
