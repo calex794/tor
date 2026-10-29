@@ -104,6 +104,25 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     assert_eq!(second.next_cursor, None);
     assert!(second.items.iter().all(|item| item.chapter_number >= 2));
 
+    // A paid chapter is visible as a purchase opportunity only after B/G
+    // record a verified encrypted release. Unverified paid publication alone
+    // must never advertise a ready chapter.
+    let paid: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,34,'Платная глава','public','paid',19900) RETURNING id",
+    ).bind(book).fetch_one(&pool).await.unwrap();
+    let paid_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'Платный текст') RETURNING id",
+    ).bind(paid).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(paid).bind(paid_version).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_first_release_events(chapter_id,version_id)
+         VALUES($1,$2)",
+    ).bind(paid).bind(paid_version).execute(&pool).await.unwrap();
+    assert!(!releases.latest(reader,None).await.unwrap().items.iter().any(|x|x.chapter_id==paid));
+
     // The latest chapter disappears if made private; edits cannot create a
     // second first-release row because chapter_id is the primary key.
     sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
