@@ -135,14 +135,21 @@ async function inspect(page, viewport, name) {
         viewport + ': reader did not display new public version');
       await inspect(page, viewport, 'second-reader');
 
-      // Already public free chapters cannot re-enter draft edit/release forms.
+      // BKR-96: a published free chapter may be edited by its owner.
+      // A second release remains forbidden; one Save immediately publishes V2.
       const chapterId = href.split('/').pop();
-      for (const action of ['edit', 'release']) {
-        const response = await page.goto(base + '/me/books/' + bookId +
-          '/chapters/' + chapterId + '/' + action);
-        assert(response && response.status() === 404,
-          viewport + ': public free chapter exposed a pending ' + action + ' route');
-      }
+      const editResponse = await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/edit');
+      assert(editResponse && editResponse.status() === 200,
+        viewport + ': owner cannot edit a published free chapter');
+      assert(await page.getByText(/Сохранение сразу обновит опубликованную редакцию/).isVisible(),
+        viewport + ': published edit does not explain immediate update');
+      assert(await page.getByRole('button', { name: 'Сохранить изменения' }).isVisible(),
+        viewport + ': published free edit form is missing Save');
+      const releaseResponse = await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/release');
+      assert(releaseResponse && releaseResponse.status() === 404,
+        viewport + ': published free chapter still offers second release');
       await context.close();
     }
     console.log('TOR BKR-96 browser PASS: 390/1440 draft-book release, immediate second free Save, public reader');
