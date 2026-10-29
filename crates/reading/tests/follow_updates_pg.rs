@@ -1,0 +1,126 @@
+//! C-16: real PostgreSQL evidence for private, after-follow release updates.
+use sqlx::PgPool;
+use tor_reading::repositories::{PgFollowUpdates, UpdatesCursor};
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 tor_ci"]
+async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated postgres");
+    assert!(url.ends_with("/tor_ci"), "never test production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let nonce: i64 = sqlx::query_scalar(
+        "SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let author_email = format!("c16-author-{nonce}@example.invalid");
+    let reader_email = format!("c16-reader-{nonce}@example.invalid");
+    let outsider_email = format!("c16-other-{nonce}@example.invalid");
+    let mut actors = Vec::new();
+    for email in [author_email, reader_email, outsider_email] {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (email_normalized, display_name, password_hash)
+             VALUES ($1,'C16 Test','$argon2id$fixture') RETURNING id",
+        )
+        .bind(email)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        actors.push(id);
+    }
+    let author = actors[0];
+    let reader = actors[1];
+    let outsider = actors[2];
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books (source_identity,target_language,title,visibility,owner_user_id)
+         VALUES ($1,'ru','C16 Book','public',$2) RETURNING id",
+    )
+    .bind(format!("ci:c16:{nonce}"))
+    .bind(author)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let releases = PgFollowUpdates::new(pool.clone());
+    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+
+    // The first chapter is published BEFORE the reader follows the book.
+    let mut chapter_ids = Vec::new();
+    for number in 1..=33_i32 {
+        let chapter: i64 = sqlx::query_scalar(
+            "INSERT INTO chapters
+              (book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES ($1,$2,$3,'public','free',0) RETURNING id",
+        )
+        .bind(book)
+        .bind(number)
+        .bind(format!("Глава {number}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let version: i64 = sqlx::query_scalar(
+            "INSERT INTO chapter_versions (chapter_id,version_no,body_markdown)
+             VALUES ($1,1,'Текст главы') RETURNING id",
+        )
+        .bind(chapter)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO chapter_publications (chapter_id,version_id) VALUES ($1,$2)")
+            .bind(chapter)
+            .bind(version)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO chapter_first_release_events (chapter_id,version_id,created_at)
+             VALUES ($1,$2,now() + ($3 * interval '1 second'))",
+        )
+        .bind(chapter)
+        .bind(version)
+        .bind(number - 1)
+        .execute(&pool)
+        .await
+        .unwrap();
+        chapter_ids.push(chapter);
+    }
+    sqlx::query(
+        "INSERT INTO reader_book_follows(user_id,book_id,created_at)
+         VALUES ($1,$2,now() + interval '1 second')",
+    )
+    .bind(reader)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let first = releases.latest(reader, None).await.unwrap();
+    assert_eq!(first.items.len(), 30);
+    assert!(first.next_cursor.is_some());
+    assert!(first.items.iter().all(|item| item.book_id == book));
+    assert!(!first.items.iter().any(|item| item.chapter_id == chapter_ids[0]));
+    assert!(releases.latest(outsider, None).await.unwrap().items.is_empty());
+    let second = releases.latest(reader, first.next_cursor).await.unwrap();
+    assert_eq!(second.items.len(), 2);
+    assert_eq!(second.next_cursor, None);
+    assert!(second.items.iter().all(|item| item.chapter_number >= 2));
+
+    // The latest chapter disappears if made private; edits cannot create a
+    // second first-release row because chapter_id is the primary key.
+    sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
+        .bind(chapter_ids[32])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(releases.latest(reader, None).await.unwrap().items.len(), 30);
+    sqlx::query("DELETE FROM reader_book_follows WHERE user_id=$1 AND book_id=$2")
+        .bind(reader)
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(UpdatesCursor::parse("bad-cursor").is_none());
+    // The disposable tor_ci database is discarded by the workflow. Do not
+    // delete owned books manually across RESTRICT ownership constraints.
+    pool.close().await;
+}
