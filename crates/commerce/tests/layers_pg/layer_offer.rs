@@ -440,10 +440,7 @@ async fn d_05_pg_parallel_buy_keys_serialize_wallet_and_renewal_chain() {
     // wallet must serialize the renewed 30-day terms rather than overlap them.
     let second_command = cmd(buyer, layer, published, version, 250, 'U');
     let third_command = cmd(buyer, layer, published, version, 250, 'V');
-    let (second, third) = tokio::join!(
-        repo.buy(&second_command),
-        repo.buy(&third_command),
-    );
+    let (second, third) = tokio::join!(repo.buy(&second_command), repo.buy(&third_command),);
     let (second, third) = (second.unwrap(), third.unwrap());
     assert_ne!(first.term_id, second.term_id);
     assert_ne!(first.term_id, third.term_id);
@@ -475,7 +472,10 @@ async fn d_05_pg_parallel_buy_keys_serialize_wallet_and_renewal_chain() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(continuous, "parallel renewals must preserve all 90 paid days");
+    assert!(
+        continuous,
+        "parallel renewals must preserve all 90 paid days"
+    );
     pool.close().await;
 }
 
