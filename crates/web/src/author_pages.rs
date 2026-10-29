@@ -41,6 +41,9 @@ fn render_index(books: &[OwnedBook], layers: Option<&[OwnedLayerSummary]>) -> Ht
             "<section aria-labelledby=\"my-layers-heading\">\
              <h2 id=\"my-layers-heading\">Мои Layer</h2>",
         );
+        section.push_str(
+            "<p><a class=\"button\" href=\"/me/layers/new\">Создать Layer</a></p>",
+        );
         if owned.is_empty() {
             section.push_str("<p class=\"empty-state\">Слоёв пока нет.</p>");
         } else {
@@ -93,6 +96,7 @@ mod tests {
         }];
         let visible = index_with_layers(&[], &layers).0;
         assert!(visible.contains("/me/layers/91/books"));
+        assert!(visible.contains("/me/layers/new"));
         assert!(visible.contains("Layer &lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!visible.contains("<script>alert(1)</script>"));
         assert!(!visible.contains("user_id"));
