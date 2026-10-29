@@ -175,12 +175,19 @@ class GitHub:
         return value
 
 
+def require_current_main(api: GitHub, sha: str) -> None:
+    ref = api.get(f"/repos/{REPO}/git/ref/heads/main")
+    obj = ref.get("object")
+    if (ref.get("ref") != "refs/heads/main"
+            or not isinstance(obj, dict) or obj.get("sha") != sha):
+        raise EvidenceError("candidate is not the current main SHA")
+
+
 def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
     if not SHA.fullmatch(sha):
         raise EvidenceError("invalid release candidate SHA")
-    ref = api.get(f"/repos/{REPO}/git/ref/heads/main")
-    if ref.get("object", {}).get("sha") != sha or ref.get("ref") != "refs/heads/main":
-        raise EvidenceError("candidate is not the current main SHA")
+    # A frequently updated main can move while 15 workflow jobs are fetched.
+    require_current_main(api, sha)
     payload = api.get(f"/repos/{REPO}/actions/runs",
                       {"head_sha": sha, "event": "push", "per_page": 100})
     runs = payload.get("workflow_runs")
@@ -201,6 +208,7 @@ def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
                 or response["total_count"] != len(values) or len(values) > 100):
             raise EvidenceError("incomplete GitHub job pagination")
         jobs[record["id"]] = values
+    require_current_main(api, sha)
     return evaluate_ci(runs, jobs, sha, expected)
 
 
