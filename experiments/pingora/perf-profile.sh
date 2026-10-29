@@ -37,14 +37,18 @@ perf --version > "$out/perf-version.txt" 2>&1 || true
 # Do not change the runner's security controls. Hardware events are optional.
 hardware_events="cycles,instructions,task-clock,context-switches,cache-misses"
 software_events="task-clock,context-switches"
-if sudo perf stat -e "$hardware_events" -o "$out/probe.txt" -- sleep 0.15 > "$out/probe.log" 2>&1; then
+# perf stat may return exit code 0 while hardware counters say '<not supported>'.
+# A successful command alone is NOT evidence that cycles/instructions were counted.
+if sudo perf stat -e "$hardware_events" -o "$out/probe.txt" -- sleep 0.15 > "$out/probe.log" 2>&1 \
+    && ! grep -Eqi '<not supported>|<not counted>' "$out/probe.txt"; then
   events="$hardware_events"
-  echo "PERF_AVAILABLE: hardware and software counters" | tee "$out/availability.txt"
-elif sudo perf stat -e "$software_events" -o "$out/probe.txt" -- sleep 0.15 >> "$out/probe.log" 2>&1; then
+  echo "PERF_AVAILABLE: all requested hardware and software events counted" | tee "$out/availability.txt"
+elif sudo perf stat -e "$software_events" -o "$out/probe.txt" -- sleep 0.15 >> "$out/probe.log" 2>&1 \
+    && ! grep -Eqi '<not supported>|<not counted>' "$out/probe.txt"; then
   events="$software_events"
-  echo "PERF_PARTIAL: software counters only" | tee "$out/availability.txt"
+  echo "PERF_PARTIAL: hardware counters unsupported; software task-clock and context-switches only" | tee "$out/availability.txt"
 else
-  echo "PERF_UNAVAILABLE: perf blocked or unsupported by CI runner kernel" | tee "$out/availability.txt"
+  echo "PERF_UNAVAILABLE: neither hardware nor software counters are readable" | tee "$out/availability.txt"
   exit 0
 fi
 
@@ -96,6 +100,9 @@ for scheme in nginx pingora; do
   if ! wait "$monitor"; then
     echo "PERF_STAT_FAILED scheme=$scheme" | tee -a "$out/availability.txt"
   fi
+  if grep -Eqi '<not supported>|<not counted>' "$prefix.stat.txt"; then
+    echo "PERF_STAT_PARTIAL scheme=$scheme: requested event not counted" | tee -a "$out/availability.txt"
+  fi
   python3 - "$prefix.client.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -112,8 +119,8 @@ for scheme in nginx pingora; do
   if [ "$scheme" = nginx ]; then port=6195; else port=6193; fi
   pids="$(get_pids "$scheme")"
   prefix="$out/$scheme"
-  if sudo perf record -F 49 -g --call-graph dwarf,8192 -p "$pids" \
-    -o "$prefix.perf.data" -- sleep 10 > "$prefix.record.log" 2>&1 &
+  if sudo perf record -e task-clock -F 199 -g --call-graph dwarf,8192 -p "$pids" \
+    -o "$prefix.perf.data" -- sleep 26 > "$prefix.record.log" 2>&1 &
   then
     sampler=$!
   else
@@ -122,7 +129,7 @@ for scheme in nginx pingora; do
   fi
   sleep 1
   "$out/fixedrate" \
-    -url "http://127.0.0.1:$port/catalog" -rate 1500 -seconds 8 \
+    -url "http://127.0.0.1:$port/catalog" -rate 1500 -seconds 24 \
     -output "$prefix.sampling.client.json" > "$prefix.sampling.client.log"
   if wait "$sampler"; then
     if ! sudo perf report --stdio --no-children --sort comm,dso,symbol \
