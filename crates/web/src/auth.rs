@@ -47,6 +47,7 @@ mod checkout;
 mod complete_chapter;
 mod layer_books;
 mod layer_create;
+mod layer_checkout;
 mod library_actions;
 mod login_limiter;
 mod logout;
@@ -222,6 +223,7 @@ fn router_inner(
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .merge(layer_books::routes())
         .merge(layer_create::routes())
+        .merge(layer_checkout::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
