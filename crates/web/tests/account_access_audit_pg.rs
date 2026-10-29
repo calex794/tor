@@ -11,10 +11,7 @@ use std::{
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -143,9 +140,7 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
     );
 
     let (csrf_cookie, csrf) = csrf(&app, "/login").await;
-    let invalid = format!(
-        "email=audit-{nonce}%40example.invalid&password=wrong&csrf_token={csrf}"
-    );
+    let invalid = format!("email=audit-{nonce}%40example.invalid&password=wrong&csrf_token={csrf}");
     let rejected = send(
         &app,
         request(
@@ -160,9 +155,15 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
     .await;
     assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
     assert!(
-        rejected.headers().get_all(header::SET_COOKIE).iter().all(|v| {
-            !v.to_str().unwrap_or_default().starts_with("tor-dev-session=")
-        }),
+        rejected
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .all(|v| {
+                !v.to_str()
+                    .unwrap_or_default()
+                    .starts_with("tor-dev-session=")
+            }),
         "a failed password must never mint a session"
     );
 
@@ -184,7 +185,9 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
     assert_eq!(logged.status(), StatusCode::SEE_OTHER);
     let second = cookie(&logged, "tor-dev-session=");
     assert_ne!(first, second, "each login creates a distinct session");
-    let second_token = second.strip_prefix("tor-dev-session=").expect("cookie name");
+    let second_token = second
+        .strip_prefix("tor-dev-session=")
+        .expect("cookie name");
     assert_eq!(
         lookup
             .active_session_user(&session_token_digest(second_token))
@@ -203,7 +206,9 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
         let html = to_bytes(page.into_body(), 128_000)
             .await
             .expect("private profile");
-        assert!(!html.windows(11).any(|window| window == b"198.51.100."),
-            "private profile must not display audit IP");
+        assert!(
+            !html.windows(11).any(|window| window == b"198.51.100."),
+            "private profile must not display audit IP"
+        );
     }
 }

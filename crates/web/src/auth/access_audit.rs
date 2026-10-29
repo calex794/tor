@@ -2,9 +2,7 @@
 use super::login_limiter;
 use axum::http::{header, HeaderMap};
 use std::net::SocketAddr;
-use tor_accounts::domain::access_audit::{
-    LoginAuditContext, LoginEventKind, UserAgentFamily,
-};
+use tor_accounts::domain::access_audit::{LoginAuditContext, LoginEventKind, UserAgentFamily};
 
 pub(super) fn context(
     headers: &HeaderMap,

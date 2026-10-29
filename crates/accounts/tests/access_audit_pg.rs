@@ -83,31 +83,29 @@ async fn a03_account_login_events_follow_exact_sessions_and_revoke() {
     assert_eq!(rows.len(), 3);
     assert_ne!(rows[0].0, rows[1].0);
     assert!(rows.iter().any(|row| {
-        row.1.as_deref() == Some("198.51.100.12")
-            && row.2 == "chrome"
-            && row.3 == "registration"
+        row.1.as_deref() == Some("198.51.100.12") && row.2 == "chrome" && row.3 == "registration"
     }));
     assert!(rows.iter().any(|row| {
-        row.1.as_deref() == Some("2001:db8::99")
-            && row.2 == "firefox"
-            && row.3 == "password_login"
+        row.1.as_deref() == Some("2001:db8::99") && row.2 == "firefox" && row.3 == "password_login"
     }));
-    assert!(rows.iter().any(|row| {
-        row.1.is_none() && row.2 == "unknown" && row.3 == "password_login"
-    }));
+    assert!(rows
+        .iter()
+        .any(|row| { row.1.is_none() && row.2 == "unknown" && row.3 == "password_login" }));
 
     let replay = other_instance
         .insert_audited_session(user_id, &first, ttl, registration)
         .await;
     assert!(replay.is_err(), "reused digest cannot add a second session");
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM account_login_events WHERE user_id=$1",
-    )
-    .bind(user_id)
-    .fetch_one(&pool)
-    .await
-    .expect("row count");
-    assert_eq!(count, 3, "failed insert must not produce an orphan audit event");
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_login_events WHERE user_id=$1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("row count");
+    assert_eq!(
+        count, 3,
+        "failed insert must not produce an orphan audit event"
+    );
 
     assert_eq!(
         other_instance
@@ -125,12 +123,11 @@ async fn a03_account_login_events_follow_exact_sessions_and_revoke() {
         None
     );
     // Revoking a session must not erase the security event.
-    let remaining: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM account_login_events WHERE user_id=$1",
-    )
-    .bind(user_id)
-    .fetch_one(&pool)
-    .await
-    .expect("audit retention");
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_login_events WHERE user_id=$1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .expect("audit retention");
     assert_eq!(remaining, 3);
 }
