@@ -38,6 +38,13 @@ async fn seed_user(pool: &PgPool, role: &str) -> i64 {
     .expect("seed F-09 user")
 }
 
+fn guest_hash(seed: i64) -> [u8; 32] {
+    let mut value = [0_u8; 32];
+    value[..8].copy_from_slice(&seed.to_be_bytes());
+    value[8..16].copy_from_slice(&(!seed).to_be_bytes());
+    value
+}
+
 async fn seed_code(pool: &PgPool, owner: i64, program: &str) -> String {
     let code = format!("f09_{owner}");
     sqlx::query(
@@ -87,7 +94,7 @@ async fn f_09_pg_first_capture_and_replay() {
     let second = seed_user(&pool, "second").await;
     let first_code = seed_code(&pool, first, "reader_spend").await;
     let second_code = seed_code(&pool, second, "reader_spend").await;
-    let guest_hash = [51_u8; 32];
+    let guest_hash = guest_hash(first);
     assert_eq!(
         repo.capture(&guest_hash, &first_code, "direct_ref_link", "/r/first")
             .await
@@ -125,7 +132,7 @@ async fn f_09_pg_manual_precedence_invalid_fallback_and_self_invite() {
     let second = seed_user(&pool, "manual-second").await;
     let first_code = seed_code(&pool, first, "reader_spend").await;
     let second_code = seed_code(&pool, second, "reader_spend").await;
-    let guest_hash = [52_u8; 32];
+    let guest_hash = guest_hash(first);
     assert_eq!(
         repo.capture(&guest_hash, &first_code, "direct_ref_link", "/r/first")
             .await
@@ -175,7 +182,7 @@ async fn f_09_pg_recovery_uses_signup_time_not_replay_time() {
     let repo = PgReferrals::new(pool.clone());
     let owner = seed_user(&pool, "recovery-owner").await;
     let code = seed_code(&pool, owner, "reader_spend").await;
-    let guest_hash = [53_u8; 32];
+    let guest_hash = guest_hash(owner);
     assert_eq!(
         repo.capture(&guest_hash, &code, "direct_ref_link", "/r/recovery")
             .await
@@ -217,7 +224,7 @@ async fn f_09_pg_recovery_uses_signup_time_not_replay_time() {
     assert_eq!(result, "attributed");
 
     // An invitation captured AFTER a signup must never retroactively attach.
-    let late_guest = [54_u8; 32];
+    let late_guest = guest_hash(invited);
     let before_click = seed_user(&pool, "before-click").await;
     enqueue(&pool, before_click, Some(&late_guest), None).await;
     sqlx::query(
