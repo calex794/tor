@@ -64,9 +64,8 @@ pub(super) async fn checkout_and_verify(
         assert!(selection_html.contains(&format!("name=\"chapter_{chapter_id}\"")));
     }
     assert!(!selection_html.contains(paid_marker));
-    let choose = format!(
-        "step=select&csrf_token={csrf}&chapter_{chapter}=1&chapter_{chapter_two}=1"
-    );
+    let choose =
+        format!("step=select&csrf_token={csrf}&chapter_{chapter}=1&chapter_{chapter_two}=1");
     let quote = native_batch_post(app, book, &buyer_cookie, &csrf, &choose).await;
     assert_eq!(quote.status(), StatusCode::OK);
     let quote_html = html_body(quote).await;
@@ -105,15 +104,15 @@ pub(super) async fn checkout_and_verify(
         ),
     );
     assert_ne!(purchase_id, purchase_two_id);
-    assert!(receipt_html.contains(&format!(
-        "/read/paid/{chapter}?purchase_id={purchase_id}"
-    )));
+    assert!(receipt_html.contains(&format!("/read/paid/{chapter}?purchase_id={purchase_id}")));
     assert!(receipt_html.contains(&format!(
         "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
     )));
     let replay = native_batch_post(app, book, &buyer_cookie, &csrf, &form).await;
     assert_eq!(replay.status(), StatusCode::OK);
-    assert!(html_body(replay).await.contains("Повтор без нового списания"));
+    assert!(html_body(replay)
+        .await
+        .contains("Повтор без нового списания"));
     assert_eq!(
         scalar(
             &url,

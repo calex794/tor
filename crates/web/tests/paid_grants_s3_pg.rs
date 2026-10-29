@@ -42,10 +42,10 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
-#[path = "paid_grants_s3_pg/toc_fixtures.rs"]
-mod toc_fixtures;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
+#[path = "paid_grants_s3_pg/toc_fixtures.rs"]
+mod toc_fixtures;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
 const BUCKET: &str = "tor-private-chapter-ci";
