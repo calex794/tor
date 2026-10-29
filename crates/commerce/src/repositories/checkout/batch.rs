@@ -7,6 +7,63 @@ use crate::domain::{
 };
 use sqlx::Row;
 
+
+#[derive(Clone, Debug)]
+pub struct SelectableBatchOffer {
+    pub chapter_id: i64,
+    pub chapter_no: i32,
+    pub title: String,
+    pub version_id: i64,
+    pub price_minor: i64,
+}
+
+impl PgCheckout {
+    /// Private, user-scoped offer metadata for native browser selection.
+    /// Never returns bodies or editions from hidden/held books; maximum 101 rows.
+    pub async fn selectable_batch_offers(
+        &self,
+        actor: i64,
+        book_id: i64,
+    ) -> Result<Vec<SelectableBatchOffer>, CheckoutError> {
+        if actor <= 0 || book_id <= 0 {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            "SELECT c.id,c.chapter_no,c.title,c.price_amount,p.version_id
+             FROM chapters c
+             JOIN books b ON b.id=c.book_id
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
+             WHERE b.id=$1 AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+               AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
+               AND NOT EXISTS (
+                   SELECT 1 FROM chapter_purchase_facts owned
+                   WHERE owned.user_id=$2 AND owned.chapter_id=c.id
+               )
+             ORDER BY c.chapter_no,c.id LIMIT 101",
+        )
+        .bind(book_id)
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(SelectableBatchOffer {
+                    chapter_id: row.try_get("id").map_err(|_| CheckoutError::Unavailable)?,
+                    chapter_no: row.try_get("chapter_no").map_err(|_| CheckoutError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| CheckoutError::Unavailable)?,
+                    version_id: row.try_get("version_id").map_err(|_| CheckoutError::Unavailable)?,
+                    price_minor: row.try_get("price_amount").map_err(|_| CheckoutError::Unavailable)?,
+                })
+            })
+            .collect()
+    }
+}
+
 fn unavailable(_: sqlx::Error) -> BatchCheckoutError {
     CheckoutError::Unavailable.into()
 }

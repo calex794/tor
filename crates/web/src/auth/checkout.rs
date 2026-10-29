@@ -42,7 +42,7 @@ fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
     PositiveId::new(id).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)
 }
 
-fn checkout_status(error: CheckoutError) -> StatusCode {
+pub(super) fn checkout_status(error: CheckoutError) -> StatusCode {
     match error {
         CheckoutError::InsufficientBalance
         | CheckoutError::StaleOffer
