@@ -7,6 +7,8 @@ mod layer_create;
 mod layer_delivery;
 #[path = "layers_pg/layer_picker.rs"]
 mod layer_picker;
+#[path = "layers_pg/layer_offer.rs"]
+mod layer_offer;
 use sqlx::PgPool;
 use tor_commerce::{
     domain::{
