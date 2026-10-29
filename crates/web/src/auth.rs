@@ -179,7 +179,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
-        .route("/api/v1/purchases/batch", post(checkout::batch::buy))
+        .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
