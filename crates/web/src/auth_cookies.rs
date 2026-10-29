@@ -143,6 +143,11 @@ fn constant_time_equal(a: &[u8], b: &[u8]) -> bool {
         == 0
 }
 
+/// Uniform response for denied authenticated operations.
+pub(crate) fn deny(status: StatusCode) -> Response {
+    private_response(status, &[])
+}
+
 pub(crate) fn private_response<T: IntoResponse>(result: T, cookies: &[String]) -> Response {
     let mut response = result.into_response();
     response
