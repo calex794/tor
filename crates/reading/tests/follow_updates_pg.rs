@@ -122,6 +122,41 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
          VALUES($1,$2)",
     ).bind(paid).bind(paid_version).execute(&pool).await.unwrap();
     assert!(!releases.latest(reader,None).await.unwrap().items.iter().any(|x|x.chapter_id==paid));
+    // Production B publishes only after G verified and attached ciphertext.
+    // The isolated fixture records the same immutable B/G proof shape.
+    let object_id: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
+        .fetch_one(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO storage_objects(
+           id,object_kind,bucket,object_key,state,size_bytes,
+           sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,
+           kek_id,object_nonce,object_aad,codec,verified_at,attached_at)
+         VALUES($1::uuid,'chapter','tor-private-chapter-ci',
+           'private/chapter-versions/' || $1 || '.enc','attached',64,
+           decode(repeat('11',32),'hex'),sha256(convert_to('Платный текст','UTF8')),
+           decode(repeat('22',48),'hex'),decode(repeat('33',12),'hex'),
+           'content-kek-v1',decode(repeat('44',12),'hex'),
+           convert_to('tor.encrypted.chapter.v1' || E'\\n' || $2::text || E'\\n' ||
+              $3::text || E'\\n' || $1::text || E'\\n' ||
+              encode(sha256(convert_to('Платный текст','UTF8')),'hex') || E'\\n','UTF8'),
+           'gzip',now(),now())",
+    ).bind(&object_id).bind(paid).bind(paid_version)
+    .execute(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE chapter_versions SET storage_object_id=$2::uuid
+         WHERE id=$1",
+    ).bind(paid_version).bind(&object_id).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_encrypted_release_events
+           (chapter_id,version_id,storage_object_id) VALUES($1,$2,$3::uuid)",
+    ).bind(paid).bind(paid_version).bind(&object_id)
+    .execute(&pool).await.unwrap();
+    let verified = releases.latest(reader,None).await.unwrap();
+    let offer = verified.items.iter().find(|x| x.chapter_id == paid).unwrap();
+    assert!(offer.is_paid, "verified paid release belongs in update list");
+    assert_eq!(offer.price_minor, 19900);
+    assert!(!releases.latest(outsider,None).await.unwrap().items.iter().any(|x|x.chapter_id==paid));
+
 
     // The latest chapter disappears if made private; edits cannot create a
     // second first-release row because chapter_id is the primary key.
