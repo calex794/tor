@@ -239,6 +239,14 @@ async fn create(
         Ok(form) => form,
         Err(code) => return deny(code),
     };
+    // RIL-08: repeat the session-bound anti-CSRF assertion at the handler
+    // boundary, so a future parser change cannot silently relax it.
+    if !state
+        .cookies
+        .valid_csrf(&headers, form.csrf.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
     let Some((mime, bytes)) = form.image.take() else {
         return deny(StatusCode::BAD_REQUEST);
     };
