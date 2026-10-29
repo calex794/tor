@@ -7,7 +7,7 @@ use crate::{
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{DefaultBodyLimit, Form, Path, Query, State},
+    extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Redirect, Response},
@@ -49,6 +49,7 @@ mod layer_books;
 mod layer_checkout;
 mod layer_create;
 mod layer_offer_manage;
+mod layer_storefront;
 mod library_actions;
 mod login_limiter;
 mod logout;
@@ -138,6 +139,7 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    let layer_pages_enabled = std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
@@ -147,6 +149,7 @@ fn router_inner(
         checkout,
         paid_checkout_enabled,
         layer_checkout_enabled: paid_checkout_enabled && layer_checkout::configured(),
+        layer_pages_enabled,
         paid_reader_available,
         authoring,
         progress,
@@ -171,7 +174,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/me/library", get(my_library))
+        .route("/me/library", get(library_actions::browser_library))
         .route("/me/rankings", get(rankings::page))
         .route(
             "/me/books/{id}/rate",
@@ -227,6 +230,7 @@ fn router_inner(
         .merge(layer_books::routes())
         .merge(layer_create::routes())
         .merge(layer_offer_manage::routes())
+        .merge(layer_storefront::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
@@ -260,44 +264,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf), &cookies)
-}
-
-async fn my_library(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Query(query): Query<LibraryQuery>,
-) -> Response {
-    let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
-    };
-    let digest = session_token_digest(&token);
-    let user_id = match state.accounts.active_session_user(&digest).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let books = match state.progress.continue_reading(user_id).await {
-        Ok(books) => books,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let saved = match state
-        .bookmarks
-        .list_books(user_id, query.limit.unwrap_or(30), query.after)
-        .await
-    {
-        Ok(saved) => saved,
-        Err(tor_reading::services::library::LibraryError::Invalid) => {
-            return deny(StatusCode::BAD_REQUEST);
-        }
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = if state.paid_reader_available {
-        pages::my_library_with_purchases(&books, &saved, &csrf, true)
-    } else {
-        pages::my_library(&books, &saved, &csrf)
-    };
-    private_response(page, &cookies)
 }
 
 /// Resolve actor from the session database, never client-supplied user IDs.

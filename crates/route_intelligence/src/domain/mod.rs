@@ -82,6 +82,46 @@ pub(super) const LAYER_CHECKOUT_ROUTE: RouteRegistration = RouteRegistration::ne
     CostClass::Write,
 );
 
+pub(super) const LAYER_CREATE_PAGE_ROUTE: RouteRegistration = RouteRegistration::new(
+    "/me/layers/new",
+    "GET",
+    "/me/",
+    RouteMatchKind::Prefix,
+    TrafficSurface::PublicPage,
+    ProductArea::Dashboard,
+    CostClass::CheapRead,
+);
+
+pub(super) const LAYER_STOREFRONT_PAGE_ROUTE: RouteRegistration = RouteRegistration::new(
+    "/layers/{id}",
+    "GET",
+    "/layers/",
+    RouteMatchKind::Prefix,
+    TrafficSurface::PublicPage,
+    ProductArea::Billing,
+    CostClass::CheapRead,
+);
+
+pub(super) const LAYER_STOREFRONT_BUY_ROUTE: RouteRegistration = RouteRegistration::new(
+    "/layers/{id}/purchase",
+    "POST",
+    "/layers/",
+    RouteMatchKind::Prefix,
+    TrafficSurface::PublicPage,
+    ProductArea::Billing,
+    CostClass::Write,
+);
+
+pub(super) const LAYER_PURCHASED_TERMS_ROUTE: RouteRegistration = RouteRegistration::new(
+    "/me/library/layers",
+    "GET",
+    "/me/library/",
+    RouteMatchKind::Exact,
+    TrafficSurface::PublicPage,
+    ProductArea::Reading,
+    CostClass::CheapRead,
+);
+
 impl RouteRegistration {
     const fn new(
         template: &'static str,

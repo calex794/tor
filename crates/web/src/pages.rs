@@ -9,6 +9,11 @@ mod account;
 pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
+mod layer_storefront;
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
 mod reader_private;
@@ -304,19 +309,12 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
     )
 }
 
-pub fn my_library(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-) -> Html<String> {
-    my_library_with_purchases(items, saved, csrf, false)
-}
-
-pub fn my_library_with_purchases(
+pub fn my_library_with_options(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
     purchased_available: bool,
+    layers_available: bool,
 ) -> Html<String> {
     let mut cards = String::new();
     if items.is_empty() {
@@ -365,8 +363,13 @@ pub fn my_library_with_purchases(
     } else {
         ""
     };
+    let layers_link = if layers_available {
+        "<p><a class=\"button button--small\" href=\"/me/library/layers\">Мои пакеты доступа</a></p>"
+    } else {
+        ""
+    };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p>{purchased_link}</div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p>{purchased_link}{layers_link}</div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
     );
     layout(
         "Моя библиотека",
@@ -400,6 +403,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css
     });
     (

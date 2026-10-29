@@ -195,7 +195,7 @@
       "method": "GET",
       "template": "/me/library",
       "source": "crates/web/src/auth.rs",
-      "handler": "my_library",
+      "handler": "library_actions::browser_library",
       "policy": "scoped"
     },
     {
@@ -582,6 +582,27 @@
       "source": "crates/web/src/auth.rs",
       "handler": "layer_checkout::buy",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/layers/{id}",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{id}/purchase",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "buy_form",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/layers",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "my_terms",
+      "policy": "scoped"
     }
   ]
 }

@@ -37,6 +37,43 @@ fn library_status(error: LibraryError) -> StatusCode {
     }
 }
 
+/// Private combined library: continue reading, saved Books and opt-in Layer history.
+pub(super) async fn browser_library(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<LibraryQuery>,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let books = match state.progress.continue_reading(actor).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let saved = match state
+        .bookmarks
+        .list_books(actor, query.limit.unwrap_or(30), query.after)
+        .await
+    {
+        Ok(saved) => saved,
+        Err(LibraryError::Invalid) => return deny(StatusCode::BAD_REQUEST),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(
+        pages::my_library_with_options(
+            &books,
+            &saved,
+            &csrf,
+            state.paid_reader_available,
+            state.layer_pages_enabled,
+        ),
+        &cookies,
+    )
+}
+
 pub(super) async fn api_list(
     State(state): State<AuthState>,
     headers: HeaderMap,
