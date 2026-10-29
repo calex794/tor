@@ -23,6 +23,7 @@ pub fn offer_page(
     csrf: Option<&str>,
     key: Option<&str>,
     purchased: bool,
+    checkout_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&offer.title);
     let mut list = String::new();
@@ -66,6 +67,8 @@ pub fn offer_page(
         action.push_str("<p class=\"layer-note\">Автор не покупает собственный пакет.</p>");
     } else if offer.has_access && offer.term_kind == "lifetime" {
         action.push_str("<p class=\"ui-alert ui-alert--success\" role=\"status\">Этот пакет уже доступен в вашем аккаунте.</p><a class=\"ui-button ui-button--primary\" href=\"/me/library/layers\">Мои пакеты</a>");
+    } else if !checkout_enabled {
+        action.push_str("<p class=\"layer-note\" role=\"status\">Покупка временно отключена. Уже оплаченные сроки сохраняются.</p>");
     } else if viewer.is_none() {
         action.push_str("<a class=\"layer-offer__box layer-offer__box--button\" href=\"/login\">Войти и приобрести доступ</a>");
     } else if let (Some(csrf), Some(key)) = (csrf, key) {
@@ -98,7 +101,7 @@ pub fn offer_page(
         action.push_str("<p class=\"layer-note\" role=\"status\">Покупка сейчас отключена. Уже оплаченный доступ сохраняется.</p>");
     }
     let notice = if purchased && offer.has_access {
-        "<p class=\"ui-alert ui-alert--success\" role=\"status\">Покупка подтверждена. Доступ отражён в ваших пакетах.</p>"
+        "<p class=\"ui-alert ui-alert--success\" role=\"status\">Доступ к пакету сейчас действует. Его срок указан в личной библиотеке.</p>"
     } else {
         ""
     };
@@ -241,7 +244,7 @@ mod tests {
             ],
             has_access: false,
         };
-        let page = offer_page(&offer, Some(40), Some("csrf"), Some("key"), false).0;
+        let page = offer_page(&offer, Some(40), Some("csrf"), Some("key"), false, true).0;
         assert!(page.contains("layers-public-layout"));
         assert!(page.contains("layer-storefront-books"));
         assert!(page.contains("href=\"/books/33\""));
@@ -252,9 +255,12 @@ mod tests {
         assert!(page.contains("&lt;img src=x&gt;"));
         assert!(!page.contains("<script>alert"));
         assert!(!page.contains("<img src=x>"));
-        let guest = offer_page(&offer, None, None, None, false).0;
+        let guest = offer_page(&offer, None, None, None, false, true).0;
         assert!(guest.contains("Войти и приобрести доступ"));
         assert!(!guest.contains("csrf_token"));
+        let disabled_guest = offer_page(&offer, None, None, None, false, false).0;
+        assert!(disabled_guest.contains("Покупка временно отключена"));
+        assert!(!disabled_guest.contains("Войти и приобрести доступ"));
     }
 
     #[test]
@@ -271,12 +277,12 @@ mod tests {
             public_books: Vec::new(),
             has_access: true,
         };
-        let html = offer_page(&offer, Some(12), Some("csrf"), Some("key"), true).0;
+        let html = offer_page(&offer, Some(12), Some("csrf"), Some("key"), true, true).0;
         assert!(html.contains("Этот пакет уже доступен"));
         assert!(!html.contains("layer-purchase-form"));
         offer.has_access = false;
         offer.public_book_count = 0;
-        let html = offer_page(&offer, Some(12), Some("csrf"), Some("key"), false).0;
+        let html = offer_page(&offer, Some(12), Some("csrf"), Some("key"), false, true).0;
         assert!(!html.contains("layer-purchase-form"));
     }
 }
