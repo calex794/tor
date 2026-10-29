@@ -7,14 +7,15 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     routing::{get, post},
-    Router,
+    Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::postgres::PgAuthoring,
+    services::import_preview::{editable_plain_text, validate_editable_preview},
     services::authoring::{
         save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest,
     },
@@ -85,6 +86,7 @@ pub(crate) fn router(
     Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
         .route("/me/books/{id}/chapters", post(create_chapter))
+        .route("/me/books/{id}/chapters/import-preview", post(import_preview))
         .route(
             "/me/books/{id}/chapters/{chapter_id}/edit",
             get(edit_chapter).post(update_chapter),
@@ -145,6 +147,62 @@ async fn new_chapter(
         crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled),
         &cookies,
     )
+}
+
+#[derive(Deserialize)]
+struct ImportPreviewInput {
+    text: String,
+    csrf_token: String,
+    #[serde(default)]
+    merge_at_lines: Vec<usize>,
+}
+#[derive(Serialize)]
+struct ImportPreviewChapter { title: String, body: String }
+#[derive(Serialize)]
+struct ImportPreviewOutput {
+    chapters: Vec<ImportPreviewChapter>,
+    detected_boundaries: Vec<usize>,
+}
+async fn import_preview(
+    State(state): State<AuthorChapterState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Json(input): Json<ImportPreviewInput>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, &input.csrf_token) {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    if id <= 0 { return deny(StatusCode::NOT_FOUND); }
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if input.text.len() > 700_000 || input.merge_at_lines.len() > 500 {
+        return deny(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let mut preview = match editable_plain_text(&input.text) {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    };
+    let detected_boundaries = preview.boundaries().iter().map(|b| b.line).collect();
+    for line in input.merge_at_lines {
+        if preview.merge_false_boundary(line).is_err() {
+            return deny(StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
+    let chapters = match validate_editable_preview(&preview) {
+        Ok(value) => value.into_iter().map(|chapter|
+            ImportPreviewChapter { title: chapter.title, body: chapter.body }).collect(),
+        Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    };
+    private_response(Json(ImportPreviewOutput { chapters, detected_boundaries }), &[])
 }
 
 async fn create_chapter(
