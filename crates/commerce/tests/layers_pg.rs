@@ -5,6 +5,8 @@ mod layer_allocation;
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
+#[path = "layers_pg/direct_first_exposure.rs"]
+mod direct_first_exposure;
 #[path = "layers_pg/layer_first_exposure.rs"]
 mod layer_first_exposure;
 #[path = "layers_pg/layer_offer.rs"]
