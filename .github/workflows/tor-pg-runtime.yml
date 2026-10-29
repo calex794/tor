@@ -95,6 +95,13 @@ jobs:
             -c 'CREATE DATABASE tor_test OWNER tor_migrator'
           cargo test -p tor-migrations --test upgrade_from_pr_base_pg \
             -- --ignored --test-threads=1
+      - name: I-16 verify independent Draft SQLx migrations on upgraded tor_test
+        if: github.event_name == 'pull_request'
+        env:
+          TOR_UPGRADE_DATABASE_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_test
+        run: |
+          cargo test -p tor-migrations --test i16_independent_sqlx_pg \
+            -- --ignored --test-threads=1
       - name: Reject app role as migrator and DDL writer
         run: |
           if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
