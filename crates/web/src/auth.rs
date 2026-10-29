@@ -40,20 +40,22 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_comments;
 mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
+mod layer_books;
 mod layer_checkout;
+mod layer_create;
 mod library_actions;
 mod login_limiter;
+mod logout;
 mod paid_completion;
 mod rankings;
 mod sync_actions;
-
 mod types;
 use types::*;
-
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -135,7 +137,6 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    let layer_checkout_enabled = paid_checkout_enabled && layer_checkout::configured();
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
@@ -144,7 +145,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
-        layer_checkout_enabled,
+        layer_checkout_enabled: paid_checkout_enabled && layer_checkout::configured(),
         paid_reader_available,
         authoring,
         progress,
@@ -174,6 +175,10 @@ fn router_inner(
         .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route(
+            "/books/{id}/comments",
+            get(book_comments::page).post(book_comments::submit),
         )
         .route("/me/rankings/choice", post(rankings::browser_choice))
         .route("/me/rankings/resume", post(rankings::browser_resume))
@@ -216,8 +221,10 @@ fn router_inner(
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
-        .route("/logout", post(logout))
+        .route("/logout", post(logout::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
+        .merge(layer_books::routes())
+        .merge(layer_create::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
@@ -312,8 +319,22 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+    let books = match state.authoring.list_owned_books(actor).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !layer_books::enabled() {
+        return private_response(author_pages::index(&books), &[]);
+    }
+    let actor = match tor_contracts::paid_delivery::PositiveId::new(actor) {
+        Ok(actor) => actor,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let layers = tor_commerce::services::layers::LayerService::new(
+        tor_commerce::repositories::layers::PgLayers::new(state.accounts.pool().clone()),
+    );
+    match layers.owned_layers(actor, 100).await {
+        Ok(layers) => private_response(author_pages::index_with_layers(&books, &layers), &[]),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
@@ -576,25 +597,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
 }

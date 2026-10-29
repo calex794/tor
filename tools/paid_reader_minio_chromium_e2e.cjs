@@ -29,6 +29,7 @@ const orderedNewbooFiles = [
   "newboo-port.css",
   "newboo-home-carousel.css",
   "newboo-book-detail.css",
+  "newboo-comments.css",
   "newboo-reader.css",
   "newboo-cover-picker.css",
 ];
@@ -243,6 +244,30 @@ async function run() {
         assert(chunks.join("\n\n") === fixture.expected_markdown,
           "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        // Design reference: capture the ACTUAL first screen at scroll=0.
+        // Full-page screenshots taken after clicking bottom controls move
+        // sticky headers into the middle and are not valid initial-state QA.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY === 0);
+        const initial = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.querySelector("#reader-title").getBoundingClientRect();
+          return {
+            barTop: bar.top,
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            overflow: document.documentElement.scrollWidth >
+              document.documentElement.clientWidth + 1,
+          };
+        });
+        assert(initial.barTop >= -1 && initial.barTop < 8 &&
+          initial.headingTop >= initial.barBottom - 2 && !initial.overflow,
+          device + ": first-screen NEwBOO reader header overlaps chapter title");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-first-screen-" + device + ".png"),
+          fullPage: false, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
         // Compare the real control with the source NEwBOO 44px touch targets.
         // A save action must look like a button, not an underlined text link.
         const saveStyle = await page.locator(".reader-save-button").first()
@@ -505,6 +530,31 @@ async function run() {
         assert.equal(await page.locator(".reader-topbar__back").getAttribute("href"),
           "/me/purchases", device + ": buyer has no safe way out");
 
+        // Full-page screenshots taken after scrolling can visually move a
+        // sticky header across the title. Check the real initial viewport,
+        // with both header and heading in their actual on-screen positions.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY < 2);
+        const topLayout = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.getElementById("reader-title").getBoundingClientRect();
+          return {
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            viewport: document.documentElement.clientWidth,
+            barWidth: bar.width,
+          };
+        });
+        assert(topLayout.barBottom <= topLayout.headingTop + 1 &&
+          topLayout.barWidth <= topLayout.viewport + 1,
+          device + ": NEwBOO sticky toolbar overlaps reader title at page start");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-viewport-top-" + device + ".png"),
+          fullPage: false,
+          mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
         const metrics = await page.evaluate(() => {
           const readerWidth = document.querySelector(".reader-paid .reader-width");
           const content = document.querySelector(".reader-paid__content");
@@ -578,11 +628,41 @@ async function run() {
         // Controls must be real interactions, not decorative buttons. No
         // browser storage is used for paid text, keys or preferences.
         const panel = page.locator("#paid-reader-settings");
-        const control = page.getByRole("button", { name: "Настройки чтения" });
+        const control = page.locator("[data-paid-settings-open]");
         assert(await panel.isHidden(), device + ": reader settings shown by default");
         await control.click();
         assert(await panel.isVisible(), device + ": settings button does not open panel");
         assert.equal(await control.getAttribute("aria-expanded"), "true");
+        const dialog = panel.getByRole("dialog", { name: "Настройки чтения" });
+        assert(await dialog.isVisible(), device + ": original modal panel missing");
+        assert.equal(await dialog.getAttribute("aria-modal"), "true");
+        assert(await control.evaluate((node) => node.closest("[inert]") !== null),
+          device + ": reader remains interactive under settings modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden",
+          device + ": page scroll not locked under settings");
+        const dialogBounds = await dialog.boundingBox();
+        assert(dialogBounds && dialogBounds.width <= 362 &&
+          dialogBounds.x >= 0 &&
+          dialogBounds.x + dialogBounds.width <=
+            (device === "desktop" ? 1440 : 390) + 1,
+          device + ": settings panel overflows screen");
+        await page.getByRole("button", { name: "Сбросить настройки" }).focus();
+        await page.keyboard.press("Tab");
+        assert(await page.getByRole("button", { name: "Закрыть настройки", exact: true })
+          .evaluate((node) => node === document.activeElement),
+          device + ": Tab escapes original settings modal");
+        await page.keyboard.press("Shift+Tab");
+        assert(await page.getByRole("button", { name: "Сбросить настройки" })
+          .evaluate((node) => node === document.activeElement),
+          device + ": reverse Tab does not wrap inside modal");
+        await panel.locator(".reader-paid__settings-backdrop").click({
+          position: { x: 5, y: 5 },
+        });
+        assert(await panel.isHidden(), device + ": backdrop did not close modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "",
+          device + ": backdrop did not restore scrolling");
+        assert(await control.evaluate((node) => node.closest("[inert]") === null),
+          device + ": reader remained inert after closing settings");
         // NEwBOO's original topbar also provides one-tap theme cycling.
         // Test computed colors and synchronization with the Aa panel.
         const quick = page.locator("[data-paid-theme-cycle]");
@@ -608,6 +688,21 @@ async function run() {
           "dark", device + ": quick dark step missing");
         assert.equal(await page.locator('[data-paid-theme="dark"]')
           .getAttribute("aria-pressed"), "true");
+        await control.click();
+        assert(await panel.isVisible(), device + ": settings not reopenable after cycling");
+        const serifFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(serifFamily.includes("Georgia"),
+          device + ": original serif reading font missing");
+        await page.getByRole("button", { name: "Без засечек" }).click();
+        const sansFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(sansFamily.includes("Arial") && sansFamily !== serifFamily,
+          device + ": changing NEwBOO reader font does not change actual text");
+        assert.equal(await page.locator('[data-paid-font-family="sans"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "false");
         const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
           (element) => Number.parseFloat(getComputedStyle(element).fontSize));
         await page.locator("[data-paid-font-scale]").evaluate((input) => {
@@ -641,17 +736,21 @@ async function run() {
         assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
         assert.equal(await page.locator('[data-paid-theme="sepia"]')
           .getAttribute("aria-pressed"), "true");
-        if (device === "desktop") {
-          await page.screenshot({
-            path: path.join(screenshotRoot, "s065-reader-settings-desktop.png"),
-            fullPage: true, mask, maskColor: "#e5e7eb",
-          });
-        }
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-settings-" + device + ".png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
         await page.getByRole("button", { name: "Сбросить настройки" }).click();
+        const resetFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert.equal(resetFamily, serifFamily,
+          device + ": resetting reader preferences does not restore serif");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "true");
         assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
         assert.equal(await page.evaluate(() => document.body.hasAttribute(
           "data-paid-reader-theme")), false, device + ": reset did not clear theme");
-        await page.getByRole("button", { name: "Закрыть настройки" }).click();
+        await page.getByRole("button", { name: "Закрыть настройки", exact: true }).click();
         assert(await panel.isHidden(), device + ": settings close did not work");
         assert.equal(await control.getAttribute("aria-expanded"), "false");
         await control.click();
@@ -713,6 +812,18 @@ async function run() {
             path: path.join(screenshotRoot, "s065-reader-quick-theme-320.png"),
             fullPage: true, mask, maskColor: "#e5e7eb",
           });
+          await control.click();
+          const narrowDialog = await dialog.boundingBox();
+          assert(narrowDialog && narrowDialog.x >= 0 &&
+            narrowDialog.x + narrowDialog.width <= 321 &&
+            narrowDialog.height <= 720,
+            "320px modal clips outside safe viewport");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-modal-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+          await page.keyboard.press("Escape");
+          assert(await panel.isHidden(), "320px Escape failed to close modal");
         }
       } finally {
         await page.close();

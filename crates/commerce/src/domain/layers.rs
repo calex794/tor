@@ -25,6 +25,43 @@ pub struct LayerCheckoutCommand {
     pub expected_price: MoneyMinor,
     pub key: IdempotencyKey,
 }
+/// A Layer owned by the authenticated author; never a purchase grant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedLayerSummary {
+    pub layer_id: i64,
+    pub title: String,
+}
+
+/// A read-only Layer picker entry. UI eligibility is advisory:
+/// add_book() always revalidates membership under the canonical Book lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerBookCandidate {
+    pub book_id: i64,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerBookCandidatePage {
+    pub books: Vec<LayerBookCandidate>,
+    pub next_after: Option<i64>,
+}
+
+/// Owner-only current composition page, bound to an immutable LayerVersion.
+/// The browser must supply this exact version when requesting a removal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerCurrentBookPage {
+    pub current_version_id: i64,
+    pub books: Vec<LayerBookCandidate>,
+    pub next_after: Option<i64>,
+}
+
+/// Idempotent Layer creation changes composition metadata only, never money.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerCreateReceipt {
+    pub layer_id: i64,
+    pub replayed: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerReceipt {
     pub term_id: i64,

@@ -1,17 +1,13 @@
 //! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
-
 mod classifier;
+mod checkout;
 pub use classifier::classify;
-
-// Indexes below are deliberately shared with classify(), and checked by unit tests.
-// These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
-
-const ROUTES: [RouteRegistration; 74] = [
+const ROUTES: [RouteRegistration; 80] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -297,9 +293,7 @@ const ROUTES: [RouteRegistration; 74] = [
         System,
         Free,
     ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
     RouteRegistration::new(
         "/ops/traces",
         "GET",
@@ -318,7 +312,6 @@ const ROUTES: [RouteRegistration; 74] = [
         ProductArea::Admin,
         Read,
     ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
     RouteRegistration::new(
         "/covers/{id}/{variant}",
         "GET",
@@ -455,7 +448,6 @@ const ROUTES: [RouteRegistration; 74] = [
         System,
         Free,
     ), // 62
-    // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
         "GET",
@@ -528,8 +520,24 @@ const ROUTES: [RouteRegistration; 74] = [
         Reading,
         CostClass::ExpensiveRead,
     ), // 70
-    // D-05 Layer CURRENT: the shell does not release content without
-    // a second D check at the signed S3 grant endpoint.
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "GET",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 71
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "POST",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 72
     RouteRegistration::new(
         "/read/layer/{chapter_id}",
         "GET",
@@ -538,7 +546,7 @@ const ROUTES: [RouteRegistration; 74] = [
         Page,
         Reading,
         Read,
-    ), // 71
+    ), // 73
     RouteRegistration::new(
         "/assets/newboo-layer-reader.mjs",
         "GET",
@@ -547,18 +555,45 @@ const ROUTES: [RouteRegistration; 74] = [
         Static,
         System,
         Free,
-    ), // 72
+    ), // 74
     RouteRegistration::new(
-        "/api/v1/layers/{id}/purchase",
-        "POST",
-        "/api/v1/layers/",
+        "/me/layers/{layer_id}/books",
+        "GET",
+        "/me/",
         Prefix,
-        Api,
-        ProductArea::Billing,
+        Page,
+        Dashboard,
+        Read,
+    ), // 75
+    RouteRegistration::new(
+        "/me/layers/{layer_id}/books",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
         Write,
-    ), // 73
+    ), // 76
+    RouteRegistration::new(
+        "/me/layers/new",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 77
+    RouteRegistration::new(
+        "/me/layers/new",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 78
+    checkout::LAYER_PURCHASE_ROUTE, // 79
 ];
-
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
