@@ -82,6 +82,8 @@ class MetricsTest(unittest.TestCase):
         before = load_group(API(), "calex794/tor", "baseline", SHA_A)
         after = dict(before, executed_jobs=["rules / fast-noop"], runner_minutes=0)
         self.assertIn("executed job", comparison_blocker(before, after))
+        with self.assertRaisesRegex(MetricsError, "Cannot compare CI performance"):
+            difference(before, after)
 
     def test_mismatched_workflows_or_event_cannot_prove_speedup(self):
         before = load_group(API(), "calex794/tor", "baseline", SHA_A)
