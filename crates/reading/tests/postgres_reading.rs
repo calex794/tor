@@ -11,6 +11,25 @@ async fn public_chapters_hide_drafts_embargoes_admin_holds_paid_and_private_book
     assert_eq!(public.chapters.len(), 3, "2 free, 1 paid metadata only");
     assert_eq!(public.chapters.iter().filter(|c| !c.is_paid).count(), 2);
     assert!(public.chapters.iter().any(|c| c.is_paid && c.id == 103));
+    let paid = reader
+        .public_paid_chapter_preview(103)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(paid.book_id, 1);
+    assert_eq!(paid.chapter_no, 3);
+    assert!(paid.price_minor > 0);
+    // A paywall query never permits looking up a hidden or unreleased chapter.
+    for hidden in [0, 102, 104, 105, 106, 107, u64::MAX] {
+        assert!(
+            reader
+                .public_paid_chapter_preview(hidden)
+                .await
+                .unwrap()
+                .is_none(),
+            "no public paid preview for chapter {hidden}"
+        );
+    }
     assert!(!public
         .chapters
         .iter()

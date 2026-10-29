@@ -586,12 +586,19 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .status(),
         StatusCode::OK,
     );
-    assert_eq!(
-        private_get(&app, &format!("/reader/{locked_chapter}"), None)
+    let paywall = private_get(&app, &format!("/reader/{locked_chapter}"), None).await;
+    assert_eq!(paywall.status(), StatusCode::OK);
+    assert_eq!(paywall.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(paywall.headers()["x-robots-tag"], "noindex, nofollow");
+    let paywall_html = String::from_utf8(
+        axum::body::to_bytes(paywall.into_body(), 256 * 1024)
             .await
-            .status(),
-        StatusCode::NOT_FOUND,
-    );
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(paywall_html.contains("Для чтения нужен доступ"));
+    assert!(!paywall_html.contains(MARKDOWN));
 
     let v2 = scalar(
         &url,
