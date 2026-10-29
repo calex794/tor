@@ -24,6 +24,14 @@ pub struct PublicComment {
     pub parent_id: Option<i64>,
 }
 
+/// A private navigation reference, deliberately without either comment body.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ReceivedReply {
+    pub comment_id: i64,
+    pub book_id: i64,
+    pub book_title: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ListCommentsError {
     Invalid,
@@ -160,6 +168,44 @@ impl PgPublicBookComments {
             return CreateResult::Unavailable;
         }
         result
+    }
+
+    /// Derive recipients from canonical parents, never from browser input or
+    /// copied notification text. Recheck both comments and the book in one query.
+    pub async fn received_replies(
+        &self,
+        actor_id: i64,
+        limit: u16,
+    ) -> Result<Vec<ReceivedReply>, ListCommentsError> {
+        if actor_id <= 0 || limit == 0 || limit > 100 {
+            return Err(ListCommentsError::Invalid);
+        }
+        let rows = sqlx::query_as::<_, (i64, i64, String)>(
+            "SELECT reply.id, b.id, b.title
+             FROM discussion_comments reply
+             JOIN discussion_comments parent ON parent.id=reply.parent_id
+             JOIN books b ON b.id=reply.book_id
+             WHERE parent.author_user_id=$1 AND reply.author_user_id<>$1
+               AND parent.book_id=reply.book_id
+               AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
+               AND parent.version_id IS NULL AND reply.version_id IS NULL
+               AND parent.visibility='visible' AND reply.visibility='visible'
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             ORDER BY reply.id DESC LIMIT $2",
+        )
+        .bind(actor_id)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| ListCommentsError::Unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|(comment_id, book_id, book_title)| ReceivedReply {
+                comment_id,
+                book_id,
+                book_title,
+            })
+            .collect())
     }
 
     /// Only public/visible book comments; all rights are rechecked on every GET.
