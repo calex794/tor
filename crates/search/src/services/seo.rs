@@ -5,6 +5,7 @@ use crate::domain::seo::{
     SeoBookFacts, SeoBookView, SeoCatalogView, SeoDecision, SeoMode, SeoPage, SeoReason, SeoRobots,
     SeoSite, SeoVisibility,
 };
+use crate::domain::seo_urls::BookUrl;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SeoPolicy {
@@ -29,7 +30,10 @@ impl SeoPolicy {
                     return denied(SeoReason::DuplicateView);
                 }
                 match self.book_gate(book) {
-                    Ok(()) => indexable(format!("/books/{}", book.book_id)),
+                    Ok(()) => match BookUrl::from_id(book.book_id) {
+                        Some(url) => indexable(url.path()),
+                        None => denied(SeoReason::InvalidIdentity),
+                    },
                     Err(reason) => denied(reason),
                 }
             }

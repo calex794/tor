@@ -2,6 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
+use tor_search::domain::seo_urls::BookUrl;
 use tor_search::repositories::catalog::TaxonomyOptions;
 
 mod catalog_active_filters;
@@ -36,6 +37,10 @@ fn book_cards(
         String::from("<div class=\"catalog-grid\">")
     };
     for book in books {
+        let Some(url) = BookUrl::from_id(book.id) else {
+            continue;
+        };
+        let href = url.path();
         let title = escape_html(&book.title);
         let mut details = String::new();
         // Match the original NEwBOO BookCard: public author if present, not
@@ -67,8 +72,7 @@ fn book_cards(
         };
         write!(
             html,
-            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"/books/{}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
-            book.id,
+            "<article class=\"book-mini-card {variant}\"><a class=\"book-mini-card__link\" href=\"{href}\" aria-label=\"{title}\"><div class=\"book-mini-card__cover book-shimmer\">{cover}</div><div class=\"book-mini-card__body\"><h3 class=\"book-mini-card__title\">{title}</h3>{details}</div></a></article>",
         )
         .expect("format String");
     }

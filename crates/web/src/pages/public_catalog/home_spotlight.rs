@@ -2,6 +2,7 @@
 //! Not an ad, daily top, or personalized recommendation.
 use super::{escape_html, PublicBookCard};
 use std::{collections::HashSet, fmt::Write};
+use tor_search::domain::seo_urls::BookUrl;
 
 const MAX_SPOTLIGHT_BOOKS: usize = 5;
 
@@ -13,6 +14,10 @@ pub(super) fn render(books: &[PublicBookCard], covers: &HashSet<u64>) -> String 
         <div class=\"home-special-carousel__track\">",
     );
     for book in books.iter().take(MAX_SPOTLIGHT_BOOKS) {
+        let Some(url) = BookUrl::from_id(book.id) else {
+            continue;
+        };
+        let href = url.path();
         let title = escape_html(&book.title);
         let details = book
             .author_name
@@ -41,15 +46,14 @@ pub(super) fn render(books: &[PublicBookCard], covers: &HashSet<u64>) -> String 
         };
         write!(
             html,
-            r#"<a class="home-spotlight-card" href="/books/{id}" aria-label="Открыть книгу {title}">
+            r#"<a class="home-spotlight-card" href="{href}" aria-label="Открыть книгу {title}">
                {bg}<div class="home-spotlight-card__inner">
                <div class="home-spotlight-card__content">
                <span class="home-spotlight-card__eyebrow">Недавно добавлена</span>
                <h2 class="home-spotlight-card__title">{title}</h2>
                <p class="home-spotlight-card__text">{details}</p></div>
                <div class="home-spotlight-card__cover-wrap">{cover}</div>
-               </div></a>"#,
-            id = book.id
+               </div></a>"#
         )
         .expect("write spotlight");
     }

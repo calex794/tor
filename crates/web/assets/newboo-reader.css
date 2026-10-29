@@ -283,6 +283,48 @@
   font-size: var(--paid-font-size, clamp(17px, 2.3vw, 20px));
   line-height: var(--paid-line-height, 1.85);
 }
+/* Paid images follow NEwBOO's centered, bounded frame and caption.
+   The only usable URL is a verified, temporary in-memory Blob. */
+.reader-paid .reader-paid__image-block {
+  margin: 24px auto;
+  max-width: 100%;
+}
+.reader-paid .reader-paid__image-block .reader-content__image-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 100px;
+  max-height: 760px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+.reader-paid .reader-paid__image-block .reader-content__image {
+  display: block;
+  max-width: 100%;
+  max-height: 760px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.reader-paid .reader-paid__image-block .reader-content__image-caption {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-paid__image-block {
+    margin: 18px auto;
+  }
+}
+
 /* The save-position action must read as a button, never an underlined
    Markdown link. Match the 44px NEwBOO reader control minimum on touch. */
 .reader-paid .reader-save-button {

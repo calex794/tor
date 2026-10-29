@@ -128,7 +128,7 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let first = "Paid V1 body";
+    let first = "Paid V1 body\n\n![Схема](asset:b0b0a500-0001-4000-8000-000000000001)";
     let second = "Paid V2 body";
     let v1: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
@@ -300,6 +300,55 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
     assert_eq!(
         assets.encrypted_for_pinned(v2, &image_v1).await.unwrap(),
         None
+    );
+    // A new V3 can be prepared by B, but may never publish a reference to
+    // the still-purchased image that belongs only to historical V1.
+    let foreign = format!(
+        "V3 cannot steal V1\n\n![borrow](asset:{})",
+        image_v1.as_str()
+    );
+    let v3_id: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+         VALUES($1,3,$2,$3) RETURNING id",
+    )
+    .bind(chapter)
+    .bind(&foreign)
+    .bind(digest(foreign.as_bytes()).as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let v3 = pinned(chapter, v3_id);
+    let chapter_v3 =
+        ready_chapter(&pool, v3, &foreign, "b0b0a500-0005-4000-8000-000000000005").await;
+    assert_eq!(
+        versions
+            .attach_verified_and_publish(
+                owner,
+                book,
+                v3,
+                &chapter_v3,
+                PaidPublication::Publish {
+                    expected_current: Some(v2.version_id.get()),
+                },
+            )
+            .await,
+        Err(AuthorError::Conflict),
+        "published V3 must not reference an image from the bought V1"
+    );
+    let still_current: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(still_current, v2.version_id.get());
+    assert!(
+        assets
+            .encrypted_for_pinned(v1, &image_v1)
+            .await
+            .unwrap()
+            .is_some(),
+        "failed foreign V3 must not erase purchased V1 image"
     );
     pool.close().await;
 }
