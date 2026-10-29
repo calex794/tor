@@ -29,7 +29,10 @@ use tor_books::repositories::{
     PgCatalog,
 };
 use tor_commerce::{
-    domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
+    domain::{
+        batch_checkout::{BatchChapterOffer, BatchPurchaseCommand},
+        money::{IdempotencyKey, MoneyMinor, WalletId},
+    },
     repositories::{
         checkout::PgCheckout,
         entitlements::{MixedTocAccess, PgDirectEntitlements},
@@ -408,20 +411,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
-    let purchase = PgCheckout::new(pool.clone())
-        .checkout_once(
-            &PurchaseCommand::new(
-                PositiveId::new(buyer).unwrap(),
-                WalletId::new(buyer).unwrap(),
-                pinned,
-                MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}4", "Z".repeat(42))).unwrap(),
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let purchase_id = purchase.purchase_id.get();
     // A second fully verified paid edition proves that the TOC contains
     // live links, not synthetic chapter IDs or a public TOC.
     let chapter_two = scalar(
@@ -475,20 +464,40 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         )
         .await
         .unwrap();
-    let purchase_two = PgCheckout::new(pool.clone())
-        .checkout_once(
-            &PurchaseCommand::new(
-                PositiveId::new(buyer).unwrap(),
-                WalletId::new(buyer).unwrap(),
-                pinned_two,
-                MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap(),
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let purchase_two_id = purchase_two.purchase_id.get();
+    // S035: both encrypted editions are acquired in a single immutable
+    // wallet transaction, then exercised by the real S034 MinIO reader.
+    let batch_command = BatchPurchaseCommand::new(
+        PositiveId::new(buyer).unwrap(),
+        WalletId::new(buyer).unwrap(),
+        vec![
+            BatchChapterOffer {
+                edition: pinned,
+                expected_price: MoneyMinor::new(175).unwrap(),
+            },
+            BatchChapterOffer {
+                edition: pinned_two,
+                expected_price: MoneyMinor::new(175).unwrap(),
+            },
+        ],
+        IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap(),
+    )
+    .unwrap();
+    let checkout = PgCheckout::new(pool.clone());
+    let batch = checkout.checkout_batch_once(&batch_command).await.unwrap();
+    assert!(!batch.replayed);
+    assert_eq!(batch.purchases.len(), 2);
+    assert_eq!(batch.total.get(), 350);
+    assert_eq!(batch.balance_after.get(), 250);
+    let purchase_id = batch.purchases[0].purchase_id.get();
+    let purchase_two_id = batch.purchases[1].purchase_id.get();
+    assert_ne!(purchase_id, purchase_two_id);
+    assert_eq!(batch.purchases[0].pinned, pinned);
+    assert_eq!(batch.purchases[1].pinned, pinned_two);
+    let replay = checkout.checkout_batch_once(&batch_command).await.unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.purchases[0].purchase_id.get(), purchase_id);
+    assert_eq!(replay.purchases[1].purchase_id.get(), purchase_two_id);
+    assert_eq!(replay.balance_after.get(), 250);
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
