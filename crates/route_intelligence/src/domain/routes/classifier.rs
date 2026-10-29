@@ -85,6 +85,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/books/{id}/comments"), "POST") => Some(72),
         (Some("/me/books/{id}/chapters/illustrated"), "GET") => Some(73),
         (Some("/me/books/{id}/chapters/illustrated"), "POST") => Some(74),
+        (Some("/api/v1/purchases/batch"), "POST") => Some(75),
         _ => None,
     };
     index
