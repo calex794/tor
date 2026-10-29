@@ -127,7 +127,8 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
         bytes: &[u8],
         mime: &str,
     ) -> Result<(), AuthorError> {
-        if actor <= 0 || stable_image_id(actor, request.book_id, &request.command_key) != *object_id {
+        if actor <= 0 || stable_image_id(actor, request.book_id, &request.command_key) != *object_id
+        {
             return Err(AuthorError::Invalid);
         }
         let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
@@ -140,9 +141,11 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
         if pending.published {
             // Lost HTTP response is a true retry ONLY for identical bytes.
             let digest = tor_storage::services::crypto::sha256_bytes(bytes);
-            return match tor_books::repositories::paid_assets::PgPaidAssets::new(self.catalog.pool())
-                .existing_draft_upload(actor, pinned, 1, mime, &digest)
-                .await?
+            return match tor_books::repositories::paid_assets::PgPaidAssets::new(
+                self.catalog.pool(),
+            )
+            .existing_draft_upload(actor, pinned, 1, mime, &digest)
+            .await?
             {
                 Some(existing) if existing == *object_id => Ok(()),
                 _ => Err(AuthorError::Conflict),
@@ -176,6 +179,7 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         bytes: &[u8],
         mime: &str,
     ) -> Result<(), AuthorError> {
-        self.publish_illustrated(actor, request, object_id, bytes, mime).await
+        self.publish_illustrated(actor, request, object_id, bytes, mime)
+            .await
     }
 }
