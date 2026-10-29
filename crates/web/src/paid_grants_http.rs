@@ -387,7 +387,11 @@ async fn upgrade_purchased_chapter(
     let Some(session) = state.cookies.session_token(&headers) else {
         return deny(StatusCode::UNAUTHORIZED);
     };
-    let actor = match state.accounts.active_session_user(&session_token_digest(&session)).await {
+    let actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&session))
+        .await
+    {
         Ok(Some(actor)) => actor,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -395,7 +399,9 @@ async fn upgrade_purchased_chapter(
     if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
         != Some(state.cookies.origin.as_str())
         || !state.cookies.same_origin(&headers)
-        || !headers.get("x-csrf-token").and_then(|v| v.to_str().ok())
+        || !headers
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
             .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
     {
         return deny(StatusCode::FORBIDDEN);
@@ -407,10 +413,19 @@ async fn upgrade_purchased_chapter(
     ) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
-    if !state.rate_limits.lock().await.allow(actor.get(), Instant::now()) {
+    if !state
+        .rate_limits
+        .lock()
+        .await
+        .allow(actor.get(), Instant::now())
+    {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
-    match state.entitlement.upgrade_purchased_chapter(actor, chapter, purchase).await {
+    match state
+        .entitlement
+        .upgrade_purchased_chapter(actor, chapter, purchase)
+        .await
+    {
         Ok(Some(version_id)) => private_response(
             Json(serde_json::json!({"status":"updated","version_id":version_id})),
             &[],
