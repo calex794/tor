@@ -52,15 +52,13 @@ pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
             .expect("S035 real HTTP server");
     });
     let child_fixture = fixture_path.clone();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/s035_contiguous_paid_browser.cjs");
+    assert!(script.is_file(), "S035 real Chromium script must exist");
     let output = tokio::task::spawn_blocking(move || {
         Command::new("timeout")
-            .args([
-                "-k",
-                "5s",
-                "180s",
-                "node",
-                "tools/s035_contiguous_paid_browser.cjs",
-            ])
+            .args(["-k", "5s", "180s", "node"])
+            .arg(script)
             .env("TOR_S035_REAL_BROWSER_FIXTURE", child_fixture)
             .output()
     })
