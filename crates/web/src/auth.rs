@@ -146,6 +146,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled: paid_checkout_enabled && layer_checkout::configured(),
         paid_reader_available,
         authoring,
         progress,
@@ -186,6 +187,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .route("/api/v1/layers/{id}/purchase", post(layer_checkout::buy))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
@@ -224,7 +226,6 @@ fn router_inner(
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .merge(layer_books::routes())
         .merge(layer_create::routes())
-        .merge(layer_checkout::routes())
         .merge(layer_offer_manage::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)

@@ -570,25 +570,18 @@
       "policy": "owner"
     },
     {
-      "method": "GET",
-      "template": "/layers/{layer_id}",
-      "source": "crates/web/src/auth/layer_checkout.rs",
-      "handler": "page",
-      "policy": "public"
-    },
-    {
-      "method": "POST",
-      "template": "/layers/{layer_id}/buy",
-      "source": "crates/web/src/auth/layer_checkout.rs",
-      "handler": "buy",
-      "policy": "session"
-    },
-    {
       "method": "POST",
       "template": "/me/layers/{layer_id}/offer",
       "source": "crates/web/src/auth/layer_offer_manage.rs",
       "handler": "publish",
       "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/layers/{id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_checkout::buy",
+      "policy": "session"
     }
   ]
 }
