@@ -23,8 +23,8 @@ impl PgCheckout {
             return Err(BatchCheckoutError::InvalidBatch);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        let count = i16::try_from(command.offers().len())
-            .map_err(|_| BatchCheckoutError::InvalidBatch)?;
+        let count =
+            i16::try_from(command.offers().len()).map_err(|_| BatchCheckoutError::InvalidBatch)?;
 
         // Unique (actor,key) is the one global claim. Concurrent retries
         // wait for this transaction, never repeat the wallet debit.
@@ -54,9 +54,7 @@ impl PgCheckout {
         .map_err(unavailable)?;
         let original_hash: Vec<u8> = prior.try_get("request_sha256").map_err(unavailable)?;
         let original_count: i16 = prior.try_get("item_count").map_err(unavailable)?;
-        if original_hash.as_slice() != command.request_sha256()
-            || original_count != count
-        {
+        if original_hash.as_slice() != command.request_sha256() || original_count != count {
             return Err(CheckoutError::DuplicateKeyDifferentRequest.into());
         }
 
@@ -143,9 +141,7 @@ impl PgCheckout {
             .ok_or(CheckoutError::Inaccessible)?;
             let version: i64 = row.try_get("version_id").map_err(unavailable)?;
             let price: i64 = row.try_get("price_amount").map_err(unavailable)?;
-            if version != offer.edition.version_id.get()
-                || price != offer.expected_price.get()
-            {
+            if version != offer.edition.version_id.get() || price != offer.expected_price.get() {
                 return Err(CheckoutError::StaleOffer.into());
             }
             let book: i64 = row.try_get("book_id").map_err(unavailable)?;
@@ -198,11 +194,8 @@ impl PgCheckout {
         }
 
         let mut purchases: Vec<PurchaseReceipt> = Vec::with_capacity(command.offers().len());
-        for (index, (offer, (book, revision))) in command
-            .offers()
-            .iter()
-            .zip(books_and_revisions)
-            .enumerate()
+        for (index, (offer, (book, revision))) in
+            command.offers().iter().zip(books_and_revisions).enumerate()
         {
             let price = offer.expected_price.get();
             let after = sqlx::query_scalar::<_, i64>(
@@ -217,12 +210,10 @@ impl PgCheckout {
             .await
             .map_err(unavailable)?
             .ok_or(CheckoutError::InsufficientBalance)?;
-            let position = i16::try_from(index + 1)
-                .map_err(|_| BatchCheckoutError::InvalidBatch)?;
-            let journal_reference = format!(
-                "batch-wallet:{actor}:{}:{position}",
-                command.key().as_str()
-            );
+            let position =
+                i16::try_from(index + 1).map_err(|_| BatchCheckoutError::InvalidBatch)?;
+            let journal_reference =
+                format!("batch-wallet:{actor}:{}:{position}", command.key().as_str());
             let chapter = offer.edition.chapter_id.get();
             let version = offer.edition.version_id.get();
             let id = sqlx::query_scalar::<_, i64>(
@@ -238,7 +229,10 @@ impl PgCheckout {
             .fetch_one(&mut *tx)
             .await
             .map_err(|error| {
-                if error.as_database_error().and_then(|db| db.code()).as_deref()
+                if error
+                    .as_database_error()
+                    .and_then(|db| db.code())
+                    .as_deref()
                     == Some("23505")
                 {
                     BatchCheckoutError::Checkout(CheckoutError::AlreadyOwned)
