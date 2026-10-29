@@ -300,10 +300,16 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),
         );
-    layout(
+    let seo = seo_head::disabled_chapter_head(
+        &chapter.book_title,
+        &chapter.chapter_title,
+        chapter.version_no,
+    );
+    layout_with_seo(
         &chapter.chapter_title,
         "Опубликованная бесплатная глава.",
         &html,
+        &seo,
     )
 }
 
