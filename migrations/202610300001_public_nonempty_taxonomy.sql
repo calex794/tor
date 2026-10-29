@@ -3,19 +3,20 @@
 -- immediate visibility/hold/delete changes through PostgreSQL MVCC.
 -- Store only book IDs: taxonomy text arrays can exceed btree tuple limits.
 --
--- On dense catalogs PostgreSQL remains free to choose a cheaper sequential
--- scan instead of an expensive heap-fetching partial index scan.
+-- Array equality/inequality is supported by column MCV statistics, unlike
+-- cardinality(...) > 0 (which can underestimate dense rows by 3x).
+-- The planner can therefore distinguish sparse and dense facets.
 CREATE INDEX books_public_nonempty_genres_idx
     ON books (id)
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND cardinality(genres) > 0;
+      AND genres <> '{}'::text[];
 
 CREATE INDEX books_public_nonempty_tags_idx
     ON books (id)
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND cardinality(tags) > 0;
+      AND tags <> '{}'::text[];
 
 CREATE INDEX books_public_nonempty_fandoms_idx
     ON books (id)
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND cardinality(fandoms) > 0;
+      AND fandoms <> '{}'::text[];
