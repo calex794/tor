@@ -173,7 +173,10 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/me/replies/{id}/read-state", post(reply_read_state::submit))
+        .route(
+            "/me/replies/{id}/read-state",
+            post(reply_read_state::submit),
+        )
         .route("/me/library", get(my_library))
         .route("/me/rankings", get(rankings::page))
         .route(
