@@ -1,8 +1,6 @@
 //! D/S035: a deterministic all-or-nothing quote for selected paid chapters.
 //! No external payment, creator earnings, refund, or public route is implied.
-use crate::domain::money::{
-    CheckoutError, IdempotencyKey, MoneyMinor, PurchaseReceipt, WalletId,
-};
+use crate::domain::money::{CheckoutError, IdempotencyKey, MoneyMinor, PurchaseReceipt, WalletId};
 use sha2::{Digest, Sha256};
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
@@ -46,15 +44,14 @@ impl BatchPurchaseCommand {
         mut offers: Vec<BatchChapterOffer>,
         idempotency_key: IdempotencyKey,
     ) -> Result<Self, BatchCheckoutError> {
-        if wallet_id.get() != actor_id.get()
-            || !(2..=MAX_BATCH_CHAPTERS).contains(&offers.len())
-        {
+        if wallet_id.get() != actor_id.get() || !(2..=MAX_BATCH_CHAPTERS).contains(&offers.len()) {
             return Err(BatchCheckoutError::InvalidBatch);
         }
         offers.sort_by_key(|offer| offer.edition.chapter_id.get());
-        if offers.windows(2).any(|w| {
-            w[0].edition.chapter_id == w[1].edition.chapter_id
-        }) {
+        if offers
+            .windows(2)
+            .any(|w| w[0].edition.chapter_id == w[1].edition.chapter_id)
+        {
             return Err(BatchCheckoutError::InvalidBatch);
         }
         let mut total = MoneyMinor::new(0).expect("zero is valid");
