@@ -66,10 +66,21 @@ fn render_book_head(
 ) -> String {
     let title = escape_html(&compact(title, 180));
     let description = escape_html(&compact(description, 200));
-    let mut html = format!(
-        "<meta name=\"robots\" content=\"{}\">",
+    // A positive SEO decision is not enough to index a page: a trusted
+    // absolute canonical URL is mandatory. Never infer it from Host headers.
+    let trusted_url = decision
+        .canonical_path
+        .as_deref()
+        .filter(|_| decision.indexable())
+        .and_then(BookUrl::from_exact_path)
+        .zip(origin)
+        .map(|(book, origin)| escape_html(&origin.book_url(book)));
+    let robots = if decision.indexable() && trusted_url.is_none() {
+        "noindex,nofollow"
+    } else {
         decision.robots.meta()
-    );
+    };
+    let mut html = format!("<meta name=\"robots\" content=\"{robots}\">");
     write!(
         html,
         "\n<meta property=\"og:type\" content=\"book\">\
@@ -80,18 +91,13 @@ fn render_book_head(
          \n<meta name=\"twitter:description\" content=\"{description}\">"
     )
     .expect("write metadata");
-    if decision.indexable() {
-        if let (Some(path), Some(origin)) = (decision.canonical_path.as_deref(), origin) {
-            if let Some(book) = BookUrl::from_exact_path(path) {
-                let url = escape_html(&origin.book_url(book));
-                write!(
-                    html,
-                    "\n<link rel=\"canonical\" href=\"{url}\">\
-                     \n<meta property=\"og:url\" content=\"{url}\">"
-                )
-                .expect("write safe canonical");
-            }
-        }
+    if let Some(url) = trusted_url {
+        write!(
+            html,
+            "\n<link rel=\"canonical\" href=\"{url}\">\
+             \n<meta property=\"og:url\" content=\"{url}\">"
+        )
+        .expect("write safe canonical");
     }
     html
 }
@@ -144,6 +150,32 @@ mod tests {
         assert!(!html.contains("property=\"og:url\""));
         let no_free = disabled_book_head(7, false, "Книга", "");
         assert!(no_free.contains("noindex,nofollow"));
+    }
+
+    #[test]
+    fn seo_04_positive_policy_without_trusted_origin_stays_noindex() {
+        let html = render_book_head("Название", "Описание", &public_decision(42), None);
+        assert!(html.contains("name=\"robots\" content=\"noindex,nofollow\""));
+        assert!(!html.contains("rel=\"canonical\""));
+        assert!(!html.contains("property=\"og:url\""));
+    }
+
+    #[test]
+    fn seo_04_full_book_html_has_safe_metadata_and_one_robots_tag() {
+        let html = super::super::book_detail(&super::super::PublicBookCard {
+            id: 42,
+            title: "<script>private?</script>".to_owned(),
+            language: "ru".to_owned(),
+            author_name: None,
+            genres: Vec::new(),
+        })
+        .0;
+        assert_eq!(html.matches("name=\"robots\"").count(), 1);
+        assert!(html.contains("name=\"robots\" content=\"noindex,nofollow\""));
+        assert!(html.contains("property=\"og:title\""));
+        assert!(html.contains("&lt;script&gt;private?&lt;/script&gt;"));
+        assert!(!html.contains("<script>private?</script>"));
+        assert!(!html.contains("rel=\"canonical\""));
     }
 
     #[test]
