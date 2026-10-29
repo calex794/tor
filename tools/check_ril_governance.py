@@ -169,6 +169,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
+        # Shared write helpers contain both calls; each route must prove its own.
+        if policy == "scoped" and entry["template"] == "/me/books/{id}/follow":
+            proof = {"follow"}
+        elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
+            proof = {"unfollow"}
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
