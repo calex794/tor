@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 77] = [
+const ROUTES: [RouteRegistration; 79] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -584,6 +584,13 @@ const ROUTES: [RouteRegistration; 77] = [
         Dashboard,
         Write,
     ), // 76
+    // D-05: owner session creates an empty Layer with an atomic command key.
+    RouteRegistration::new(
+        "/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read,
+    ), // 77
+    RouteRegistration::new(
+        "/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write,
+    ), // 78
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
