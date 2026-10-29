@@ -6,6 +6,10 @@ use crate::domain::layers::{
 };
 use tor_contracts::paid_delivery::PositiveId;
 
+/// Exact PostgreSQL projection for the authenticated owner's current offer.
+/// A named alias keeps the repository boundary readable under strict clippy.
+type OwnerOfferRecord = (i64, Option<i64>, Option<String>, Option<i64>);
+
 impl PgLayers {
     /// Existing trusted internal publisher remains available to code callers.
     pub async fn publish_offer(
@@ -46,7 +50,7 @@ impl PgLayers {
         actor: PositiveId,
         layer: PositiveId,
     ) -> Result<LayerOwnerOfferState, LayerError> {
-        let state: Option<(i64, Option<i64>, Option<String>, Option<i64>)> = sqlx::query_as(
+        let state: Option<OwnerOfferRecord> = sqlx::query_as(
             "SELECT l.current_version_id,l.current_offer_id,o.term_kind,o.price_minor
                  FROM commerce_layers l
                  LEFT JOIN commerce_layer_offers o
