@@ -54,6 +54,18 @@ async function inspect(page, viewport, name) {
       assert(await page.getByRole('link', { name: 'Добавить главу' }).isVisible(),
         viewport + ': missing author chapter action');
       await inspect(page, viewport, 'draft');
+      const description = 'Аннотация ' + viewport + ': <script>window.seoInjected=true</script> & текст';
+      await page.getByRole('link', { name: 'Редактировать аннотацию', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId + '/description');
+      await page.getByLabel('Аннотация (до 4000 символов)').fill(description);
+      await inspect(page, viewport, 'description-editor');
+      await page.getByRole('button', { name: 'Сохранить аннотацию', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId);
+      await page.getByRole('link', { name: 'Редактировать аннотацию', exact: true }).click();
+      assert(await page.getByLabel('Аннотация (до 4000 символов)').inputValue() === description,
+        viewport + ': description did not survive save and reload');
+      await page.getByRole('link', { name: 'Вернуться к книге', exact: true }).click();
+      await page.waitForURL(base + '/me/books/' + bookId);
       await page.getByRole('link', { name: 'Добавить главу' }).click();
       await page.waitForURL('**/chapters/new');
       await page.getByLabel('Номер главы').fill('1');
@@ -69,7 +81,7 @@ async function inspect(page, viewport, name) {
       assert(await page.getByRole('button', { name: 'Опубликовать книгу' }).isVisible(),
         viewport + ': missing explicit publishing control');
       await inspect(page, viewport, 'chapter-saved');
-      await page.getByRole('link', { name: 'Редактировать' }).click();
+      await page.getByRole('link', { name: 'Редактировать', exact: true }).click();
       await page.waitForURL(/\/chapters\/\d+\/edit$/);
       assert(await page.getByRole('heading', { name: 'Редактировать главу' }).isVisible(),
         viewport + ': missing draft editor');
@@ -91,6 +103,10 @@ async function inspect(page, viewport, name) {
       assert(await page.getByRole('heading', { name: 'Новая книга ' + viewport }).isVisible(),
         viewport + ': public book missing after release');
       await inspect(page, viewport, 'published');
+      assert(await page.getByText(description, { exact: true }).isVisible(),
+        viewport + ': public description missing or changed');
+      assert(await page.evaluate(() => window.seoInjected === undefined),
+        viewport + ': description executed as HTML');
 
       await page.getByRole('link', { name: /Глава 1.*Глава для проверки/ }).click();
       await page.waitForURL(/\/reader\/\d+$/);

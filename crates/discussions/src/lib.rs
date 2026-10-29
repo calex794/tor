@@ -4,6 +4,7 @@
 
 pub mod domain {
     pub mod comments;
+    pub mod spoilers;
 }
 
 pub mod repositories {

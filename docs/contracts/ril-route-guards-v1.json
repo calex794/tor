@@ -444,6 +444,13 @@
       "policy": "session"
     },
     {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "asset_grants::grant_asset",
+      "policy": "session"
+    },
+    {
       "method": "GET",
       "template": "/read/paid/{chapter_id}",
       "source": "crates/web/src/paid_grants_http.rs",
@@ -491,6 +498,34 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_stars::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/description",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_description::edit",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/description",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_description::save",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::submit",
+      "policy": "session"
     }
   ]
 }

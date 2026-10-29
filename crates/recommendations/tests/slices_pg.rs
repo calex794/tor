@@ -82,6 +82,11 @@ async fn f_05_pg_question_answer_is_durable_and_audit_once() {
         PgRanking::new(pool.clone()).snapshot(uid).await.unwrap(),
         done.snapshot
     );
+    assert_eq!(
+        done.snapshot.ranks,
+        done.snapshot.sorted_ranks(),
+        "an answer must return exactly the canonical persisted order"
+    );
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM user_book_comparison WHERE user_id=$1")
             .bind(uid)
@@ -89,6 +94,34 @@ async fn f_05_pg_question_answer_is_durable_and_audit_once() {
             .await
             .unwrap();
     assert_eq!(count, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_05_pg_tie_rank_order_is_identical_after_reload() {
+    let (repo, pool, uid, ids) = fixture("tie-order").await;
+    let before = seeded(&repo, uid, &ids).await;
+    let q = before.next_question().unwrap().unwrap();
+    let done = repo
+        .apply(
+            uid,
+            before.revision,
+            RankingCommand::Answer {
+                expected_state_version: q.state_version,
+                comparison_id: q.comparison_id,
+                outcome: Outcome::Tie,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(done.status, Some(AnswerStatus::Ranked));
+    assert_eq!(done.snapshot.ranks, done.snapshot.sorted_ranks());
+    assert_eq!(
+        repo.snapshot(uid).await.unwrap(),
+        done.snapshot,
+        "tied ranks use lexical book reference order in memory and PostgreSQL"
+    );
+    pool.close().await;
 }
 
 #[tokio::test]

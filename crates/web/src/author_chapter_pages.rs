@@ -107,13 +107,15 @@ pub fn detail_with_covers(
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
         {upload}
+        <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <h2>Главы</h2>{items}
         {add_action}
         {action}
         <p><a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
         book.id,
-        escape_html(&book.title)
+        escape_html(&book.title),
+        id = book.id
     );
     layout(&book.title, "Управление своей книгой", &body)
 }

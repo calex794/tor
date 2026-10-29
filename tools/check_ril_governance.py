@@ -32,7 +32,7 @@ OWNER_CALLS = {
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
-    "release_book",
+    "release_book", "owned_book_description", "update_book_description",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("

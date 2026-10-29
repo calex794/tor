@@ -1,6 +1,9 @@
 //! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
 
+mod classifier;
+pub use classifier::classify;
+
 // Indexes below are deliberately shared with classify(), and checked by unit tests.
 // These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
@@ -8,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 68] = [
+const ROUTES: [RouteRegistration; 73] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -498,90 +501,54 @@ const ROUTES: [RouteRegistration; 68] = [
         Reading,
         Write,
     ), // 67
+    RouteRegistration::new(
+        "/me/books/{id}/description",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 68
+    RouteRegistration::new(
+        "/me/books/{id}/description",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 69
+    RouteRegistration::new(
+        "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
+        "POST",
+        "/api/v1/reader/chapters/",
+        Prefix,
+        Api,
+        Reading,
+        CostClass::ExpensiveRead,
+    ), // 70
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "GET",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 71
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "POST",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 72
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
-}
-
-/// Takes Axum's MatchedPath template, NEVER a raw request path.
-/// The registry is indexed by a fixed match, not scanned per request.
-/// HEAD is equivalent to GET for classification; HTTP method enforcement remains Axum's.
-pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
-    let method = if method == "HEAD" { "GET" } else { method };
-    let index = match (matched_template, method) {
-        (Some("/"), "GET") => Some(0),
-        (Some("/catalog"), "GET") => Some(1),
-        (Some("/books/{id}"), "GET") => Some(2),
-        (Some("/reader/{id}"), "GET") => Some(3),
-        (Some("/assets/site.css"), "GET") => Some(4),
-        (Some("/healthz"), "GET") => Some(5),
-        (Some("/readyz"), "GET") => Some(6),
-        (Some("/login"), "GET") => Some(7),
-        (Some("/login"), "POST") => Some(8),
-        (Some("/register"), "GET") => Some(9),
-        (Some("/register"), "POST") => Some(10),
-        (Some("/api/v1/books"), "GET") => Some(11),
-        (Some("/me"), "GET") => Some(12),
-        (Some("/me/library"), "GET") => Some(13),
-        (Some("/read/{id}"), "GET") => Some(14),
-        (Some("/read/{id}/place"), "POST") => Some(15),
-        (Some("/logout"), "POST") => Some(16),
-        (Some("/me/books"), "GET") => Some(17),
-        (Some("/me/books"), "POST") => Some(18),
-        (Some("/me/books/new"), "GET") => Some(19),
-        (Some("/me/books/{id}"), "GET") => Some(20),
-        (Some("/api/v1/books/{id}/toc"), "GET") => Some(21),
-        (Some("/api/v1/me/library"), "GET") => Some(22),
-        (Some("/api/v1/me/library/{id}"), "POST") => Some(23),
-        (Some("/api/v1/me/library/{id}"), "DELETE") => Some(24),
-        (Some("/me/library/add/{id}"), "GET") => Some(25),
-        (Some("/me/library/{id}/save"), "POST") => Some(26),
-        (Some("/me/library/{id}/remove"), "POST") => Some(27),
-        (Some("/me/books/{id}/chapters/new"), "GET") => Some(28),
-        (Some("/me/books/{id}/chapters"), "POST") => Some(29),
-        (Some("/me/books/{id}/publish"), "POST") => Some(30),
-        (Some("/api/v1/me/progress/free"), "GET") => Some(31),
-        (Some("/api/v1/me/progress/free"), "PUT") => Some(32),
-        (Some("/api/v1/me/progress/purchased"), "GET") => Some(33),
-        (Some("/api/v1/me/progress/purchased"), "PUT") => Some(34),
-        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "GET") => Some(35),
-        (Some("/me/books/{id}/chapters/{chapter_id}/edit"), "POST") => Some(36),
-        (Some("/me/behavior"), "POST") => Some(37),
-        (Some("/me/books/{id}/chapters/{chapter_id}/release"), "GET") => Some(38),
-        (Some("/me/books/{id}/chapters/{chapter_id}/release"), "POST") => Some(39),
-        (Some("/api/v1/chapters/{id}/read"), "GET") => Some(40),
-        (Some("/api/v1/search/books"), "GET") => Some(41),
-        (Some("/assets/newboo.css"), "GET") => Some(42),
-        (Some("/assets/brand/pandaolate-header.png"), "GET") => Some(43),
-        (Some("/assets/brand/pandaolate-header-dark.png"), "GET") => Some(44),
-        (Some("/metrics"), "GET") => Some(45),
-        (Some("/ops/traces"), "GET") => Some(46),
-        (Some("/ops/overview"), "GET") => Some(47),
-        (Some("/covers/{id}/{variant}"), "GET") => Some(48),
-        (Some("/me/rankings"), "GET") => Some(49),
-        (Some("/me/rankings/choice"), "POST") => Some(50),
-        (Some("/me/rankings/resume"), "POST") => Some(51),
-        (Some("/api/v1/me/rankings"), "GET") => Some(52),
-        (Some("/api/v1/me/rankings/choice"), "POST") => Some(53),
-        (Some("/api/v1/me/rankings/resume"), "POST") => Some(54),
-        (Some("/me/books/{id}/cover"), "POST") => Some(55),
-        (Some("/me/books/{id}/settings/covers"), "GET") => Some(56),
-        (Some("/assets/newboo-cover-picker.js"), "GET") => Some(57),
-        (Some("/api/v1/purchases"), "POST") => Some(58),
-        (Some("/api/v1/reader/chapters/{chapter_id}/delivery-grants"), "POST") => Some(59),
-        (Some("/read/{id}/complete"), "POST") => Some(60),
-        (Some("/read/paid/{chapter_id}"), "GET") => Some(61),
-        (Some("/assets/newboo-paid-reader.mjs"), "GET") => Some(62),
-        (Some("/me/purchases"), "GET") => Some(63),
-        (Some("/api/v1/me/progress/purchased/complete"), "GET") => Some(64),
-        (Some("/api/v1/me/progress/purchased/complete"), "POST") => Some(65),
-        (Some("/me/books/{id}/rate"), "GET") => Some(66),
-        (Some("/me/books/{id}/rate"), "POST") => Some(67),
-        _ => None,
-    };
-    index
-        .map(|i| RoutePassport::from_route(&ROUTES[i]))
-        .unwrap_or_else(RoutePassport::unknown)
 }

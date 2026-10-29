@@ -12,18 +12,18 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use std::{env, num::NonZeroU32, process::Command, sync::Arc, time::Duration};
+use std::{env, io::Cursor, num::NonZeroU32, process::Command, sync::Arc, time::Duration};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::{
-    repositories::{paid_storage::PgPaidStorage, PgCatalog},
+    repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage, PgCatalog},
     services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
 use tor_contracts::paid_delivery::{
-    ChapterVersionPort, ChapterVersionRef, ObjectRef, PositiveId, PrivateObjectDeliveryPort,
-    SecretValue,
+    ChapterVersionPort, ChapterVersionRef, EncryptedObjectKind, ObjectRef, PositiveId,
+    PrivateObjectDeliveryPort, SecretValue,
 };
 use tor_reading::repositories::PgReader;
 use tor_storage::{
@@ -34,7 +34,7 @@ use tor_storage::{
         provider::PrivateObjectStore,
     },
 };
-use tor_web::PgPaidAuthorPublisher;
+use tor_web::{PgPaidAuthorAssets, PgPaidAuthorPublisher};
 use tower::ServiceExt;
 
 const ENDPOINT: &str = "http://127.0.0.1:9000";
@@ -185,7 +185,8 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let (owner, owner_session) = user(&accounts, "paid-author-v2-ci-owner@example.invalid").await;
-    let (_, other_session) = user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
+    let (other_id, other_session) =
+        user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
     let book: i64 = pg(
         &url,
         &format!(
@@ -402,6 +403,80 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         ),
         "draft"
     );
+    // Before publication, the same B draft supports verified, version-bound
+    // private image upload. G actually writes and reads back MinIO ciphertext;
+    // the image is not readable until B atomically publishes its chapter.
+    let uploader = PgPaidAuthorAssets::new(
+        PgCatalog::new(pool.clone()),
+        store.clone(),
+        ring.clone(),
+        BUCKET.to_owned(),
+    )
+    .unwrap();
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        1,
+        1,
+        image::Rgba([255, 0, 0, 255]),
+    ));
+    let mut png = Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let png = png.into_inner();
+    assert_eq!(
+        uploader
+            .upload_to_draft(other_id, &draft, 1, &png, "image/png")
+            .await,
+        Err(AuthorError::Missing),
+        "only the B book owner may initiate G storage"
+    );
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 0, &png, "image/png")
+            .await,
+        Err(AuthorError::Invalid),
+        "invalid ordinal cannot consume G resources"
+    );
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 1, b"<svg>bad</svg>", "image/svg+xml")
+            .await,
+        Err(AuthorError::Invalid),
+        "active SVG must never become a private image"
+    );
+    let image_id = uploader
+        .upload_to_draft(owner, &draft, 1, &png, "image/png")
+        .await
+        .expect("G verified real MinIO image then B pinned it to the draft");
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 1, &png, "image/png")
+            .await,
+        Ok(image_id.clone()),
+        "retry must use the original server-issued asset ID"
+    );
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 1, &png, "image/webp")
+            .await,
+        Err(AuthorError::Conflict),
+        "the same image slot cannot be relabeled as another MIME"
+    );
+    let pending = PgPaidStorage::new(pool.clone())
+        .prepare_new_paid_chapter(owner, &draft)
+        .await
+        .unwrap();
+    let draft_pinned = ChapterVersionRef {
+        chapter_id: PositiveId::new(pending.chapter_id).unwrap(),
+        version_id: PositiveId::new(pending.version_id).unwrap(),
+    };
+    let assets = PgPaidAssets::new(pool.clone());
+    assert!(
+        assets
+            .encrypted_for_pinned(draft_pinned, &image_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "a verified but unpublished image cannot be read through C/B/G"
+    );
     let recovered = PgPaidAuthorPublisher::new(
         PgCatalog::new(pool.clone()),
         store.clone(),
@@ -411,6 +486,30 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     .unwrap();
     recovered.publish(owner, &draft).await.unwrap();
     recovered.publish(owner, &draft).await.unwrap();
+    let asset = assets
+        .encrypted_for_pinned(draft_pinned, &image_id)
+        .await
+        .unwrap()
+        .expect("the committed chapter release also unlocks the exact image");
+    assert_eq!(asset.object.kind, EncryptedObjectKind::ChapterAsset);
+    let encrypted_image = store.get_verified(&asset.object).await.unwrap();
+    assert!(!encrypted_image
+        .windows(png.len())
+        .any(|window| window == png.as_slice()));
+    assert!(
+        signer
+            .grant_verified_object(&asset, Duration::from_secs(90))
+            .await
+            .is_ok(),
+        "G may sign this image only after verified B publication"
+    );
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 2, &png, "image/png")
+            .await,
+        Err(AuthorError::Conflict),
+        "a published paid V1 cannot accept a second image"
+    );
     assert_eq!(
         pg(
             &url,
