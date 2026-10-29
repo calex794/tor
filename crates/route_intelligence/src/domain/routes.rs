@@ -12,8 +12,24 @@ const ROUTES: [RouteRegistration; 81] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
-    RouteRegistration::new("/reader/{id}", "GET", "/reader/", Prefix, Page, Reading, Read), // 3
-    RouteRegistration::new("/assets/site.css", "GET", "/assets/", Exact, Static, System, Free), // 4
+    RouteRegistration::new(
+        "/reader/{id}",
+        "GET",
+        "/reader/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 3
+    RouteRegistration::new(
+        "/assets/site.css",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 4
     RouteRegistration::new("/healthz", "GET", "/healthz/", Exact, Service, System, Free), // 5
     RouteRegistration::new("/readyz", "GET", "/readyz/", Exact, Service, System, Read), // 6
     RouteRegistration::new("/login", "GET", "/login/", Exact, Page, Auth, Read), // 7
@@ -30,7 +46,15 @@ const ROUTES: [RouteRegistration; 81] = [
         Read,
     ), // 11
     RouteRegistration::new("/me", "GET", "/me/", Exact, Page, Dashboard, Read), // 12
-    RouteRegistration::new("/me/library", "GET", "/me/library/", Exact, Page, Reading, Read), // 13
+    RouteRegistration::new(
+        "/me/library",
+        "GET",
+        "/me/library/",
+        Exact,
+        Page,
+        Reading,
+        Read,
+    ), // 13
     RouteRegistration::new("/read/{id}", "GET", "/read/", Prefix, Page, Reading, Read), // 14
     RouteRegistration::new(
         "/read/{id}/place",
@@ -45,7 +69,15 @@ const ROUTES: [RouteRegistration; 81] = [
     RouteRegistration::new("/me/books", "GET", "/me/", Exact, Page, Dashboard, Read), // 17
     RouteRegistration::new("/me/books", "POST", "/me/", Exact, Page, Dashboard, Write), // 18
     RouteRegistration::new("/me/books/new", "GET", "/me/", Exact, Page, Dashboard, Read), // 19
-    RouteRegistration::new("/me/books/{id}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 20
+    RouteRegistration::new(
+        "/me/books/{id}",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 20
     RouteRegistration::new(
         "/api/v1/books/{id}/toc",
         "GET",
@@ -190,7 +222,15 @@ const ROUTES: [RouteRegistration; 81] = [
         Dashboard,
         Write,
     ), // 36
-    RouteRegistration::new("/me/behavior", "POST", "/me/", Exact, Page, Dashboard, Write), // 37
+    RouteRegistration::new(
+        "/me/behavior",
+        "POST",
+        "/me/",
+        Exact,
+        Page,
+        Dashboard,
+        Write,
+    ), // 37
     RouteRegistration::new(
         "/me/books/{id}/chapters/{chapter_id}/release",
         "GET",
@@ -435,7 +475,15 @@ const ROUTES: [RouteRegistration; 81] = [
         Reading,
         Write,
     ), // 65
-    RouteRegistration::new("/me/books/{id}/rate", "GET", "/me/", Prefix, Page, Reading, Read), // 66
+    RouteRegistration::new(
+        "/me/books/{id}/rate",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 66
     RouteRegistration::new(
         "/me/books/{id}/rate",
         "POST",
