@@ -206,7 +206,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     );
     let author = html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(author.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
-    assert!(!author.contains(&reader.to_string()));
+    assert!(!author.contains(&format!("c15-reader-{nonce}@tor-ci.example")));
 
     let next: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
