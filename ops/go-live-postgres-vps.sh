@@ -10,6 +10,38 @@ if [[ $(id -u) -ne 0 || $# -ne 1 || ! $sha =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
+# TOR_MAIN_SHA_GUARD_BEGIN
+# Fail closed before any SQLx migration when the selected staged SHA is stale.
+require_current_main_sha() {
+  local actual_main_sha
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "REFUSE_OBSOLETE_MAIN: python3 is required to verify GitHub main" >&2
+    return 1
+  fi
+  actual_main_sha=$(
+    curl --fail --silent --show-error --location --retry 2 --max-time 15 \
+      -H "Accept: application/vnd.github+json" \
+      https://api.github.com/repos/calex794/tor/git/ref/heads/main |
+      python3 -c '
+import json
+import sys
+payload = json.load(sys.stdin)
+if payload.get("ref") != "refs/heads/main":
+    sys.exit(1)
+print(payload.get("object", {}).get("sha", ""))
+'
+  ) || {
+    echo "REFUSE_OBSOLETE_MAIN: could not verify GitHub main; no release permitted" >&2
+    return 1
+  }
+  if [[ ! "$actual_main_sha" =~ ^[0-9a-f]{40}$ || "$actual_main_sha" != "$sha" ]]; then
+    echo "REFUSE_OBSOLETE_MAIN: staged SHA differs from verified GitHub main" >&2
+    return 1
+  fi
+}
+# TOR_MAIN_SHA_GUARD_END
+require_current_main_sha
+
 release="/opt/tor/releases/$sha"
 if [[ ! -x $release/tor-web || ! -x $release/tor-migrate ||
       -L $release || $(readlink -f "$release") != "$release" ||
@@ -113,6 +145,10 @@ chmod 0644 "$schema_tmp"
 mv -fT "$schema_tmp" "$schema_marker"
 echo "TOR_SCHEMA_MARKED $latest_schema"
 
+# Check again: main may have changed while SQLx ran. Old binary remains active
+# on refusal; an already applied SQLx migration must be handled separately.
+require_current_main_sha
+
 dropin_dir=/etc/systemd/system/tor-web.service.d
 dropin="$dropin_dir/20-postgres.conf"
 install -d -m 0755 -o root -g root "$dropin_dir"
@@ -143,15 +179,46 @@ undo() {
     ln -s "$old_target" "$back"
     mv -Tf "$back" /opt/tor/current
   fi
-  systemctl daemon-reload
+  systemctl daemon-reload || true
   systemctl restart tor-web.service || true
-  echo "Restored previous TOR service settings; PostgreSQL migrations are preserved." >&2
+  # A restored symlink alone is NOT proof that the previous binary works with
+  # the new additive SQLx schema. Never claim rollback success without HTTP.
+  rollback_healthy=0
+  for attempt in $(seq 1 15); do
+    if systemctl is-active --quiet tor-web.service &&
+       [[ $(curl -fsS --max-time 3 http://127.0.0.1:3000/readyz 2>/dev/null || true) == ok ]]; then
+      rollback_healthy=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$rollback_healthy" == 1 ]] &&
+     [[ $(curl -fsS --max-time 6 --resolve pandaolate.ru:443:127.0.0.1 https://pandaolate.ru/readyz 2>/dev/null || true) == ok ]]; then
+    echo "ROLLBACK_VERIFIED: previous TOR binary healthy; SQLx migrations are preserved." >&2
+  else
+    echo "ROLLBACK_UNVERIFIED: previous binary restored but real HTTPS readiness failed; SQLx migrations are preserved." >&2
+    systemctl show tor-web.service --no-pager -p ActiveState -p SubState -p Result -p ExecMainStatus || true
+  fi
 }
 trap undo ERR
 
-# One-time systemd override: same loopback port, but *real* database and auth.
-# PID 1 loads root-only EnvironmentFile before dropping privileges to tor-deploy.
-cat > "$dropin" <<'SYSTEMD'
+# Do not overwrite a working production environment with a bootstrap-only
+# template on every upgrade: S3/other future settings may live here.
+# Validate mandatory security invariants and retain the operator's settings.
+if [[ -f "$dropin" ]]; then
+  for line in \
+    'Environment=TOR_DEMO_MODE=0' \
+    'Environment=TOR_AUTH_ENABLED=1' \
+    'Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru' \
+    'EnvironmentFile=/etc/tor/tor-app.env'; do
+    grep -Fxq "$line" "$dropin" || {
+      echo "Refusing unsafe production systemd override" >&2
+      false
+    }
+  done
+else
+  # First-time PostgreSQL activation only; PIN 1 reads the root-only secret.
+  cat > "$dropin" <<'SYSTEMD'
 [Unit]
 Description=TOR Rust + PostgreSQL website
 After=postgresql@18-main.service
@@ -163,7 +230,8 @@ Environment=TOR_AUTH_ENABLED=1
 Environment=TOR_PUBLIC_ORIGIN=https://pandaolate.ru
 EnvironmentFile=/etc/tor/tor-app.env
 SYSTEMD
-chmod 0644 "$dropin"
+  chmod 0644 "$dropin"
+fi
 
 
 tmp="/opt/tor/.go-live-$$"

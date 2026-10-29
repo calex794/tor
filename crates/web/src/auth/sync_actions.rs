@@ -12,7 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::services::{
-    progress::{reader_blocks, valid_text_place, ReadingPlace},
+    progress::{is_completed_place, reader_blocks, valid_text_place, ReadingPlace},
     sync::{positive_id, StoredProgress, SyncError, SyncReceipt},
     PublicReadingRepository,
 };
@@ -58,7 +58,7 @@ struct PositionResponse {
     updated_at: Option<String>,
 }
 
-fn status(error: SyncError) -> StatusCode {
+pub(super) fn status(error: SyncError) -> StatusCode {
     match error {
         SyncError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         SyncError::NotFound => StatusCode::NOT_FOUND,
@@ -67,11 +67,11 @@ fn status(error: SyncError) -> StatusCode {
     }
 }
 
-fn id(raw: &str) -> Result<i64, StatusCode> {
+pub(super) fn id(raw: &str) -> Result<i64, StatusCode> {
     positive_id(raw).map_err(status)
 }
 
-fn csrf(state: &AuthState, headers: &HeaderMap) -> bool {
+pub(super) fn csrf(state: &AuthState, headers: &HeaderMap) -> bool {
     state.cookies.same_origin(headers)
         && headers
             .get("x-csrf-token")
@@ -260,9 +260,11 @@ pub(super) async fn put_purchased(
         block_index: command.block_id,
         char_offset: command.char_offset,
     };
-    if valid_text_place(place, &reader_blocks(&body)).is_err() {
+    let blocks = reader_blocks(&body);
+    if valid_text_place(place, &blocks).is_err() {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let completed = is_completed_place(place, &blocks);
     match state
         .sync
         .save_purchased(
@@ -275,10 +277,27 @@ pub(super) async fn put_purchased(
         )
         .await
     {
-        Ok(receipt) => private_response(
-            Json(response(chapter_id, version_id, Some(place), Some(receipt))),
-            &[],
-        ),
+        Ok(receipt) => {
+            if completed {
+                // This exact C fact is durable before F sees it. A busy
+                // comparison stays in the outbox for the background worker.
+                if let Ok(Some(event_id)) = state.sync.completion_event_id(actor, chapter_id).await
+                {
+                    if state
+                        .rankings
+                        .accept_completed_chapter(&event_id)
+                        .await
+                        .is_err()
+                    {
+                        tracing::warn!("paid chapter ranking delivery remains queued");
+                    }
+                }
+            }
+            private_response(
+                Json(response(chapter_id, version_id, Some(place), Some(receipt))),
+                &[],
+            )
+        }
         Err(error) => deny(status(error)),
     }
 }

@@ -114,11 +114,15 @@ def disabled() -> None:
     expect(buy(Client(), {"chapter_id": "1", "expected_version_id": "1",
                           "expected_price_minor": 150}, key="A" * 42 + "8"),
            404, "Checkout must be disabled by default")
+    expect(Client().call("POST", "/api/v1/reader/chapters/1/delivery-grants", {}),
+           404, "Paid delivery must also be disabled by default")
     print("D-04 default-off: PASS")
 
 
 def enabled() -> None:
     require(DB, "Set TEST_DATABASE_URL to isolated tor_ci")
+    expect(Client().call("POST", "/api/v1/reader/chapters/1/delivery-grants", {}),
+           404, "Checkout opt-in must not automatically enable paid S3 grants")
     buyer, author, stranger = Client(), Client(), Client()
     buyer.register("d04-smoke-buyer@tor-ci.example", "Покупатель")
     author.register("d04-smoke-author@tor-ci.example", "Автор")
@@ -154,7 +158,23 @@ def enabled() -> None:
            "Author cannot buy their own chapter")
     require(scalar("SELECT count(*) FROM chapter_purchase_facts "
                    f"WHERE user_id={buyer_id}") == 0, "Denials caused a debit")
-    expect(buyer.call("GET", f"/reader/{chapter}"), 404, "Free reader must hide paid bytes")
+    # S005: paid text stays private, but published metadata now has a safe
+    # explanatory page, not a 404. Check body and cache policy, not status alone.
+    paywall_status, paywall_headers, paywall_body = buyer.call(
+        "GET", f"/reader/{chapter}")
+    require(paywall_status == 200, "Public paid paywall must explain access")
+    require(paywall_headers.get("cache-control") == "no-store",
+            "Public paid paywall must not enter a shared cache")
+    require(paywall_headers.get("x-robots-tag") == "noindex, nofollow",
+            "Paid paywall must not be indexed")
+    require("script-src 'none'" in paywall_headers.get("content-security-policy", ""),
+            "Paid paywall must forbid scripts")
+    require("Для чтения нужен доступ" in paywall_body
+            and 'href="/login"' in paywall_body,
+            "Paid paywall must show a safe path to sign-in")
+    require("SECRET-PAID-D04-NO-LEAK" not in paywall_body
+            and "X-Amz-Signature" not in paywall_body,
+            "Public paid paywall leaked text or private S3 credentials")
 
     status, headers, body = buy(buyer, payload, csrf=csrf, key=key)
     require(status == 200 and headers.get("cache-control") == "no-store", "First purchase failed")

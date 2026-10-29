@@ -1,0 +1,137 @@
+name: TOR S3-34 purchased edition disaster recovery
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: tor-s334-recovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: purchased_recovery
+  purchased-v1-recovery:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"purchased_recovery":true}').purchased_recovery) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      GITHUB_ACTIONS: 'true'
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      S334_RESTORED_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_s334_restore_ci
+      TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
+      TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
+      TOR_CONTENT_KEK_V1: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check test boundaries and formatting
+        run: |
+          python3 tools/check_feature_layout.py
+          bash -n tools/tor_s334_paid_restore_smoke.sh
+          node --check tools/tor_dr_archive_crypto.cjs
+          node --check tools/paid_grant_webcrypto_e2e.mjs
+          cargo fmt --all -- --check
+      - name: Prepare isolated PostgreSQL roles and SQLx schema
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Start upstream checksum-verified private MinIO on loopback
+        run: |
+          set -euo pipefail
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          test "$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f 1)" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-s334-minio-data"
+          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-s334-minio-data" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-s334-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 40 "$RUNNER_TEMP/tor-s334-minio.log"
+            exit 1
+          fi
+      - name: Create isolated recovery KEK, seed paid V1 and publish V2
+        run: |
+          set -euo pipefail
+          openssl rand -out "$RUNNER_TEMP/s334-content-kek.bin" 32
+          chmod 600 "$RUNNER_TEMP/s334-content-kek.bin"
+          cargo test -p tor-web --features s3-paid \
+            --test s334_paid_restore_pg_s3 s3_34_seed_paid_v1_and_publish_v2 \
+            -- --ignored --exact --test-threads=1
+      - name: Restore PostgreSQL, V1 ciphertext and KEK; decrypt through WebCrypto
+        run: |
+          set -euo pipefail
+          bash tools/tor_s334_paid_restore_smoke.sh
+      - name: Remove ephemeral recovery KEK and bearer grants
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/s334-content-kek.bin" \
+                "$RUNNER_TEMP/s334-state.json" "$RUNNER_TEMP/s334-webcrypto.json"
+      - name: MinIO health only on failure
+        if: failure()
+        run: curl -fsS --max-time 3 http://127.0.0.1:9000/minio/health/ready || true

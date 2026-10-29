@@ -269,3 +269,136 @@ async fn f_05_pg_trusted_c_events_are_applied_once_and_wait_for_active_compariso
         .await
         .unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn f_05_paid_v1_needs_exact_c_purchase_provenance() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test PostgreSQL");
+    assert!(url.ends_with("/tor_ci"), "never test production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    // D purchase, library and revocation facts are append-only (no DELETE).
+    // The entire tor_ci database is disposable; fixed fixtures require a fresh
+    // CI schema. Do not fake cleanup by mutating D settlement history.
+    sqlx::query(
+        "INSERT INTO users(id,email_normalized,display_name,password_hash)
+         OVERRIDING SYSTEM VALUE
+         VALUES (99701,'f05-paid-c@example.invalid','Paid C','$argon2id$fixture')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO books(id,source_identity,target_language,title,visibility)
+         VALUES (99710,'ci:f05:paid-event','ru','Прочитанная V1','public')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES (99720,99710,1,'Купленная глава','public','paid',100)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
+         VALUES (99731,99720,1,'Конец купленной V1')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES (99720,99731)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_purchase_facts
+          (id,user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES (99740,99701,99720,99731,'ci-f05-paid-v1',100,'RUB')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Fixture uses only the authoritative C shape; there is no public start
+    // route, and an outbox envelope without C's matching fact is insufficient.
+    let event: String = sqlx::query_scalar(
+        "INSERT INTO reader_chapter_completions
+          (user_id,book_id,chapter_id,first_version_id,purchase_id,source_event_id)
+         VALUES (99701,99710,99720,99731,99740,gen_random_uuid())
+         RETURNING source_event_id::text",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO outbox_events(
+            id,event_type,schema_version,aggregate_kind,aggregate_id,
+            dedupe_key,payload,required_consumers
+         ) VALUES(
+            $1::uuid,'ChapterCompletedV1',1,'chapter',99720,
+            'chapter-completed:99701:99720',
+            jsonb_build_object(
+               'user_id',99701::bigint,'book_id',99710::bigint,
+               'chapter_id',99720::bigint,'version_id',99731::bigint,
+               'purchase_id',99999::bigint,
+               'authority','C-verified-purchased-position'
+            ),
+            ARRAY['ranking-eligibility-v1']
+         )",
+    )
+    .bind(&event)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let rank = PgRanking::new(pool.clone());
+    assert!(!rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&event));
+    assert_eq!(
+        rank.accept_completed_chapter(&event).await,
+        Err(RankingStoreError::Invalid),
+        "wrong purchase in event cannot create eligibility"
+    );
+    assert!(rank.snapshot(99701).await.unwrap().ranks.is_empty());
+
+    sqlx::query(
+        "UPDATE outbox_events
+         SET payload=jsonb_set(payload,'{purchase_id}','99740'::jsonb)
+         WHERE id=$1::uuid",
+    )
+    .bind(&event)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(rank
+        .pending_completion_event_ids()
+        .await
+        .unwrap()
+        .contains(&event));
+    assert!(rank.accept_completed_chapter(&event).await.unwrap());
+    assert!(!rank.accept_completed_chapter(&event).await.unwrap());
+    let snapshot = rank.snapshot(99701).await.unwrap();
+    assert_eq!(snapshot.ranks.len(), 1);
+    assert_eq!(snapshot.ranks[0].book_id, 99710);
+    assert_eq!(snapshot.revision, 1);
+
+    sqlx::query("DELETE FROM event_deliveries WHERE event_id=$1::uuid")
+        .bind(&event)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM outbox_events WHERE id=$1::uuid")
+        .bind(&event)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Consume/clear only disposable C/F event evidence, never D history.
+    sqlx::query("DELETE FROM reader_chapter_completions WHERE user_id=99701 AND chapter_id=99720")
+        .execute(&pool)
+        .await
+        .unwrap();
+}

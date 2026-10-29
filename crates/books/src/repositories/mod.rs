@@ -1,7 +1,16 @@
+pub mod book_members;
 pub mod cover_slots;
+// B-09c sealed ownership-transfer transaction. Not exposed to HTTP.
+pub(crate) mod owner_transfer;
+// B-09d canonical Book tier, locked under caller-owned transfer transaction.
+pub(crate) mod owner_transfer_tier;
+pub mod paid_assets;
 pub mod paid_storage;
 pub mod postgres;
+pub mod revenue_shares;
+pub mod shadow;
 pub use postgres::PgCatalog;
+pub use shadow::PgShadowCatalog;
 
 use crate::domain::{Book, Visibility};
 use crate::services::{CatalogError, PublicBookRepository};

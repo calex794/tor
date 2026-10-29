@@ -1,0 +1,887 @@
+// H/S034: actual Chromium, server-generated paid shell and real private MinIO GET.
+// The A/D/B/G HTTP contract is tested in Rust before this ephemeral fixture.
+// No grant, signed link, scoped DEK, cookie or plaintext is logged or archived.
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const http = require("node:http");
+const path = require("node:path");
+const { chromium } = require("playwright");
+
+const SITE = "http://127.0.0.1:3098";
+const S3 = "http://127.0.0.1:9000";
+const fixturePath = process.env.TOR_PAID_GRANT_FIXTURE_PATH;
+assert(fixturePath && process.env.RUNNER_TEMP &&
+  path.resolve(fixturePath).startsWith(path.resolve(process.env.RUNNER_TEMP) + path.sep),
+"Fixture must stay inside temporary CI directory");
+
+const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+const grant = fixture.grant;
+const chapter = grant.chapter_id;
+const purchase = fixture.purchase_id;
+const pageUrl = SITE + "/read/paid/" + chapter + "?purchase_id=" + purchase;
+const data = fixture.reader_html;
+const csp = fixture.reader_csp;
+const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
+// Serve the EXACT two stylesheets used by pages::layout and
+// pages::newboo_stylesheet, not reader-only CSS as both URLs.
+const siteCss = fs.readFileSync("crates/web/assets/site.css");
+const orderedNewbooFiles = [
+  "newboo-port.css",
+  "newboo-home-carousel.css",
+  "newboo-book-detail.css",
+  "newboo-comments.css",
+  "newboo-reader.css",
+  "newboo-cover-picker.css",
+];
+// Extract the actual Rust handler's include_str! order, so future changes
+// cannot silently turn this Chromium smoke into a stale visual fixture.
+const pageSource = fs.readFileSync("crates/web/src/pages.rs", "utf8");
+const start = pageSource.indexOf("pub async fn newboo_stylesheet()");
+const end = pageSource.indexOf("pub async fn paid_reader_script()", start);
+assert(start >= 0 && end > start, "NEwBOO Rust CSS handler missing");
+const sourceOrder = [...pageSource.slice(start, end).matchAll(
+  /include_str!\("\.\.\/assets\/([^"]+\.css)"\)/g
+)].map((match) => match[1]);
+assert.deepEqual(sourceOrder, orderedNewbooFiles,
+  "Rust pages::newboo_stylesheet CSS list changed: update visual baseline");
+const newbooCss = orderedNewbooFiles
+  .map((file) => fs.readFileSync(path.join("crates/web/assets", file), "utf8"))
+  .join("\n");
+const brandLogo = fs.readFileSync("crates/web/assets/brand/pandaolate-header.png");
+const brandLogoDark = fs.readFileSync("crates/web/assets/brand/pandaolate-header-dark.png");
+const screenshotRoot = process.env.TOR_PAID_READER_SHOTS;
+assert(screenshotRoot && path.resolve(screenshotRoot).startsWith(
+  path.resolve(process.env.RUNNER_TEMP) + path.sep
+), "Visual screenshots must remain in the disposable CI temp directory");
+fs.mkdirSync(screenshotRoot, { recursive: true });
+assert(data.includes('<html lang="ru">') &&
+  data.includes('<body class="reader-standalone">') &&
+  data.includes('<main id="main" class="reader-standalone__main">') &&
+  data.includes('<link rel="stylesheet" href="/assets/site.css">') &&
+  data.includes('<link rel="stylesheet" href="/assets/newboo.css">') &&
+  data.includes("data-paid-chapter-reader") &&
+  !data.includes('class="site-header"') &&
+  !data.includes('class="site-footer"') &&
+  !data.includes('class="site-logo"'),
+"Actual Rust reader must use NEwBOO standalone chrome, without global header/footer");
+assert(data.includes("data-paid-chapter-reader") &&
+  !data.includes(fixture.expected_markdown) && !data.includes(grant.content.dek_b64u));
+assert(csp.includes("script-src 'self'") && csp.includes(S3));
+assert.equal(grant.version_id, fixture.purchased_version_id);
+
+const csrf = data.match(/data-csrf-token="([A-Za-z0-9_-]{43})"/)?.[1];
+assert(csrf, "Real Rust shell must include a valid CSRF token");
+const send = (reply, status, body, type, extra = {}) => {
+  reply.writeHead(status, {
+    "content-type": type,
+    "cache-control": "private, no-store",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    ...extra,
+  });
+  reply.end(body);
+};
+const readBody = (req) => new Promise((resolve, reject) => {
+  let raw = "";
+  req.on("data", (chunk) => {
+    raw += chunk.toString("utf8");
+    if (raw.length > 512) {
+      req.destroy();
+      reject(new Error("Unexpectedly large grant request"));
+    }
+  });
+  req.on("end", () => resolve(raw));
+  req.on("error", reject);
+});
+let grantCalls = 0;
+let saved = null;
+let progressRevision = 0;
+let markedComplete = false;
+let completionPosts = 0;
+const server = http.createServer(async (req, reply) => {
+  try {
+    const uri = new URL(req.url, SITE);
+    if (req.method === "GET" && uri.pathname === "/read/paid/" + chapter) {
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      send(reply, 200, data, "text/html; charset=utf-8",
+        { "content-security-policy": csp });
+    } else if (req.method === "GET" && uri.pathname === "/assets/newboo-paid-reader.mjs") {
+      send(reply, 200, script, "application/javascript; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/site.css") {
+      send(reply, 200, siteCss, "text/css; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/newboo.css") {
+      send(reply, 200, newbooCss, "text/css; charset=utf-8",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" && uri.pathname === "/assets/brand/pandaolate-header.png") {
+      send(reply, 200, brandLogo, "image/png", { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "GET" &&
+      uri.pathname === "/assets/brand/pandaolate-header-dark.png") {
+      send(reply, 200, brandLogoDark, "image/png",
+        { "cache-control": "public, max-age=3600" });
+    } else if (req.method === "POST" &&
+      uri.pathname === "/api/v1/reader/chapters/" + chapter + "/delivery-grants") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      assert.equal(req.headers["content-type"], "application/json");
+      assert.deepEqual(JSON.parse(await readBody(req)), { purchase_id: purchase });
+      grantCalls++;
+      send(reply, 200, JSON.stringify(grant), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
+      req.method === "GET") {
+      assert.equal(uri.searchParams.get("chapter_id"), chapter);
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      assert.equal(uri.searchParams.get("version_id"), grant.version_id);
+      send(reply, 200, JSON.stringify({
+        available: true, completed: markedComplete,
+      }), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased/complete" &&
+      req.method === "POST") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      const body = JSON.parse(await readBody(req));
+      assert.equal(body.purchase_id, purchase);
+      assert.equal(body.chapter_id, chapter);
+      assert.equal(body.version_id, grant.version_id);
+      assert.equal(body.expected_revision, 1);
+      assert.equal(body.block_id, fixture.expected_markdown.split("\n\n").length);
+      assert.equal(body.char_offset, fixture.expected_markdown.split("\n\n").at(-1).length);
+      const aad = Buffer.from(grant.content.aad_b64u, "base64url").toString("utf8").split("\n");
+      assert.equal(body.plaintext_sha256, aad[4]);
+      completionPosts++;
+      const old = markedComplete;
+      markedComplete = true;
+      send(reply, 200, JSON.stringify({
+        status: old ? "already_completed" : "completed",
+      }), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased" &&
+      req.method === "GET") {
+      assert.equal(uri.searchParams.get("chapter_id"), chapter);
+      assert.equal(uri.searchParams.get("purchase_id"), purchase);
+      assert.equal(uri.searchParams.get("version_id"), grant.version_id);
+      send(reply, 200, JSON.stringify({
+        chapter_id: chapter, version_id: grant.version_id,
+        revision: progressRevision,
+        block_id: saved?.block_id ?? null,
+        char_offset: saved?.char_offset ?? null,
+      }), "application/json");
+    } else if (uri.pathname === "/api/v1/me/progress/purchased" &&
+      req.method === "PUT") {
+      assert.equal(req.headers.origin, SITE);
+      assert.equal(req.headers["x-csrf-token"], csrf);
+      const cursor = JSON.parse(await readBody(req));
+      assert.equal(cursor.chapter_id, chapter);
+      assert.equal(cursor.purchase_id, purchase);
+      assert.equal(cursor.version_id, grant.version_id);
+      if (cursor.expected_revision !== progressRevision) {
+        send(reply, 409, "", "application/json");
+      } else {
+        saved = cursor;
+        progressRevision++;
+        send(reply, 200, JSON.stringify({
+          revision: progressRevision, version_id: grant.version_id,
+        }), "application/json");
+      }
+    } else {
+      send(reply, 404, "", "text/plain");
+    }
+  } catch {
+    // Never echo request/grant/secret in CI; the calling browser will fail closed.
+    send(reply, 503, "", "text/plain");
+  }
+});
+
+function signatureExpiry(url, expectedSeconds) {
+  const date = url.searchParams.get("X-Amz-Date");
+  const seconds = Number(url.searchParams.get("X-Amz-Expires"));
+  assert(/^[0-9]{8}T[0-9]{6}Z$/.test(date) &&
+    seconds === expectedSeconds, "unexpected S3 signature lifetime");
+  return Date.UTC(
+    +date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6, 8),
+    +date.slice(9, 11), +date.slice(11, 13), +date.slice(13, 15)
+  ) + seconds * 1000;
+}
+
+async function run() {
+  // PG already committed the refund before exporting the ephemeral fixture.
+  // Its previously issued bearer URL must still work until S3's real TTL;
+  // the next fresh grant was separately denied by the Rust HTTP test.
+  const issuedBeforeRefund = new URL(grant.content.ciphertext_url);
+  assert.equal(issuedBeforeRefund.origin, S3);
+  assert(signatureExpiry(issuedBeforeRefund, 90) > Date.now(),
+    "90s grant must not have expired before the browser test");
+  const heldToken = await fetch(issuedBeforeRefund);
+  assert.equal(heldToken.status, 200,
+    "a refund cannot instantly revoke a previously issued S3 bearer URL");
+  const heldCiphertext = await heldToken.arrayBuffer();
+  assert(heldCiphertext.byteLength > 16, "S3 must serve ciphertext, not an empty body");
+
+  const short = new URL(fixture.expiry_probe_url);
+  assert.equal(short.origin, S3);
+  assert(signatureExpiry(short, 30) > Date.now(),
+    "30s probe URL must not expire before the browser test");
+  const initiallySigned = await fetch(short);
+  assert.equal(initiallySigned.status, 200, "30s signed GET must work before expiry");
+  await initiallySigned.arrayBuffer();
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(3098, "127.0.0.1", resolve);
+  });
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const [device, width, height] of [
+      ["desktop", 1440, 900], ["mobile", 390, 844],
+    ]) {
+      const page = await browser.newPage({ viewport: { width, height },
+        colorScheme: "light" });
+      let realS3 = 0;
+      const loadedAssets = new Set();
+      page.on("response", (response) => {
+        const url = new URL(response.url());
+        if (url.origin === S3 && url.pathname.endsWith(".enc")) {
+          if (response.status() === 200) realS3++;
+        }
+        if (url.origin === SITE && response.status() === 200) {
+          loadedAssets.add(url.pathname);
+        }
+      });
+      try {
+        const response = await page.goto(pageUrl, { waitUntil: "networkidle" });
+        assert.equal(response.status(), 200);
+        await page.locator("[data-paid-status]")
+          .getByText("Защищённая загрузка завершена", { exact: false })
+          .waitFor({ timeout: 20000 });
+        const chunks = await page.locator(".reader-piece__text").allTextContents();
+        assert(chunks.join("\n\n") === fixture.expected_markdown,
+          "Decrypted synthetic fixture differs (do not log paid plaintext)");
+        assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        // Design reference: capture the ACTUAL first screen at scroll=0.
+        // Full-page screenshots taken after clicking bottom controls move
+        // sticky headers into the middle and are not valid initial-state QA.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY === 0);
+        const initial = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.querySelector("#reader-title").getBoundingClientRect();
+          return {
+            barTop: bar.top,
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            overflow: document.documentElement.scrollWidth >
+              document.documentElement.clientWidth + 1,
+          };
+        });
+        assert(initial.barTop >= -1 && initial.barTop < 8 &&
+          initial.headingTop >= initial.barBottom - 2 && !initial.overflow,
+          device + ": first-screen NEwBOO reader header overlaps chapter title");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-first-screen-" + device + ".png"),
+          fullPage: false, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+        // Compare the real control with the source NEwBOO 44px touch targets.
+        // A save action must look like a button, not an underlined text link.
+        const saveStyle = await page.locator(".reader-save-button").first()
+          .evaluate((button) => {
+            const style = getComputedStyle(button);
+            return {
+              height: button.getBoundingClientRect().height,
+              decoration: style.textDecorationLine,
+              display: style.display,
+              border: style.borderTopStyle,
+              fontWeight: Number(style.fontWeight),
+              background: style.backgroundColor,
+            };
+          });
+        assert(saveStyle.height >= 44 && saveStyle.decoration === "none" &&
+          saveStyle.display === "inline-flex" && saveStyle.border === "solid" &&
+          saveStyle.fontWeight >= 700 && saveStyle.background !== "rgba(0, 0, 0, 0)",
+          device + ": save-position button lost original reader styling");
+        // These are the original PostgreSQL titles in real Rust HTML, not
+        // the chapter IDs, last-published V2, or test-only page labels.
+        assert.equal(await page.locator(".reader-topbar__book").textContent(),
+          fixture.expected_book_title);
+        const chapterLabel = "Глава " + fixture.expected_chapter_no + ". " +
+          fixture.expected_chapter_title;
+        assert.equal(await page.locator(".reader-topbar__chapter").textContent(), chapterLabel);
+        assert.equal(await page.locator("#reader-title").textContent(), chapterLabel);
+        assert.equal(await page.locator(".reader-page__meta").textContent(),
+          "Купленная редакция " + fixture.expected_version_no);
+        assert.equal(await page.locator(".reader-topbar img[src=x]").count(), 0,
+          "Untrusted book title must remain literal text");
+        assert.equal(await page.locator(".reader-topbar__title script").count(), 0,
+          "No HTML parsed from private book metadata");
+        assert.equal(await page.locator(".reader-topbar__book").getAttribute("title"),
+          fixture.expected_book_title);
+        // NEwBOO-like next/previous cards exist both above and below the
+        // actual decrypted text. Buttons are navigable only for D/B grants.
+        const topNavigation = page.locator(".reader-paid__chapter-nav--top");
+        const bottomNavigation = page.locator(".reader-paid__chapter-nav--bottom");
+        assert.equal(await topNavigation.count(), 1, device + ": top chapter navigation missing");
+        assert.equal(await bottomNavigation.count(), 1,
+          device + ": bottom chapter navigation missing");
+        for (const navigation of [topNavigation, bottomNavigation]) {
+          const next = navigation.locator("[data-paid-nav-next]");
+          const previous = navigation.locator("[data-paid-nav-prev]");
+          assert.equal(await next.getAttribute("href"),
+            "/read/paid/" + fixture.toc_second_chapter_id +
+            "?purchase_id=" + fixture.toc_second_purchase_id,
+            device + ": next must point to the pinned paid V1 purchase");
+          assert.equal(await next.getAttribute("rel"), "next");
+          assert.equal(await previous.getAttribute("aria-disabled"), "true",
+            device + ": do not invent a previous purchase");
+          assert.equal(await next.getAttribute("aria-label"), "Следующая глава",
+            device + ": accessible next label differs from NEwBOO");
+          assert.equal(await previous.getAttribute("aria-label"), "Предыдущая глава",
+            device + ": accessible previous label differs from NEwBOO");
+          assert.equal(await next.locator(".reader-paid__nav-direction").textContent(),
+            "→ Дальше", device + ": original NEwBOO action wording lost");
+          assert.equal(await previous.locator(".reader-paid__nav-direction").textContent(),
+            "← Назад", device + ": original NEwBOO action wording lost");
+          assert.equal(await previous.locator("a").count(), 0,
+            device + ": disabled previous must not link to a locked chapter");
+          assert((await next.textContent()).includes("Вторая купленная глава"),
+            device + ": next card has wrong real chapter title");
+        }
+        // The original NEwBOO footer has a real TOC between previous and
+        // next. It must duplicate only safe B/D-scoped navigation metadata.
+        const footerToc = bottomNavigation.locator("[data-paid-toc-bottom]");
+        assert.equal(await footerToc.count(), 1,
+          device + ": NEwBOO footer TOC missing");
+        await footerToc.locator("summary").click();
+        assert(await footerToc.evaluate((element) => element.open),
+          device + ": footer TOC cannot open");
+        assert.equal(await footerToc.locator("a[data-paid-toc-link]").count(), 1,
+          device + ": paid V1 missing from footer TOC");
+        assert.equal(await footerToc.locator("a[data-free-toc-link]").count(), 1,
+          device + ": public free chapter missing from footer TOC");
+        assert.equal(await footerToc.locator('[data-toc-state="locked"] a').count(), 0,
+          device + ": locked chapter clickable in footer TOC");
+        assert.equal(await footerToc.locator('[aria-current="page"]').count(), 1,
+          device + ": footer TOC lost selected edition");
+        const footerGeometry = await footerToc.locator(".reader-paid__toc-menu")
+          .evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            return {
+              left: bounds.left,
+              right: bounds.right,
+              bottom: bounds.bottom,
+              top: bounds.top,
+              summaryTop: element.closest("details").querySelector("summary")
+                .getBoundingClientRect().top,
+              viewportWidth: document.documentElement.clientWidth,
+              viewportHeight: window.innerHeight,
+            };
+          });
+        assert(footerGeometry.left >= 0 &&
+          footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
+          footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
+          device + ": footer menu clips beyond viewport");
+        assert(footerGeometry.bottom <= footerGeometry.summaryTop - 4,
+          device + ": footer menu covers the button required to close it");
+        assert(footerGeometry.top >= -1,
+          device + ": footer menu begins outside the visible viewport");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-bottom-toc-" + device + ".png"),
+          fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+        await footerToc.locator("summary").click();
+        assert(!(await footerToc.evaluate((element) => element.open)),
+          device + ": footer TOC does not close");
+        const footerStyles = await bottomNavigation.evaluate((element) => {
+          const toc = element.querySelector("[data-paid-toc-bottom]");
+          const prev = element.querySelector("[data-paid-nav-prev]");
+          const next = element.querySelector("[data-paid-nav-next]");
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            tocWidth: toc.getBoundingClientRect().width,
+            summaryHeight: toc.querySelector("summary").getBoundingClientRect().height,
+            previousHeight: prev.getBoundingClientRect().height,
+            nextHeight: next.getBoundingClientRect().height,
+            previousTitleDisplay: getComputedStyle(
+              prev.querySelector(".reader-paid__nav-name")).display,
+            nextTitleDisplay: getComputedStyle(
+              next.querySelector(".reader-paid__nav-name")).display,
+          };
+        });
+        assert(footerStyles.columns === 3 &&
+          footerStyles.tocWidth >= (device === "desktop" ? 220 : 44) &&
+          footerStyles.summaryHeight >= 44 &&
+          footerStyles.previousHeight >= 44 &&
+          footerStyles.nextHeight >= 44 &&
+          footerStyles.previousTitleDisplay === "none" &&
+          footerStyles.nextTitleDisplay === "none",
+          device + ": bottom arrows/TOC deviate from original NEwBOO layout");
+        const navStyles = await topNavigation.evaluate((element) => {
+          const next = element.querySelector("[data-paid-nav-next]");
+          const prev = element.querySelector("[data-paid-nav-prev]");
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            nextBorder: getComputedStyle(next).borderStyle,
+            disabledBorder: getComputedStyle(prev).borderStyle,
+            width: element.getBoundingClientRect().width,
+            viewport: document.documentElement.clientWidth,
+            minHeight: Number.parseFloat(getComputedStyle(next).minHeight),
+            gap: Number.parseFloat(getComputedStyle(element).columnGap),
+            nameClamp: getComputedStyle(next.querySelector(".reader-paid__nav-name"))
+              .webkitLineClamp,
+          };
+        });
+        assert(navStyles.columns === 2 && navStyles.nextBorder === "solid" &&
+          navStyles.disabledBorder === "dashed" &&
+          navStyles.width <= navStyles.viewport &&
+          navStyles.minHeight >= 44 && navStyles.minHeight <= 90 &&
+          navStyles.gap >= 8 && navStyles.gap <= 12 &&
+          navStyles.nameClamp === "2",
+          device + ": NEwBOO previous/next card design regression");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-prev-next-" + device + ".png"),
+          fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
+        // The native <details> menu is server-rendered from the buyer's D
+        // entitlements; it must link to the second verified paid edition.
+        const toc = page.locator("[data-paid-toc]");
+        assert.equal(await toc.count(), 1, device + ": purchased TOC missing");
+        await toc.locator("summary").click();
+        assert(await toc.evaluate((element) => element.open),
+          device + ": purchased TOC does not open");
+        const second = toc.locator("a[data-paid-toc-link]");
+        assert.equal(await second.count(), 1, device + ": expected one other paid edition");
+        assert.equal(await second.getAttribute("href"),
+          "/read/paid/" + fixture.toc_second_chapter_id +
+          "?purchase_id=" + fixture.toc_second_purchase_id);
+        assert((await second.textContent()).includes(fixture.toc_second_title),
+          device + ": TOC must display actual PostgreSQL chapter title");
+        assert.equal(await toc.locator("script, img[src=x]").count(), 0,
+          device + ": purchased TOC parsed user HTML");
+        assert.equal(await toc.locator('[aria-current="page"]').count(), 1,
+          device + ": current pinned edition missing from TOC");
+        const free = toc.locator('a[data-free-toc-link]');
+        assert.equal(await free.count(), 1, device + ": visible free chapter missing");
+        assert.equal(await free.getAttribute("href"),
+          "/reader/" + fixture.toc_free_chapter_id,
+          device + ": free chapter must use the B public reader");
+        assert((await free.textContent()).includes("Бесплатно"));
+        const locked = toc.locator('[data-toc-state="locked"]');
+        assert.equal(await locked.count(), 1, device + ": closed paid metadata missing");
+        assert.equal(await locked.locator("[aria-disabled]").count(), 1,
+          device + ": closed chapter must be visibly disabled");
+        assert.equal(await locked.locator("a").count(), 0,
+          device + ": inaccessible chapter has a clickable link");
+        assert((await locked.textContent()).includes("1,75 ₽"),
+          device + ": real price in kopecks was not formatted in RUB");
+        assert.equal(await toc.locator('[data-toc-state="owned"]').count(), 1,
+          device + ": paid chapters not visually distinguished");
+        assert.equal(await toc.locator('[data-toc-state="free"]').count(), 1,
+          device + ": free chapters not visually distinguished");
+        assert.equal(await toc.locator('[data-toc-state="current"]').count(), 1,
+          device + ": current V1 not visually highlighted");
+        const html = await toc.innerHTML();
+        assert(!html.includes("SECRET_DRAFT_CHAPTER") &&
+          !html.includes("SECRET_FUTURE_CHAPTER") &&
+          !html.includes("/reader/" + fixture.toc_draft_chapter_id + '"') &&
+          !html.includes("/read/paid/" + fixture.toc_draft_chapter_id + "?"),
+          device + ": draft or future private chapter leaked");
+        const visuals = await toc.evaluate((element) => {
+          const owned = element.querySelector(".reader-paid__toc-badge--owned");
+          const freeBadge = element.querySelector(".reader-paid__toc-badge--free");
+          const closed = element.querySelector(".reader-paid__toc-badge--locked");
+          const menu = element.querySelector(".reader-paid__toc-menu");
+          return {
+            ownedBg: getComputedStyle(owned).backgroundColor,
+            freeBg: getComputedStyle(freeBadge).backgroundColor,
+            closedBg: getComputedStyle(closed).backgroundColor,
+            menuWidth: menu.getBoundingClientRect().width,
+          };
+        });
+        assert(visuals.ownedBg !== visuals.freeBg &&
+          visuals.freeBg !== visuals.closedBg &&
+          visuals.menuWidth <= width - 24,
+          device + ": mixed TOC styles diverge from NEwBOO reading hierarchy");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-mixed-toc-" + device + ".png"),
+          fullPage: true,
+          mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+        const tocOverflow = await page.evaluate(() =>
+          document.documentElement.scrollWidth >
+          document.documentElement.clientWidth + 1);
+        assert(!tocOverflow, device + ": TOC opens outside the viewport");
+        // An isolated TOC screenshot reveals every badge on mobile without
+        // the masked encrypted-text layer crossing the menu. The fixture is
+        // synthetic; only server-authorized metadata enters this crop.
+        await toc.locator(".reader-paid__toc-menu").screenshot({
+          path: path.join(screenshotRoot, "s065-mixed-toc-menu-" + device + ".png"),
+        });
+        await toc.locator("summary").click();
+        assert(!(await toc.evaluate((element) => element.open)),
+          device + ": purchased TOC did not close");
+
+        const state = await page.evaluate(async () => ({
+          overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+          xss: window.__xss === true,
+          local: localStorage.length + sessionStorage.length,
+          caches: (await caches.keys()).length,
+          indexed: (await indexedDB.databases()).length,
+        }));
+        assert(!state.overflow && !state.xss && !state.local &&
+          !state.caches && !state.indexed, device + ": unsafe reader state");
+
+        for (const resource of ["/assets/site.css", "/assets/newboo.css"]) {
+          assert(loadedAssets.has(resource), device + ": missing reader stylesheet " + resource);
+        }
+        assert.equal(await page.locator(".site-header, .site-footer, .site-logo").count(), 0,
+          device + ": unrelated site navigation exposed inside paid reader");
+        assert.equal(await page.locator("main#main").count(), 1,
+          device + ": reader document has no main landmark");
+        assert.equal(await page.locator(".reader-topbar__back").getAttribute("href"),
+          "/me/purchases", device + ": buyer has no safe way out");
+
+        // Full-page screenshots taken after scrolling can visually move a
+        // sticky header across the title. Check the real initial viewport,
+        // with both header and heading in their actual on-screen positions.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY < 2);
+        const topLayout = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.getElementById("reader-title").getBoundingClientRect();
+          return {
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            viewport: document.documentElement.clientWidth,
+            barWidth: bar.width,
+          };
+        });
+        assert(topLayout.barBottom <= topLayout.headingTop + 1 &&
+          topLayout.barWidth <= topLayout.viewport + 1,
+          device + ": NEwBOO sticky toolbar overlaps reader title at page start");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-viewport-top-" + device + ".png"),
+          fullPage: false,
+          mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
+        const metrics = await page.evaluate(() => {
+          const readerWidth = document.querySelector(".reader-paid .reader-width");
+          const content = document.querySelector(".reader-paid__content");
+          const body = getComputedStyle(document.body);
+          const textStyle = getComputedStyle(document.querySelector(".reader-piece__text"));
+          const contentStyle = getComputedStyle(content);
+          const topbar = document.querySelector(".reader-paid .reader-topbar");
+          const topbarStyle = getComputedStyle(topbar);
+          const topbarRect = topbar.getBoundingClientRect();
+          const columnRect = readerWidth.getBoundingClientRect();
+          const titleRect = topbar.querySelector(".reader-topbar__title").getBoundingClientRect();
+          const actionsRect = topbar.querySelector(".reader-topbar__actions").getBoundingClientRect();
+          return {
+            toolbarLeft: topbarRect.left,
+            toolbarWidth: topbarRect.width,
+            viewportWidth: document.documentElement.clientWidth,
+            titleWithinToolbar: titleRect.left >= topbarRect.left &&
+              titleRect.right <= topbarRect.right,
+            actionsWithinToolbar: actionsRect.left >= topbarRect.left &&
+              actionsRect.right <= topbarRect.right,
+            columnWidth: columnRect.width,
+            bodyMargin: body.marginTop,
+            background: body.backgroundColor,
+            readerWidth: readerWidth.getBoundingClientRect().width,
+            maxWidth: Number.parseFloat(getComputedStyle(readerWidth).maxWidth),
+            font: textStyle.fontFamily,
+            lineHeight: Number.parseFloat(textStyle.lineHeight),
+            padding: Number.parseFloat(contentStyle.paddingLeft),
+            border: contentStyle.borderTopStyle,
+            topbarPosition: topbarStyle.position,
+            topbarTop: Number.parseFloat(topbarStyle.top),
+            stylesheets: document.styleSheets.length,
+          };
+        });
+        assert.equal(metrics.bodyMargin, "0px", device + ": site.css not applied");
+        assert.equal(await page.locator(".reader-paid .reader-topbar").evaluate((element) =>
+          getComputedStyle(element).display), "grid", device + ": original reader topbar lost");
+        assert(metrics.readerWidth <= 860 && metrics.readerWidth >= 300,
+          device + ": original NEwBOO reader width not respected");
+        assert(metrics.font.includes("Georgia") && metrics.lineHeight > 24,
+          device + ": reader typography lost");
+        assert(metrics.padding >= 12 && metrics.border === "solid",
+          device + ": paid reading surface lost its padding/border");
+        assert(metrics.topbarPosition === "sticky" && metrics.topbarTop === 0,
+          device + ": standalone NEwBOO reader topbar not sticky");
+        // The original has a full-width toolbar; body text stays in a
+        // bounded column. Mobile controls may never spill out of the toolbar.
+        assert(Math.abs(metrics.toolbarLeft) < 2 &&
+          Math.abs(metrics.toolbarWidth - metrics.viewportWidth) < 2 &&
+          metrics.toolbarWidth > metrics.columnWidth &&
+          metrics.titleWithinToolbar && metrics.actionsWithinToolbar,
+          device + ": NEwBOO reader toolbar must span the viewport without clipping");
+        assert(metrics.stylesheets >= 2, device + ": layout stylesheets missing");
+
+        // Render the real Rust HTML + exact production CSS on two viewports.
+        // Mask decrypted synthetic text so CI artifacts never contain paid content.
+        const mask = [page.locator("[data-paid-content] .reader-piece__text")];
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s034-" + device + "-light.png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
+        await page.emulateMedia({ colorScheme: "dark" });
+        const darkBackground = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(darkBackground, metrics.background,
+          device + ": real NEwBOO dark tokens not applied");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s034-" + device + "-dark.png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
+        // Controls must be real interactions, not decorative buttons. No
+        // browser storage is used for paid text, keys or preferences.
+        const panel = page.locator("#paid-reader-settings");
+        const control = page.locator("[data-paid-settings-open]");
+        assert(await panel.isHidden(), device + ": reader settings shown by default");
+        await control.click();
+        assert(await panel.isVisible(), device + ": settings button does not open panel");
+        assert.equal(await control.getAttribute("aria-expanded"), "true");
+        const dialog = panel.getByRole("dialog", { name: "Настройки чтения" });
+        assert(await dialog.isVisible(), device + ": original modal panel missing");
+        assert.equal(await dialog.getAttribute("aria-modal"), "true");
+        assert(await control.evaluate((node) => node.closest("[inert]") !== null),
+          device + ": reader remains interactive under settings modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden",
+          device + ": page scroll not locked under settings");
+        const dialogBounds = await dialog.boundingBox();
+        assert(dialogBounds && dialogBounds.width <= 362 &&
+          dialogBounds.x >= 0 &&
+          dialogBounds.x + dialogBounds.width <=
+            (device === "desktop" ? 1440 : 390) + 1,
+          device + ": settings panel overflows screen");
+        await page.getByRole("button", { name: "Сбросить настройки" }).focus();
+        await page.keyboard.press("Tab");
+        assert(await page.getByRole("button", { name: "Закрыть настройки", exact: true })
+          .evaluate((node) => node === document.activeElement),
+          device + ": Tab escapes original settings modal");
+        await page.keyboard.press("Shift+Tab");
+        assert(await page.getByRole("button", { name: "Сбросить настройки" })
+          .evaluate((node) => node === document.activeElement),
+          device + ": reverse Tab does not wrap inside modal");
+        await panel.locator(".reader-paid__settings-backdrop").click({
+          position: { x: 5, y: 5 },
+        });
+        assert(await panel.isHidden(), device + ": backdrop did not close modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "",
+          device + ": backdrop did not restore scrolling");
+        assert(await control.evaluate((node) => node.closest("[inert]") === null),
+          device + ": reader remained inert after closing settings");
+        // NEwBOO's original topbar also provides one-tap theme cycling.
+        // Test computed colors and synchronization with the Aa panel.
+        const quick = page.locator("[data-paid-theme-cycle]");
+        const quickRect = await quick.boundingBox();
+        assert(quickRect && quickRect.width >= 44 && quickRect.height >= 44,
+          device + ": quick theme touch target smaller than 44px");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "light", device + ": dark system theme should cycle to light");
+        const quickLight = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(quickLight, darkBackground, device + ": quick light has no visual effect");
+        assert.equal(await page.locator('[data-paid-theme="light"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await quick.getAttribute("aria-label"), "Сменить тему. Сейчас: светлая");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "sepia", device + ": quick sepia step missing");
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
+          .getAttribute("aria-pressed"), "true");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "dark", device + ": quick dark step missing");
+        assert.equal(await page.locator('[data-paid-theme="dark"]')
+          .getAttribute("aria-pressed"), "true");
+        await control.click();
+        assert(await panel.isVisible(), device + ": settings not reopenable after cycling");
+        const serifFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(serifFamily.includes("Georgia"),
+          device + ": original serif reading font missing");
+        await page.getByRole("button", { name: "Без засечек" }).click();
+        const sansFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(sansFamily.includes("Arial") && sansFamily !== serifFamily,
+          device + ": changing NEwBOO reader font does not change actual text");
+        assert.equal(await page.locator('[data-paid-font-family="sans"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "false");
+        const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => Number.parseFloat(getComputedStyle(element).fontSize));
+        await page.locator("[data-paid-font-scale]").evaluate((input) => {
+          input.value = "120";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        const sizeAfter = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => Number.parseFloat(getComputedStyle(element).fontSize));
+        assert(sizeAfter > sizeBefore, device + ": font size setting ignored");
+        assert.equal(await page.locator("[data-paid-font-output]").textContent(), "120%");
+        await page.locator("[data-paid-line-height]").evaluate((input) => {
+          input.value = "205";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        const spacing = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => Number.parseFloat(getComputedStyle(element).lineHeight));
+        assert(spacing > sizeAfter * 2, device + ": line spacing setting ignored");
+        await page.locator("[data-paid-reader-width]").evaluate((input) => {
+          input.value = "620";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        if (device === "desktop") {
+          const newWidth = await page.locator(".reader-paid .reader-width").evaluate(
+            (element) => element.getBoundingClientRect().width);
+          assert(newWidth <= 620 && newWidth < metrics.readerWidth,
+            "reader width setting ignored");
+        }
+        await page.locator('[data-paid-theme="sepia"]').click();
+        const sepiaBackground = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
+          .getAttribute("aria-pressed"), "true");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-settings-" + device + ".png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
+        await page.getByRole("button", { name: "Сбросить настройки" }).click();
+        const resetFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert.equal(resetFamily, serifFamily,
+          device + ": resetting reader preferences does not restore serif");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
+        assert.equal(await page.evaluate(() => document.body.hasAttribute(
+          "data-paid-reader-theme")), false, device + ": reset did not clear theme");
+        await page.getByRole("button", { name: "Закрыть настройки", exact: true }).click();
+        assert(await panel.isHidden(), device + ": settings close did not work");
+        assert.equal(await control.getAttribute("aria-expanded"), "false");
+        await control.click();
+        await page.keyboard.press("Escape");
+        assert(await panel.isHidden(), device + ": Escape must close reader controls");
+        assert(await control.evaluate((element) => element === document.activeElement),
+          device + ": Escape did not return keyboard focus");
+        const storageCount = await page.evaluate(async () =>
+          localStorage.length + sessionStorage.length + (await caches.keys()).length +
+          (await indexedDB.databases()).length);
+        assert.equal(storageCount, 0, device + ": settings wrote into persistent storage");
+
+        // These are separate clean browser contexts. The mobile session must
+        // discover the desktop's paid V1 cursor through the private progress
+        // endpoint, not through localStorage or a stale DOM snapshot.
+        if (device === "desktop") {
+          assert(await page.locator("[data-paid-resume]")
+            .getByText("Место ещё не сохранено.").isVisible(),
+            "first paid session unexpectedly had saved progress");
+        } else {
+          const resumeAnchor = page.locator('[data-paid-resume] a[href="#p-1"]');
+          assert(await resumeAnchor.isVisible(),
+            "second independent paid browser did not restore the V1 cursor");
+          await resumeAnchor.click();
+          assert.equal(new URL(page.url()).hash, "#p-1",
+            "resumed link must target the exact purchased V1 block");
+        }
+        await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
+        await page.getByText("Место сохранено.").waitFor();
+        const first = fixture.expected_markdown.split("\n\n")[0];
+        assert.deepEqual(saved, {
+          chapter_id: chapter, purchase_id: purchase, version_id: grant.version_id,
+          block_id: 1, char_offset: first.length,
+          expected_revision: device === "desktop" ? 0 : 1,
+        });
+        assert.equal(progressRevision, device === "desktop" ? 1 : 2,
+          "independent paid saves did not advance the owned cursor revision");
+        const section = page.locator("[data-paid-completion]");
+        assert(await section.isVisible(), device + ": missing completion UI");
+        if (device === "desktop") {
+          await page.getByRole("button", { name: "Глава прочитана" }).click();
+          await section.getByText("Глава отмечена прочитанной.", { exact: false })
+            .waitFor({ timeout: 10000 });
+          assert.equal(completionPosts, 1, "only explicit click completes a chapter");
+          assert.equal(await section.locator('a[href="/me/rankings"]').count(), 1);
+        } else {
+          await section.getByText("Глава уже отмечена прочитанной.").waitFor();
+          assert.equal(await page.getByRole("button", { name: "Глава прочитана" }).count(), 0);
+          assert.equal(completionPosts, 1, "reopening does not duplicate completion");
+          // 320px is smaller than our standard 390px fixture and catches
+          // crowding between TOC, Aa, theme and the clipped book title.
+          await page.setViewportSize({ width: 320, height: 720 });
+          const compact = await page.evaluate(() => {
+            const toolbar = document.querySelector(".reader-topbar").getBoundingClientRect();
+            const actions = document.querySelector(".reader-topbar__actions").getBoundingClientRect();
+            const title = document.querySelector(".reader-topbar__title").getBoundingClientRect();
+            const buttons = [...document.querySelectorAll(
+              ".reader-topbar__actions > button, .reader-topbar__actions summary",
+            )].map((element) => {
+              const rect = element.getBoundingClientRect();
+              return { width: rect.width, height: rect.height };
+            });
+            return {
+              overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+              toolbarWidth: toolbar.width,
+              actionsRight: actions.right,
+              titleRight: title.right,
+              buttons,
+            };
+          });
+          assert(!compact.overflow && compact.toolbarWidth <= 321 &&
+            compact.actionsRight <= 321 && compact.titleRight <= 321 &&
+            compact.buttons.length === 3 &&
+            compact.buttons.every((button) => button.width >= 44 && button.height >= 44),
+            "320px topbar overlaps, overflows or hides a touch target");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-quick-theme-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+          await control.click();
+          const narrowDialog = await dialog.boundingBox();
+          assert(narrowDialog && narrowDialog.x >= 0 &&
+            narrowDialog.x + narrowDialog.width <= 321 &&
+            narrowDialog.height <= 720,
+            "320px modal clips outside safe viewport");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-modal-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+          await page.keyboard.press("Escape");
+          assert(await panel.isHidden(), "320px Escape failed to close modal");
+        }
+      } finally {
+        await page.close();
+      }
+    }
+    assert.equal(grantCalls, 2, "No unexpected or repeated paid grants");
+  } finally {
+    await browser.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+
+  // One deadline wait verifies BOTH real MinIO TTLs without an added 90s
+  // interval. Never log the signed query, scoped key or response bytes.
+  const expiry = Math.max(signatureExpiry(short, 30),
+    signatureExpiry(issuedBeforeRefund, 90));
+  const remaining = expiry + 2500 - Date.now();
+  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  const expiredShort = await fetch(short);
+  assert.equal(expiredShort.status, 403, "30s signed URL must expire");
+  const expiredGrant = await fetch(issuedBeforeRefund);
+  assert.equal(expiredGrant.status, 403, "90s refunded bearer URL must expire");
+  console.log("H/S065 Chromium/MinIO: refunded bearer works only until 90s; 30s/90s expired");
+}
+
+run().catch((error) => {
+  // Only sanitized assertion messages, never URLs, tokens or keys.
+  console.error("H/S034 real Chromium/MinIO failed:", error.message);
+  server.close();
+  process.exitCode = 1;
+});

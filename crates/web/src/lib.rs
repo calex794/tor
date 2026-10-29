@@ -1,6 +1,6 @@
 //! Routing shell only: book business logic remains in tor-books.
 use axum::{
-    extract::{Path, Query, State},
+    extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -12,16 +12,15 @@ use tor_books::{
     repositories::PgCatalog,
     services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
 };
-use tor_reading::{
-    repositories::PgReader,
-    services::{PublicReadingRepository, ReadingError},
-};
+use tor_reading::{repositories::PgReader, services::ReadingError};
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
+mod author_chapter_images;
 mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
+mod book_error_pages;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
@@ -34,6 +33,23 @@ mod observability;
 mod operator_overview;
 mod operator_traces;
 mod pages;
+#[cfg(feature = "s3-paid")]
+pub mod paid_author_assets;
+#[cfg(feature = "s3-paid")]
+pub mod paid_author_publish;
+mod paid_grants_http;
+mod paid_reader_router;
+mod public_reader_http;
+#[cfg(feature = "s3-paid")]
+pub use paid_author_assets::PgPaidAuthorAssets;
+#[cfg(feature = "s3-paid")]
+pub use paid_author_publish::PgPaidAuthorPublisher;
+#[cfg(feature = "s3-paid")]
+pub use paid_reader_router::router_with_postgres_reading_auth_paid_grants_browser_author;
+pub use paid_reader_router::{
+    router_with_postgres_reading_auth_paid_grants,
+    router_with_postgres_reading_auth_paid_grants_browser,
+};
 mod password_jobs;
 pub mod ranking_consumer;
 mod ril;
@@ -182,38 +198,62 @@ async fn book_toc(
     .into_response()
 }
 
+// H-11: never disclose whether a missing book was hidden or never existed.
+async fn book_error(state: &AppState, status: StatusCode) -> Response {
+    book_error_pages::public_book_error(state, status).await
+}
+
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
 ) -> Response {
-    if let Some(reader) = state.reader {
+    // Require the canonical numeric spelling before consulting public book data.
+    if !tor_search::domain::seo_urls::BookUrl::from_id(id)
+        .is_some_and(|book_url| book_url.matches_path(uri.path()))
+    {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    }
+    if let Some(reader) = state.reader.as_ref() {
         let limit = query.limit.unwrap_or(100);
         let book = match reader
             .public_book_page(id, limit, query.after.as_deref())
             .await
         {
             Ok(Some(book)) => book,
-            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-            Err(error) => return auth_cookies::private_response(reading_status(error), &[]),
+            Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+            Err(error) => return book_error(&state, reading_status(error)).await,
         };
         let has_cover = if let Some(delivery) = state.covers.as_ref() {
             match delivery.available_card_ids(&[book.id]).await {
                 Ok(ids) => ids.contains(&book.id),
-                Err(_) => {
-                    return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
-                }
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             }
         } else {
             false
         };
+        if let Some(catalog) = state.postgres.as_ref() {
+            let id = match i64::try_from(book.id) {
+                Ok(id) => id,
+                Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
+            };
+            let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
+            let stars = match store.visible_summary(id).await {
+                Ok(Some(stars)) => stars,
+                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
+            };
+            return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
+                .into_response();
+        }
         return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
         Ok(Some(book)) => book,
-        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+        Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
     };
     pages::book_detail(&pages::PublicBookCard {
         id: book.id(),
@@ -224,20 +264,10 @@ async fn book_detail(
     })
     .into_response()
 }
-/// C-10: successful and denied reading both use no-store and strict CSP.
+/// Keep the security-reviewed public route identity stable while isolating
+/// the actual S005/C-10 reader logic in the C/H feature module.
 async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
-    let Some(reader) = state.reader else {
-        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
-    };
-    let chapter = match reader.public_chapter(id).await {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
-        return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
-    }
-    auth_cookies::private_response(pages::reader(&chapter), &[])
+    public_reader_http::reader_page(State(state), Path(id)).await
 }
 
 /// S3 delivery is not connected: deny every alternative reader API request.
@@ -384,6 +414,10 @@ fn make_router(
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
+            "/assets/newboo-paid-reader.mjs",
+            get(pages::paid_reader_script),
+        )
+        .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),
         )
@@ -463,6 +497,28 @@ mod tests {
             assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
         }
     }
+
+    #[tokio::test]
+    async fn seo_03_book_urls_have_one_public_spelling() {
+        for path in ["/books/1", "/books/1?limit=1"] {
+            assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
+        }
+        for path in ["/books/0", "/books/01", "/books/0001"] {
+            assert_eq!(get(path).await.0, StatusCode::NOT_FOUND, "{path}");
+        }
+        for path in [
+            "/books/+1",
+            "/books/%31",
+            "/books/1/",
+            "/books/18446744073709551616",
+            "/books/%D0%BA",
+        ] {
+            let (status, html) = get(path).await;
+            assert_ne!(status, StatusCode::OK, "{path}");
+            assert!(!html.contains("book-hero-card"), "{path}");
+        }
+        assert_eq!(get("/books/3").await.0, StatusCode::NOT_FOUND);
+    }
     #[tokio::test]
     async fn hidden_book_never_reaches_public_pages() {
         for path in ["/", "/catalog", "/api/v1/books"] {
@@ -475,6 +531,18 @@ mod tests {
     #[tokio::test]
     async fn demo_must_not_advertise_unimplemented_reader() {
         assert_eq!(get("/reader/1").await.0, StatusCode::NOT_FOUND);
+        let app = router(Arc::new(InMemoryCatalog::demo()));
+        let reply = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/reader/chapters/1/delivery-grants")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), StatusCode::NOT_FOUND);
     }
     #[tokio::test]
     async fn operator_summary_must_reject_site_account_cookie_without_staff_secret() {

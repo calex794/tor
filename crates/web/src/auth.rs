@@ -23,7 +23,9 @@ use tor_accounts::{
 };
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{new_book_with_taxonomy, AuthorError, TaxonomyFields},
+    services::authoring::{
+        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
+    },
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
@@ -38,68 +40,25 @@ use tor_reading::{
 
 mod account_form_http;
 mod behavior_consent;
+mod book_comments;
+mod book_description;
+mod book_stars;
 mod checkout;
+mod complete_chapter;
 mod library_actions;
 mod login_limiter;
+mod paid_completion;
 mod rankings;
 mod sync_actions;
-
-#[derive(Clone)]
-struct AuthState {
-    accounts: PgAccounts,
-    checkout: tor_commerce::repositories::checkout::PgCheckout,
-    paid_checkout_enabled: bool,
-    authoring: PgAuthoring,
-    progress: PgReadingProgress,
-    sync: PgReadingSync,
-    bookmarks: PgLibrary,
-    reader: PgReader,
-    rankings: tor_recommendations::repositories::PgRanking,
-    cookies: CookiePolicy,
-    password_jobs: PasswordJobs,
-    ril_signer: Option<RilSubjectSigner>,
-    cover_jobs: Option<PgCoverJobs>,
-    cover_upload_enabled: bool,
-}
-
-#[derive(Deserialize)]
-struct LogoutForm {
-    csrf_token: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct SavePlaceForm {
-    csrf_token: Option<String>,
-    version_id: u64,
-    block_index: i32,
-    char_offset: i32,
-}
-
-#[derive(Default, Deserialize)]
-struct LibraryQuery {
-    after: Option<i64>,
-    limit: Option<u16>,
-}
-
-#[derive(Deserialize)]
-struct NewBookForm {
-    title: String,
-    target_language: String,
-    author_name: Option<String>,
-    genres: Option<String>,
-    tags: Option<String>,
-    fandoms: Option<String>,
-    command_key: String,
-    csrf_token: Option<String>,
-}
-
+mod types;
+use types::*;
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
     secure: bool,
     origin: String,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, None)
+    router_inner(accounts, reader, secure, origin, None, false, None)
 }
 
 pub(crate) fn router_with_cover_uploads(
@@ -109,7 +68,47 @@ pub(crate) fn router_with_cover_uploads(
     origin: String,
     storage: Arc<dyn CoverObjectStore>,
 ) -> Router {
-    router_inner(accounts, reader, secure, origin, Some(storage))
+    router_inner(accounts, reader, secure, origin, Some(storage), false, None)
+}
+
+/// Enable purchased-library navigation only when an authorized reader is mounted.
+pub(crate) fn router_with_paid_reader(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
+) -> Router {
+    router_inner(
+        accounts,
+        reader,
+        secure,
+        origin,
+        cover_upload_storage,
+        true,
+        None,
+    )
+}
+
+/// Only the private, explicitly enabled paid-author router provides a writer.
+/// The existing grant-only constructor never changes author capabilities.
+pub(crate) fn router_with_paid_reader_author(
+    accounts: PgAccounts,
+    reader: PgReader,
+    secure: bool,
+    origin: String,
+    cover_upload_storage: Option<Arc<dyn CoverObjectStore>>,
+    author: Arc<dyn author_chapter_http::PaidChapterPublisher>,
+) -> Router {
+    router_inner(
+        accounts,
+        reader,
+        secure,
+        origin,
+        cover_upload_storage,
+        true,
+        Some(author),
+    )
 }
 
 fn router_inner(
@@ -118,9 +117,12 @@ fn router_inner(
     secure: bool,
     origin: String,
     storage: Option<Arc<dyn CoverObjectStore>>,
+    paid_reader_available: bool,
+    paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
     let cookies = CookiePolicy { secure, origin };
-    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone());
+    let chapter_routes =
+        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -139,6 +141,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        paid_reader_available,
         authoring,
         progress,
         sync,
@@ -164,6 +167,14 @@ fn router_inner(
         .route("/me", get(me))
         .route("/me/library", get(my_library))
         .route("/me/rankings", get(rankings::page))
+        .route(
+            "/me/books/{id}/rate",
+            get(book_stars::page).post(book_stars::submit),
+        )
+        .route(
+            "/books/{id}/comments",
+            get(book_comments::page).post(book_comments::submit),
+        )
         .route("/me/rankings/choice", post(rankings::browser_choice))
         .route("/me/rankings/resume", post(rankings::browser_resume))
         .route("/api/v1/me/rankings", get(rankings::api_state))
@@ -177,6 +188,10 @@ fn router_inner(
         .route(
             "/api/v1/me/progress/purchased",
             get(sync_actions::get_purchased).put(sync_actions::put_purchased),
+        )
+        .route(
+            "/api/v1/me/progress/purchased/complete",
+            get(paid_completion::get).post(paid_completion::post),
         )
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/library/{id}/save", post(library_actions::browser_add))
@@ -192,12 +207,17 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
+        .route(
+            "/me/books/{id}/description",
+            get(book_description::edit).post(book_description::save),
+        )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
+        .route("/read/{id}/complete", post(complete_chapter::complete))
         .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
-        .layer(DefaultBodyLimit::max(4096))
+        .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
             observation_state,
@@ -264,7 +284,12 @@ async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_library(&books, &saved, &csrf), &cookies)
+    let page = if state.paid_reader_available {
+        pages::my_library_with_purchases(&books, &saved, &csrf, true)
+    } else {
+        pages::my_library(&books, &saved, &csrf)
+    };
+    private_response(page, &cookies)
 }
 
 /// Resolve actor from the session database, never client-supplied user IDs.
@@ -335,7 +360,9 @@ async fn create_book(
             tags: form.tags.as_deref().unwrap_or(""),
             fandoms: form.fandoms.as_deref().unwrap_or(""),
         },
-    ) {
+    )
+    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
+    {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
@@ -395,8 +422,7 @@ async fn author_book(
     )
 }
 
-/// Dedicated NEwBOO-style owner cover settings. Script access is restricted
-/// to this page and to one local picker file; no inline scripts are permitted.
+/// NEwBOO owner cover settings, restricted script; no inline scripts.
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
@@ -448,8 +474,7 @@ async fn cover_settings(
     response
 }
 
-/// Interactive reading is private to a verified account. Public free reading
-/// continues to be served separately at /reader/{id}.
+/// Private verified reader; public free chapters use /reader/{id}.
 async fn private_reader(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
@@ -478,8 +503,22 @@ async fn private_reader(
         Ok(saved) => saved,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    // A completion form uses the current per-book CAS revision, not a
+    // client-invented one. A late second device will receive 409.
+    let revision = match state.sync.free_state(actor, chapter_id).await {
+        Ok(Some(progress)) => progress.receipt.revision,
+        Ok(None) => 0,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let completed = match state.sync.completion_event_id(actor, chapter_id).await {
+        Ok(event) => event.is_some(),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::private_reader(id, &chapter, &csrf, saved), &cookies)
+    private_response(
+        pages::private_reader(id, &chapter, &csrf, saved, revision, completed),
+        &cookies,
+    )
 }
 
 /// Manual place save checks session, Origin, CSRF, published version and visibility.

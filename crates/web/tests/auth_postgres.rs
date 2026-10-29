@@ -72,9 +72,18 @@ fn cookie(reply: &Response, prefix: &str) -> String {
         })
         .expect("Set-Cookie")
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "Requires TEST_DATABASE_URL on isolated PostgreSQL tor_ci"]
 async fn registration_login_logout_origin_csrf_and_private_profile() {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(180),
+        registration_login_logout_origin_csrf_and_private_profile_impl(),
+    )
+    .await
+    .expect("auth PostgreSQL integration exceeded 180 seconds; review last checkpoint");
+}
+
+async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test database URL");
     let catalog = PgCatalog::connect(&url).await.expect("role and schema");
     let pool = catalog.pool();
@@ -523,8 +532,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
         StatusCode::NOT_FOUND,
         "published chapter text cannot be edited as a draft"
     );
-    // B-06: after the first release, new chapters stay hidden until an
-    // explicit owner confirmation of the current immutable version.
+    // BKR-96: normal Save in a published book is an immediate release; the
+    // historical B-06 explicit release API remains available for old drafts.
     b06_cases::publish_second_chapter(&app, book_id, &book_path, &session, &author_cookies).await;
     assert_eq!(
         send(
@@ -934,6 +943,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     let bad_login =
         format!("email=tor_ci_account%40example.com&password=badpass&csrf_token={login_csrf}");
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
+    h_account_cases::seed_exhausted_proxy_counter(&lookup).await;
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
     let logged = send(
         &app,
@@ -947,7 +957,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile() {
     c11_cases::stale_second_session_cannot_overwrite(&app, &second_session).await;
     c11_cases::concurrent_sessions_one_progress_winner(&app, &second_session).await;
     c11_cases::reader_v2_html_flow(&app, &second_session, public_chapter_id).await;
-    c06_cases::purchased_version_http_journey(&app, &session, &second_session).await;
+    eprintln!("auth_pg checkpoint: start C06 paid journey");
+    tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        c06_cases::purchased_version_http_journey(&app, &session, &second_session),
+    )
+    .await
+    .expect("C06 paid HTTP journey exceeded 90 seconds");
 
     let logout_csrf = csrf_token(&private_html);
     let combined_cookies = format!("{session}; {new_csrf_cookie}");

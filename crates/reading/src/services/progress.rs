@@ -1,19 +1,8 @@
 //! A reading place is a private cursor, never a purchase or an access grant.
 #![forbid(unsafe_code)]
 
-/// At most 200 stable anchors per immutable chapter version. Splitting and
-/// grouping is deterministic and does not depend on viewport dimensions.
-pub fn reader_blocks(text: &str) -> Vec<String> {
-    // HTML parsers normalize CRLF and bare CR. Match the browser DOM text
-    // before computing or validating its UTF-16 character offsets.
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let paragraphs: Vec<&str> = normalized.split("\n\n").collect();
-    let group_size = paragraphs.len().div_ceil(200);
-    paragraphs
-        .chunks(group_size)
-        .map(|group| group.join("\n\n"))
-        .collect()
-}
+/// Use the exact versioned B/I parser contract, not a duplicate grammar.
+pub use tor_contracts::reader_manifest::reader_blocks;
 
 /// Reading position in UTF-16 code units, matching the browser DOM Text.offset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

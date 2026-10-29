@@ -21,15 +21,18 @@ PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
+    "own_ratings", "set_rating",
+    "purchased_s3_completion_state", "complete_purchased_s3",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
-    "set_ril_behavior_consent",
+    "purchased_s3_completion_state", "complete_purchased_s3",
+    "set_ril_behavior_consent", "readable_purchases",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
-    "release_book",
+    "release_book", "owned_book_description", "update_book_description",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -123,7 +126,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body

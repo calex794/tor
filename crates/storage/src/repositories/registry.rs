@@ -1,13 +1,18 @@
 //! G/S3-08 PostgreSQL registry for immutable ciphertext, never paid plaintext.
 //! A ready row is NOT a B published chapter or a D entitlement.
 //! The only ready transition requires a G-owned verified GET/hash receipt.
+mod assets;
+
 use crate::{
     domain::{
         object_keys::PrivateObjectKey,
         provider::{valid_ciphertext_size, valid_private_bucket},
     },
     services::{
-        crypto::{chapter_aad, sha256_bytes, unwrap_scoped_dek, ContentKek, EncryptedChapter},
+        crypto::{
+            chapter_aad, sha256_bytes, unwrap_registered_dek_from_keyring, unwrap_scoped_dek,
+            ContentKek, ContentKeyring, EncryptedChapter,
+        },
         provider::VerifiedObject,
     },
 };
@@ -59,6 +64,42 @@ impl PgStorageRegistry {
         kek: &ContentKek,
         private_bucket: &str,
     ) -> Result<ObjectRef, RegistryError> {
+        // Retain the legacy V1 path for already deployed ingestion workers.
+        if sealed.kek_id != "content-kek-v1" || unwrap_scoped_dek(sealed, kek).is_err() {
+            return Err(RegistryError::Invalid);
+        }
+        self.reserve_validated(sealed, private_bucket).await
+    }
+
+    /// New publications must be sealed under the ACTIVE server-owned KEK.
+    /// A forged V1 envelope is refused when the publisher has selected V2,
+    /// even if the retained V1 reader key can decrypt it.
+    pub async fn reserve_pending_with_keyring(
+        &self,
+        sealed: &EncryptedChapter,
+        keyring: &ContentKeyring,
+        private_bucket: &str,
+    ) -> Result<ObjectRef, RegistryError> {
+        if sealed.kek_id != keyring.active_id()
+            || unwrap_registered_dek_from_keyring(
+                &sealed.object_id,
+                &sealed.wrapped_dek,
+                &sealed.wrap_nonce,
+                sealed.kek_id,
+                keyring,
+            )
+            .is_err()
+        {
+            return Err(RegistryError::Invalid);
+        }
+        self.reserve_validated(sealed, private_bucket).await
+    }
+
+    async fn reserve_validated(
+        &self,
+        sealed: &EncryptedChapter,
+        private_bucket: &str,
+    ) -> Result<ObjectRef, RegistryError> {
         let bytes = &sealed.ciphertext;
         let object = ObjectRef::new(
             sealed.object_id.clone(),
@@ -73,8 +114,6 @@ impl PgStorageRegistry {
             || sealed.aad
                 != chapter_aad(sealed.version, &sealed.object_id, &sealed.plaintext_sha256)
             || sealed.wrapped_dek.len() != 48
-            || sealed.kek_id != "content-kek-v1"
-            || unwrap_scoped_dek(sealed, kek).is_err()
         {
             return Err(RegistryError::Invalid);
         }

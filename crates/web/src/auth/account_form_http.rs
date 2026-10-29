@@ -2,11 +2,11 @@
 use super::{login_limiter, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
-    pages,
+    observability, pages,
 };
 use axum::{
     extract::{ConnectInfo, Form, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
 };
 use serde::Deserialize;
@@ -17,6 +17,7 @@ use tor_accounts::{
     },
     services::validation as rules,
 };
+use tor_observability::services::auth::LoginOutcome;
 
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
@@ -53,7 +54,59 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
     )
 }
 
+fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
+    if !registration {
+        observability::record_login_outcome(if status == StatusCode::TOO_MANY_REQUESTS {
+            LoginOutcome::RateLimited
+        } else {
+            LoginOutcome::RateLimiterUnavailable
+        });
+    }
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        let title = if registration {
+            "Слишком много попыток регистрации"
+        } else {
+            "Слишком много попыток входа"
+        };
+        let mut response = auth_problem(
+            status,
+            title,
+            "Превышено число попыток. Повторите через 10 минут.",
+            registration,
+        );
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("600"));
+        response
+    } else {
+        let title = if registration {
+            "Регистрация временно недоступна"
+        } else {
+            "Вход временно недоступен"
+        };
+        auth_problem(
+            status,
+            title,
+            "Попробуйте снова немного позже.",
+            registration,
+        )
+    }
+}
+
+fn login_storage_error(stage: LoginOutcome) -> Response {
+    observability::record_login_outcome(stage);
+    // Static label only: do not log email, password, cookie or password hash.
+    eprintln!("TOR_AUTH_LOGIN_UNAVAILABLE stage={}", stage.label());
+    auth_problem(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Вход временно недоступен",
+        "Попробуйте войти немного позже.",
+        false,
+    )
+}
+
 fn invalid_credentials() -> Response {
+    observability::record_login_outcome(LoginOutcome::InvalidCredentials);
     auth_problem(
         StatusCode::UNAUTHORIZED,
         "Не удалось войти",
@@ -97,13 +150,10 @@ pub(super) async fn register(
             );
         }
     };
-    if let Err(status) = login_limiter::limit(&state, "register", &account.email, peer).await {
-        return auth_problem(
-            status,
-            "Регистрация временно недоступна",
-            "Попробуйте снова чуть позже.",
-            true,
-        );
+    if let Err(status) =
+        login_limiter::limit(&state, "register", &account.email, &headers, peer).await
+    {
+        return auth_limit_error(status, true);
     }
 
     // Argon2 is deliberately moved off Tokio's request executor.
@@ -169,6 +219,7 @@ pub(super) async fn login(
             .cookies
             .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
+        observability::record_login_outcome(LoginOutcome::InvalidForm);
         return auth_problem(
             StatusCode::FORBIDDEN,
             "Форма устарела",
@@ -180,27 +231,13 @@ pub(super) async fn login(
         Ok(email) => email,
         Err(_) => return invalid_credentials(),
     };
-    let identity_key = match login_limiter::limit(&state, "login", &email, peer).await {
+    let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
         Ok(key) => key,
-        Err(status) => {
-            return auth_problem(
-                status,
-                "Вход временно недоступен",
-                "Попробуйте войти немного позже.",
-                false,
-            );
-        }
+        Err(status) => return auth_limit_error(status, false),
     };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
-        Err(_) => {
-            return auth_problem(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Вход временно недоступен",
-                "Попробуйте войти немного позже.",
-                false,
-            );
-        }
+        Err(_) => return login_storage_error(LoginOutcome::LookupUnavailable),
     };
     let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
@@ -209,7 +246,7 @@ pub(super) async fn login(
         .run(move || match known_hash {
             Some(hash) => verify_password(&password, &hash),
             None => {
-                // A missing account still performs costly work to limit timing leaks.
+                // Unknown accounts still perform costly work to limit timing leaks.
                 let _ = hash_password(&password);
                 false
             }
@@ -217,14 +254,20 @@ pub(super) async fn login(
         .await
     {
         Ok(valid) => valid,
-        Err(status) => {
-            return auth_problem(
-                status,
-                "Вход временно недоступен",
-                "Попробуйте войти немного позже.",
+        Err(StatusCode::TOO_MANY_REQUESTS) => {
+            observability::record_login_outcome(LoginOutcome::PasswordPoolBusy);
+            let mut response = auth_problem(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Сервис входа перегружен",
+                "Повторите попытку через несколько секунд.",
                 false,
             );
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
+            return response;
         }
+        Err(_) => return login_storage_error(LoginOutcome::PasswordWorkerUnavailable),
     };
     if !verified {
         return invalid_credentials();
@@ -232,19 +275,13 @@ pub(super) async fn login(
     let Some(user) = stored else {
         return invalid_credentials();
     };
-
     if state
         .accounts
         .clear_auth_attempt(&identity_key)
         .await
         .is_err()
     {
-        return auth_problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Вход временно недоступен",
-            "Попробуйте войти немного позже.",
-            false,
-        );
+        return login_storage_error(LoginOutcome::AttemptResetUnavailable);
     }
     let token = generate_session_token();
     let digest = session_token_digest(&token);
@@ -255,13 +292,43 @@ pub(super) async fn login(
         .await
         .is_err()
     {
-        return auth_problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Вход временно недоступен",
-            "Попробуйте войти немного позже.",
-            false,
-        );
+        return login_storage_error(LoginOutcome::SessionUnavailable);
     }
     // No next parameter is accepted: redirects always stay on this site.
+    observability::record_login_outcome(LoginOutcome::Success);
     private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
+}
+
+#[cfg(test)]
+mod login_error_tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn too_many_login_attempts_has_clear_429_and_retry_after() {
+        let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, false);
+        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(reply.headers()[header::RETRY_AFTER], "600");
+        let body = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
+        let html = String::from_utf8(body.to_vec()).expect("UTF-8");
+        assert!(html.contains("Слишком много попыток входа"));
+        assert!(html.contains("10 минут"));
+        assert!(!html.contains("password_hash"));
+    }
+
+    #[tokio::test]
+    async fn registration_rate_limit_is_also_honest() {
+        let reply = auth_limit_error(StatusCode::TOO_MANY_REQUESTS, true);
+        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(reply.headers()[header::RETRY_AFTER], "600");
+    }
+
+    #[tokio::test]
+    async fn unavailable_storage_is_not_misreported_as_throttling() {
+        let reply = auth_limit_error(StatusCode::SERVICE_UNAVAILABLE, false);
+        assert_eq!(reply.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(reply.headers().get(header::RETRY_AFTER).is_none());
+        let html = to_bytes(reply.into_body(), 65_536).await.expect("HTML");
+        assert!(String::from_utf8_lossy(&html).contains("Вход временно недоступен"));
+    }
 }

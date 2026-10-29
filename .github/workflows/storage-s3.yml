@@ -1,28 +1,8 @@
 name: TOR private chapter S3 provider
 on:
   pull_request:
-    paths:
-      - 'crates/storage/src/repositories/**'
-      - 'crates/storage/src/domain/provider.rs'
-      - 'crates/storage/src/domain/mod.rs'
-      - 'crates/storage/src/services/provider.rs'
-      - 'crates/storage/src/services/mod.rs'
-      - 'crates/storage/src/lib.rs'
-      - 'crates/storage/Cargo.toml'
-      - 'crates/storage/tests/s3_private_provider.rs'
-      - '.github/workflows/storage-s3.yml'
   push:
     branches: [main]
-    paths:
-      - 'crates/storage/src/repositories/**'
-      - 'crates/storage/src/domain/provider.rs'
-      - 'crates/storage/src/domain/mod.rs'
-      - 'crates/storage/src/services/provider.rs'
-      - 'crates/storage/src/services/mod.rs'
-      - 'crates/storage/src/lib.rs'
-      - 'crates/storage/Cargo.toml'
-      - 'crates/storage/tests/s3_private_provider.rs'
-      - '.github/workflows/storage-s3.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,7 +10,13 @@ concurrency:
   group: tor-private-chapter-s3-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: storage_s3
   s3-provider:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"storage_s3":true}').storage_s3) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -82,6 +68,7 @@ jobs:
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
         run: |
           cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
           cargo clippy -p tor-storage --features s3 --all-targets -- -D warnings
       - name: MinIO diagnostics without signed URL on failure
         if: failure()

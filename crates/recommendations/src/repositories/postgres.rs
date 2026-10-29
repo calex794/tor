@@ -204,7 +204,7 @@ impl PgRanking {
         } else {
             None
         };
-        let (after, status) = match command {
+        let (mut after, status) = match command {
             RankingCommand::StartVerified(book_id) => {
                 let (snapshot, status) = before.start_verified_placement(book_id)?;
                 (snapshot, Some(status))
@@ -220,6 +220,9 @@ impl PgRanking {
             }
             RankingCommand::ResumeExhausted => (before.resume_exhausted_skips()?, None),
         };
+        // Returning the just-committed snapshot must match a fresh PG reload.
+        // Use the canonical tier + lexical BookReference order on both paths.
+        after.ranks = after.sorted_ranks();
         if after != before {
             after.validate()?;
             if after.revision <= before.revision {
@@ -247,7 +250,7 @@ pub(super) async fn load_snapshot(
     result.revision = revision as u64;
     let ranks = sqlx::query(
         "SELECT book_id,tier,comparisons_count FROM user_book_rank
-         WHERE user_id=$1 ORDER BY tier,book_id LIMIT 501",
+         WHERE user_id=$1 ORDER BY tier,book_id::text LIMIT 501",
     )
     .bind(user_id)
     .fetch_all(&mut **tx)

@@ -5,16 +5,138 @@ at https://pandaolate.ru. The zero-traffic site is not an excuse to keep an
 in-memory demonstration. We retain only production essentials: least-privilege
 roles, durable schema, real HTTPS, readiness, and a working rollback.
 
-## Verified current VPS state
+## A/S002 — login requests behind Nginx (28 October 2026)
 
-- PostgreSQL 18.6 running, 127.0.0.1:5432 only; 1 vCPU / 961 MiB RAM.
-- DB tor owned by tor_migrator; tor_app / tor_migrator have connection
-  limits 6 / 3 and neither is a superuser, createdb or createrole.
-- /etc/tor/tor-app.env and tor-migrator.env are 0600 root:root.
-- Last owner verification: **0 public domain tables**, still RAM demo
-  in systemd; ~562 MiB MemAvailable. The server is not yet PG-backed.
-- In GitHub TOR: nine canonical SQLx migrations, tor-migrate binary,
-  PgCatalog, PgReader, PgAccounts, and the real PostgreSQL 18 CI suite.
+On the actual VPS, Nginx connects to TOR via `127.0.0.1:3000`.
+The original address-based login limiter used the TCP peer, so all website
+visitors shared `auth:login:peer:127.0.0.1` and could collectively reach
+the limit of 60 requests in 10 minutes. **This does not prove the precise
+HTTP failure reported by the operator**, because a 503 from PostgreSQL or
+session storage previously displayed the same generic error as a 429.
+
+The application now enforces an eight-attempt account-key limit even when
+the client IP is unknown, but deliberately does not enforce a shared
+address-key limit on loopback proxy traffic. Direct non-loopback clients
+still have an address limit. To enable both account and real-IP limits
+behind Nginx **later**, first verify Nginx explicitly overwrites the
+untrusted incoming header in the actual TOR vhost:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+Only after verifying that rule (not merely forwarding a client-supplied
+`X-Real-IP`) enable `TOR_AUTH_TRUST_NGINX_REAL_IP=1` on the service.
+The application trusts that header only when the direct TCP peer is
+loopback; it ignores `X-Forwarded-For` and refuses ambiguous headers.
+The opt-in is **not required** for the immediate login fix.
+
+If an operator sees the login error again, distinguish the actual status:
+`429` now shows **«Слишком много попыток входа»** and includes
+`Retry-After: 600`. `503` still shows **«Вход временно недоступен»**;
+it writes a static, non-sensitive `TOR_AUTH_LOGIN_UNAVAILABLE stage=...`
+or `TOR_AUTH_UNAVAILABLE stage=...` to the local systemd journal.
+Never paste real passwords, cookies, raw SQL parameters or user identities
+into reports. Live authentication POSTs were not tested with real credentials
+by the release workflow, which previously checked only GET /login.
+
+## One-click release (28 October 2026) — current operator path
+
+**Normal updates now need one action:** open
+[**TOR — Обновить сайт**](https://github.com/calex794/tor/actions/workflows/tor-one-click-release.yml)
+on GitHub Actions, choose branch `main`, press **Run workflow**. No commit
+SHA, VPS terminal, `install=true`, SQL commands, or second confirmation are
+needed on subsequent updates. GitHub push and PR checks never deploy.
+
+### One-time setup on the dedicated VPS
+
+The original SSH `tor-deploy` user can transfer files but does not have the
+root-only PostgreSQL migrator password. For a future one-button deployment,
+install a **single root-owned, fixed entry point** once as root on the TOR VPS.
+The script refuses unknown release directories, unhealthy TOR, non-PostgreSQL
+runtime, missing main proof and unsafe existing sudoers. It does not restart
+the site or apply SQLx:
+
+~~~bash
+sha="$(curl -fsSL https://api.github.com/repos/calex794/tor/git/ref/heads/main |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])')"
+curl -fsSL "https://raw.githubusercontent.com/calex794/tor/$sha/ops/bootstrap-one-click-release-vps.sh" \
+  -o /root/tor-one-click-setup.sh
+bash -n /root/tor-one-click-setup.sh &&
+bash /root/tor-one-click-setup.sh "$sha"
+~~~
+
+Expected output: `TOR_ONE_CLICK_BOOTSTRAPPED`. The existing
+`tor-staging` GitHub Environment secrets (`TOR_DEPLOY_SSH_KEY`,
+`TOR_DEPLOY_KNOWN_HOSTS`) and variables (`TOR_DEPLOY_HOST`,
+`TOR_DEPLOY_USER=tor-deploy`) are reused; never paste them into chat.
+The same existing SSH key also signs the artifact manifest in GitHub;
+the one-time bootstrap pins its public key under `/etc/tor` so a modified
+or unsigned binary from the upload inbox cannot run as root. **No new
+signing secret is needed.**
+
+**Important one-time permission change:** `/opt/tor/releases` and
+`/opt/tor` become root-owned. New builds are uploaded instead to
+`/opt/tor/incoming/<SHA>` and are copied and checksum-verified into a
+root-owned release directory. The previous advanced `tor-vps-staging.yml`
+workflow is *not* compatible with this setup and is retained only as
+historical/diagnostic code: do not use its old `install=true` procedure.
+The new button is the supported regular path.
+
+### What pressing the button does
+
+1. Requires current `main` and waits for all checks that actually ran for
+   the exact SHA (`Repository rules` is always required). Failed or pending
+   checks block the release. If the branch moves during the process, it
+   stops instead of deploying a stale version.
+2. Builds `tor-web` and `tor-migrate` on GitHub's runner, not on the
+   961-MiB VPS, and transfers checksum-verified binaries through verified
+   SSH host keys to `tor-deploy`'s inbox. The two checksum files,
+SHA and signature are verified independently by the root-owned helper.
+3. The only passwordless sudo command is the root-owned
+   `/usr/local/sbin/tor-one-click-release <SHA>`. It refuses an unhealthy
+   production server, verifies the current SHA and PostgreSQL markers,
+   copies both binaries to a root-owned directory, and executes the
+   pinned root `go-live-postgres-vps.sh` procedure.
+4. `go-live-postgres-vps.sh` takes a local PostgreSQL `pg_dump -Fc`
+   backup and verifies the archive **before** applying canonical SQLx.
+   It checks migration privileges/history, restarts the new Rust binary,
+   verifies `/readyz`, catalog, registration/login CSRF and HTTPS.
+   On failure it restores the old binary/service settings and verifies
+   availability. An already-applied SQLx migration **is not undone**.
+5. GitHub reads back the *active* commit, systemd, readiness and the
+   PostgreSQL activation marker. Successful output includes
+   `TOR_ONE_CLICK_RELEASE_OK <SHA>` and `TOR_DEPLOYED_OK <SHA>`.
+
+### Limits
+
+- Backups are stored locally in `/var/backups/tor`, not automatically
+  uploaded to third-party storage. Before accepting important user data,
+  provision off-server backups and a real restore drill.
+- Database rollback is **not automatic**: replacing the executable
+  cannot undo a committed SQLx migration or preserve writes after a
+  point-in-time database restore. Migrations must remain backward-compatible
+  with the previous executable for a safe automatic application rollback.
+- The default release build does not enable `s3-covers,s3-paid`; real
+  private S3 features require separate server configuration and validation.
+  No fictional paid features are reported as activated by the release.
+- Do not run the old stage/install button after this bootstrap. For manual
+  disaster recovery use the pinned root procedures below, after verifying
+  the backup and the actual VPS state.
+
+## Последняя подтверждённая работающая версия TOR
+
+Оператор проверил на выделенном VPS 28 октября 2026 года:
+
+- /opt/tor/current → `8cba88cf471c20df669f953557ff5d0c1630f74b`.
+- Корневой маркер SQLx → `202610260007`.
+- `systemctl is-active tor-web.service` → `active`.
+- `http://127.0.0.1:3000/readyz` → `ok`.
+
+Это **последняя подтверждённая версия сервера**, не утверждение о текущем
+GitHub main. На VPS ещё не проверялась первая выкладка через новую кнопку.
+Разделы старого ручного перехода ниже — исторические инструкции 26–27
+октября, не обычный путь обновления.
 
 ## One-time switch to production
 
@@ -70,6 +192,39 @@ verify the embedded SQLx migration list rather than assuming exactly nine
 total versions or 17 total tables. The CLI reports TOR_SQLX_APPLIED_OK N/N;
 future additive migrations use the same mechanism.
 
+## Read-only stage preflight before applying the next upgrade
+
+After **all required GitHub Actions checks on the exact current main** succeed,
+run [tor VPS staged release](https://github.com/calex794/tor/actions/workflows/tor-vps-staging.yml)
+manually with `install=false` and an empty confirmation. A successful staging
+job transfers binaries but does not apply SQLx or switch the server. On the
+dedicated VPS as root, take the *same full 40-character SHA* from the successful
+stage and run the pinned read-only preflight:
+
+~~~bash
+sha='<40-character-current-main-SHA-from-successful-stage>'
+curl -fsSL "https://raw.githubusercontent.com/calex794/tor/$sha/ops/check-tor-release-vps.sh" -o /root/tor-check-release.sh
+bash -n /root/tor-check-release.sh &&
+bash /root/tor-check-release.sh "$sha"
+~~~
+
+This preflight reads the active release, current server readiness, PostgreSQL
+SQLx history, root-verified schema markers, staged migrator checksum, current
+GitHub main SHA, and candidate migration count. It **never** applies migrations,
+restarts anything, switches `/opt/tor/current`, or reads plaintext secrets.
+A healthy but outdated database produces
+`TOR_PREFLIGHT_STAGE_OK_MIGRATIONS_REQUIRED` with the number of pending versions.
+A stale candidate or missing stage produces `TOR_PREFLIGHT_REFUSED`. Exit 0
+means the staged candidate passed these *read-only* checks — not that it is
+safe to deploy: verified off-server backup, rollback compatibility, full CI,
+operator approval, S3 credentials and required feature flags remain separate.
+
+Do not launch the root go-live from an obsolete staging run. The root go-live
+performs its own GitHub main checks before and after migrating; if `main`
+changes during migration, the old executable remains active while the
+already-applied SQLx migrations persist. Stop merges during the brief actual
+release window and run the release only from a verified, stable SHA.
+
 ## Controlled release after the first switch — 27 October 2026
 
 **Current I-line safety decision:** merging into `main` runs tests but never invokes deployment or SSH. The former `workflow_run` trigger and `TOR_AUTO_DEPLOY` flag were removed from `.github/workflows/tor-vps-staging.yml`. The old auto-deploy instruction below is superseded.
@@ -77,6 +232,15 @@ future additive migrations use the same mechanism.
 To stage a candidate, run [tor VPS staged release](https://github.com/calex794/tor/actions/workflows/tor-vps-staging.yml) manually from `main` with `install=false` and an **empty** `confirm_sha`. The stage transfers only the SHA-pinned binaries; it does not switch the running service.
 
 For `install=true`, supply `confirm_sha` equal to the **full 40-character `main` SHA of this workflow run**. The validation fails before checkout/build/SSH if the value differs, is truncated, or if a stage-only run supplied a confirmation. The existing root-verified SQLx schema and PG activation markers, healthy previous service, current-main recheck, rollback verification and HTTPS checks still apply. A missing migration marker prevents activation, even with correct confirmation.
+
+The root-only go-live now also compares its pinned SHA with GitHub's exact
+`refs/heads/main` **before migrating anything** and again before changing
+the systemd service. This requires `python3` and access to
+`https://api.github.com` on the VPS; verification fails closed if they are
+missing or GitHub main has changed. If main changes *after* SQLx ran, the
+old binary stays active but the added migrations persist: do not mistake
+a refused switch for a database rollback. A fresh staging run is required
+for the new main SHA.
 
 The operator's version-pinned `go-live-postgres-vps.sh` remains the only procedure for applying new migrations. To advance an existing PostgreSQL schema, first perform backup and root-only migration/proof, then manually dispatch installation against the exact approved `main` SHA. Do not use `TOR_AUTO_DEPLOY=true`; it is ignored by the current workflow.
 

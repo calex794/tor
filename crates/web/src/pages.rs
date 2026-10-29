@@ -11,7 +11,12 @@ pub use account::{
 };
 mod reader_private;
 pub use reader_private::private_reader;
+mod paywall;
+pub use paywall::paid_chapter_paywall;
+mod reader_paid;
+pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
+mod seo_head;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
     PublicBookCard,
@@ -33,17 +38,27 @@ pub fn escape_html(value: &str) -> String {
 }
 
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
+    layout_with_seo(title, description, content, seo_head::default_head())
+}
+
+fn layout_with_seo(
+    title: &str,
+    description: &str,
+    content: &str,
+    seo_markup: &str,
+) -> Html<String> {
     Html(
         include_str!("../templates/layout.html")
             .replace("<!--PAGE_TITLE-->", &escape_html(title))
             .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+            .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
             .replace("<!--PAGE_CONTENT-->", content),
     )
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None, None, false)
+    book_detail_body(book, None, None, false, None)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
@@ -56,8 +71,8 @@ pub fn book_detail_with_chapters_cover(
         id: book.id,
         title: book.title.clone(),
         language: book.language.clone(),
-        author_name: None,
-        genres: Vec::new(),
+        author_name: (!book.author_name.trim().is_empty()).then(|| book.author_name.clone()),
+        genres: book.genres.clone(),
     };
     let mut items = String::new();
     if book.chapters.is_empty() {
@@ -69,8 +84,8 @@ pub fn book_detail_with_chapters_cover(
             if chapter.is_paid {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><span>Глава {}. {title}</span><span class=\"chapter-toc__badge\">Платная · пока недоступна</span></li>",
-                    chapter.number
+                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge\">Платная · нужен доступ</span></li>",
+                    chapter.id, chapter.number
                 )
                 .expect("writing String");
             } else {
@@ -96,13 +111,60 @@ pub fn book_detail_with_chapters_cover(
         "<section class=\"book-section-card chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><p class=\"book-section-card__kicker\">Оглавление</p><h2 class=\"book-section-card__title\" id=\"toc-title\">Главы книги</h2>{items}</section>"
     );
     // The CTA is only a chapter already verified as public and free by PgReader.
-    // We never produce a paid chapter link or invent rights from bookmarks.
+    // A paid TOC link only opens a public metadata paywall, never a grant.
     let first_free = book
         .chapters
         .iter()
         .find(|chapter| !chapter.is_paid)
         .map(|chapter| chapter.id);
-    book_detail_body(&card, Some(&section), first_free, has_cover)
+    book_detail_body(
+        &card,
+        Some(&section),
+        first_free,
+        has_cover,
+        Some(&book.description),
+    )
+}
+
+/// F-05: two independent public indicators, copied from NEwBOO's
+/// translation/work split. No personal pairwise rank appears in this card.
+pub fn book_detail_with_chapters_cover_stars(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+    has_cover: bool,
+    stars: &tor_recommendations::repositories::BookStars,
+) -> Html<String> {
+    let html = book_detail_with_chapters_cover(book, limit, has_cover);
+    Html(
+        html.0
+            .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
+    )
+}
+
+fn book_star_strip(book_id: u64, stars: &tor_recommendations::repositories::BookStars) -> String {
+    use tor_recommendations::repositories::StarTotal;
+    fn value(score: StarTotal, kind: &str, label: &str) -> String {
+        let (number, details) = if let Some(average) = score.display_average() {
+            (average, format!("Голосов: {}", score.votes))
+        } else {
+            ("—".to_owned(), "Пока нет оценок".to_owned())
+        };
+        format!(
+            "<div class=\"book-rating-summary__item book-rating-summary__item--{kind}\">
+             <span class=\"book-rating-summary__glyph\" aria-hidden=\"true\">☆</span>
+             <span class=\"book-rating-summary__name\">{label}</span>
+             <strong class=\"book-rating-summary__value\" aria-label=\"{label}: {number} из 5\">{number}</strong>
+             <span class=\"book-rating-summary__votes\">{details}</span></div>"
+        )
+    }
+    format!(
+        "<section class=\"book-rating-summary\" aria-label=\"Оценки книги\">
+         {work}{translation}
+         <a class=\"book-rating-summary__action\" href=\"/me/books/{book_id}/rate\">
+          Оценить произведение и перевод</a></section>",
+        work = value(stars.work, "work", "Произведение"),
+        translation = value(stars.translation, "translation", "Перевод"),
+    )
 }
 
 fn book_detail_body(
@@ -110,13 +172,34 @@ fn book_detail_body(
     toc: Option<&str>,
     first_free: Option<u64>,
     has_cover: bool,
+    published_description: Option<&str>,
 ) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
-    let description = if toc.is_some() {
-        "Откройте оглавление, чтобы читать доступные главы бесплатно. Платные главы не открываются без проверки прав."
-    } else {
-        "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
+    let (description_html, meta_description) = match published_description {
+        Some(raw) if !raw.trim().is_empty() => {
+            let clean = raw.trim();
+            let short = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+            (
+                escape_html(clean).replace('\n', "<br>"),
+                short.chars().take(180).collect::<String>(),
+            )
+        }
+        Some(_) => (
+            "Аннотация пока не добавлена.".to_owned(),
+            format!("«{}» — опубликованная книга на Пандаолейт.", book.title),
+        ),
+        None => {
+            let text = if toc.is_some() {
+                "Откройте оглавление, чтобы читать доступные главы бесплатно. Платные главы не открываются без проверки прав."
+            } else {
+                "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
+            };
+            (
+                text.to_owned(),
+                "Карточка книги в каталоге Пандаолейт.".to_owned(),
+            )
+        }
     };
     let action = if let Some(id) = first_free {
         format!("<a class=\"ui-button ui-button--primary\" href=\"/reader/{id}\">Читать доступную главу</a>")
@@ -166,20 +249,33 @@ fn book_detail_body(
         r#"<div class="book-cover-xl" aria-label="Обложка пока не загружена"><span>Нет обложки</span></div>"#
             .to_owned()
     };
+    let discussion = if toc.is_some() {
+        format!(
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a></section>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let content = include_str!("../templates/book_detail.html")
         .replace("<!--BOOK_COVER-->", &cover)
         .replace("<!--BOOK_TITLE-->", &title)
         .replace("<!--BOOK_LANGUAGE-->", &language)
-        .replace("<!--BOOK_DESCRIPTION-->", description)
+        .replace("<!--BOOK_DESCRIPTION-->", &description_html)
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
-        .replace("<!--CHAPTERS-->", toc.unwrap_or(""));
-    layout(
+        .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
+        .replace("<!--BOOK_DISCUSSION-->", &discussion);
+    // The current release has no authorized SEO-owner/approval projection wired
+    // to H. Keep real book pages noindex; the F policy controls future activation.
+    let seo = seo_head::disabled_book_head(
+        book.id,
+        first_free.is_some(),
         &book.title,
-        "Карточка книги в каталоге Пандаолейт.",
-        &content,
-    )
+        &meta_description,
+    );
+    layout_with_seo(&book.title, &meta_description, &content, &seo)
 }
 
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
@@ -232,6 +328,15 @@ pub fn my_library(
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
 ) -> Html<String> {
+    my_library_with_purchases(items, saved, csrf, false)
+}
+
+pub fn my_library_with_purchases(
+    items: &[tor_reading::services::progress::ContinueReading],
+    saved: &tor_reading::services::library::SavedBookPage,
+    csrf: &str,
+    purchased_available: bool,
+) -> Html<String> {
     let mut cards = String::new();
     if items.is_empty() {
         cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Откройте любую бесплатную главу, затем нажмите «Сохранить место здесь». После этого книга появится в вашей истории чтения.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
@@ -274,8 +379,13 @@ pub fn my_library(
         )
         .expect("writing library cursor");
     }
+    let purchased_link = if purchased_available {
+        "<p><a class=\"button button--small\" href=\"/me/purchases\">Мои купленные главы</a></p>"
+    } else {
+        ""
+    };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p></div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p>{purchased_link}</div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
     );
     layout(
         "Моя библиотека",
@@ -300,7 +410,11 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
     static CSS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         let mut css = String::from(include_str!("../assets/newboo-port.css"));
         css.push('\n');
+        css.push_str(include_str!("../assets/newboo-home-carousel.css"));
+        css.push('\n');
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
@@ -313,6 +427,20 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         CSS.as_str(),
+    )
+}
+
+/// Public static runtime only; no signed URL or scoped key is embedded here.
+pub async fn paid_reader_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-paid-reader.mjs"),
     )
 }
 

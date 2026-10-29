@@ -8,11 +8,19 @@ use aes_gcm::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
+#[cfg(any(feature = "pg", test))]
+use std::sync::Arc;
 use std::{fmt, io::Write};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
+mod asset;
+#[cfg(any(feature = "pg", test))]
+pub use asset::seal_asset_with_keyring;
+pub use asset::{asset_aad, seal_asset, EncryptedAsset};
+
 use zeroize::Zeroizing;
 
 const KEK_ID: &str = "content-kek-v1";
+const KEK_ID_V2: &str = "content-kek-v2";
 const MAX_CHAPTER_UTF8_BYTES: usize = 200_000;
 const MAX_CHAPTER_CHARS: usize = 50_000;
 
@@ -36,9 +44,11 @@ impl ContentKek {
     /// Strict unpadded base64url, exactly 32 bytes, from a separate secret.
     /// Never derive this from cookie, JWT, database password or HMAC keys.
     pub fn from_environment() -> Result<Self, CryptoError> {
-        let encoded = Zeroizing::new(
-            std::env::var("TOR_CONTENT_KEK_V1").map_err(|_| CryptoError::UnavailableKey)?,
-        );
+        Self::from_named_environment("TOR_CONTENT_KEK_V1")
+    }
+
+    fn from_named_environment(name: &str) -> Result<Self, CryptoError> {
+        let encoded = Zeroizing::new(std::env::var(name).map_err(|_| CryptoError::UnavailableKey)?);
         let decoded = Zeroizing::new(
             URL_SAFE_NO_PAD
                 .decode(encoded.as_bytes())
@@ -56,6 +66,92 @@ impl ContentKek {
 impl fmt::Debug for ContentKek {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ContentKek([REDACTED])")
+    }
+}
+
+/// Read-only, versioned content keys, independent of cookies/JWT and the DB.
+/// V1 remains mandatory until no historical edition references it.
+#[cfg(any(feature = "pg", test))]
+pub struct ContentKeyring {
+    v1: Arc<ContentKek>,
+    v2: Option<Arc<ContentKek>>,
+    active_kek_id: &'static str,
+}
+
+#[cfg(any(feature = "pg", test))]
+impl ContentKeyring {
+    /// Preserve all existing v1 callers without activating key rotation.
+    pub fn v1_only(v1: Arc<ContentKek>) -> Self {
+        Self {
+            v1,
+            v2: None,
+            active_kek_id: KEK_ID,
+        }
+    }
+
+    pub fn with_v2(v1: Arc<ContentKek>, v2: Arc<ContentKek>) -> Result<Self, CryptoError> {
+        if v1.0[..] == v2.0[..] {
+            return Err(CryptoError::InvalidMaterial);
+        }
+        Ok(Self {
+            v1,
+            v2: Some(v2),
+            active_kek_id: KEK_ID,
+        })
+    }
+
+    /// Missing V2 means the old safe V1-only reader. A present but invalid V2
+    /// must fail startup rather than silently serving an inconsistent keyring.
+    pub fn from_environment() -> Result<Self, CryptoError> {
+        Self::from_v1_and_optional_v2_environment(Arc::new(ContentKek::from_environment()?))
+    }
+
+    /// G can retain its already loaded V1 without copying key bytes.
+    /// Optional V2 comes from the same operator-owned secret environment.
+    pub fn from_v1_and_optional_v2_environment(v1: Arc<ContentKek>) -> Result<Self, CryptoError> {
+        let ring = match std::env::var("TOR_CONTENT_KEK_V2") {
+            Ok(_) => Self::with_v2(
+                v1,
+                Arc::new(ContentKek::from_named_environment("TOR_CONTENT_KEK_V2")?),
+            )?,
+            Err(std::env::VarError::NotPresent) => Self::v1_only(v1),
+            Err(_) => return Err(CryptoError::UnavailableKey),
+        };
+        match std::env::var("TOR_CONTENT_ACTIVE_KEK_ID") {
+            Ok(id) => ring.with_active_id(&id),
+            Err(std::env::VarError::NotPresent) => Ok(ring),
+            Err(_) => Err(CryptoError::UnavailableKey),
+        }
+    }
+
+    /// Only trusted server configuration can select the KEK used for new
+    /// immutable objects. V1 is the default even when V2 is available to read.
+    /// Unknown IDs, a missing V2 key and blank configuration all fail closed.
+    pub fn with_active_id(mut self, id: &str) -> Result<Self, CryptoError> {
+        let selected = match id {
+            KEK_ID => KEK_ID,
+            KEK_ID_V2 => KEK_ID_V2,
+            _ => return Err(CryptoError::UnavailableKey),
+        };
+        self.for_id(selected)?;
+        self.active_kek_id = selected;
+        Ok(self)
+    }
+
+    pub fn active_id(&self) -> &'static str {
+        self.active_kek_id
+    }
+
+    fn active_key(&self) -> Result<&ContentKek, CryptoError> {
+        self.for_id(self.active_kek_id)
+    }
+
+    fn for_id(&self, id: &str) -> Result<&ContentKek, CryptoError> {
+        match id {
+            KEK_ID => Ok(&self.v1),
+            KEK_ID_V2 => self.v2.as_deref().ok_or(CryptoError::UnavailableKey),
+            _ => Err(CryptoError::UnavailableKey),
+        }
     }
 }
 
@@ -117,6 +213,25 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], CryptoError> {
     Ok(bytes)
 }
 
+/// A fresh, unguessable UUID v4 for an immutable private chapter
+/// object. Never accept a bucket path or object ID from a browser form.
+#[cfg(feature = "pg")]
+pub fn fresh_private_object_id() -> Result<ObjectId, CryptoError> {
+    let mut bytes = random_bytes::<16>()?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let raw = hex::encode(bytes);
+    ObjectId::parse(&format!(
+        "{}-{}-{}-{}-{}",
+        &raw[..8],
+        &raw[8..12],
+        &raw[12..16],
+        &raw[16..20],
+        &raw[20..]
+    ))
+    .map_err(|_| CryptoError::InvalidMaterial)
+}
+
 fn encrypt_raw(
     key: &[u8; 32],
     nonce: &[u8; 12],
@@ -171,6 +286,29 @@ pub fn seal_chapter(
     markdown: &str,
     kek: &ContentKek,
 ) -> Result<EncryptedChapter, CryptoError> {
+    seal_chapter_with_selected_key(version, object_id, markdown, kek, KEK_ID)
+}
+
+/// New paid publications select a key only through a trusted versioned
+/// keyring. The active ID is server-owned and never comes from an author body.
+#[cfg(any(feature = "pg", test))]
+pub fn seal_chapter_with_keyring(
+    version: ChapterVersionRef,
+    object_id: ObjectId,
+    markdown: &str,
+    keyring: &ContentKeyring,
+) -> Result<EncryptedChapter, CryptoError> {
+    let key = keyring.active_key()?;
+    seal_chapter_with_selected_key(version, object_id, markdown, key, keyring.active_id())
+}
+
+fn seal_chapter_with_selected_key(
+    version: ChapterVersionRef,
+    object_id: ObjectId,
+    markdown: &str,
+    kek: &ContentKek,
+    selected_kek_id: &'static str,
+) -> Result<EncryptedChapter, CryptoError> {
     let normalized = Zeroizing::new(markdown.replace("\r\n", "\n").replace('\r', "\n"));
     if normalized.is_empty()
         || normalized.len() > MAX_CHAPTER_UTF8_BYTES
@@ -197,13 +335,72 @@ pub fn seal_chapter(
         plaintext_sha256,
         wrap_nonce,
         wrapped_dek,
-        kek_id: KEK_ID,
+        kek_id: selected_kek_id,
     };
-    // Verify newly wrapped DEK before the object can be registered or uploaded.
-    if unwrap_scoped_dek(&sealed, kek)?[..] != dek[..] {
+    // Authenticate the wrapper with the exact selected key. This validation
+    // deliberately does not assume the legacy V1-only public seal interface.
+    let checked = unwrap_bytes(
+        &sealed.object_id,
+        &sealed.wrapped_dek,
+        &sealed.wrap_nonce,
+        kek,
+    )?;
+    if checked[..] != dek[..] {
         return Err(CryptoError::AuthenticationFailed);
     }
     Ok(sealed)
+}
+
+/// Only encrypted DEK wrapping metadata can change during a KEK rotation.
+/// The chapter ciphertext, content nonce, digest, AAD, object ID and purchase
+/// are deliberately not inputs or outputs of this operation.
+pub struct RewrappedDekV2 {
+    pub wrapped_dek: Vec<u8>,
+    pub wrap_nonce: [u8; 12],
+    pub kek_id: &'static str,
+}
+
+impl fmt::Debug for RewrappedDekV2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RewrappedDekV2")
+            .field("wrapped_dek", &"[REDACTED]")
+            .field("wrap_nonce", &"[REDACTED]")
+            .field("kek_id", &self.kek_id)
+            .finish()
+    }
+}
+
+/// S3-34 phase 1: authenticate the v1 wrapper, then protect the exact same
+/// scoped DEK with a fresh nonce and an independently supplied v2 KEK.
+/// No S3 bytes are read, decrypted or rewritten. The caller must perform
+/// an authorized PostgreSQL compare-and-swap after a verified backup.
+/// Until that controlled migration exists this function changes NO data.
+pub fn rewrap_registered_v1_to_v2(
+    object_id: &ObjectId,
+    v1_wrapped_dek: &[u8],
+    v1_wrap_nonce: &[u8; 12],
+    v1_kek: &ContentKek,
+    v2_kek: &ContentKek,
+) -> Result<RewrappedDekV2, CryptoError> {
+    // Reuse of the same 32-byte secret under a new name is not a rotation.
+    if v1_kek.0[..] == v2_kek.0[..] {
+        return Err(CryptoError::InvalidMaterial);
+    }
+    let dek = unwrap_registered_dek(object_id, v1_wrapped_dek, v1_wrap_nonce, KEK_ID, v1_kek)?;
+    let wrap_nonce = random_bytes::<12>()?;
+    let aad = wrap_aad(object_id);
+    let wrapped_dek = encrypt_raw(&v2_kek.0, &wrap_nonce, &aad, &dek[..])?;
+    // Verify both the authentication tag and the exact DEK before returning
+    // any material that could be committed by a future migration.
+    let confirmed = Zeroizing::new(decrypt_raw(&v2_kek.0, &wrap_nonce, &aad, &wrapped_dek)?);
+    if confirmed.as_slice() != &dek[..] || wrapped_dek.len() != 48 {
+        return Err(CryptoError::AuthenticationFailed);
+    }
+    Ok(RewrappedDekV2 {
+        wrapped_dek,
+        wrap_nonce,
+        kek_id: KEK_ID_V2,
+    })
 }
 
 /// Verify downloaded bytes against the immutable PG/HEAD receipt before any
@@ -216,6 +413,7 @@ pub fn verify_ciphertext(encrypted: &EncryptedChapter, bytes: &[u8]) -> bool {
 
 /// G-internal only. Caller must have a freshly verified D entitlement and
 /// exact B version/object membership before this key can be used in a grant.
+#[cfg(any(feature = "pg", test))]
 pub(crate) fn unwrap_scoped_dek(
     encrypted: &EncryptedChapter,
     kek: &ContentKek,
@@ -239,7 +437,19 @@ pub(crate) fn unwrap_registered_dek(
     kek_id: &str,
     kek: &ContentKek,
 ) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
-    if kek_id != KEK_ID || wrapped_dek.len() != 48 {
+    if kek_id != KEK_ID {
+        return Err(CryptoError::UnavailableKey);
+    }
+    unwrap_bytes(object_id, wrapped_dek, wrap_nonce, kek)
+}
+
+fn unwrap_bytes(
+    object_id: &ObjectId,
+    wrapped_dek: &[u8],
+    wrap_nonce: &[u8; 12],
+    kek: &ContentKek,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    if wrapped_dek.len() != 48 {
         return Err(CryptoError::UnavailableKey);
     }
     let aad = wrap_aad(object_id);
@@ -250,6 +460,20 @@ pub(crate) fn unwrap_registered_dek(
     let mut dek = Zeroizing::new([0_u8; 32]);
     dek[..].copy_from_slice(&bytes);
     Ok(dek)
+}
+
+/// Select only an independently configured KEK for the trusted registry
+/// version. Never guess a key or silently fall back to V1 for a V2 row.
+#[cfg(any(feature = "pg", test))]
+pub(crate) fn unwrap_registered_dek_from_keyring(
+    object_id: &ObjectId,
+    wrapped_dek: &[u8],
+    wrap_nonce: &[u8; 12],
+    kek_id: &str,
+    keyring: &ContentKeyring,
+) -> Result<Zeroizing<[u8; 32]>, CryptoError> {
+    let key = keyring.for_id(kek_id)?;
+    unwrap_bytes(object_id, wrapped_dek, wrap_nonce, key)
 }
 
 #[cfg(test)]

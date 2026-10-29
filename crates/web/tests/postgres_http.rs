@@ -88,7 +88,8 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     assert_eq!(status, StatusCode::OK);
     assert!(book.contains("Глава 1. Начало истории"));
     assert!(book.contains("href=\"/reader/101\""));
-    assert!(book.contains("Платная · пока недоступна"));
+    assert!(book.contains("href=\"/reader/103\""));
+    assert!(book.contains("Платная · нужен доступ"));
     assert!(!book.contains("PRIVATE-PAID-MARKER"));
     assert!(!book.contains("Секретный черновик"));
     assert!(!book.contains("Запланированная глава"));
@@ -99,7 +100,13 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     assert!(!html.contains("<script>"));
     assert!(html.contains("href=\"/reader/108\""));
     assert!(!html.contains("PRIVATE-PAID-MARKER"));
-    for denied in [102, 103, 104, 105, 106, 107] {
+    let (status, locked) = get(app.clone(), "/reader/103").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(locked.contains("Платная глава"));
+    assert!(locked.contains("href=\"/login\""));
+    assert!(locked.contains("href=\"/books/1#chapters\""));
+    assert!(!locked.contains("PRIVATE-PAID-MARKER"));
+    for denied in [102, 104, 105, 106, 107] {
         assert_eq!(
             get(app.clone(), &format!("/reader/{denied}")).await.0,
             StatusCode::NOT_FOUND
@@ -135,7 +142,7 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         let code = reply.status();
         assert_eq!(
             code,
-            if path == "/reader/101" {
+            if path == "/reader/101" || path == "/reader/103" {
                 StatusCode::OK
             } else {
                 StatusCode::NOT_FOUND
@@ -145,16 +152,36 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         assert_eq!(reply.headers()["cache-control"], "no-store", "{path}");
         assert_eq!(reply.headers()["x-content-type-options"], "nosniff");
         let policy = reply.headers()["content-security-policy"].to_str().unwrap();
+        if path == "/reader/103" {
+            assert_eq!(reply.headers()["x-robots-tag"], "noindex, nofollow");
+        }
         assert!(policy.contains("script-src 'none'"));
         assert!(policy.contains("frame-ancestors 'none'"));
         let body = to_bytes(reply.into_body(), 256 * 1024).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(!text.contains("PRIVATE-PAID-MARKER"));
         assert!(!text.contains("PRIVATE-DRAFT-MARKER"));
-        if code == StatusCode::NOT_FOUND {
+        if path == "/reader/103" {
+            assert!(text.contains("Платная глава"));
+            assert!(text.contains("href=\"/login\""));
+        }
+        if code == StatusCode::NOT_FOUND && path == "/books/2" {
+            // Browser-only book 404 uses the NEwBOO recovery page, never a private body.
+            assert!(text.contains("Страница не найдена"));
+            assert!(text.contains("noindex, nofollow"));
+            assert!(text.contains("href=\"/catalog\""));
+        } else if code == StatusCode::NOT_FOUND {
+            // Reader and API errors must still have empty bodies.
             assert!(text.is_empty(), "protected read error must not expose data");
-        } else {
+        } else if path == "/reader/101" {
+            // Only the published free chapter renders its escaped body.
             assert!(text.contains("&lt;script&gt;"));
+            assert!(!text.contains("<script>"));
+        } else {
+            // Paid metadata cannot borrow or expose the free or paid body.
+            assert_eq!(path, "/reader/103");
+            assert!(text.contains("Для чтения нужен доступ"));
+            assert!(!text.contains("&lt;script&gt;"));
             assert!(!text.contains("<script>"));
         }
     }
@@ -452,4 +479,141 @@ async fn f_03_nfkc_search_normalization_works_through_public_http() {
     let (code, legacy) = get(app, "/api/v1/books").await;
     assert_eq!(code, StatusCode::OK);
     assert!(legacy.starts_with('['));
+}
+
+#[tokio::test]
+#[ignore = "requires disposable isolated PostgreSQL tor_ci; never run on production"]
+async fn seo_11_anonymous_page_access_tracks_publish_hold_unhold_and_revoke() {
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn sql(url: &str, query: &str) -> String {
+        assert!(url.ends_with("/tor_ci"), "production database forbidden");
+        let out = Command::new("psql")
+            .args([
+                "-X",
+                "-A",
+                "-t",
+                "-q",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "--dbname",
+                url,
+                "--command",
+                query,
+            ])
+            .output()
+            .expect("psql for isolated fixture");
+        assert!(
+            out.status.success(),
+            "fixture query failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap().trim().to_owned()
+    }
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG test URL");
+    assert!(url.ends_with("/tor_ci"));
+    let catalog = PgCatalog::connect(&url).await.expect("tor_app pool");
+    let reader = tor_reading::repositories::PgReader::connect(&url)
+        .await
+        .expect("tor_app reader");
+    let app = tor_web::router_with_postgres_reading(catalog, reader);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book: i64 = sql(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:seo:availability:{nonce}','ru','SEO доступность {nonce}','public') RETURNING id"
+        ),
+    ).parse().expect("book id");
+    let chapter: i64 = sql(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'Открытая глава','public','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .expect("chapter id");
+    let version: i64 = sql(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'SEO-AVAILABILITY-PUBLIC-{nonce}') RETURNING id"
+        ),
+    )
+    .parse()
+    .expect("chapter version id");
+    sql(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
+    let detail = format!("/books/{book}");
+    let read = format!("/reader/{chapter}");
+
+    let (status, html) = get(app.clone(), &detail).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "published book must be publicly reachable"
+    );
+    assert!(html.contains("SEO доступность"));
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "free published chapter must be reachable"
+    );
+    assert!(html.contains("SEO-AVAILABILITY-PUBLIC-"));
+
+    // A moderation hold must change HTTP immediately, not wait for a
+    // sitemap rebuild or any SEO projection to be refreshed.
+    sql(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
+    let (status, html) = get(app.clone(), &detail).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("noindex, nofollow"));
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+
+    // Restoring a book makes its canonical public URLs reachable again.
+    sql(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
+    assert_eq!(get(app.clone(), &detail).await.0, StatusCode::OK);
+    assert_eq!(get(app.clone(), &read).await.0, StatusCode::OK);
+
+    // Book revocation and chapter revocation are independent authorities.
+    sql(
+        &url,
+        &format!("UPDATE chapters SET visibility='draft' WHERE id={chapter}"),
+    );
+    assert_eq!(get(app.clone(), &detail).await.0, StatusCode::OK);
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+
+    sql(
+        &url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={book}"),
+    );
+    let (status, html) = get(app.clone(), &detail).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(html.contains("noindex, nofollow"));
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+    let (status, html) = get(app.clone(), &read).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!html.contains("SEO-AVAILABILITY-PUBLIC-"));
+    // User-specific purchased-version read paths are not changed by SEO.
 }

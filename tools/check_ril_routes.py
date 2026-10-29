@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLASSIFIERS = (
     Path("crates/route_intelligence/src/domain/mod.rs"),
     Path("crates/route_intelligence/src/domain/routes.rs"),
+    Path("crates/route_intelligence/src/domain/routes/classifier.rs"),
 )
 _METHODS = r"get|post|put|patch|delete|head|options|trace"
 
@@ -75,7 +76,7 @@ def _reference(source: str) -> tuple[set[tuple[str, str]], set[tuple[str, str]],
         re.S,
     )
     matches = re.findall(
-        r'\(\s*Some\(\s*"([^"]+)"\s*\)\s*,\s*"([A-Z]+)"\s*\)\s*=>\s*Some\(\d+\)',
+        r'\(\s*Some\(\s*"([^"]+)"\s*\)\s*,\s*"([A-Z]+)"\s*,?\s*\)\s*=>\s*Some\(\d+\)',
         source,
         re.S,
     )

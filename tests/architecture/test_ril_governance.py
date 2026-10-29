@@ -82,6 +82,24 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing actor-bound owner repository call")
 
+    def test_seo_description_owner_guard_removal_fails(self):
+        self.mutate(
+            "crates/web/src/auth/book_description.rs",
+            "update_book_description(actor, book_id, &form.description)",
+            "update_book_description(book_id, &form.description)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing actor-bound owner repository call")
+
+    def test_seo_description_csrf_bypass_fails(self):
+        self.mutate(
+            "crates/web/src/auth/book_description.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.same_origin_skip(&headers)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_scope_bound_repository_guard_removal_fails(self):
         self.mutate(
             "crates/web/src/auth/sync_actions.rs",
@@ -97,6 +115,22 @@ class RilGovernanceTests(unittest.TestCase):
             "saved_state(actor, chapter_id, version_id)",
             "saved_state(chapter_id, version_id)",
             start="async fn private_reader(",
+        )
+        # Both reading-state calls must be actor-scoped; weakening just one
+        # must never be interpreted as a successful policy test.
+        self.mutate(
+            "crates/web/src/auth.rs",
+            "free_state(actor, chapter_id)",
+            "free_state(chapter_id)",
+            start="async fn private_reader(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_complete_chapter_never_loses_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/complete_chapter.rs",
+            ".save_free(actor, chapter_id, version_id, place, form.expected_revision)",
+            ".save_free_unscoped(chapter_id, version_id, place, form.expected_revision)",
         )
         self.assert_detected("missing actor-bound scoped repository call")
 

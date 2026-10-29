@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tor_books::{
     repositories::paid_storage::{PaidPublication, PgPaidStorage},
-    services::authoring::AuthorError,
+    services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
 use tor_contracts::paid_delivery::{ChapterVersionPort, ChapterVersionRef, ObjectId, PositiveId};
 
@@ -27,6 +27,7 @@ async fn ready_object(
     body: &str,
     raw_id: &str,
     corrupt_plaintext_hash: bool,
+    kek_id: &str,
 ) -> ObjectId {
     let id = ObjectId::parse(raw_id).unwrap();
     let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
@@ -46,7 +47,7 @@ async fn ready_object(
            sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,
            kek_id,object_nonce,object_aad,codec,verified_at,delete_after)
          VALUES ($1::uuid,'chapter','tor-private-chapter-ci',$2,'ready',64,
-                 $3,$4,$5,$6,'content-kek-v1',$7,$8,'gzip',
+                 $3,$4,$5,$6,$9,$7,$8,'gzip',
                  now(),now()+INTERVAL '24 hours')",
     )
     .bind(id.as_str())
@@ -57,6 +58,7 @@ async fn ready_object(
     .bind([3_u8; 12].as_slice())
     .bind([2_u8; 12].as_slice())
     .bind(aad.as_bytes())
+    .bind(kek_id)
     .execute(pool)
     .await
     .unwrap();
@@ -170,6 +172,7 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         v1_body,
         "b9040000-0001-4000-8000-000000000001",
         false,
+        "content-kek-v1",
     )
     .await;
     let object_wrong = ready_object(
@@ -179,6 +182,7 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         v2_body,
         "b9040000-0002-4000-8000-000000000002",
         true,
+        "content-kek-v2",
     )
     .await;
     let object_v2 = ready_object(
@@ -188,6 +192,7 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         v2_body,
         "b9040000-0003-4000-8000-000000000003",
         false,
+        "content-kek-v2",
     )
     .await;
 
@@ -221,6 +226,34 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         stored_object(&pool, v1).await.as_deref(),
         Some(object_v1.as_str())
     );
+    // B-only metadata: exact UTF-16 lengths, no body or S3 credentials.
+    let (lengths, last_block, last_offset, content_sha): (Vec<i32>, i32, i32, Vec<u8>) =
+        sqlx::query_as(
+            "SELECT block_utf16_lengths,last_readable_block_index,
+                    last_readable_char_offset,content_sha256
+             FROM chapter_reader_manifests
+             WHERE chapter_id=$1 AND version_id=$2 AND storage_object_id=$3::uuid",
+        )
+        .bind(chapter)
+        .bind(v1)
+        .bind(object_v1.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let normalized_v1 = v1_body.replace("\r\n", "\n").replace('\r', "\n");
+    assert_eq!(lengths, vec![normalized_v1.encode_utf16().count() as i32]);
+    assert_eq!((last_block, last_offset), (1, lengths[0]));
+    assert_eq!(content_sha, sha(normalized_v1.as_bytes()).to_vec());
+    let before_replay: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before_replay, 1);
+
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -232,6 +265,27 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .await,
         Ok(()),
         "exact attach retry is idempotent"
+    );
+    let after_replay: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(after_replay, 1);
+    assert!(
+        sqlx::query(
+            "UPDATE chapter_reader_manifests SET parser_schema=1
+             WHERE chapter_id=$1 AND version_id=$2",
+        )
+        .bind(chapter)
+        .bind(v1)
+        .execute(&pool)
+        .await
+        .is_err(),
+        "a released reader manifest must not be edited in place"
     );
 
     // Even a forged G-ready object with the wrong plaintext SHA rolls back.
@@ -250,6 +304,19 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     );
     assert_eq!(object_state(&pool, &object_wrong).await, "ready");
     assert_eq!(stored_object(&pool, v2).await, None);
+    let invalid_manifest_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests WHERE chapter_id=$1 AND version_id=$2",
+    )
+    .bind(chapter)
+    .bind(v2)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        invalid_manifest_count, 0,
+        "bad ciphertext may not mint a reader manifest"
+    );
+
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -285,6 +352,21 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         stored_object(&pool, v2).await.as_deref(),
         Some(object_v2.as_str())
     );
+    let manifests: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_reader_manifests
+         WHERE chapter_id=$1 AND version_id IN ($2,$3)",
+    )
+    .bind(chapter)
+    .bind(v1)
+    .bind(v2)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        manifests, 2,
+        "V2 must never erase purchased V1 parser metadata"
+    );
+
     let current: i64 =
         sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
             .bind(chapter)
@@ -347,12 +429,14 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .unwrap()
         .unwrap();
     assert_eq!(v1_metadata.object.object_id, object_v1);
+    assert_eq!(v1_metadata.wrapped_key_id, "content-kek-v1");
     let v2_metadata = b
         .encrypted_chapter(pinned(chapter, v2))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(v2_metadata.object.object_id, object_v2);
+    assert_eq!(v2_metadata.wrapped_key_id, "content-kek-v2");
     assert_ne!(v1_metadata.aad, v2_metadata.aad);
 
     let version_mutation =
@@ -433,5 +517,143 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .execute(&pool)
         .await
         .unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18 /tor_ci"]
+async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_version() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("CI database");
+    assert!(url.ends_with("/tor_ci"), "never touch production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b-paid-new-owner@example.invalid','Paid owner','$argon2id$fixture')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let other: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b-paid-new-other@example.invalid','Paid other','$argon2id$fixture')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES('ci:paid-new-save','ru','New paid chapter','public',$1) RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let body = "Новая платная глава\n文 😀";
+    let key = "p".repeat(43);
+    let request = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Платная глава",
+        body,
+        access: "paid",
+        price_amount: 100,
+        command_key: &key,
+    })
+    .unwrap();
+    let publisher = PgPaidStorage::new(pool.clone());
+    assert_eq!(
+        publisher.prepare_new_paid_chapter(other, &request).await,
+        Err(AuthorError::Missing)
+    );
+    let prepared = publisher
+        .prepare_new_paid_chapter(owner, &request)
+        .await
+        .unwrap();
+    assert!(!prepared.published);
+    assert_eq!(
+        publisher.prepare_new_paid_chapter(owner, &request).await,
+        Ok(prepared),
+        "retry must retain the same chapter/version identifiers"
+    );
+    let chapter: (String, String, i64) =
+        sqlx::query_as("SELECT visibility,access_level,price_amount FROM chapters WHERE id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(chapter, ("draft".to_owned(), "paid".to_owned(), 100));
+    let visible: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM chapter_publications WHERE chapter_id=$1)")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(!visible, "S3 is not verified: no publication pointer");
+
+    let changed = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Другая глава",
+        body,
+        access: "paid",
+        price_amount: 100,
+        command_key: &key,
+    })
+    .unwrap();
+    assert_eq!(
+        publisher.prepare_new_paid_chapter(owner, &changed).await,
+        Err(AuthorError::Conflict),
+        "same command key with different payload never replaces purchased text"
+    );
+
+    let object = ready_object(
+        &pool,
+        prepared.chapter_id,
+        prepared.version_id,
+        body,
+        "b9041111-0001-4000-8000-000000000111",
+        false,
+        "content-kek-v2",
+    )
+    .await;
+    publisher
+        .attach_verified_and_publish(
+            owner,
+            book,
+            pinned(prepared.chapter_id, prepared.version_id),
+            &object,
+            PaidPublication::Publish {
+                expected_current: None,
+            },
+        )
+        .await
+        .unwrap();
+    let again = publisher
+        .prepare_new_paid_chapter(owner, &request)
+        .await
+        .unwrap();
+    assert_eq!(again.chapter_id, prepared.chapter_id);
+    assert_eq!(again.version_id, prepared.version_id);
+    assert!(again.published);
+    let version_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_versions WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(version_count, 1);
+    let current: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(prepared.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(current, prepared.version_id);
     pool.close().await;
 }

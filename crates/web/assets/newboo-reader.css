@@ -212,3 +212,690 @@
     justify-content: center;
   }
 }
+
+
+/* H/S065: pinned paid-reader chrome follows NEwBOO's original reader
+   topbar. No nonfunctional settings, TOC or next-version links. */
+.reader-paid {
+  padding-block: 0 56px;
+}
+/* The original NEwBOO reader has a viewport-wide sticky bar, not a
+   narrow bar nested inside the 860px text column. Keep safe-area padding. */
+.reader-paid .reader-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) minmax(120px, auto);
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  margin: 0 0 24px;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--text-main) 6%, transparent);
+  backdrop-filter: blur(14px);
+}
+.reader-paid .reader-topbar__title {
+  min-width: 0;
+  overflow: hidden;
+}
+.reader-paid .reader-topbar__book,
+.reader-paid .reader-topbar__chapter {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-paid .reader-page__title {
+  overflow-wrap: anywhere;
+}
+.reader-paid .reader-page__header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+.reader-paid .reader-paid__content {
+  padding: clamp(18px, 4vw, 36px);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  min-height: 140px;
+}
+.reader-paid .reader-piece {
+  padding: 14px 0 20px;
+  border-bottom: 1px solid var(--border-color);
+  overflow-wrap: anywhere;
+}
+.reader-paid .reader-piece:last-child {
+  border-bottom: 0;
+}
+/* Higher specificity than the inherited .reader-page .reader-markdown p
+   rule: otherwise the spacing slider changes a variable but not the lines. */
+.reader-paid .reader-piece__text.reader-markdown {
+  margin: 0 0 14px;
+  white-space: pre-wrap;
+  font-family: var(--paid-font-family, Georgia, "Times New Roman", serif);
+  font-size: var(--paid-font-size, clamp(17px, 2.3vw, 20px));
+  line-height: var(--paid-line-height, 1.85);
+}
+/* Paid images follow NEwBOO's centered, bounded frame and caption.
+   The only usable URL is a verified, temporary in-memory Blob. */
+.reader-paid .reader-paid__image-block {
+  margin: 24px auto;
+  max-width: 100%;
+}
+.reader-paid .reader-paid__image-block .reader-content__image-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 100px;
+  max-height: 760px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+.reader-paid .reader-paid__image-block .reader-content__image {
+  display: block;
+  max-width: 100%;
+  max-height: 760px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.reader-paid .reader-paid__image-block .reader-content__image-caption {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-paid__image-block {
+    margin: 18px auto;
+  }
+}
+
+/* The save-position action must read as a button, never an underlined
+   Markdown link. Match the 44px NEwBOO reader control minimum on touch. */
+.reader-paid .reader-save-button {
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.reader-paid .reader-save-button:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-surface);
+}
+.reader-paid .reader-save-button:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-paid .reader-save-button {
+    transition: none;
+  }
+}
+.reader-paid .reader-resume {
+  padding: 14px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  min-height: 38px;
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+  }
+  .reader-paid .reader-topbar__back-label {
+    display: none;
+  }
+  .reader-paid .reader-topbar__back {
+    min-width: 0;
+    padding-inline: 10px;
+  }
+  .reader-paid .reader-topbar__title {
+    justify-items: start;
+    text-align: left;
+  }
+  .reader-paid .reader-paid__content {
+    padding: 15px 12px;
+  }
+}
+
+
+/* Reading preferences are applied only to this paid reader in memory.
+   No plaintext, user preference or grant is saved in browser storage. */
+.reader-paid .reader-width {
+  width: min(calc(100% - 28px), var(--paid-reader-width, 860px));
+  max-width: var(--paid-reader-width, 860px);
+}
+.reader-paid .reader-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reader-paid .reader-topbar__settings,
+.reader-paid .reader-topbar__theme {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-weight: 800;
+  cursor: pointer;
+}
+.reader-paid .reader-topbar__settings:focus-visible,
+.reader-paid .reader-topbar__theme:focus-visible,
+.reader-paid__settings button:focus-visible,
+.reader-paid__settings input:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 2px;
+}
+/* The original NEwBOO topbar has a separate one-tap theme control.
+   Reuse the real 44px accessible action geometry in both color schemes. */
+.reader-paid .reader-topbar__theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 23px;
+  line-height: 1;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.reader-paid .reader-topbar__theme:hover,
+.reader-paid .reader-topbar__settings:hover {
+  background: var(--bg-secondary);
+  border-color: var(--primary-color);
+}
+/* Exact NEwBOO reader settings treatment: modal scrim and a right-anchored
+   panel, not an inline form that pushes the paid text off the screen. */
+.reader-paid .reader-paid__settings[hidden] {
+  display: none !important;
+}
+.reader-paid .reader-paid__settings {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.reader-paid .reader-paid__settings-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  /* The scrim must darken both light and dark themes.
+     --text-main becomes white in dark mode and was washing the reader out. */
+  background: color-mix(in srgb, #09101d 36%, transparent);
+  cursor: pointer;
+}
+.reader-paid .reader-paid__settings-panel {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  box-sizing: border-box;
+  display: grid;
+  gap: 16px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--text-main) 26%, transparent);
+}
+.reader-paid__settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.reader-paid__settings-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.reader-paid__settings-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+.reader-paid__settings-field {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  font-weight: 650;
+}
+.reader-paid__settings input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary-color);
+}
+.reader-paid__settings-panel button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.reader-paid__settings-panel button[aria-pressed="true"] {
+  border-color: var(--primary-color);
+  box-shadow: inset 0 0 0 1px var(--primary-color);
+}
+.reader-paid__settings-panel button[data-paid-settings-reset] {
+  margin-top: 16px;
+}
+.reader-paid__themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.reader-paid__settings-panel output {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+body.reader-standalone[data-paid-reader-theme="light"] {
+  color-scheme: light;
+  --bg-main: #f7f7f8;
+  --bg-surface: #fff;
+  --bg-secondary: #f9fafb;
+  --text-main: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --border-color: #e5e7eb;
+  --primary-color: #4f46e5;
+}
+body.reader-standalone[data-paid-reader-theme="dark"] {
+  color-scheme: dark;
+  --bg-main: #0b1120;
+  --bg-surface: #111827;
+  --bg-secondary: #172033;
+  --text-main: #f8fafc;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --border-color: #263348;
+  --primary-color: #8b9cff;
+}
+body.reader-standalone[data-paid-reader-theme="sepia"] {
+  color-scheme: light;
+  --bg-main: #efe5d3;
+  --bg-surface: #fbf3e4;
+  --bg-secondary: #f5e8d3;
+  --text-main: #44301f;
+  --text-secondary: #584633;
+  --text-muted: #735d44;
+  --border-color: #d5c5ab;
+  --primary-color: #84582e;
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-paid__settings-panel {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    width: min(360px, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px - env(safe-area-inset-top));
+    padding: 16px;
+  }
+}
+
+
+/* H/S065: server-authorized editions only; native <details> works without JS. */
+.reader-paid .reader-topbar__toc {
+  position: relative;
+  min-width: 0;
+}
+.reader-paid .reader-topbar__toc > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  list-style: none;
+}
+.reader-paid .reader-topbar__toc > summary::-webkit-details-marker {
+  display: none;
+}
+.reader-paid .reader-topbar__toc > summary:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 2px;
+}
+.reader-paid .reader-paid__toc-menu {
+  position: absolute;
+  z-index: 120;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(65dvh, 530px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  box-shadow: 0 18px 40px color-mix(in srgb, var(--text-main) 18%, transparent);
+}
+.reader-paid .reader-paid__toc-head {
+  display: grid;
+  gap: 3px;
+  padding: 16px 18px 11px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+.reader-paid .reader-paid__toc-head strong {
+  color: var(--text-main);
+  font-size: 16px;
+}
+.reader-paid .reader-paid__toc-head span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.reader-paid .reader-paid__toc-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 10px;
+  list-style: none;
+}
+.reader-paid .reader-paid__toc-row {
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+.reader-paid .reader-paid__toc-row--locked {
+  background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+}
+.reader-paid .reader-paid__toc-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  margin-top: 7px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: .01em;
+}
+.reader-paid .reader-paid__toc-badge--owned {
+  background: color-mix(in srgb, var(--primary-color) 13%, var(--bg-surface));
+  color: var(--primary-color);
+}
+.reader-paid .reader-paid__toc-badge--free {
+  background: color-mix(in srgb, #238659 14%, var(--bg-surface));
+  color: var(--text-main);
+}
+.reader-paid .reader-paid__toc-badge--locked {
+  background: color-mix(in srgb, var(--text-muted) 13%, var(--bg-surface));
+  color: var(--text-muted);
+}
+.reader-paid .reader-paid__toc-title {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.reader-paid .reader-paid__toc-locked {
+  cursor: not-allowed;
+  opacity: .78;
+}
+.reader-paid .reader-paid__toc-list a:focus-visible .reader-paid__toc-title {
+  text-decoration: underline;
+}
+
+.reader-paid .reader-paid__toc-list a,
+.reader-paid .reader-paid__toc-list [aria-current="page"],
+.reader-paid .reader-paid__toc-list .reader-paid__toc-locked {
+  display: block;
+  padding: 10px 11px;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.reader-paid .reader-paid__toc-list a:hover,
+.reader-paid .reader-paid__toc-list a:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+  background: var(--bg-secondary);
+}
+.reader-paid .reader-paid__toc-list [aria-current="page"] {
+  font-weight: 800;
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--primary-color);
+}
+.reader-paid .reader-paid__toc-more {
+  margin: 0;
+  padding: 10px 14px 14px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.reader-paid .reader-paid__toc-more a {
+  color: var(--primary-color);
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-topbar__toc > summary {
+    min-width: 44px;
+    padding: 8px;
+    font-size: 0;
+  }
+  .reader-paid .reader-topbar__toc > summary::before {
+    content: "≡";
+    font-size: 23px;
+    line-height: 1;
+  }
+  .reader-paid .reader-paid__toc-menu {
+    position: fixed;
+    top: 65px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-height: min(65dvh, 520px);
+  }
+}
+
+
+/* H/S065: authentic NEwBOO prev/next reading cards.
+   A closed neighbouring chapter has no href, even if its title is public. */
+.reader-paid .reader-paid__chapter-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 10px;
+  margin: -8px 0 20px;
+}
+.reader-paid .reader-paid__chapter-nav--bottom {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  margin-bottom: 20px;
+}
+/* The original NEwBOO bottom row has a working TOC between both arrows. */
+.reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc {
+  justify-self: center;
+  min-width: 220px;
+  width: 100%;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc > summary {
+  min-height: 44px;
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+  border-color: var(--text-main);
+  border-radius: var(--radius-md);
+  background: var(--text-main);
+  color: var(--bg-surface);
+  font-weight: 700;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-name,
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-badge {
+  display: none;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-direction {
+  font-size: 14px;
+  color: inherit;
+}
+.reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  right: 50%;
+  transform: translateX(50%);
+}
+.reader-paid .reader-paid__nav-card {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.reader-paid .reader-paid__nav-card[data-paid-nav-next] {
+  text-align: right;
+  justify-items: end;
+}
+.reader-paid .reader-paid__nav-card--active:hover {
+  border-color: var(--primary-color);
+  background: var(--bg-secondary);
+}
+.reader-paid .reader-paid__nav-card--active:focus-visible {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 3px;
+}
+.reader-paid .reader-paid__nav-direction {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+.reader-paid .reader-paid__nav-name {
+  display: -webkit-box;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.reader-paid .reader-paid__nav-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+.reader-paid .reader-paid__nav-card--locked,
+.reader-paid .reader-paid__nav-card--disabled {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-surface));
+  border-style: dashed;
+  cursor: not-allowed;
+}
+.reader-paid .reader-paid__nav-card--locked .reader-paid__nav-badge,
+.reader-paid .reader-paid__nav-card--disabled .reader-paid__nav-name {
+  color: var(--text-muted);
+}
+@media (max-width: 640px) {
+  .reader-paid .reader-paid__chapter-nav {
+    gap: 8px;
+    margin: 12px 0 22px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom {
+    grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc {
+    min-width: 44px;
+    width: 44px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-topbar__toc > summary {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /* Keep the mobile lower TOC above its trigger, avoiding pointer capture. */
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__toc-menu {
+    position: absolute;
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    right: auto;
+    width: min(360px, calc(100vw - 32px));
+    max-height: min(42dvh, 360px);
+    transform: translateX(-50%);
+  }
+  .reader-paid .reader-paid__nav-card {
+    padding: 11px;
+    min-height: 88px;
+    gap: 5px;
+  }
+  .reader-paid .reader-paid__chapter-nav--bottom .reader-paid__nav-card {
+    min-height: 44px;
+    padding: 8px;
+  }
+  .reader-paid .reader-paid__nav-name {
+    font-size: 13px;
+  }
+  .reader-paid .reader-paid__nav-direction,
+  .reader-paid .reader-paid__nav-badge {
+    font-size: 11px;
+  }
+}

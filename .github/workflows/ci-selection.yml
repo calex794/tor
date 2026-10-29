@@ -1,0 +1,38 @@
+name: TOR CI selection
+on:
+  workflow_call:
+    inputs:
+      caller:
+        required: true
+        type: string
+    outputs:
+      suites:
+        value: ${{ jobs.select.outputs.suites }}
+      mode:
+        value: ${{ jobs.select.outputs.mode }}
+permissions:
+  contents: read
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      suites: ${{ steps.plan.outputs.suites }}
+      mode: ${{ steps.plan.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: plan
+        name: Select from complete Git diff and Cargo consumers
+        run: python3 tools/select_feature_tests.py --report "$RUNNER_TEMP/ci-selection.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tor-ci-selection-${{ inputs.caller }}
+          path: ${{ runner.temp }}/ci-selection.json
+          if-no-files-found: error
+          retention-days: 14

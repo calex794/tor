@@ -1,0 +1,155 @@
+name: "TOR — Обновить сайт"
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: tor-vps-staging-single-flight
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: "Проверить, сохранить копию и обновить сайт"
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: tor-staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      TARGET_SHA: ${{ github.sha }}
+      TOR_DEPLOY_HOST: ${{ vars.TOR_DEPLOY_HOST }}
+      TOR_DEPLOY_USER: ${{ vars.TOR_DEPLOY_USER }}
+      TOR_DEPLOY_SSH_KEY: ${{ secrets.TOR_DEPLOY_SSH_KEY }}
+      TOR_DEPLOY_KNOWN_HOSTS: ${{ secrets.TOR_DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: "Проверить сервер и выбранную ветку"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TOR_DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$TOR_DEPLOY_USER" == tor-deploy ]]
+          [[ -n "$TOR_DEPLOY_SSH_KEY" && -n "$TOR_DEPLOY_KNOWN_HOSTS" ]]
+          echo "TOR_RELEASE_SHA $TARGET_SHA"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: "Убедиться, что main не изменился"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$TARGET_SHA" ]]
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$TARGET_SHA" ]]
+
+      - name: "Дождаться успешных проверок того же коммита"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/check_one_click_release_ci.py \
+            --repo ${{ github.repository }} --sha "$TARGET_SHA" \
+            --timeout-seconds 1200
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: "Собрать сайт и миграции на GitHub, не на VPS"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/check_feature_layout.py
+          cargo build --release -p tor-web
+          cargo build --release -p tor-migrations --bin tor-migrate
+          sha256sum target/release/tor-web | sed 's#target/release/##' \
+            > "$RUNNER_TEMP/tor-web.sha256"
+          sha256sum target/release/tor-migrate | sed 's#target/release/##' \
+            > "$RUNNER_TEMP/tor-migrate.sha256"
+
+      - name: "Установить SSH с проверкой ключа сервера"
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$TOR_DEPLOY_SSH_KEY" > "$RUNNER_TEMP/tor_id_ed25519"
+          printf '%s\n' "$TOR_DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/tor_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/tor_id_ed25519" "$RUNNER_TEMP/tor_known_hosts"
+          ssh-keygen -F "$TOR_DEPLOY_HOST" -f "$RUNNER_TEMP/tor_known_hosts" >/dev/null
+
+      - name: "Подписать сборку существующим ключом GitHub"
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'TOR_RELEASE_SHA %s\n' "$TARGET_SHA"
+            cat "$RUNNER_TEMP/tor-web.sha256"
+            cat "$RUNNER_TEMP/tor-migrate.sha256"
+          } > "$RUNNER_TEMP/tor-release-manifest"
+          ssh-keygen -Y sign -f "$RUNNER_TEMP/tor_id_ed25519" \
+            -n tor-release "$RUNNER_TEMP/tor-release-manifest" >/dev/null
+          test -s "$RUNNER_TEMP/tor-release-manifest.sig"
+
+      - name: "Передать проверенную сборку на VPS без остановки сайта"
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          inbox="/opt/tor/incoming/$TARGET_SHA"
+          ssh "${opts[@]}" "$destination" \
+            "test -d /opt/tor/incoming && test -w /opt/tor/incoming && mkdir -p '$inbox' && chmod 0700 '$inbox'" || {
+              echo "TOR_ONE_CLICK_SETUP_REQUIRED: run the one-time VPS bootstrap first" >&2
+              exit 1
+            }
+          scp -p "${opts[@]}" target/release/tor-web "$destination:$inbox/tor-web"
+          scp -p "${opts[@]}" target/release/tor-migrate "$destination:$inbox/tor-migrate"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-web.sha256" "$destination:$inbox/tor-web.sha256"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-migrate.sha256" "$destination:$inbox/tor-migrate.sha256"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-release-manifest" "$destination:$inbox/tor-release-manifest"
+          scp -p "${opts[@]}" "$RUNNER_TEMP/tor-release-manifest.sig" "$destination:$inbox/tor-release-manifest.sig"
+          ssh "${opts[@]}" "$destination" \
+            "cd '$inbox' && sha256sum -c --status tor-web.sha256 && sha256sum -c --status tor-migrate.sha256"
+          echo "TOR_RELEASE_STAGED $TARGET_SHA"
+
+      - name: "Запретить установку устаревшего коммита"
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$TARGET_SHA" ]] || {
+            echo "TOR_RELEASE_REFUSED: main moved during packaging; run again" >&2
+            exit 1
+          }
+
+      - name: "Резервная копия PostgreSQL, миграции, обновление и откат при ошибке"
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          ssh "${opts[@]}" "$destination" \
+            "test -x /usr/local/sbin/tor-one-click-release || { echo TOR_ONE_CLICK_SETUP_REQUIRED; exit 2; }; sudo -n /usr/local/sbin/tor-one-click-release '$TARGET_SHA'"
+
+      - name: "Проверить установленный SHA, службу и HTTPS"
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="$TOR_DEPLOY_USER@$TOR_DEPLOY_HOST"
+          opts=(-i "$RUNNER_TEMP/tor_id_ed25519" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/tor_known_hosts")
+          ssh "${opts[@]}" "$destination" \
+            "test \"\$(readlink -f /opt/tor/current)\" = '/opt/tor/releases/$TARGET_SHA' &&
+             systemctl is-active --quiet tor-web.service &&
+             test \"\$(curl -fsS --max-time 5 http://127.0.0.1:3000/readyz)\" = ok &&
+             test \"\$(cat /var/lib/tor-release/pg-activated)\" = PG_ACTIVATED"
+          echo "TOR_DEPLOYED_OK $TARGET_SHA"
+
+      - name: "Сохранить контрольные суммы выпуска"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-one-click-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/tor-web.sha256
+            ${{ runner.temp }}/tor-migrate.sha256
+          if-no-files-found: warn
+          retention-days: 14
