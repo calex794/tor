@@ -44,7 +44,11 @@ pub fn chapter_purchase_form(
         csrf = escape_html(csrf),
         book_id = offer.book_id,
     );
-    layout("Подтверждение покупки", "Покупка одной опубликованной главы.", &body)
+    layout(
+        "Подтверждение покупки",
+        "Покупка одной опубликованной главы.",
+        &body,
+    )
 }
 
 /// A declined payment never claims that money was taken.

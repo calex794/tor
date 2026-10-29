@@ -38,7 +38,8 @@ use tor_reading::{
     },
 };
 
-mod account_form_http;mod behavior_consent;
+mod account_form_http;
+mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_stars;
@@ -48,6 +49,8 @@ mod library_actions;
 mod login_limiter;
 mod paid_completion;
 mod rankings;
+mod session;
+use session::session_user;
 mod sync_actions;
 mod types;
 use types::*;
@@ -180,7 +183,10 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
-        .route("/me/chapters/{id}/buy", get(checkout::browser_offer).post(checkout::browser_buy))
+        .route(
+            "/me/chapters/{id}/buy",
+            get(checkout::browser_offer).post(checkout::browser_buy),
+        )
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
@@ -290,18 +296,6 @@ async fn my_library(
         pages::my_library(&books, &saved, &csrf)
     };
     private_response(page, &cookies)
-}
-
-/// Resolve actor from the session database, never client-supplied user IDs.
-async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
-    let Some(token) = state.cookies.session_token(headers) else {
-        return Ok(None);
-    };
-    state
-        .accounts
-        .active_session_user(&session_token_digest(&token))
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 /// Browser author workspace backed by the current PostgreSQL user session.

@@ -124,9 +124,8 @@ impl PgCheckout {
             return Ok(true);
         }
         let offered = self.published_chapter_offer(chapter).await?;
-        Ok(offered.is_some_and(|current| {
-            current.version_id == version && current.price_minor == price
-        }))
+        Ok(offered
+            .is_some_and(|current| current.version_id == version && current.price_minor == price))
     }
 }
 

@@ -27,9 +27,7 @@ pub fn paid_chapter_paywall_checkout(
         String::from("Стоимость главы пока не указана.")
     };
     let buy_link = checkout_chapter_id.map_or_else(String::new, |chapter_id| {
-        format!(
-            "<a class=\"button\" href=\"/me/chapters/{chapter_id}/buy\">Купить главу</a>"
-        )
+        format!("<a class=\"button\" href=\"/me/chapters/{chapter_id}/buy\">Купить главу</a>")
     });
     let html = format!(
         r#"<section class="section reader-page reader-access-page">

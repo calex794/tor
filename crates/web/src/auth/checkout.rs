@@ -1,11 +1,7 @@
 //! D-04: controlled internal-wallet checkout API. No external payment flow.
 //! The route is disabled unless TOR_PAID_CHECKOUT_ENABLED=1 was set at startup.
 use super::{deny, session_user, AuthState};
-use crate::{
-    auth_cookies::private_response,
-    pages,
-};
-use tor_accounts::services::security::generate_session_token;
+use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -13,6 +9,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use tor_accounts::services::security::generate_session_token;
 use tor_commerce::domain::money::{
     CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
 };
@@ -144,7 +141,6 @@ pub(super) async fn buy(
     }
 }
 
-
 /// S034: browser checkout never mounts without both the private paid reader
 /// and the explicit wallet-checkout switch. No remote payment gateway here.
 fn browser_enabled(state: &AuthState) -> bool {
@@ -161,10 +157,7 @@ fn noindex(mut response: Response) -> Response {
 
 fn browser_error(chapter_id: i64, status: StatusCode, message: &str) -> Response {
     noindex(private_response(
-        (
-            status,
-            pages::chapter_purchase_problem(chapter_id, message),
-        ),
+        (status, pages::chapter_purchase_problem(chapter_id, message)),
         &[],
     ))
 }
@@ -220,8 +213,7 @@ pub(super) async fn browser_buy(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -240,13 +232,7 @@ pub(super) async fn browser_buy(
     }
     let allowed = match state
         .checkout
-        .browser_offer_ready_or_replay(
-            actor,
-            chapter_id,
-            version.get(),
-            price.get(),
-            key.as_str(),
-        )
+        .browser_offer_ready_or_replay(actor, chapter_id, version.get(), price.get(), key.as_str())
         .await
     {
         Ok(allowed) => allowed,
