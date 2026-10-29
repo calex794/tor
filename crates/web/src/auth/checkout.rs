@@ -1,7 +1,6 @@
 //! D-04: controlled internal-wallet checkout API. No external payment flow.
 //! The route is disabled unless TOR_PAID_CHECKOUT_ENABLED=1 was set at startup.
 mod batch;
-pub(super) use batch::buy as buy_batch;
 use super::{deny, session_user, AuthState};
 use crate::auth_cookies::private_response;
 use axum::{
@@ -130,6 +129,32 @@ pub(super) async fn buy(
         ),
         Err(error) => deny(checkout_status(error)),
     }
+}
+
+/// Explicitly guard a paid batch at the route boundary; the domain service
+/// accepts only this server-derived actor and the authenticated wallet.
+pub(super) async fn buy_batch(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(input): Json<batch::BatchSelection>,
+) -> Response {
+    if !state.paid_checkout_enabled {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(error) => return deny(error),
+    };
+    if !state.cookies.same_origin(&headers)
+        || !headers
+            .get("x-csrf-token")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|token| state.cookies.valid_csrf(&headers, token))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    batch::buy_for_actor(&state, actor, &headers, input).await
 }
 
 #[cfg(test)]
