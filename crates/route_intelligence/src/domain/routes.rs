@@ -6,7 +6,10 @@ use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
-const ROUTES: [RouteRegistration; 80] = [
+// Explicit route table is independently checked by RIL parity and guard CI.
+// Keep its reviewed compact entries under the repository's 600-line limit.
+#[rustfmt::skip]
+const ROUTES: [RouteRegistration; 81] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -573,25 +576,18 @@ const ROUTES: [RouteRegistration; 80] = [
         Dashboard,
         Write,
     ), // 76
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read),
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write),
     RouteRegistration::new(
-        "/me/layers/new",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 77
-    RouteRegistration::new(
-        "/me/layers/new",
+        "/me/layers/{layer_id}/offer",
         "POST",
         "/me/",
         Prefix,
         Page,
         Dashboard,
         Write,
-    ), // 78
-    LAYER_CHECKOUT_ROUTE, // 79
+    ), // 79
+    LAYER_CHECKOUT_ROUTE, // 80
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {

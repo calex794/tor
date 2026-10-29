@@ -431,13 +431,6 @@
     },
     {
       "method": "POST",
-      "template": "/api/v1/layers/{id}/purchase",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_checkout::buy",
-      "policy": "session"
-    },
-    {
-      "method": "POST",
       "template": "/api/v1/purchases",
       "source": "crates/web/src/auth.rs",
       "handler": "checkout::buy",
@@ -575,6 +568,20 @@
       "source": "crates/web/src/auth/layer_create.rs",
       "handler": "create",
       "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/offer",
+      "source": "crates/web/src/auth/layer_offer_manage.rs",
+      "handler": "publish",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/layers/{id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_checkout::buy",
+      "policy": "session"
     }
   ]
 }
