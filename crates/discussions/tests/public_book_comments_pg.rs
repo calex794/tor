@@ -300,12 +300,27 @@ async fn e_02_e03_received_replies_are_private_live_references() {
     assert_eq!(received[0].book_title, "Reply book");
     assert!(!received[0].is_read);
     use tor_discussions::repositories::public_book_comments::ReadStateResult;
-    assert_eq!(repo.set_reply_read_state(users[1], reply, true).await, ReadStateResult::NotFound);
-    assert_eq!(repo.set_reply_read_state(users[0], reply, true).await, ReadStateResult::Updated);
-    assert_eq!(repo.set_reply_read_state(users[0], reply, true).await, ReadStateResult::Updated);
+    assert_eq!(
+        repo.set_reply_read_state(users[1], reply, true).await,
+        ReadStateResult::NotFound
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, true).await,
+        ReadStateResult::Updated
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, true).await,
+        ReadStateResult::Updated
+    );
     assert!(repo.received_replies(users[0], 10).await.unwrap()[0].is_read);
-    assert_eq!(repo.set_reply_read_state(users[0], reply, false).await, ReadStateResult::Updated);
-    assert_eq!(repo.set_reply_read_state(users[0], reply, false).await, ReadStateResult::Updated);
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, false).await,
+        ReadStateResult::Updated
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, false).await,
+        ReadStateResult::Updated
+    );
     assert!(!repo.received_replies(users[0], 10).await.unwrap()[0].is_read);
 
     assert!(repo
