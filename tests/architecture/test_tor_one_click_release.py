@@ -196,6 +196,11 @@ class OneClickReleaseTests(unittest.TestCase):
                 self.assertEqual(gate.evaluate_branch_policy(
                     protected_main(**changes))[0], "fail")
 
+    def test_i06_branch_api_may_omit_optional_enabled_property(self):
+        branch = protected_main()
+        del branch["protection"]["enabled"]
+        self.assertEqual(gate.evaluate_branch_policy(branch)[0], "pass")
+
     def test_i06_rejects_missing_or_malformed_branch_response(self):
         for bad in (None, {}, {"name": "other", "protected": True},
                     {"name": "main", "protected": True, "protection": {}},
