@@ -83,3 +83,11 @@ its read-only PostgreSQL audit pool through `PgCatalog`, rather than
 introducing a new direct `sqlx` dependency into `tor-web` tests.
 Credentials remain only in isolated runner-temp files and are deleted after
 the browser check. This separation keeps the S3 test root below 1000 lines.
+
+## I-16 current-main follow-up
+
+Newer merged main C-15 (#227) occupies route indexes 79/80 and SQLx
+`202610290001_reader_book_follows.sql`. In the subsequent I-16 test-only
+integration, Layer and C-06 ACK shift to indexes 81–90 and unmerged Layer
+idempotency migration moves to `202610280014` with the original SQL blob.
+The base upgrade must be revalidated from latest main's 42 migrations.

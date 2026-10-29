@@ -1,53 +1,67 @@
-# I-16 — isolated migration collision resolution on top of I-14 (Draft)
+# I-16 — current-main integration of I-14 paid access and Draft SQLx (test only)
 
-**Not approved migration numbering; test-only proposal.** This branch is
-stacked on [Draft #243](https://github.com/calex794/tor/pull/243), preserving
-the accepted S035/C-06/D-06 access and first-opening paths, and integrates
-current `main@793b8bfc9e005fc3789d92cd492527a4eee6e5e6` via a separate
-two-parent **test-branch** merge. No changes were merged into `main`.
+**Status: Draft / unapproved versions.** Latest integrated main in this tree is
+`2f95223f4eb4a4d88a4c0669368d671e49e6d311`, which has **42**
+migrations. The experimental combined tree contains **52** migrations.
+No source Draft was modified and no database outside isolated CI was accessed.
 
-## Exact source SQL and provisional ordering
+## Exact migration identities
 
-| Original Draft | Original migration | New I-16-only version | Original Git blob SHA |
-| --- | --- | --- | --- |
-| #209 A-03 | `202610280013_account_login_events.sql` | `202610300018_account_login_events.sql` | `da6d0f35261462b76a408742951ee9c653696be6` |
-| #189 F-09 | `202610290001_referral_signup.sql` | `202610300019_referral_signup.sql` | `147e742c3d4ae334e92b80263b1b97f8ade37362` |
-| #204 D | `202610290001_direct_purchase_edition_upgrade.sql` | `202610300020_direct_purchase_edition_upgrade.sql` | `cc7167d75858c92634c0a174bff6922669f8c80f` |
-| #227 C-15 | `202610290001_reader_book_follows.sql` | `202610300021_reader_book_follows.sql` | `349f0d66bb813015688276909bd732dfd007cf8f` |
+The merged main now owns `202610290001_reader_book_follows.sql` from
+#227. Its original Git blob `349f0d66bb813015688276909bd732dfd007cf8f`
+is used **once**, at the original main version. The duplicate I-16 copy
+`202610300021_reader_book_follows.sql` was removed.
 
-Every target migration points to **the exact same Git blob as its original
-Draft**, without text edits or checksum rewriting. In this Draft branch the
-previous 48-migration I-14 tree becomes 52 migrations. There are no
-duplicate numeric versions **within this one proposed tree**.
+The old Layer Draft had used `202610290001_layer_create_idempotency.sql`.
+That would collide with main's now-applied book-follow version. In this
+**test tree only**, the exact unchanged Layer SQL blob
+`33796721ffe417b93c14c88ab8668ed48c6553ac` is at
+`202610280014_layer_create_idempotency.sql`. This version is ordered
+**after** Layer table creation (`202610280013`) but **before** its term
+wallet evidence (`202610290002`). The old Layer 001 file is absent.
 
-[Draft #251](https://github.com/calex794/tor/pull/251)'s read-only SQLx
-audit code, tests and instructions are included with unchanged blobs, so
-the main + paid-access integration and inventory tooling run together.
+Still-unmerged independent SQL blobs are unchanged:
 
-## Disposable acceptance, not an approval
+| Original Draft | Provisional I-16-only filename | Git blob SHA |
+| --- | --- | --- |
+| #209 A-03 `202610280013_account_login_events.sql` | `202610300018_account_login_events.sql` | `da6d0f35261462b76a408742951ee9c653696be6` |
+| #189 F-09 `202610290001_referral_signup.sql` | `202610300019_referral_signup.sql` | `147e742c3d4ae334e92b80263b1b97f8ade37362` |
+| #204 D `202610290001_direct_purchase_edition_upgrade.sql` | `202610300020_direct_purchase_edition_upgrade.sql` | `cc7167d75858c92634c0a174bff6922669f8c80f` |
 
-The existing `I-14 upgrade exact PR base migration history` step is
-intentionally preserved. Since this PR targets **the #243 Draft branch**,
-CI extracts that branch's exact base migration files, applies all 48 in
-a new `tor_test`, then upgrades to 52 in the **same disposable DB**,
-verifying every original version, description and checksum plus a second
-idempotent run. An independent follow-up test checks all four added
-version/description/checksum tuples and probes their actual tables,
-constraints, triggers and functions, with a read-only PostgreSQL session.
+The earlier I-14 D-06 refund-policy snapshot at `202610300017`, and
+C-06 Layer/direct grant and first-render migrations at 005/006/007,
+are otherwise unchanged. This is not final version reservation.
 
-Full Rust/HTTP/S3/Chromium and PostgreSQL CI must pass on **this exact
-HEAD**. A green migration test here does **not** prove that each source
-PR's own Rust/frontend behavior has been integrated. It is a DDL
-compatibility prototype; those features remain separately unmerged.
+## Route identity, controls and CI
 
-## Release blockers remain
+Merged main's route registry entries 0–80 are kept **at their original
+indexes**, including C-15 book follow/unfollow at 79/80. Layer occupies
+81–89 and paid browser first-opening acknowledgment occupies 90.
+The read-only route and CSRF/ownership governance is revalidated with
+the merged main's book-follow handlers and real HTTP tests.
 
-The proposed `202610300018..021` values are **not global reservations**
-and are **not pushed into** #189/#204/#209/#227. Those owners must approve
-one final integration sequence, reconcile original PR histories, and
-then retest the final tree. #243 and #178 still diverge. No production
-database was inspected; #235 requires an authorized read-only audit of
-every retained `_sqlx_migrations` ledger before planning deployment.
+For this PR's **main base**, existing PostgreSQL 18 upgrade CI must
+install all 42 main migrations to isolated `tor_test`, upgrade that
+same DB to 52 in dependency order, repeat the migrator idempotently
+and retain every base version, description and SHA-384 checksum.
+The I-16 read-only schema probe checks 5 version identities and
+the added login, referral, edition, and follows table/trigger/function
+surfaces. All other DB/HTTP/S3/Chromium workflows must pass on **exact
+current HEAD**, not an inherited green.
 
-No new checkout/refund endpoints, runtime financial decision, ledger
-reversal, payout, finance flags, deployment or main merge is included.
+The I-15 read-only SQLx inventory tooling from #251 is included with
+unchanged Git blobs. It never writes migration metadata or finances.
+
+## What this DOES NOT prove
+
+This Draft combines **DDL and current-main reader-follow runtime**, but
+not all Rust/HTTP implementation from unmerged #189/#204/#209. The
+original #178 and #243 histories diverge, and the specific policy
+for ordinary refund approvals and transactionally atomic reversal is
+still unimplemented. No real retained DB `_sqlx_migrations` inventory
+was available. The operator must compare every retained DB ledger,
+including old historical 001/003/004 experimental migrations,
+before any release or attempted compatibility repair.
+
+No merge into `main`, deploy, feature flag, live wallet operation,
+automatic refund, external payout or settlement is authorized.

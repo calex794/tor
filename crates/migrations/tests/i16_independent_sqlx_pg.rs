@@ -29,10 +29,11 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
 
     // Expected file descriptions are the SQLx underscore-to-space names.
     let required = [
+        (202610280014_i64, "layer create idempotency"),
+        (202610290001_i64, "reader book follows"),
         (202610300018_i64, "account login events"),
         (202610300019_i64, "referral signup"),
         (202610300020_i64, "direct purchase edition upgrade"),
-        (202610300021_i64, "reader book follows"),
     ];
     let installed: Vec<(i64, String, Vec<u8>, bool)> = sqlx::query_as(
         "SELECT version, description, checksum, success
@@ -45,7 +46,7 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
     assert_eq!(
         MIGRATOR.migrations.len(),
         52,
-        "48 base + 4 independent Drafts"
+        "42 merged-main + 10 Draft-only migrations"
     );
     for (version, description) in required {
         let compiled = MIGRATOR

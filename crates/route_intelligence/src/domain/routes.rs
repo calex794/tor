@@ -548,20 +548,20 @@ const ROUTES: [RouteRegistration; 91] = [
     RouteRegistration::new("/me/books/{id}/buy-chapters", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 76
     RouteRegistration::new("/me/books/{id}/buy-chapters", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 77
     RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 78
-    // Layer routes match the parallel main/D-05 integration registry (#244).
-    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 79
-    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 80
-    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 81
-    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 82
-    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 83
-    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 84
-    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read), // 85
-    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 86
-    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 87
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 88
-    // New merged-main C-15 book-follow routes appended without renumbering paid grants.
-    RouteRegistration::new("/me/books/{id}/follow", "POST", "/me/", Prefix, Page, Reading, Write), // 89
-    RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 90
+    // Preserve already merged main C-15 follow route indexes 79 and 80.
+    RouteRegistration::new("/me/books/{id}/follow", "POST", "/me/", Prefix, Page, Reading, Write), // 79
+    RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 80
+    // Shift unmerged Layer routes without reclassifying main traffic history.
+    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 81
+    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 82
+    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 83
+    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 84
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 85
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 86
+    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read), // 87
+    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 88
+    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 89
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 90
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
