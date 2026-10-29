@@ -44,7 +44,9 @@ impl LayerService {
         after: Option<PositiveId>,
         limit: u16,
     ) -> Result<LayerCurrentBookPage, LayerError> {
-        self.repository.current_books(actor, layer, after, limit).await
+        self.repository
+            .current_books(actor, layer, after, limit)
+            .await
     }
 
     /// UI list is advisory; the write performs a locked recheck.
