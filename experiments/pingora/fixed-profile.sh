@@ -36,4 +36,5 @@ for cpus in 1 2; do
  done
  docker rm -f "$name" >/dev/null
 done
+python3 "$root/summarize_fixed.py" "$out"
 echo FIXED_RATE_PROFILE_COMPLETE
