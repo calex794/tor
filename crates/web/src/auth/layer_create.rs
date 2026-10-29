@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn d_05_create_form_has_no_client_actor_and_escapes_all_tokens() {
-        let html = new_layer_html("<csrf>", ""><script>x</script>").0;
+        let html = new_layer_html("<csrf>", "\"><script>x</script>").0;
         assert!(html.contains("name=\"title\""));
         assert!(html.contains("name=\"command_key\""));
         assert!(html.contains("name=\"csrf_token\""));
