@@ -26,6 +26,7 @@ use tor_accounts::{repositories::PgAccounts, services::security::session_token_d
 use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
 use tor_commerce::repositories::{
     entitlements::PgDirectEntitlements,
+    direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements},
     layer_exposure::{LayerGrantKind, PgLayerFirstExposure},
 };
@@ -72,6 +73,7 @@ struct GrantState {
     entitlement: PgReaderEntitlements,
     layer: PgLayerChapterEntitlements,
     direct: PgDirectEntitlements,
+    first_direct_grant: PgDirectFirstExposure,
     first_layer_grant: PgLayerFirstExposure,
     versions: PgPaidStorage,
     assets: PgPaidAssets,
@@ -157,11 +159,10 @@ fn deny(code: StatusCode) -> Response {
     private_response(code, &[])
 }
 
-/// Only successful protected chapter/image grants may mark Layer consumption.
-/// A direct purchased V1, including the unsourced default reader path, is
-/// deliberately outside this Layer-specific barrier. Any default fallback
-/// from missing/refunded direct rights to Layer must still record exposure.
-async fn record_layer_grant_if_needed(
+/// Every protected paid grant records the D-owned source actually used.
+/// A direct pinned V1 takes priority in the default source path. The Layer
+/// fallback is never allowed for an explicitly requested direct purchase.
+async fn record_paid_grant_exposure(
     state: &GrantState,
     actor: PositiveId,
     chapter: PositiveId,
@@ -170,18 +171,28 @@ async fn record_layer_grant_if_needed(
     version: &str,
     kind: LayerGrantKind,
 ) -> Result<(), DeliveryError> {
-    if purchase.is_some() {
-        return Ok(());
-    }
     let version_id = positive(version).ok_or(DeliveryError::Unavailable)?;
     if source.is_none() {
+        let direct_kind = match kind {
+            LayerGrantKind::Chapter => DirectGrantKind::Chapter,
+            LayerGrantKind::Asset => DirectGrantKind::Asset,
+        };
+        if purchase.is_some() {
+            return state
+                .first_direct_grant
+                .record(actor, chapter, version_id, purchase, direct_kind)
+                .await;
+        }
         match state
             .direct
             .resolve_entitlement(Actor { user_id: actor }, chapter, None)
             .await?
         {
             EntitlementDecision::Allowed { pinned } if pinned.version_id == version_id => {
-                return Ok(());
+                return state
+                    .first_direct_grant
+                    .record(actor, chapter, version_id, None, direct_kind)
+                    .await;
             }
             EntitlementDecision::Allowed { .. } => return Err(DeliveryError::Conflict),
             EntitlementDecision::Denied {
@@ -279,7 +290,7 @@ async fn grant(
             // edition mismatch and metadata shells never record an open.
             let version_id = grant.version_id.clone();
             let mut response = private_response(Json(grant), &[]);
-            if let Err(error) = record_layer_grant_if_needed(
+            if let Err(error) = record_paid_grant_exposure(
                 &state,
                 actor_id,
                 chapter_id,
@@ -503,6 +514,7 @@ fn router_inner(
         entitlement: PgReaderEntitlements::new(pool.clone()),
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         direct: PgDirectEntitlements::new(pool.clone()),
+        first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         first_layer_grant: PgLayerFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         assets: PgPaidAssets::new(pool),
