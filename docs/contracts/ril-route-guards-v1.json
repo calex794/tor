@@ -300,7 +300,7 @@
       "method": "POST",
       "template": "/logout",
       "source": "crates/web/src/auth.rs",
-      "handler": "logout",
+      "handler": "logout::logout",
       "policy": "csrf_only"
     },
     {
@@ -544,15 +544,15 @@
     {
       "method": "GET",
       "template": "/me/layers/{layer_id}/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_books::page",
+      "source": "crates/web/src/auth/layer_books.rs",
+      "handler": "page",
       "policy": "owner"
     },
     {
       "method": "POST",
       "template": "/me/layers/{layer_id}/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_books::add",
+      "source": "crates/web/src/auth/layer_books.rs",
+      "handler": "add",
       "policy": "owner"
     }
   ]
