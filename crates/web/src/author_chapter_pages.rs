@@ -198,6 +198,13 @@ pub fn new_chapter(
         r#"<input type="hidden" name="access" value="free">
         <input type="hidden" name="price_amount" value="0">"#
     };
+    let illustrated_link = if paid_enabled {
+        format!(
+            "<p><a href=\"/me/books/{book_id}/chapters/illustrated\">Добавить платную главу с иллюстрацией</a></p>"
+        )
+    } else {
+        String::new()
+    };
     let html = include_str!("../templates/author_new_chapter.html")
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -215,8 +222,47 @@ pub fn new_chapter(
                 "Если книга уже опубликована, новая глава появится у читателей сразу после сохранения. Для неопубликованной книги глава останется скрытой до выпуска книги."
             },
         )
-        .replace("<!--SAVE_LABEL-->", "Сохранить главу");
+        .replace("<!--SAVE_LABEL-->", "Сохранить главу")
+        .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link);
     layout("Добавить главу", "Публикация главы автором", &html)
+}
+
+/// Initial end-to-end paid author scenario: one image at the end of the
+/// chapter. Browser never sees S3 keys; server freezes its asset ID with B text.
+pub fn illustrated_chapter(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
+    let content = format!(
+        r#"<section class="section auth-section"><div class="container">
+        <div class="auth-card author-chapter-card">
+          <p class="eyebrow">Кабинет автора · книга №{book_id}</p>
+          <h1>Платная глава с иллюстрацией</h1>
+          <p>Одно изображение появится в конце главы. После публикации менять его нельзя: новая редакция создаётся отдельно.</p>
+          <form class="auth-form author-form" action="/me/books/{book_id}/chapters/illustrated" method="post" enctype="multipart/form-data" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{}">
+            <input type="hidden" name="command_key" value="{}">
+            <label for="illustrated-number">Номер главы</label>
+            <input id="illustrated-number" name="number" type="number" min="1" max="1000000" value="1" required>
+            <label for="illustrated-title">Название</label>
+            <input id="illustrated-title" name="title" type="text" maxlength="200" required>
+            <label for="illustrated-price">Цена в копейках</label>
+            <input id="illustrated-price" name="price_amount" type="number" min="1" step="1" value="100" required>
+            <label for="illustrated-body">Текст главы (Markdown, до 50 000 символов)</label>
+            <textarea id="illustrated-body" name="body" rows="14" maxlength="49500" required></textarea>
+            <label for="illustrated-file">Иллюстрация PNG, JPEG или WebP (до 8 МиБ)</label>
+            <input id="illustrated-file" type="file" name="illustration"
+                   accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required>
+            <p class="account-profile__hint">Изображение проверяется и шифруется отдельно. При потере ответа повторите отправку без изменения файла и текста.</p>
+            <button class="button" type="submit">Сохранить платную главу с иллюстрацией</button>
+          </form>
+          <p class="auth-card__footer"><a href="/me/books/{book_id}/chapters/new">Вернуться к обычной форме</a></p>
+        </div></div></section>"#,
+        escape_html(csrf),
+        escape_html(command_key),
+    );
+    layout(
+        "Платная глава с иллюстрацией",
+        "Создание зашифрованной редакции с изображением по образцу NEwBOO.",
+        &content,
+    )
 }
 
 pub fn edit_chapter(
@@ -301,6 +347,13 @@ mod tests {
         assert!(enabled.contains("name=\"price_amount\""));
         assert!(enabled.contains("сразу после сохранения"));
         assert!(!enabled.contains("<!--CHAPTER_ACCESS-->"));
+        assert!(enabled.contains("/me/books/42/chapters/illustrated"));
+        assert!(!disabled.contains("/me/books/42/chapters/illustrated"));
+        let illustrated = illustrated_chapter(42, "csrf", "command").0;
+        assert!(illustrated.contains("enctype=\"multipart/form-data\""));
+        assert!(illustrated.contains("name=\"illustration\""));
+        assert!(illustrated.contains("name=\"csrf_token\" value=\"csrf\""));
+        assert!(!illustrated.contains("<script"));
     }
 
     #[test]

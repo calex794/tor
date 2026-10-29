@@ -19,6 +19,7 @@ use tor_reading::{
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
+mod author_chapter_images;
 mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
