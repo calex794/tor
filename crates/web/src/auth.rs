@@ -51,6 +51,7 @@ mod complete_chapter;
 mod continuation_demand;
 mod layer_books;
 mod layer_checkout;
+mod layer_checkout_api;
 mod layer_create;
 mod layer_offer_manage;
 mod library_actions;
@@ -152,6 +153,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled: paid_checkout_enabled && layer_checkout_api::configured(),
         paid_reader_available,
         authoring,
         progress,
@@ -194,6 +196,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
+        .route("/api/v1/layers/{id}/purchase", post(layer_checkout_api::buy))
         .route(
             "/me/books/{id}/buy-chapters",
             get(batch_checkout_browser::page).post(batch_checkout_browser::submit),

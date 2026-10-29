@@ -7,7 +7,7 @@ use TrafficSurface::{PublicPage as Page, Static};
 const L: &str = "/layers/";
 
 #[rustfmt::skip]
-pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
+pub(super) const LAYER_ROUTES: [RouteRegistration; 10] = [
     RouteRegistration::new(
         "/read/layer/{chapter_id}",
         "GET",
@@ -57,4 +57,13 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
         Dashboard,
         Write,
     ), // 87
+    RouteRegistration::new(
+        "/api/v1/layers/{id}/purchase",
+        "POST",
+        "/api/v1/layers/",
+        Prefix,
+        TrafficSurface::Api,
+        ProductArea::Billing,
+        Write,
+    ), // 88
 ];
