@@ -6,12 +6,11 @@ use tor_commerce::{
         checkout::PgCheckout,
         direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
         layer_exposure::{LayerGrantKind, PgLayerFirstExposure},
-        refund_use_evidence::PgRefundUseEvidence,
         refund_preflight::PgLayerRefundPreflight,
+        refund_use_evidence::PgRefundUseEvidence,
     },
     services::refunds::{
-        LayerRefundIntent, LayerRefundService, RefundGateError, UseEvidence,
-        UseObservation,
+        LayerRefundIntent, LayerRefundService, RefundGateError, UseEvidence, UseObservation,
     },
 };
 use tor_contracts::paid_delivery::ChapterVersionRef;
@@ -42,18 +41,19 @@ async fn published_paid(pool: &PgPool, book: i64, number: i32) -> (i64, i64) {
     .fetch_one(pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(chapter)
-    .bind(version)
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(pool)
+        .await
+        .unwrap();
     (chapter, version)
 }
 
-fn no_refund_money(pool: &PgPool, buyer: i64) -> impl std::future::Future<Output = (i64,i64)> + '_ {
+fn no_refund_money(
+    pool: &PgPool,
+    buyer: i64,
+) -> impl std::future::Future<Output = (i64, i64)> + '_ {
     async move {
         sqlx::query_as(
             "SELECT
@@ -113,7 +113,13 @@ async fn d_06_pg_direct_audit_is_per_purchase_actor_bound_and_not_refund_authori
 
     // A private image credential is NOT a verified chapter-text open.
     grants
-        .record(id(buyer), id(a), id(av), Some(id(pa)), DirectGrantKind::Asset)
+        .record(
+            id(buyer),
+            id(a),
+            id(av),
+            Some(id(pa)),
+            DirectGrantKind::Asset,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -122,7 +128,13 @@ async fn d_06_pg_direct_audit_is_per_purchase_actor_bound_and_not_refund_authori
     );
     assert_eq!(audit.direct(id(buyer), id(pb)).await, Ok(unknown()));
     grants
-        .record(id(buyer), id(a), id(av), Some(id(pa)), DirectGrantKind::Chapter)
+        .record(
+            id(buyer),
+            id(a),
+            id(av),
+            Some(id(pa)),
+            DirectGrantKind::Chapter,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -193,8 +205,14 @@ async fn d_06_pg_layer_use_audit_separates_active_p1_from_future_p2() {
     .unwrap();
     let initial_money = no_refund_money(&pool, buyer).await;
     assert_eq!(initial_money, (1050, 2));
-    assert_eq!(audit.layer(id(buyer), id(current.term_id)).await, Ok(unknown()));
-    assert_eq!(audit.layer(id(buyer), id(future.term_id)).await, Ok(unknown()));
+    assert_eq!(
+        audit.layer(id(buyer), id(current.term_id)).await,
+        Ok(unknown())
+    );
+    assert_eq!(
+        audit.layer(id(buyer), id(future.term_id)).await,
+        Ok(unknown())
+    );
     assert_eq!(
         audit.layer(id(owner), id(current.term_id)).await,
         Err(RefundGateError::NotFound),
@@ -217,7 +235,10 @@ async fn d_06_pg_layer_use_audit_separates_active_p1_from_future_p2() {
         service.observe_use(&intent).await.unwrap().evidence,
         UseEvidence::ProtectedGrantOnly,
     );
-    assert_eq!(audit.layer(id(buyer), id(future.term_id)).await, Ok(unknown()));
+    assert_eq!(
+        audit.layer(id(buyer), id(future.term_id)).await,
+        Ok(unknown())
+    );
     grants
         .record(id(buyer), id(chapter), id(version), LayerGrantKind::Chapter)
         .await
@@ -234,7 +255,10 @@ async fn d_06_pg_layer_use_audit_separates_active_p1_from_future_p2() {
         service.observe_use(&intent).await.unwrap().evidence,
         UseEvidence::BrowserRenderReported,
     );
-    assert_eq!(audit.layer(id(buyer), id(future.term_id)).await, Ok(unknown()));
+    assert_eq!(
+        audit.layer(id(buyer), id(future.term_id)).await,
+        Ok(unknown())
+    );
 
     sqlx::query(
         "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
@@ -255,7 +279,10 @@ async fn d_06_pg_layer_use_audit_separates_active_p1_from_future_p2() {
         service.preflight(&intent).await,
         Err(RefundGateError::RevocationPresent),
     );
-    assert_eq!(audit.layer(id(buyer), id(future.term_id)).await, Ok(unknown()));
+    assert_eq!(
+        audit.layer(id(buyer), id(future.term_id)).await,
+        Ok(unknown())
+    );
     assert_eq!(no_refund_money(&pool, buyer).await, initial_money);
     pool.close().await;
 }

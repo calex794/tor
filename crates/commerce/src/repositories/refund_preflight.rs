@@ -1,8 +1,8 @@
 //! D-06: read-only refund preflight for evidenced Layer purchases.
 //! A wallet debit, term revocation or non-empty reason is NOT enough to
 //! establish the refund deadline, first-content exposure, or reversal authority.
-use crate::services::refunds::{LayerRefundIntent, RefundGateError, UseObservation};
 use crate::repositories::refund_use_evidence::PgRefundUseEvidence;
+use crate::services::refunds::{LayerRefundIntent, RefundGateError, UseObservation};
 use sqlx::PgPool;
 
 #[derive(Clone)]
