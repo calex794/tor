@@ -548,17 +548,41 @@ const ROUTES: [RouteRegistration; 77] = [
     ), // 72
     // The authorised Layer reader never embeds paid text in its HTML.
     RouteRegistration::new(
-        "/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read,
+        "/read/layer/{chapter_id}",
+        "GET",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
     ), // 73
     RouteRegistration::new(
-        "/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free,
+        "/assets/newboo-layer-reader.mjs",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
     ), // 74
     // D-05: server-filtered owner-only picker and the locked add-book write.
     RouteRegistration::new(
-        "/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read,
+        "/me/layers/{layer_id}/books",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
     ), // 75
     RouteRegistration::new(
-        "/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write,
+        "/me/layers/{layer_id}/books",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
     ), // 76
 ];
 
