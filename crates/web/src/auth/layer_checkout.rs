@@ -33,8 +33,7 @@ pub(super) struct PurchaseForm {
 }
 
 fn enabled(state: &AuthState) -> bool {
-    state.paid_checkout_enabled
-        && std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref() == Ok("1")
+    state.paid_checkout_enabled && std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref() == Ok("1")
 }
 
 pub(super) fn routes() -> Router<AuthState> {
@@ -46,12 +45,7 @@ pub(super) fn routes() -> Router<AuthState> {
 fn quote_html(quote: &LayerOfferQuote, csrf: &str, key: &str) -> Html<String> {
     let mut books = String::from("<ul class=\"author-book-list\">");
     for book in &quote.books {
-        write!(
-            books,
-            "<li>{}</li>",
-            pages::escape_html(&book.title)
-        )
-        .expect("write String");
+        write!(books, "<li>{}</li>", pages::escape_html(&book.title)).expect("write String");
     }
     books.push_str("</ul>");
     let duration = match quote.term_kind {
