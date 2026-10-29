@@ -85,6 +85,7 @@ pub(crate) fn router(
     };
     Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
+        .route("/me/books/{id}/chapters/import", get(import_page))
         .route("/me/books/{id}/chapters", post(create_chapter))
         .route(
             "/me/books/{id}/chapters/import-preview",
@@ -150,6 +151,28 @@ async fn new_chapter(
         crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled),
         &cookies,
     )
+}
+
+async fn import_page(
+    State(state): State<AuthorChapterState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    if id <= 0 {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(crate::author_chapter_pages::import_chapters(id, &csrf), &cookies)
 }
 
 #[derive(Deserialize)]
