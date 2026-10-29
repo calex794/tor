@@ -84,7 +84,7 @@ async function testDevice(browser, name, width, height, tamper) {
   const fixture = sealedFixture();
   const grant = JSON.parse(JSON.stringify(fixture.grant));
   if (tamper) grant.content.object_sha256 = "0".repeat(64);
-  let grantCalls = 0, s3Calls = 0, completionGets = 0, completionPosts = 0, saved = null;
+  let grantCalls = 0, s3Calls = 0, openCalls = 0, completionGets = 0, completionPosts = 0, saved = null;
   await page.route("**/read/paid/103?purchase_id=501", (route) =>
     route.fulfill({
       status: 200, contentType: "text/html; charset=utf-8", body: html(),
@@ -117,6 +117,18 @@ async function testDevice(browser, name, width, height, tamper) {
       },
       body: fixture.ciphertext,
     });
+  });
+  await page.route("**/api/v1/reader/chapters/103/open-confirmations", async (route) => {
+    assert.equal(route.request().method(), "POST");
+    assert.equal(route.request().headers()["x-csrf-token"], "c".repeat(43));
+    assert.deepEqual(route.request().postDataJSON(), {
+      purchase_id: "501", version_id: "201",
+    });
+    assert.equal(grantCalls, 1);
+    assert.equal(s3Calls, 1, "render confirmation must follow ciphertext GET");
+    openCalls++;
+    await route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ status: "recorded" }) });
   });
   await page.route("**/api/v1/me/progress/purchased**", async (route) => {
     const request = route.request();
@@ -161,9 +173,11 @@ async function testDevice(browser, name, width, height, tamper) {
     const status = page.locator("[data-paid-status]");
     if (tamper) {
       await status.getByText("Не удалось открыть главу", { exact: false }).waitFor();
+      assert.equal(openCalls, 0, "tampered ciphertext must never ACK first open");
       await inspect(page, name, false);
     } else {
-      await status.getByText("Защищённая загрузка завершена", { exact: false }).waitFor();
+      await status.getByText("Глава открыта", { exact: false }).waitFor();
+      assert.equal(openCalls, 1, "verified text must ACK first open once");
       assert.equal(await page.locator(".reader-piece__text").first().textContent(),
         "Глава платная А😀Б");
       assert((await page.locator(".reader-piece__text").nth(1).textContent())

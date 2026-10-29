@@ -89,6 +89,16 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/buy-chapters"), "GET") => Some(76),
         (Some("/me/books/{id}/buy-chapters"), "POST") => Some(77),
         (Some("/read/{id}/want-continuation"), "POST") => Some(78),
+        (Some("/read/layer/{chapter_id}"), "GET") => Some(79),
+        (Some("/assets/newboo-layer-reader.mjs"), "GET") => Some(80),
+        (Some("/me/layers/{layer_id}/books"), "GET") => Some(81),
+        (Some("/me/layers/{layer_id}/books"), "POST") => Some(82),
+        (Some("/me/layers/new"), "GET") => Some(83),
+        (Some("/me/layers/new"), "POST") => Some(84),
+        (Some("/layers/{layer_id}"), "GET") => Some(85),
+        (Some("/layers/{layer_id}/buy"), "POST") => Some(86),
+        (Some("/me/layers/{layer_id}/offer"), "POST") => Some(87),
+        (Some("/api/v1/reader/chapters/{chapter_id}/open-confirmations"), "POST") => Some(88),
         _ => None,
     };
     index

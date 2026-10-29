@@ -14,12 +14,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
-use std::{
-    env, fs::OpenOptions, io::Write, num::NonZeroU32, path::Path, process::Command, sync::Arc,
-    time::Duration,
-};
+use std::{env, num::NonZeroU32, process::Command, sync::Arc, time::Duration};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -28,7 +23,10 @@ use tor_books::repositories::{
     paid_storage::{PaidPublication, PgPaidStorage},
     PgCatalog,
 };
-use tor_commerce::repositories::entitlements::{MixedTocAccess, PgDirectEntitlements};
+use tor_commerce::{
+    domain::money::{IdempotencyKey, MoneyMinor, WalletId},
+    repositories::entitlements::{MixedTocAccess, PgDirectEntitlements},
+};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 use tor_reading::repositories::PgReader;
 use tor_storage::{
@@ -42,6 +40,12 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/direct_fixtures.rs"]
+mod direct_fixtures;
+#[path = "paid_grants_s3_pg/fixture_output.rs"]
+mod fixture_output;
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
@@ -217,49 +221,6 @@ async fn html_body(response: Response) -> String {
     .unwrap()
 }
 
-fn save_ephemeral_fixture(
-    grant: Value,
-    version: i64,
-    purchase: i64,
-    reader_html: String,
-    reader_csp: String,
-    expiry_probe_url: Value,
-    toc_target: (i64, i64, i64, i64, i64),
-) {
-    let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
-    let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
-    assert!(
-        Path::new(&target).starts_with(&runner_temp),
-        "never store scoped secrets inside the source checkout"
-    );
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&target).expect("private fixture output");
-    let payload = json!({
-        "grant": grant,
-        "purchased_version_id": version.to_string(),
-        "purchase_id": purchase.to_string(),
-        "reader_html": reader_html,
-        "reader_csp": reader_csp,
-        "expiry_probe_url": expiry_probe_url,
-        "expected_markdown": MARKDOWN,
-        "expected_book_title": BOOK_TITLE,
-        "expected_chapter_title": CHAPTER_TITLE,
-        "expected_chapter_no": 1,
-        "expected_version_no": 1,
-        "toc_second_chapter_id": toc_target.0.to_string(),
-        "toc_second_purchase_id": toc_target.1.to_string(),
-        "toc_second_title": CHAPTER_TWO_TITLE,
-        "toc_free_chapter_id": toc_target.2.to_string(),
-        "toc_locked_chapter_id": toc_target.3.to_string(),
-        "toc_draft_chapter_id": toc_target.4.to_string(),
-    });
-    file.write_all(payload.to_string().as_bytes()).unwrap();
-    file.sync_all().unwrap();
-}
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18, local MinIO and NODE WebCrypto follow-up"]
 async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
@@ -290,7 +251,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
-    let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let (live_desktop, live_desktop_session) =
         user(&accounts, "s035-private-desktop@tor-ci.example").await;
     let (live_mobile, live_mobile_session) =
@@ -417,6 +378,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
+    // Before S035 checkout, prove that Layer credentials do not grant direct
+    // access and preserve an independent first-issuance identity.
+    let layer_reader_html = layer_fixtures::assert_layer_s3_grants(
+        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
+        &app,
+        &url,
+        (author, stranger),
+        (book, chapter, v1),
+        (&stranger_cookie, &csrf),
+    )
+    .await;
     // A second fully verified paid edition proves that the TOC contains
     // live links, not synthetic chapter IDs or a public TOC.
     let chapter_two = scalar(
@@ -478,6 +450,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         MARKDOWN,
     )
     .await;
+    direct_fixtures::assert_not_issued(&url, purchase_id);
+    direct_fixtures::assert_not_issued(&url, purchase_two_id);
     s035_live_chromium::verify(
         &app,
         s035_live_chromium::Fixture {
@@ -563,6 +537,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(purchased.headers()["x-robots-tag"], "noindex");
     let first = decode(purchased).await;
     assert_eq!(first["version_id"], v1.to_string());
+    direct_fixtures::assert_first_issued(&url, purchase_id, chapter, v1, purchase_two_id);
+    direct_fixtures::assert_batch_first_render(
+        &app,
+        &url,
+        (buyer, chapter, v1, purchase_id, purchase_two_id),
+        (&buyer_cookie, &csrf),
+    )
+    .await;
     assert_eq!(first["schema"], "tor.paid_delivery.v1");
     assert!(!first.to_string().contains(MARKDOWN), "no plaintext in API");
 
@@ -878,11 +860,11 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .unwrap(),
     )
     .unwrap();
-    save_ephemeral_fixture(
+    fixture_output::save_ephemeral_fixture(
         still_v1,
         v1,
         purchase_id,
-        visible_html,
+        (visible_html, layer_reader_html),
         reader_csp,
         expiry_probe_url,
         (

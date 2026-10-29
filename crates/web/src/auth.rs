@@ -49,8 +49,13 @@ mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod layer_books;
+mod layer_checkout;
+mod layer_create;
+mod layer_offer_manage;
 mod library_actions;
 mod login_limiter;
+mod logout;
 mod paid_completion;
 mod private_reader;
 mod rankings;
@@ -231,8 +236,12 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(logout))
+        .route("/logout", post(logout::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
+        .merge(layer_books::routes())
+        .merge(layer_create::routes())
+        .merge(layer_checkout::routes())
+        .merge(layer_offer_manage::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
@@ -246,11 +255,9 @@ fn router_inner(
         app
     }
 }
-
 fn deny(status: StatusCode) -> Response {
     private_response(status, &[])
 }
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
@@ -315,8 +322,22 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+    let books = match state.authoring.list_owned_books(actor).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !layer_books::enabled() {
+        return private_response(author_pages::index(&books), &[]);
+    }
+    let actor = match tor_contracts::paid_delivery::PositiveId::new(actor) {
+        Ok(actor) => actor,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let layers = tor_commerce::services::layers::LayerService::new(
+        tor_commerce::repositories::layers::PgLayers::new(state.accounts.pool().clone()),
+    );
+    match layers.owned_layers(actor, 100).await {
+        Ok(layers) => private_response(author_pages::index_with_layers(&books, &layers), &[]),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
@@ -537,25 +558,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
 }

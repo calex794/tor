@@ -425,6 +425,10 @@ fn make_router(
             get(pages::paid_reader_script),
         )
         .route(
+            "/assets/newboo-layer-reader.mjs",
+            get(pages::layer_reader_script),
+        )
+        .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),
         )

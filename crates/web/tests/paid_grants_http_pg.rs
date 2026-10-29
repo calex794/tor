@@ -1,6 +1,8 @@
 //! S034: real PostgreSQL/Axum grant boundary, without a real payment provider.
 //! G is a deterministic signer fixture here; actual MinIO signing belongs to
 //! tor-storage/s3_private_provider and the final full-stack staging suite.
+#[path = "paid_grants_http_pg/render_confirmations.rs"]
+mod render_confirmations;
 use async_trait::async_trait;
 use axum::{
     body::{to_bytes, Body},
@@ -523,6 +525,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .unwrap();
     let purchase_id = receipt.purchase_id.get();
     let reader_path = format!("/read/paid/{chapter}?purchase_id={purchase_id}");
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+            ),
+        ),
+        0,
+        "checkout is not a protected read"
+    );
     let stranger = read_page(&browser, &reader_path, Some(&author_cookie)).await;
     assert_eq!(stranger.status(), StatusCode::FORBIDDEN);
     let page = read_page(&browser, &reader_path, Some(&buyer_cookie)).await;
@@ -549,6 +561,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         "S034 raw plaintext must not enter SSR HTML"
     );
     assert!(!html.contains("dek_b64u"), "S034 no scoped DEK in SSR HTML");
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+            ),
+        ),
+        0,
+        "reader shell is not first paid-grant evidence"
+    );
     s065_alternate_reader_access_matrix(
         &browser,
         (chapter, version, purchase_id),
@@ -561,6 +583,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         fake.signed.load(Ordering::SeqCst),
         0,
         "alternate reader or progress routes must not sign G objects"
+    );
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+            ),
+        ),
+        0,
+        "alternate reader/progress routes must not record first grant"
     );
     // A chapter ciphertext UUID is not an image B membership, even for
     // its valid buyer. No fallback to public media or generic G signing.
@@ -671,6 +703,32 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert_eq!(body["content"]["object_sha256"], sha);
     assert!(!body.to_string().contains(BODY));
     assert_eq!(fake.signed.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT chapter_id || ':' || version_id || ':' || object_kind
+                 FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+            ),
+        ),
+        format!("{chapter}:{version}:chapter"),
+        "first successful signed direct V1 grant must create exact evidence"
+    );
+    let first_granted_at = pg(
+        &url,
+        &format!(
+            "SELECT granted_at::TEXT FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+        ),
+    );
+
+    let (open_route, open_body, first_open) = render_confirmations::assert_render_receipt(
+        &app,
+        &browser,
+        &url,
+        (chapter, version, purchase_id),
+        (&buyer_cookie, &csrf, &author_cookie, &author_csrf),
+    )
+    .await;
 
     let v2 = scalar(
         &url,
@@ -703,6 +761,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert_eq!(hidden.status(), StatusCode::OK);
     assert_eq!(json_body(hidden).await["version_id"], version.to_string());
     assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT granted_at::TEXT FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+            ),
+        ),
+        first_granted_at,
+        "default source cannot overwrite a prior explicit direct first grant"
+    );
 
     pg(
         &url,
@@ -771,6 +839,33 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         3,
         "G signed once, but C must discard the token after D revocation"
     );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT granted_at::TEXT FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
+            ),
+        ),
+        first_granted_at,
+        "failed final D recheck must not overwrite direct first grant"
+    );
+    // An ACK arriving after a refund/revocation cannot write new evidence.
+    assert_eq!(
+        send(
+            &browser,
+            &open_route,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            &open_body
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(pg(&url, &format!(
+        "SELECT confirmed_at::TEXT FROM chapter_purchase_render_confirmations WHERE purchase_id={purchase_id}"
+    )), first_open);
     // A subsequent request is rejected by D before reaching G.
     assert_eq!(
         send(
