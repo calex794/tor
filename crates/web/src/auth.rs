@@ -135,6 +135,9 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    // Deployment stays default-off until the complete Layer management
+    // route and transaction tests have passed on the final integrated SHA.
+    let layer_management_enabled = std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
@@ -143,6 +146,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_management_enabled,
         paid_reader_available,
         authoring,
         progress,
@@ -202,6 +206,7 @@ fn router_inner(
             "/api/v1/me/library/{id}",
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
+        .route("/me/layers/{layer_id}/books", get(layer_books::page).post(layer_books::add))
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book))
