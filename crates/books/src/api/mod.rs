@@ -91,3 +91,43 @@ pub fn router(repository: Arc<dyn PublicBookRepository>) -> Router {
         .route("/api/v1/books/import-preview", post(preview_chapter_import))
         .with_state(ApiState { repository })
 }
+
+#[cfg(test)]
+mod import_preview_http_tests {
+    use super::*;
+    use axum::{body::to_bytes, http::Request, routing::post};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn merges_false_boundary_without_publishing() {
+        let app = Router::new().route("/preview", post(preview_chapter_import));
+        let request = Request::builder()
+            .method("POST")
+            .uri("/preview")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::json!({
+                    "text": "Глава 1: Начало\\nТекст\\nГлава 2: Ложная\\nПродолжение\\nГлава 3: Финал\\nКонец",
+                    "merge_at_lines": [2]
+                }).to_string()
+            )).unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), 2_000_000).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["chapters"].as_array().unwrap().len(), 2);
+        assert!(value["chapters"][0]["body"].as_str().unwrap().contains("Глава 2: Ложная"));
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_boundary() {
+        let app = Router::new().route("/preview", post(preview_chapter_import));
+        let request = Request::builder().method("POST").uri("/preview")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::json!({"text":"Глава 1: Начало\\nТекст","merge_at_lines":[99]}).to_string()
+            )).unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}
