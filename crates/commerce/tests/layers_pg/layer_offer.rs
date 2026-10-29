@@ -22,7 +22,10 @@ async fn d_05_pg_layer_offer_quote_is_complete_and_never_authoritative_for_check
     assert_eq!(first.offer_id, offer);
     assert_eq!(first.version_id, version);
     assert_eq!(first.price_minor, 251);
-    assert_eq!(first.term_kind, tor_commerce::domain::layers::LayerTermKind::Prepaid30Days);
+    assert_eq!(
+        first.term_kind,
+        tor_commerce::domain::layers::LayerTermKind::Prepaid30Days
+    );
     assert_eq!(first.books.len(), 1);
     assert_eq!(first.books[0].book_id, book);
 
@@ -48,13 +51,12 @@ async fn d_05_pg_layer_offer_quote_is_complete_and_never_authoritative_for_check
         vec![book, second_book],
     );
     // A sale requires the latest quote; a quote never grants reading or money.
-    let purchases: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM commerce_layer_terms WHERE layer_id=$1",
-    )
-    .bind(layer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let purchases: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM commerce_layer_terms WHERE layer_id=$1")
+            .bind(layer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(purchases, 0);
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
         .bind(book)
@@ -67,17 +69,17 @@ async fn d_05_pg_layer_offer_quote_is_complete_and_never_authoritative_for_check
         "an incomplete or held composition must not be advertised"
     );
     assert_eq!(
-        repo.buy(&cmd(buyer, layer, offer, revision, 251, 'H')).await,
+        repo.buy(&cmd(buyer, layer, offer, revision, 251, 'H'))
+            .await,
         Err(LayerError::Inaccessible),
         "the wallet may not be debited for a held Layer Book"
     );
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(balance, 1500);
     sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
         .bind(book)
@@ -100,11 +102,17 @@ async fn d_05_pg_layer_offer_quote_is_complete_and_never_authoritative_for_check
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_pg_old_held_book_does_not_block_fresh_buyer_of_current_layer() {
     let (pool, repo, owner, buyer, previous) = setup("quote-old-held").await;
-    let layer = repo.create_layer(id(owner), "Current book only").await.unwrap();
+    let layer = repo
+        .create_layer(id(owner), "Current book only")
+        .await
+        .unwrap();
     repo.add_book(id(owner), id(layer), id(previous))
         .await
         .unwrap();
-    let offer = repo.publish_offer(id(owner), id(layer), 251, false).await.unwrap();
+    let offer = repo
+        .publish_offer(id(owner), id(layer), 251, false)
+        .await
+        .unwrap();
     let current_book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES($1,'ru','Current valid','public',$2) RETURNING id",
@@ -131,7 +139,10 @@ async fn d_05_pg_old_held_book_does_not_block_fresh_buyer_of_current_layer() {
     assert_eq!(quote.books[0].book_id, current_book);
     assert_eq!(quote.version_id, current);
 
-    let paid = repo.buy(&cmd(buyer, layer, offer, current, 251, 'R')).await.unwrap();
+    let paid = repo
+        .buy(&cmd(buyer, layer, offer, current, 251, 'R'))
+        .await
+        .unwrap();
     assert_eq!(paid.balance_after_minor, 1249);
     let frozen_books: Vec<i64> = sqlx::query_scalar(
         "SELECT book_id FROM commerce_layer_term_share_snapshots WHERE term_id=$1",
@@ -140,7 +151,11 @@ async fn d_05_pg_old_held_book_does_not_block_fresh_buyer_of_current_layer() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(frozen_books, vec![current_book], "old held book is not in a new paid chain");
+    assert_eq!(
+        frozen_books,
+        vec![current_book],
+        "old held book is not in a new paid chain"
+    );
     pool.close().await;
 }
 
