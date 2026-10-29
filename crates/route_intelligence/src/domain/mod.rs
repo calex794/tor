@@ -82,7 +82,6 @@ pub(super) const LAYER_CHECKOUT_ROUTE: RouteRegistration = RouteRegistration::ne
     CostClass::Write,
 );
 
-
 pub(super) const LAYER_CREATE_PAGE_ROUTE: RouteRegistration = RouteRegistration::new(
     "/me/layers/new",
     "GET",
