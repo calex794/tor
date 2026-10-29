@@ -60,6 +60,26 @@ pub fn offer_page(
     }
     let price = rubles(offer.price_minor);
     let kind = kind_label(&offer.term_kind);
+    let price_card = format!(
+        "<span class=\"layer-offer__label\">{kind}</span>
+         <strong class=\"layer-offer__price\">{price}</strong>
+         <span class=\"layer-offer__meta\">{} книг</span>",
+        offer.public_book_count
+    );
+    // The original NEwBOO pricing card itself is the buy button/link.
+    // Render the card once: never show two competing price blocks.
+    let interactive_pricing = checkout_enabled
+        && offer.public_book_count > 0
+        && viewer != Some(offer.owner_id)
+        && !(offer.has_access && offer.term_kind == "lifetime")
+        && (viewer.is_none() || (csrf.is_some() && key.is_some()));
+    let static_price_card = if interactive_pricing {
+        String::new()
+    } else {
+        format!(
+            "<div class=\"layer-offer\"><div class=\"layer-offer__box\">{price_card}</div></div>"
+        )
+    };
     let mut action = String::new();
     if offer.public_book_count == 0 {
         action.push_str("<p class=\"layer-note\" role=\"status\">Оплата станет доступна после публикации книг.</p>");
@@ -70,7 +90,10 @@ pub fn offer_page(
     } else if !checkout_enabled {
         action.push_str("<p class=\"layer-note\" role=\"status\">Покупка временно отключена. Уже оплаченные сроки сохраняются.</p>");
     } else if viewer.is_none() {
-        action.push_str("<a class=\"layer-offer__box layer-offer__box--button\" href=\"/login\">Войти и приобрести доступ</a>");
+        action.push_str(&format!(
+            "<div class=\"layer-offer\"><a class=\"layer-offer__box layer-offer__box--button\" href=\"/login\">{price_card}
+             <span class=\"layer-offer__meta\">Войти и приобрести доступ</span></a></div>"
+        ));
     } else if let (Some(csrf), Some(key)) = (csrf, key) {
         let button = if offer.has_access {
             "Продлить ещё на 30 дней"
@@ -87,8 +110,10 @@ pub fn offer_page(
              <input type=\"hidden\" name=\"expected_price_minor\" value=\"{}\">
              <label class=\"layer-purchase-confirm\"><input type=\"checkbox\" name=\"confirm\" value=\"1\" required>
              <span>Подтверждаю разовую покупку за {price}. {kind}. Автосписаний нет.</span></label>
-             <button type=\"submit\" class=\"layer-offer__box layer-offer__box--button\">{button}</button>
-             </form>",
+             <div class=\"layer-offer\"><button type=\"submit\" class=\"layer-offer__box layer-offer__box--button\">
+               {price_card}
+               <span class=\"layer-offer__meta\">{button}</span>
+             </button></div></form>",
             offer.id,
             escape_html(csrf),
             escape_html(key),
@@ -118,18 +143,14 @@ pub fn offer_page(
              {list}
            </section>
            <aside class=\"layer-panel layer-storefront-offer\" aria-label=\"Условия покупки\">
-             <div class=\"layer-offer\"><div class=\"layer-offer__box\">
-               <span class=\"layer-offer__label\">{kind}</span>
-               <strong class=\"layer-offer__price\">{price}</strong>
-               <span class=\"layer-offer__meta\">{} книг</span>
-             </div></div>
+             {static_price_card}
              {action}
              <p class=\"layer-note\">Оплата только из внутреннего кошелька. Автоматического продления нет.</p>
            </aside>
          </div>
          <p class=\"layer-back\"><a href=\"/catalog\">В каталог</a> · <a href=\"/me/library/layers\">Мои пакеты</a></p>
          </div></section>",
-        offer.public_book_count, offer.public_book_count
+        offer.public_book_count
     );
     layout(
         &offer.title,
@@ -249,6 +270,7 @@ mod tests {
         assert!(page.contains("layer-storefront-books"));
         assert!(page.contains("href=\"/books/33\""));
         assert!(page.contains("12,34 ₽"));
+        assert_eq!(page.matches("class=\"layer-offer__box").count(), 1);
         assert!(page.contains("Подтверждаю разовую покупку"));
         assert!(page.contains("30 дней без автоматического продления"));
         assert!(page.contains("&lt;script&gt;"));
@@ -257,6 +279,7 @@ mod tests {
         assert!(!page.contains("<img src=x>"));
         let guest = offer_page(&offer, None, None, None, false, true).0;
         assert!(guest.contains("Войти и приобрести доступ"));
+        assert_eq!(guest.matches("class=\"layer-offer__box").count(), 1);
         assert!(!guest.contains("csrf_token"));
         let disabled_guest = offer_page(&offer, None, None, None, false, false).0;
         assert!(disabled_guest.contains("Покупка временно отключена"));
