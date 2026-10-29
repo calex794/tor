@@ -27,6 +27,19 @@ use crate::auth_cookies::{private_response, CookiePolicy};
 #[async_trait]
 pub(crate) trait PaidChapterPublisher: Send + Sync {
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+
+    /// The isolated illustrated-author route supplies a server-computed
+    /// immutable image identity. Non-S3 publishers fail closed by default.
+    async fn publish_with_image(
+        &self,
+        _actor: i64,
+        _request: &SaveChapter,
+        _object_id: &tor_contracts::paid_delivery::ObjectId,
+        _bytes: &[u8],
+        _mime: &str,
+    ) -> Result<(), AuthorError> {
+        Err(AuthorError::Unavailable)
+    }
 }
 
 #[derive(Clone)]
@@ -75,6 +88,9 @@ pub(crate) fn router(
     cookies: CookiePolicy,
     paid_author: Option<Arc<dyn PaidChapterPublisher>>,
 ) -> Router {
+    let images = paid_author.as_ref().map(|publisher| {
+        crate::author_chapter_images::router(accounts.clone(), cookies.clone(), publisher.clone())
+    });
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let state = AuthorChapterState {
         accounts,
@@ -82,7 +98,7 @@ pub(crate) fn router(
         cookies,
         paid_author,
     };
-    Router::new()
+    let app = Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
         .route("/me/books/{id}/chapters", post(create_chapter))
         .route(
@@ -95,7 +111,12 @@ pub(crate) fn router(
         )
         .route("/me/books/{id}/publish", post(publish_book))
         .layer(DefaultBodyLimit::max(768 * 1024))
-        .with_state(state)
+        .with_state(state);
+    if let Some(images) = images {
+        app.merge(images)
+    } else {
+        app
+    }
 }
 
 async fn session_actor(
