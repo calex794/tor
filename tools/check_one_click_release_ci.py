@@ -28,7 +28,7 @@ GOOD_CONCLUSIONS = {"success", "neutral", "skipped"}
 
 
 def evaluate_branch_policy(branch: dict) -> tuple[str, str]:
-    """I-06 release minimum: enforced \`rules\` GitHub check on protected main.
+    """I-06 release minimum: enforced 'rules' GitHub check on protected main.
 
     This read-only check cannot prove the PR-only setting or bypass policy.
     Those require a separate administrative review and a denied-push test.
@@ -38,8 +38,8 @@ def evaluate_branch_policy(branch: dict) -> tuple[str, str]:
     if branch.get("protected") is not True:
         return "fail", "main is unprotected (GitHub branches/main protected=false)"
     policy = branch.get("protection")
-    if not isinstance(policy, dict) or policy.get("enabled") is not True:
-        return "fail", "main protection enabled flag is missing"
+    if not isinstance(policy, dict) or policy.get("enabled") is False:
+        return "fail", "main protection is disabled"
     checks = policy.get("required_status_checks")
     if not isinstance(checks, dict):
         return "fail", "main has no required status checks"
