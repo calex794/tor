@@ -22,6 +22,19 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
         .create_layer(id(owner), "Picker only owner")
         .await
         .unwrap();
+    let summaries = repo.owned_layers(id(owner), 100).await.unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].layer_id, layer);
+    assert_eq!(summaries[0].title, "Picker only owner");
+    assert!(repo
+        .owned_layers(id(collaborator), 100)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        repo.owned_layers(id(owner), 0).await,
+        Err(LayerError::Invalid)
+    );
     let team_book = own_book(&pool, owner, "team").await;
     let held_book = own_book(&pool, owner, "held").await;
     let other_owner_book = own_book(&pool, collaborator, "other-owner").await;
