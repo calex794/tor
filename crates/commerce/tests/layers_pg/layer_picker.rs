@@ -187,13 +187,12 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
         Err(LayerError::StaleOffer),
         "a stale HTTP form must not remove a Book from a newer composition"
     );
-    let unchanged: i64 = sqlx::query_scalar(
-        "SELECT current_version_id FROM commerce_layers WHERE id=$1",
-    )
-    .bind(layer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let unchanged: i64 =
+        sqlx::query_scalar("SELECT current_version_id FROM commerce_layers WHERE id=$1")
+            .bind(layer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(unchanged, newer.current_version_id);
     assert_eq!(
         repo.remove_book_if_current(
