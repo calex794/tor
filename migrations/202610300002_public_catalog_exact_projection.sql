@@ -15,7 +15,7 @@ WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted;
 CREATE TABLE public_catalog_facets (
     kind TEXT NOT NULL CHECK (kind IN ('genre','tag','fandom')),
     name TEXT NOT NULL CHECK (name <> ''),
-    reference_count BIGINT NOT NULL CHECK (reference_count > 0),
+    reference_count BIGINT NOT NULL CHECK (reference_count >= 0),
     PRIMARY KEY (kind,name)
 );
 -- Deduplicate repeated values inside one book, as the existing DISTINCT did.
