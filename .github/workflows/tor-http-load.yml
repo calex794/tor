@@ -6,6 +6,8 @@ on:
       - tests/load/**
       - tools/ci_test_map.py
       - tests/architecture/test_ci_workflow_wiring.py
+      - crates/search/src/repositories/catalog.rs
+      - migrations/202610300002_public_catalog_exact_projection.sql
   workflow_dispatch:
     inputs:
       peak_rps:
