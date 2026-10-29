@@ -20,9 +20,11 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
-fn pg(url: &str, statement: &str) -> String {
+fn pg_blocking(url: &str, statement: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let result = Command::new("psql")
+        .env("PGOPTIONS", "-c statement_timeout=10000 -c lock_timeout=5000")
+        .env("PGCONNECT_TIMEOUT", "5")
         .args([
             "-X",
             "-A",
@@ -43,6 +45,16 @@ fn pg(url: &str, statement: &str) -> String {
         String::from_utf8_lossy(&result.stderr),
     );
     String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
+// psql may wait for a SQLx rollback queued by a rejected HTTP command.
+// Keep the single-thread Tokio runtime polling while the fixture process waits.
+async fn pg(url: &str, statement: &str) -> String {
+    let url = url.to_owned();
+    let statement = statement.to_owned();
+    tokio::task::spawn_blocking(move || pg_blocking(&url, &statement))
+        .await
+        .expect("fixture process task")
 }
 
 async fn call(
@@ -105,6 +117,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
              VALUES('ci:e02:http:{nonce}','ru','Книга <script>','public') RETURNING id"
         ),
     )
+    .await
     .parse()
     .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
@@ -217,6 +230,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &url,
         &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}"),
     )
+    .await
     .parse()
     .unwrap();
     assert_eq!(count, 1);
@@ -225,6 +239,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &url,
         &format!("SELECT id FROM discussion_comments WHERE book_id={book}"),
     )
+    .await
     .parse()
     .unwrap();
     let reply_form = format!(
@@ -306,13 +321,15 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         pg(
             &url,
             &format!("SELECT count(*) FROM discussion_comments WHERE parent_id={parent}")
-        ),
+        )
+        .await,
         "1"
     );
     pg(
         &url,
         &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={parent}"),
-    );
+    )
+    .await;
     assert_eq!(
         call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
             .await
@@ -322,7 +339,8 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
-    );
+    )
+    .await;
     assert_eq!(
         call(&app, "GET", &comments_path, "", ORIGIN, "")
             .await
@@ -342,11 +360,13 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
-    );
+    )
+    .await;
     pg(
         &url,
         &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
-    );
-    pg(&url, &format!("DELETE FROM users WHERE id={user}"));
-    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
+    )
+    .await;
+    pg(&url, &format!("DELETE FROM users WHERE id={user}")).await;
+    pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }
