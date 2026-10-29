@@ -40,9 +40,17 @@ GROUP BY kind,name;
 -- No API credentials can write fabricated counts or call the privileged
 -- delta helpers directly. Trigger owners can access them on behalf of writes.
 REVOKE ALL ON public_catalog_statistics,public_catalog_facets FROM PUBLIC;
-REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER
-    ON public_catalog_statistics,public_catalog_facets FROM tor_app;
-GRANT SELECT ON public_catalog_statistics,public_catalog_facets TO tor_app;
+-- The raw-migration contract also installs into fresh throwaway databases
+-- without application roles. The SQLx runtime database always has tor_app.
+DO $
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
+        REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER
+            ON public_catalog_statistics,public_catalog_facets FROM tor_app;
+        GRANT SELECT ON public_catalog_statistics,public_catalog_facets TO tor_app;
+    END IF;
+END;
+$;
 
 CREATE FUNCTION public.perf233_adjust_count(change BIGINT)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
