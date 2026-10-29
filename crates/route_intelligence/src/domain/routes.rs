@@ -10,7 +10,7 @@ const L: &str = "/layers/";
 // Explicit route table is independently checked by RIL parity and guard CI.
 // Keep its reviewed compact entries under the repository's 600-line limit.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 85] = [
+const ROUTES: [RouteRegistration; 88] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -585,6 +585,9 @@ const ROUTES: [RouteRegistration; 85] = [
     RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write),
     RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 83
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 84
+    RouteRegistration::new("/api/v1/purchases/batch", "POST", "/api/v1/purchases/", Exact, Api, ProductArea::Billing, Write), // 85
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 86
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 87
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
