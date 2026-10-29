@@ -24,7 +24,10 @@ async fn d_05_pg_paid_term_requires_matching_wallet_and_command_evidence() {
     .bind(version)
     .execute(&pool)
     .await;
-    assert!(invalid_duration.is_err(), "duration must be exactly 30 days");
+    assert!(
+        invalid_duration.is_err(),
+        "duration must be exactly 30 days"
+    );
     let missing_expiry = sqlx::query(
         "INSERT INTO commerce_layer_terms
          (user_id,layer_id,offer_id,base_version_id,term_kind,amount_minor,
@@ -37,7 +40,10 @@ async fn d_05_pg_paid_term_requires_matching_wallet_and_command_evidence() {
     .bind(version)
     .execute(&pool)
     .await;
-    assert!(missing_expiry.is_err(), "paid 30-day terms require an expiry");
+    assert!(
+        missing_expiry.is_err(),
+        "paid 30-day terms require an expiry"
+    );
 
     // Once paid, even an app-role SQL UPDATE cannot rewrite or unlink the
     // original command. The mutable NULL->term linkage is a one-time step.
@@ -49,7 +55,10 @@ async fn d_05_pg_paid_term_requires_matching_wallet_and_command_evidence() {
     .bind(first_command.key.as_str())
     .execute(&pool)
     .await;
-    assert!(change_price.is_err(), "completed command price is immutable");
+    assert!(
+        change_price.is_err(),
+        "completed command price is immutable"
+    );
     let unlink = sqlx::query(
         "UPDATE commerce_layer_commands SET term_id=NULL
          WHERE user_id=$1 AND command_key=$2",
