@@ -56,6 +56,14 @@ BEGIN
     IF NEW.active_version_id = OLD.active_version_id THEN
         RETURN NEW;
     END IF;
+    -- Even direct SQL writes cannot downgrade a purchased edition.
+    IF (SELECT version_no FROM public.chapter_versions
+        WHERE chapter_id = NEW.chapter_id AND id = NEW.active_version_id)
+       <= (SELECT version_no FROM public.chapter_versions
+           WHERE chapter_id = OLD.chapter_id AND id = OLD.active_version_id) THEN
+        RAISE EXCEPTION 'purchased library edition cannot be downgraded'
+            USING ERRCODE = '23514';
+    END IF;
 
     IF NOT EXISTS (
         SELECT 1
