@@ -123,6 +123,22 @@ mod import_preview_http_tests {
     }
 
     #[tokio::test]
+    async fn rejects_oversized_request_before_json_parsing() {
+        let app = Router::new().route(
+            "/preview",
+            post(preview_chapter_import).layer(DefaultBodyLimit::max(2_000_000)),
+        );
+        let request = Request::builder()
+            .method("POST")
+            .uri("/preview")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from("x".repeat(2_000_001)))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
     async fn rejects_invalid_boundary() {
         let app = Router::new().route("/preview", post(preview_chapter_import));
         let request = Request::builder().method("POST").uri("/preview")
