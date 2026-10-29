@@ -141,7 +141,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
             .attach_prepared(actor, pinned, ordinal, media_type, &object_id)
             .await
         {
-            Ok(()) => Ok(object_id),
+            Ok(()) => Ok(object_id.clone()),
             Err(AuthorError::Conflict) => self
                 .assets
                 .existing_draft_upload(actor, pinned, ordinal, media_type, &digest)
