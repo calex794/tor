@@ -61,6 +61,26 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         if !(1..=64).contains(&ordinal) {
             return Err(AuthorError::Invalid);
         }
+        let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
+        self.upload_to_draft_with_id(actor, request, ordinal, bytes, mime, &object_id)
+            .await
+    }
+
+    /// The HTTP illustrated form derives this UUID from a fresh high-entropy
+    /// command key *before* B freezes the Markdown. Client input never selects
+    /// the UUID; replays keep both the marker and the same image identity.
+    pub(crate) async fn upload_to_draft_with_id(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+        ordinal: i16,
+        bytes: &[u8],
+        mime: &str,
+        object_id: &ObjectId,
+    ) -> Result<ObjectId, AuthorError> {
+        if !(1..=64).contains(&ordinal) {
+            return Err(AuthorError::Invalid);
+        }
         let media_type = match mime {
             "image/png" => "image/png",
             "image/jpeg" => "image/jpeg",
@@ -90,9 +110,12 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
             .existing_draft_upload(actor, pinned, ordinal, media_type, &digest)
             .await?
         {
-            return Ok(existing);
+            return if existing == *object_id {
+                Ok(existing)
+            } else {
+                Err(AuthorError::Conflict)
+            };
         }
-        let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
         let sealed =
             seal_asset_with_keyring(pinned, object_id.clone(), bytes, media_type, &self.keyring)
                 .map_err(|error| match error {
@@ -123,6 +146,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
                 .assets
                 .existing_draft_upload(actor, pinned, ordinal, media_type, &digest)
                 .await?
+                .filter(|existing| existing == object_id)
                 .ok_or(AuthorError::Conflict),
             Err(error) => Err(error),
         }
