@@ -1,11 +1,11 @@
 //! Public chapter reading and the S005 paid metadata paywall.
 use super::{auth_cookies, pages, AppState};
-use tor_reading::services::PublicReadingRepository;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::Response,
 };
+use tor_reading::services::PublicReadingRepository;
 
 /// C-10: successful and denied reading both use no-store and strict CSP.
 pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {

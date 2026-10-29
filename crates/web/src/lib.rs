@@ -12,10 +12,7 @@ use tor_books::{
     repositories::PgCatalog,
     services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
 };
-use tor_reading::{
-    repositories::PgReader,
-    services::ReadingError,
-};
+use tor_reading::{repositories::PgReader, services::ReadingError};
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
