@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tor_commerce::{
     domain::{
-        layers::{LayerCheckoutCommand, LayerError},
+        layers::{LayerCheckoutCommand, LayerError, LayerReceipt},
         money::{IdempotencyKey, MoneyMinor, WalletId},
     },
     repositories::layers::PgLayers,
@@ -32,7 +32,7 @@ struct LayerPurchaseReceipt {
     replayed: bool,
 }
 
-fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
+pub(super) fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
     if raw.is_empty() || raw.len() > 19 || !raw.bytes().all(|b| b.is_ascii_digit()) {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
@@ -42,7 +42,7 @@ fn positive(raw: &str) -> Result<PositiveId, StatusCode> {
         .ok_or(StatusCode::UNPROCESSABLE_ENTITY)
 }
 
-fn layer_status(error: LayerError) -> StatusCode {
+pub(super) fn layer_status(error: LayerError) -> StatusCode {
     match error {
         LayerError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         LayerError::Inaccessible => StatusCode::NOT_FOUND,
@@ -56,6 +56,44 @@ fn layer_status(error: LayerError) -> StatusCode {
 /// Explicit operator opt-in for Layer charges, independent of chapter checkout.
 pub(super) fn configured() -> bool {
     std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref() == Ok("1")
+}
+
+/// Shared transaction for JSON and native browser forms. Neither caller may
+/// supply the wallet owner; actor is derived from an authenticated session.
+pub(super) async fn charge(
+    state: &AuthState,
+    actor: i64,
+    layer_id: &str,
+    offer_id: &str,
+    version_id: &str,
+    price_minor: i64,
+    command_key: &str,
+) -> Result<LayerReceipt, LayerError> {
+    if !state.layer_checkout_enabled {
+        return Err(LayerError::Inaccessible);
+    }
+    let actor = PositiveId::new(actor).map_err(|_| LayerError::Invalid)?;
+    let layer = positive(layer_id).map_err(|_| LayerError::Invalid)?;
+    let offer = positive(offer_id).map_err(|_| LayerError::Invalid)?;
+    let version = positive(version_id).map_err(|_| LayerError::Invalid)?;
+    let price = MoneyMinor::new(price_minor).map_err(|_| LayerError::Invalid)?;
+    if price.get() <= 0 {
+        return Err(LayerError::Invalid);
+    }
+    let key = IdempotencyKey::parse(command_key).map_err(|_| LayerError::Invalid)?;
+    let wallet = WalletId::new(actor.get()).map_err(|_| LayerError::Invalid)?;
+    let command = LayerCheckoutCommand {
+        actor,
+        wallet,
+        layer,
+        offer,
+        version,
+        expected_price: price,
+        key,
+    };
+    PgLayers::new(state.accounts.pool().clone())
+        .buy(&command)
+        .await
 }
 
 pub(super) async fn buy(
@@ -86,41 +124,20 @@ pub(super) async fn buy(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let key = match headers
-        .get("idempotency-key")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|raw| IdempotencyKey::parse(raw).ok())
-    {
-        Some(key) => key,
-        None => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    let Some(key) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
-    let (actor, layer, offer, version) = match (
-        PositiveId::new(actor).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY),
-        positive(&layer_id),
-        positive(&input.expected_offer_id),
-        positive(&input.expected_version_id),
-    ) {
-        (Ok(actor), Ok(layer), Ok(offer), Ok(version)) => (actor, layer, offer, version),
-        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
-    };
-    let price = match MoneyMinor::new(input.expected_price_minor) {
-        Ok(price) if price.get() > 0 => price,
-        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
-    };
-    let wallet = match WalletId::new(actor.get()) {
-        Ok(wallet) => wallet,
-        Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
-    };
-    let cmd = LayerCheckoutCommand {
+    match charge(
+        &state,
         actor,
-        wallet,
-        layer,
-        offer,
-        version,
-        expected_price: price,
+        &layer_id,
+        &input.expected_offer_id,
+        &input.expected_version_id,
+        input.expected_price_minor,
         key,
-    };
-    match PgLayers::new(state.accounts.pool().clone()).buy(&cmd).await {
+    )
+    .await
+    {
         Ok(receipt) => private_response(
             Json(LayerPurchaseReceipt {
                 term_id: receipt.term_id.to_string(),

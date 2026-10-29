@@ -628,6 +628,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "layer_checkout_api::buy",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{layer_id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_storefront::buy_form",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/layers",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "my_terms",
+      "policy": "scoped"
     }
   ]
 }

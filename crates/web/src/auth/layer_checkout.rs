@@ -3,7 +3,7 @@
 use super::{deny, layer_books, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Form, Path, State},
+    extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Html, Response},
     routing::{get, post},
@@ -90,7 +90,17 @@ pub(super) async fn page(
     State(state): State<AuthState>,
     Path(raw_layer): Path<i64>,
     headers: HeaderMap,
+    Query(query): Query<super::layer_storefront::PageQuery>,
 ) -> Response {
+    if state.layer_pages_enabled {
+        return super::layer_storefront::page(
+            State(state),
+            Path(raw_layer.to_string()),
+            headers,
+            Query(query),
+        )
+        .await;
+    }
     if !enabled(&state) {
         return deny(StatusCode::NOT_FOUND);
     }
