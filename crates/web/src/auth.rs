@@ -314,8 +314,22 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+    let books = match state.authoring.list_owned_books(actor).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !layer_books::enabled() {
+        return private_response(author_pages::index(&books), &[]);
+    }
+    let actor = match tor_contracts::paid_delivery::PositiveId::new(actor) {
+        Ok(actor) => actor,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let layers = tor_commerce::services::layers::LayerService::new(
+        tor_commerce::repositories::layers::PgLayers::new(state.accounts.pool().clone()),
+    );
+    match layers.owned_layers(actor, 100).await {
+        Ok(layers) => private_response(author_pages::index_with_layers(&books, &layers), &[]),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
