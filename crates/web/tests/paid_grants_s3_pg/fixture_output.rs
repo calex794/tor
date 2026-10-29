@@ -1,8 +1,8 @@
 //! Ephemeral private-S3 Chromium fixture. Never persist signed credentials to the checkout.
 use super::*;
-use std::{fs::OpenOptions, io::Write, path::Path};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
+use std::{fs::OpenOptions, io::Write, path::Path};
 
 pub(super) fn save_ephemeral_fixture(
     grant: Value,
