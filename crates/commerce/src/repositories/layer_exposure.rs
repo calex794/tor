@@ -130,6 +130,21 @@ impl PgLayerFirstExposure {
             .execute(&mut *tx)
             .await
             .map_err(|_| DeliveryError::Unavailable)?;
+            if kind == LayerGrantKind::Chapter {
+                // A term's first issued grant may be an image or a DIFFERENT
+                // chapter. Record exact chapter text signing separately.
+                sqlx::query(
+                    "INSERT INTO commerce_layer_term_text_grants
+                       (term_id,chapter_id,version_id)
+                     VALUES($1,$2,$3) ON CONFLICT(term_id,chapter_id,version_id) DO NOTHING",
+                )
+                .bind(term_id)
+                .bind(chapter.get())
+                .bind(version.get())
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| DeliveryError::Unavailable)?;
+            }
         }
         tx.commit().await.map_err(|_| DeliveryError::Unavailable)
     }
@@ -147,7 +162,8 @@ impl PgLayerFirstExposure {
         // credential issuance is an additional necessary precondition.
         let eligible = format!(
             "SELECT t.id FROM commerce_layer_terms t
-             JOIN commerce_layer_term_first_exposures g ON g.term_id=t.id
+             JOIN commerce_layer_term_text_grants g ON g.term_id=t.id
+               AND g.chapter_id=$2 AND g.version_id=$3
              WHERE t.id IN ({ELIGIBLE_TERMS}) ORDER BY t.id"
         );
         let mut tx = self

@@ -18,7 +18,9 @@ terms and a future term must not inherit a previous term's opening.
    protected text into the DOM, it POSTs
    `/api/v1/reader/chapters/{chapter_id}/open-confirmations` with a CSRF
    token. D locks the exact owned purchase or active Layer terms, rechecks
-   grant issuance and rights, and atomically appends an immutable first
+   a **chapter-text-specific** grant for that purchase, chapter and pinned
+   version (a previous image grant or grant for another Layer chapter does
+   not qualify), rights, and atomically appends an immutable first
    render confirmation. Checkout, HTML shell, invalid rights, download
    failure and decrypt failure never generate this ACK.
 
@@ -42,7 +44,7 @@ ledger provenance under the same purchase/term lock in one SERIALIZABLE
 reversal transaction. Defects, failed delivery, chargebacks and T&S actions
 are independent processes, not ordinary refund bypasses.
 
-Additive migration: `202610290006_paid_reader_render_confirmations.sql`.
+Additive migration: `202610290006_paid_reader_render_confirmations.sql`, which also creates separate immutable `chapter_purchase_text_grants` and `commerce_layer_term_text_grants` to prevent image-first / other-chapter-first false confirmations.
 Stacked Draft on #231. No backfill, feature flag changes, checkout edits,
 wallet/refund/payout postings, main merge or production deployment.
 #235 separately coordinates collisions with other pending migrations.

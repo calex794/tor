@@ -89,6 +89,22 @@ impl PgDirectFirstExposure {
         .execute(&mut *tx)
         .await
         .map_err(|_| DeliveryError::Unavailable)?;
+        // A prior asset issuance must never permit claiming chapter opening.
+        // This chapter receipt is committed under the same purchase lock.
+        if kind == DirectGrantKind::Chapter {
+            sqlx::query(
+                "INSERT INTO chapter_purchase_text_grants
+                   (purchase_id,user_id,chapter_id,version_id)
+                 VALUES($1,$2,$3,$4) ON CONFLICT(purchase_id) DO NOTHING",
+            )
+            .bind(purchase_id)
+            .bind(actor.get())
+            .bind(chapter.get())
+            .bind(version.get())
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
+        }
         tx.commit().await.map_err(|_| DeliveryError::Unavailable)
     }
 
@@ -113,7 +129,8 @@ impl PgDirectFirstExposure {
              JOIN library_purchased_chapters l
                ON l.purchase_id=p.id AND l.user_id=p.user_id
               AND l.chapter_id=p.chapter_id AND l.active_version_id=p.version_id
-             JOIN chapter_purchase_first_exposures g ON g.purchase_id=p.id
+             JOIN chapter_purchase_text_grants g ON g.purchase_id=p.id
+               AND g.chapter_id=p.chapter_id AND g.version_id=p.version_id
              WHERE p.id=$4 AND p.user_id=$1
                AND p.chapter_id=$2 AND p.version_id=$3
                AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
