@@ -5,10 +5,11 @@ use crate::{
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use crate::import_preview::{editable_plain_text, validate_editable_preview};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -42,8 +43,51 @@ async fn list_books(
             .collect(),
     ))
 }
+#[derive(Deserialize)]
+struct ChapterPreviewRequest {
+    text: String,
+    #[serde(default)]
+    merge_at_lines: Vec<usize>,
+}
+
+#[derive(Serialize)]
+struct ChapterPreviewItem {
+    title: String,
+    body: String,
+}
+
+#[derive(Serialize)]
+struct ChapterPreviewResponse {
+    chapters: Vec<ChapterPreviewItem>,
+    detected_boundaries: Vec<usize>,
+}
+
+/// Stateless preview only: never creates or changes a chapter.
+async fn preview_chapter_import(
+    Json(request): Json<ChapterPreviewRequest>,
+) -> Result<Json<ChapterPreviewResponse>, StatusCode> {
+    // Bound the payload before normalization and parsing.
+    if request.text.len() > 2_000_000 || request.merge_at_lines.len() > 500 {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let mut preview = editable_plain_text(&request.text)
+        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    let detected_boundaries = preview.boundaries().iter().map(|b| b.line).collect();
+    for line in request.merge_at_lines {
+        preview.merge_false_boundary(line)
+            .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    }
+    let chapters = validate_editable_preview(&preview)
+        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?
+        .into_iter()
+        .map(|chapter| ChapterPreviewItem { title: chapter.title, body: chapter.body })
+        .collect();
+    Ok(Json(ChapterPreviewResponse { chapters, detected_boundaries }))
+}
+
 pub fn router(repository: Arc<dyn PublicBookRepository>) -> Router {
     Router::new()
         .route("/api/v1/books", get(list_books))
+        .route("/api/v1/books/import-preview", post(preview_chapter_import))
         .with_state(ApiState { repository })
 }
