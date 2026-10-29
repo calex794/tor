@@ -10,6 +10,16 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# I-01: reference revisions are a reviewed compatibility boundary. Changing
+# only the TOML and its URLs must not silently adopt an unreviewed source.
+REFERENCE_PINS = {
+    "newboo_repo": "HeisLuka/newboo",
+    "newboo_main_sha": "17125ef758a791e9630505c14d24f7fe65aed228",
+    "bokarust_repo": "calex794/bokarust",
+    "bokarust_main_sha": "d11b27b43125b93e59809147e8e687203fa0753b",
+}
+ROADMAP_PINS = {"target_repo": "calex794/tor", "version": "2026-10-26-v2"}
+
 EXCLUDED = {"S024": "заморожено", "S040": "не переносить", "S053": "заморожено", "S054": "заморожено",
             "S055": "заморожено", "S056": "заморожено", "S067": "не переносить",
             "S069": "не переносить"}
@@ -50,6 +60,18 @@ def check(root: Path = ROOT) -> list[str]:
         return [f"bad sources.lock.toml: {exc}"]
     if not scenario_file.exists() or not task_file.exists():
         return [f"roadmap missing: {scenario_file} or {task_file}"]
+    # Reject malformed sections and changes that kept all 69 links internally
+    # consistent but switched to an unreviewed upstream revision/repository.
+    reference, roadmap = lock.get("reference"), lock.get("roadmap")
+    if not isinstance(reference, dict) or not isinstance(roadmap, dict):
+        return ["sources.lock.toml must contain reference and roadmap tables"]
+    for key, pinned in REFERENCE_PINS.items():
+        if reference.get(key) != pinned:
+            errors.append(f"source-lock reference.{key} changed without compatibility review")
+    for key, pinned in ROADMAP_PINS.items():
+        if roadmap.get(key) != pinned:
+            errors.append(f"source-lock roadmap.{key} changed without compatibility review")
+
     try:
         scenarios, tasks = load(scenario_file), load(task_file)
     except (OSError, UnicodeError, csv.Error) as exc:
