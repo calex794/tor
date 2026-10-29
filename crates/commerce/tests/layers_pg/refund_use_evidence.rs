@@ -50,21 +50,16 @@ async fn published_paid(pool: &PgPool, book: i64, number: i32) -> (i64, i64) {
     (chapter, version)
 }
 
-fn no_refund_money(
-    pool: &PgPool,
-    buyer: i64,
-) -> impl std::future::Future<Output = (i64, i64)> + '_ {
-    async move {
-        sqlx::query_as(
-            "SELECT
-               (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1),
-               (SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1)",
-        )
-        .bind(buyer)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-    }
+async fn no_refund_money(pool: &PgPool, buyer: i64) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT
+           (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1),
+           (SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1)",
+    )
+    .bind(buyer)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
