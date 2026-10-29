@@ -77,7 +77,8 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
         "a browser-chosen/unpublished edition must not pass"
     );
     assert_eq!(
-        barrier.confirm_rendered(id(buyer), id(chapter), id(published))
+        barrier
+            .confirm_rendered(id(buyer), id(chapter), id(published))
             .await,
         Err(DeliveryError::Denied),
         "no browser confirmation before first grant"
@@ -89,7 +90,8 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
         .await
         .unwrap();
     assert_eq!(
-        barrier.confirm_rendered(id(buyer), id(chapter), id(published))
+        barrier
+            .confirm_rendered(id(buyer), id(chapter), id(published))
             .await,
         Err(DeliveryError::Denied),
         "an image grant must not count as opening protected text"

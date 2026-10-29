@@ -21,10 +21,12 @@ CREATE TRIGGER c06_direct_text_grants_immutable
 CREATE TABLE commerce_layer_term_text_grants (
     term_id BIGINT NOT NULL
         REFERENCES commerce_layer_term_first_exposures(term_id) ON DELETE RESTRICT,
-    chapter_id BIGINT NOT NULL REFERENCES chapters(id) ON DELETE RESTRICT,
-    version_id BIGINT NOT NULL REFERENCES chapter_versions(id) ON DELETE RESTRICT,
+    chapter_id BIGINT NOT NULL,
+    version_id BIGINT NOT NULL,
     granted_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    PRIMARY KEY (term_id,chapter_id,version_id)
+    PRIMARY KEY (term_id,chapter_id,version_id),
+    FOREIGN KEY (chapter_id,version_id)
+        REFERENCES chapter_versions(chapter_id,id) ON DELETE RESTRICT
 );
 CREATE TRIGGER c06_layer_text_grants_immutable
     BEFORE UPDATE OR DELETE ON commerce_layer_term_text_grants
