@@ -83,13 +83,13 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
     assert!(url.ends_with("/tor_ci"), "never write production");
     let pool = PgPool::connect(&url).await.unwrap();
     let (author, owner, stranger, book, initial) = fixture(&pool, "success").await;
-    assert_eq!(
+    assert!(
         author
             .owned_published_free_chapter(stranger, book, initial.chapter_id)
             .await
             .unwrap()
-            .is_some(),
-        false
+            .is_none(),
+        "a stranger must not read the owner's published chapter editor"
     );
     let owned = author
         .owned_published_free_chapter(owner, book, initial.chapter_id)
