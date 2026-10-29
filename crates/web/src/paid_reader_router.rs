@@ -127,6 +127,9 @@ fn paid_grants_router(
         Some((store, enabled)) => (Some(store), enabled),
         None => (None, false),
     };
+    let follows = super::book_follow_page::FollowBookControl::new(
+        accounts.clone(), secure, public_origin.clone(),
+    );
     let auth_reader = reader.clone();
     let cookies = auth_cookies::CookiePolicy {
         secure,
@@ -177,6 +180,7 @@ fn paid_grants_router(
             Some(reader),
             true,
             cover_storage,
+            Some(follows),
         )
         .merge(author_router)
         .merge(grants),
