@@ -564,7 +564,6 @@ const ROUTES: [RouteRegistration; 75] = [
         Reading,
         Write,
     ), // owner-scoped edition upgrade
-
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
