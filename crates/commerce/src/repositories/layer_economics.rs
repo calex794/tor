@@ -41,12 +41,18 @@ pub(crate) async fn preflight_term_economics(
     // Book is administratively held or deleted.
     let unavailable: bool = sqlx::query_scalar(
         "SELECT EXISTS(
-             SELECT 1 FROM commerce_layer_versions v
+             SELECT 1 FROM commerce_layer_versions origin
+             JOIN commerce_layer_versions base ON base.layer_id=origin.layer_id
+             JOIN commerce_layer_versions v ON v.layer_id=origin.layer_id
+               AND v.version_no BETWEEN origin.version_no AND base.version_no
              JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
              JOIN books b ON b.id=vb.book_id
-             WHERE v.layer_id=$1 AND (b.admin_hold OR b.is_deleted)
+             WHERE origin.id=$1 AND base.id=$2 AND origin.layer_id=$3
+               AND (b.admin_hold OR b.is_deleted)
          )",
     )
+    .bind(origin_version)
+    .bind(base_version)
     .bind(layer)
     .fetch_one(&mut **tx)
     .await
