@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 73] = [
+const ROUTES: [RouteRegistration; 77] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -528,26 +528,38 @@ const ROUTES: [RouteRegistration; 73] = [
         Reading,
         CostClass::ExpensiveRead,
     ), // 70
-    // D-05 Layer CURRENT: the shell does not release content without
-    // a second D check at the signed S3 grant endpoint.
     RouteRegistration::new(
-        "/read/layer/{chapter_id}",
+        "/books/{id}/comments",
         "GET",
-        "/read/",
+        "/books/",
         Prefix,
         Page,
         Reading,
         Read,
     ), // 71
     RouteRegistration::new(
-        "/assets/newboo-layer-reader.mjs",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
+        "/books/{id}/comments",
+        "POST",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
     ), // 72
+    // The authorised Layer reader never embeds paid text in its HTML.
+    RouteRegistration::new(
+        "/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read,
+    ), // 73
+    RouteRegistration::new(
+        "/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free,
+    ), // 74
+    // D-05: server-filtered owner-only picker and the locked add-book write.
+    RouteRegistration::new(
+        "/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read,
+    ), // 75
+    RouteRegistration::new(
+        "/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write,
+    ), // 76
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
