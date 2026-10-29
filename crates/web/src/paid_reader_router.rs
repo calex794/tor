@@ -128,7 +128,9 @@ fn paid_grants_router(
         None => (None, false),
     };
     let follows = super::book_follow_page::FollowBookControl::new(
-        accounts.clone(), secure, public_origin.clone(),
+        accounts.clone(),
+        secure,
+        public_origin.clone(),
     );
     let auth_reader = reader.clone();
     let cookies = auth_cookies::CookiePolicy {
