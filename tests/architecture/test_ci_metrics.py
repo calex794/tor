@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools"))
-from ci_metrics import MetricsError, load_group, percentile, difference
+from ci_metrics import MetricsError, load_group, percentile, difference, comparison_blocker
 
 SHA_A = "a" * 40
 SHA_B = "b" * 40
@@ -17,12 +17,14 @@ class API:
     def get(self, path, query=None):
         if path.endswith("/actions/runs"):
             return {"total_count": 1, "workflow_runs": [
-                {"id": 3, "name": "rules", "head_sha": SHA_B if self.mismatch else SHA_A,
+                {"id": 3, "name": "rules", "event": "push",
+                 "head_sha": SHA_B if self.mismatch else SHA_A,
                  "status": "in_progress" if self.pending else "completed",
                  "conclusion": None if self.pending else ("failure" if self.failed else "success")}]}
         if path.endswith("/jobs"):
             return {"total_count": 1, "jobs": [
-                {"id": 8, "run_id": 3, "created_at": "2026-10-27T01:00:00Z",
+                {"id": 8, "name": "rules", "run_id": 3,
+                 "created_at": "2026-10-27T01:00:00Z",
                  "started_at": "2026-10-27T01:01:00Z",
                  "completed_at": None if self.pending else "2026-10-27T01:03:00Z",
                  "conclusion": None if self.pending else ("failure" if self.failed else "success")}]}
@@ -59,6 +61,60 @@ class MetricsTest(unittest.TestCase):
         before = load_group(API(), "calex794/tor", "baseline", SHA_A)
         after = dict(before, runner_minutes=1)
         self.assertEqual(difference(before, after)["runner_minutes"]["percent"], -50)
+
+    def test_exact_same_executed_workflows_are_comparable(self):
+        before = load_group(API(), "calex794/tor", "baseline", SHA_A)
+        after = dict(before, runner_minutes=1)
+        self.assertEqual(before["event"], "push")
+        self.assertEqual(before["executed_jobs"], ["rules / rules"])
+        self.assertEqual(before["workflow_names"], ["rules"])
+        self.assertIsNone(comparison_blocker(before, after))
+
+    def test_skipped_jobs_never_prove_speedup_even_with_successful_wrapper(self):
+        before = load_group(API(), "calex794/tor", "baseline", SHA_A)
+        after = dict(before, runner_minutes=0, skipped_jobs=["rules / real-tests"],
+                     jobs_skipped=1)
+        self.assertTrue(after["complete"])
+        self.assertIn("skipped", comparison_blocker(before, after))
+        self.assertIn("skipped", comparison_blocker(after, after))
+
+    def test_mismatched_job_names_cannot_prove_speedup(self):
+        before = load_group(API(), "calex794/tor", "baseline", SHA_A)
+        after = dict(before, executed_jobs=["rules / fast-noop"], runner_minutes=0)
+        self.assertIn("executed job", comparison_blocker(before, after))
+
+    def test_mismatched_workflows_or_event_cannot_prove_speedup(self):
+        before = load_group(API(), "calex794/tor", "baseline", SHA_A)
+        renamed = dict(before, workflow_names=["not-the-actual-workflow"])
+        self.assertIn("workflow", comparison_blocker(before, renamed))
+        wrong_event = dict(before, event="pull_request")
+        self.assertIn("events", comparison_blocker(before, wrong_event))
+
+    def test_failed_or_incomplete_runs_cannot_prove_speedup(self):
+        baseline = load_group(API(), "calex794/tor", "baseline", SHA_A)
+        incomplete = load_group(API(failed=True), "calex794/tor", "target", SHA_A)
+        self.assertIn("unfinished", comparison_blocker(baseline, incomplete))
+
+    def test_successful_wrapper_with_pending_job_does_not_count_as_complete(self):
+        class PendingJob(API):
+            def get(self, path, query=None):
+                response = super().get(path, query)
+                if path.endswith("/jobs"):
+                    response["jobs"][0]["conclusion"] = None
+                return response
+        result = load_group(PendingJob(), "calex794/tor", "target", SHA_A)
+        self.assertFalse(result["complete"])
+
+    def test_nameless_job_cannot_be_compared(self):
+        class NamelessJob(API):
+            def get(self, path, query=None):
+                response = super().get(path, query)
+                if path.endswith("/jobs"):
+                    response["jobs"][0].pop("name", None)
+                return response
+        with self.assertRaises(MetricsError):
+            load_group(NamelessJob(), "calex794/tor", "target", SHA_A)
+
 
 if __name__ == "__main__":
     unittest.main()
