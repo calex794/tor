@@ -18,15 +18,24 @@ fn base() -> AttributionInputs {
                 book_id: 20,
                 share_revision: 1,
                 weight_bps: Some(5_000),
-                participants: vec![FrozenParticipant { user_id: 300, percent: 100 }],
+                participants: vec![FrozenParticipant {
+                    user_id: 300,
+                    percent: 100,
+                }],
             },
             FrozenBook {
                 book_id: 10,
                 share_revision: 2,
                 weight_bps: Some(5_000),
                 participants: vec![
-                    FrozenParticipant { user_id: 200, percent: 30 },
-                    FrozenParticipant { user_id: 100, percent: 70 },
+                    FrozenParticipant {
+                        user_id: 200,
+                        percent: 30,
+                    },
+                    FrozenParticipant {
+                        user_id: 100,
+                        percent: 70,
+                    },
                 ],
             },
         ],
@@ -38,19 +47,38 @@ fn d_08_weighted_books_and_frozen_members_conserve_every_minor() {
     let preview = preview_layer_attribution(&base()).unwrap();
     assert_eq!(preview.policy_id, "finance-reviewed-example-v1");
     assert_eq!(preview.platform_fee_minor, 20);
-    assert_eq!(preview.books.iter().map(|b| b.book_id).collect::<Vec<_>>(), vec![10, 20]);
-    assert_eq!(preview.books.iter().map(|b| b.amount_minor).collect::<Vec<_>>(), vec![41, 40]);
+    assert_eq!(
+        preview.books.iter().map(|b| b.book_id).collect::<Vec<_>>(),
+        vec![10, 20]
+    );
+    assert_eq!(
+        preview
+            .books
+            .iter()
+            .map(|b| b.amount_minor)
+            .collect::<Vec<_>>(),
+        vec![41, 40]
+    );
     assert_eq!(preview.books[0].share_revision, 2);
     assert_eq!(
         preview.books[0].participants,
         vec![
-            ParticipantAmount { user_id: 100, amount_minor: 29 },
-            ParticipantAmount { user_id: 200, amount_minor: 12 },
+            ParticipantAmount {
+                user_id: 100,
+                amount_minor: 29
+            },
+            ParticipantAmount {
+                user_id: 200,
+                amount_minor: 12
+            },
         ]
     );
     assert_eq!(
         preview.books[1].participants,
-        vec![ParticipantAmount { user_id: 300, amount_minor: 40 }]
+        vec![ParticipantAmount {
+            user_id: 300,
+            amount_minor: 40
+        }]
     );
     assert_eq!(preview.attributed_minor(), 101);
 }
@@ -81,8 +109,14 @@ fn d_08_largest_remainder_ties_are_stable_by_book_and_user_id() {
     input.gross_minor = 1;
     input.platform_fee_minor = Some(0);
     input.books[1].participants = vec![
-        FrozenParticipant { user_id: 200, percent: 50 },
-        FrozenParticipant { user_id: 100, percent: 50 },
+        FrozenParticipant {
+            user_id: 200,
+            percent: 50,
+        },
+        FrozenParticipant {
+            user_id: 100,
+            percent: 50,
+        },
     ];
     let result = preview_layer_attribution(&input).unwrap();
     assert_eq!(result.books[0].amount_minor, 1);
@@ -95,29 +129,50 @@ fn d_08_largest_remainder_ties_are_stable_by_book_and_user_id() {
 fn d_08_policy_fee_and_verified_snapshots_are_not_optional_defaults() {
     let mut input = base();
     input.policy_id = None;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::UnconfirmedPolicy));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
     input = base();
     input.platform_fee_minor = None;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::UnconfirmedPolicy));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
     input = base();
     input.frozen_schedule_verified = false;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::UnconfirmedPolicy));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
     input = base();
     input.allocation_basis_confirmed = false;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::UnconfirmedPolicy));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
     input = base();
     input.weighting = None;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::UnconfirmedPolicy));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
 }
 
 #[test]
 fn d_08_rejects_unknown_book_weights_or_invalid_team_percentages() {
     let mut input = base();
     input.books[0].weight_bps = Some(4_999);
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidWeights));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidWeights)
+    );
     input = base();
     input.books[0].weight_bps = None;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidWeights));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidWeights)
+    );
     input = base();
     input.books[1].participants[0].percent = 20;
     assert_eq!(
@@ -125,33 +180,53 @@ fn d_08_rejects_unknown_book_weights_or_invalid_team_percentages() {
         Err(AttributionError::IncompleteShareSnapshot)
     );
     input = base();
-    input.books[1].participants.push(input.books[1].participants[0].clone());
+    input.books[1]
+        .participants
+        .push(input.books[1].participants[0].clone());
     assert_eq!(
         preview_layer_attribution(&input),
         Err(AttributionError::IncompleteShareSnapshot)
     );
     input = base();
     input.books[1].book_id = 20;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidBookSet));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidBookSet)
+    );
 }
 
 #[test]
 fn d_08_invalid_amount_currency_and_reference_never_allocate() {
     let mut input = base();
     input.gross_minor = 0;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidCharge));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidCharge)
+    );
     input = base();
     input.platform_fee_minor = Some(102);
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidCharge));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidCharge)
+    );
     input = base();
     input.currency = "USD".into();
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidCharge));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidCharge)
+    );
     input = base();
     input.payment_id = 0;
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::InvalidCharge));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::InvalidCharge)
+    );
     input = base();
     input.policy_id = Some("".into());
-    assert_eq!(preview_layer_attribution(&input), Err(AttributionError::UnconfirmedPolicy));
+    assert_eq!(
+        preview_layer_attribution(&input),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
 }
 
 #[test]
@@ -162,7 +237,11 @@ fn d_08_huge_i64_charge_uses_i128_without_float_or_overflow() {
     let preview = preview_layer_attribution(&input).unwrap();
     assert_eq!(preview.attributed_minor(), i128::from(i64::MAX));
     assert_eq!(
-        preview.books.iter().map(|b| i128::from(b.amount_minor)).sum::<i128>(),
+        preview
+            .books
+            .iter()
+            .map(|b| i128::from(b.amount_minor))
+            .sum::<i128>(),
         i128::from(i64::MAX)
     );
 }
@@ -174,7 +253,10 @@ fn d_08_full_refund_is_an_unposted_negative_mirror_of_original() {
     let mirrored = original.full_reversal_draft();
     assert_eq!(mirrored.len(), 4);
     assert_eq!(
-        mirrored.iter().map(|line| i128::from(line.delta_minor)).sum::<i128>(),
+        mirrored
+            .iter()
+            .map(|line| i128::from(line.delta_minor))
+            .sum::<i128>(),
         -i128::from(original.gross_minor)
     );
     assert_eq!(original, snapshot, "no rewrite of purchase provenance");
