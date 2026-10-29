@@ -42,7 +42,7 @@ GROUP BY kind,name;
 REVOKE ALL ON public_catalog_statistics,public_catalog_facets FROM PUBLIC;
 -- The raw-migration contract also installs into fresh throwaway databases
 -- without application roles. The SQLx runtime database always has tor_app.
-DO $
+DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
         REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER
@@ -50,11 +50,11 @@ BEGIN
         GRANT SELECT ON public_catalog_statistics,public_catalog_facets TO tor_app;
     END IF;
 END;
-$;
+$$;
 
 CREATE FUNCTION public.perf233_adjust_count(change BIGINT)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public,pg_temp AS $
+SET search_path = pg_catalog,public,pg_temp AS $$
 BEGIN
     IF change = 0 THEN RETURN; END IF;
     UPDATE public.public_catalog_statistics
@@ -69,7 +69,7 @@ $$;
 
 CREATE FUNCTION public.perf233_adjust_facet(facet_kind TEXT,facet_name TEXT,change BIGINT)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public,pg_temp AS $
+SET search_path = pg_catalog,public,pg_temp AS $$
 BEGIN
     IF change = 0 THEN RETURN; END IF;
     IF change > 0 THEN
@@ -95,7 +95,7 @@ $$;
 
 CREATE FUNCTION public.perf233_after_book_insert()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public,pg_temp AS $
+SET search_path = pg_catalog,public,pg_temp AS $$
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT COUNT(*) INTO total FROM new_rows
@@ -123,7 +123,7 @@ $$;
 
 CREATE FUNCTION public.perf233_after_book_delete()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public,pg_temp AS $
+SET search_path = pg_catalog,public,pg_temp AS $$
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT COUNT(*) INTO total FROM old_rows
@@ -151,7 +151,7 @@ $$;
 
 CREATE FUNCTION public.perf233_after_book_update()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public,pg_temp AS $
+SET search_path = pg_catalog,public,pg_temp AS $$
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT
