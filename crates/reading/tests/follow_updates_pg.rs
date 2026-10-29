@@ -131,8 +131,8 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
            id,object_kind,bucket,object_key,state,size_bytes,
            sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,
            kek_id,object_nonce,object_aad,codec,verified_at,attached_at)
-         VALUES($1::uuid,'chapter','tor-private-chapter-ci',
-           'private/chapter-versions/' || $1 || '.enc','attached',64,
+         VALUES($1::text::uuid,'chapter','tor-private-chapter-ci',
+           'private/chapter-versions/' || $1::text || '.enc','attached',64,
            decode(repeat('11',32),'hex'),sha256(convert_to('Платный текст','UTF8')),
            decode(repeat('22',48),'hex'),decode(repeat('33',12),'hex'),
            'content-kek-v1',decode(repeat('44',12),'hex'),
@@ -143,12 +143,12 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     ).bind(&object_id).bind(paid).bind(paid_version)
     .execute(&pool).await.unwrap();
     sqlx::query(
-        "UPDATE chapter_versions SET storage_object_id=$2::uuid
+        "UPDATE chapter_versions SET storage_object_id=$2::text::uuid
          WHERE id=$1",
     ).bind(paid_version).bind(&object_id).execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO chapter_encrypted_release_events
-           (chapter_id,version_id,storage_object_id) VALUES($1,$2,$3::uuid)",
+           (chapter_id,version_id,storage_object_id) VALUES($1,$2,$3::text::uuid)",
     ).bind(paid).bind(paid_version).bind(&object_id)
     .execute(&pool).await.unwrap();
     let verified = releases.latest(reader,None).await.unwrap();
