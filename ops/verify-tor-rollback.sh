@@ -15,8 +15,18 @@ fi
 previous="/opt/tor/releases/$1"
 link="/opt/tor/current"
 original="$(readlink -f "$link" || true)"
-if [[ "$original" != /opt/tor/releases/* || "$original" == "$previous" ]]; then
-  echo "Refusing: active release is missing, unexpected or equals previous" >&2
+rollback_host="${TOR_ROLLBACK_HOST:-pandaolate.ru}"
+# On a staging host use its own trusted TLS name. Always resolve to local Nginx:
+# never make an external request during the rollback drill.
+if [[ ! "$rollback_host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] ||
+   [[ "$rollback_host" == *..* || ${#rollback_host} -gt 253 ]]; then
+  echo "Refusing: unsafe TLS hostname for rollback drill" >&2
+  exit 1
+fi
+if [[ ! "$original" =~ ^/opt/tor/releases/[0-9a-f]{40}$ ||
+      "$original" == "$previous" || ! -d "$previous" || -L "$previous" ||
+      ! -d "$original" || -L "$original" ]]; then
+  echo "Refusing: active or previous release is missing, symlinked or unexpected" >&2
   exit 1
 fi
 for binary in "$original/tor-web" "$previous/tor-web"; do
@@ -38,8 +48,8 @@ ready() {
 }
 
 public_smoke() {
-  curl -fsS --max-time 5 --resolve pandaolate.ru:443:127.0.0.1 \
-    https://pandaolate.ru/catalog >/dev/null
+  curl -fsS --max-time 5 --resolve "$rollback_host:443:127.0.0.1" \
+    "https://$rollback_host/catalog" >/dev/null
 }
 
 switch_to() {

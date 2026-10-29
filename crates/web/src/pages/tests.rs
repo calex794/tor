@@ -260,3 +260,42 @@ fn seo02_old_books_with_no_description_do_not_invent_plot() {
     assert!(html.contains("Аннотация пока не добавлена."));
     assert!(!html.contains("Откройте оглавление, чтобы читать доступные главы бесплатно."));
 }
+
+#[test]
+fn c_14_public_continuation_distinguishes_read_access_and_missing_release() {
+    use tor_reading::services::{PublicChapterPage, PublicContinuation};
+    let mut chapter = PublicChapterPage {
+        version_id: 10,
+        book_id: 20,
+        book_title: "Книга <скрипт>".to_owned(),
+        chapter_title: "Глава 1".to_owned(),
+        version_no: 1,
+        body_markdown: "Безопасный текст".to_owned(),
+        previous_chapter_id: None,
+        next_chapter_id: Some(31),
+        next_chapter_is_paid: false,
+    };
+    assert_eq!(chapter.continuation(), PublicContinuation::ReadNow(31));
+    let free = reader(&chapter).0;
+    assert!(free.contains("href=\"/reader/31\""));
+    assert!(free.contains("Следующая глава</a>"));
+    assert!(!free.contains("пока нет"));
+
+    chapter.next_chapter_is_paid = true;
+    assert_eq!(chapter.continuation(), PublicContinuation::NeedsAccess(31));
+    let paid = reader(&chapter).0;
+    assert!(paid.contains("Следующая глава — платная"));
+    assert!(paid.contains("может потребоваться покупка"));
+    assert!(!paid.contains("Следующих опубликованных глав пока нет"));
+    assert!(!paid.contains("Книга <скрипт>"));
+
+    chapter.next_chapter_id = None;
+    chapter.next_chapter_is_paid = false;
+    assert_eq!(
+        chapter.continuation(),
+        PublicContinuation::WaitingForRelease
+    );
+    let waiting = reader(&chapter).0;
+    assert!(waiting.contains("Следующих опубликованных глав пока нет"));
+    assert!(!waiting.contains("href=\"/reader/31\""));
+}

@@ -1,9 +1,9 @@
 <section class="section auth-section">
   <div class="container">
     <div class="auth-card author-chapter-card">
-      <p class="eyebrow">Кабинет автора · редактирование черновика</p>
+      <p class="eyebrow">Кабинет автора · <!--EDIT_EYEBROW--></p>
       <h1>Редактировать главу</h1>
-      <p>Редакция №<!--REVISION-->. Изменения сохраняются только в закрытом черновике. Публикация книги выполняется отдельно.</p>
+      <p>Редакция №<!--REVISION-->. <!--EDIT_DESCRIPTION--></p>
       <form class="auth-form author-form" method="post" action="/me/books/<!--BOOK_ID-->/chapters/<!--CHAPTER_ID-->/edit" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">

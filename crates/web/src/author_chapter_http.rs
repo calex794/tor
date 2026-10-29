@@ -276,26 +276,43 @@ async fn edit_chapter(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let chapter = match state
+    // Published free content must be editable without a second release
+    // action. Existing owner-only drafts still use their separate B path.
+    let published = match state
         .authoring
-        .owned_unpublished_free_chapter(actor, id, chapter_id)
+        .owned_published_free_chapter(actor, id, chapter_id)
         .await
     {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Ok(chapter) => chapter,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let (chapter, is_published) = if let Some(chapter) = published {
+        (chapter, true)
+    } else {
+        match state
+            .authoring
+            .owned_unpublished_free_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(Some(chapter)) => (chapter, false),
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        crate::author_chapter_pages::edit_chapter(
+    let command_key = generate_session_token();
+    let page = if is_published {
+        crate::author_chapter_pages::edit_published_chapter(
             id,
             chapter_id,
             &chapter,
             &csrf,
-            &generate_session_token(),
-        ),
-        &cookies,
-    )
+            &command_key,
+        )
+    } else {
+        crate::author_chapter_pages::edit_chapter(id, chapter_id, &chapter, &csrf, &command_key)
+    };
+    private_response(page, &cookies)
 }
 
 /// Two tabs can open the same revision, but only one may save it.
@@ -339,17 +356,36 @@ async fn update_chapter(
         Ok(input) => input,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    match state
+    // Route by trusted PG state, not by a browser-controlled "published"
+    // field. B repeats ownership, state and expected-revision checks under
+    // locks before any immutable edition or pointer can change.
+    let published = match state
         .authoring
-        .edit_unpublished_free_chapter(actor, &input)
+        .owned_published_free_chapter(actor, id, chapter_id)
         .await
     {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let outcome = if published {
+        state
+            .authoring
+            .edit_published_free_chapter(actor, &input)
+            .await
+    } else {
+        state
+            .authoring
+            .edit_unpublished_free_chapter(actor, &input)
+            .await
+    };
+    match outcome {
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => private_response(
             (
                 StatusCode::CONFLICT,
-                "Глава изменена в другой вкладке или уже опубликована. Обновите страницу.",
+                "Глава уже изменена в другой вкладке. Обновите страницу перед сохранением.",
             ),
             &[],
         ),

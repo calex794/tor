@@ -285,10 +285,21 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .previous_chapter_id
         .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
         .unwrap_or_default();
-    let next = chapter
-        .next_chapter_id
-        .map(|id| format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"))
-        .unwrap_or_default();
+    use tor_reading::services::PublicContinuation;
+    let (next, continuation_status) = match chapter.continuation() {
+        PublicContinuation::ReadNow(id) => (
+            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"),
+            "",
+        ),
+        PublicContinuation::NeedsAccess(id) => (
+            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава — платная</a>"),
+            "<p class=\"reader-next-state\">Следующая глава опубликована. Для чтения может потребоваться покупка.</p>",
+        ),
+        PublicContinuation::WaitingForRelease => (
+            String::new(),
+            "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
+        ),
+    };
     let navigation = if previous.is_empty() && next.is_empty() {
         String::new()
     } else {
@@ -300,6 +311,7 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
+        .replace("<!--CONTINUATION_STATUS-->", continuation_status)
         .replace(
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),
