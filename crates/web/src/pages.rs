@@ -132,7 +132,14 @@ fn book_detail_with_chapters_cover_internal(
         first_free,
         has_cover,
         Some(&book.description),
-        batch_enabled && book.chapters.iter().filter(|chapter| chapter.is_paid).take(2).count() == 2,
+        batch_enabled
+            && book
+                .chapters
+                .iter()
+                .filter(|chapter| chapter.is_paid)
+                .take(2)
+                .count()
+                == 2,
     )
 }
 
@@ -155,7 +162,10 @@ pub fn book_detail_with_chapters_cover_stars_batch(
     batch_enabled: bool,
 ) -> Html<String> {
     let html = book_detail_with_chapters_cover_internal(book, limit, has_cover, batch_enabled);
-    Html(html.0.replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)))
+    Html(
+        html.0
+            .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
+    )
 }
 
 fn book_star_strip(book_id: u64, stars: &tor_recommendations::repositories::BookStars) -> String {

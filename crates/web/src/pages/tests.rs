@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn s035_book_detail_only_links_batch_when_enabled_and_two_paid_chapters_exist() {
     let book = tor_reading::services::PublicBookPage {

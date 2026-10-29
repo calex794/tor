@@ -39,8 +39,8 @@ use tor_reading::{
 };
 
 mod account_form_http;
-mod behavior_consent;
 mod batch_checkout_browser;
+mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_stars;
@@ -183,7 +183,10 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
-        .route("/me/books/{id}/buy-chapters", get(batch_checkout_browser::page).post(batch_checkout_browser::submit))
+        .route(
+            "/me/books/{id}/buy-chapters",
+            get(batch_checkout_browser::page).post(batch_checkout_browser::submit),
+        )
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),

@@ -10,7 +10,9 @@ use std::{collections::HashMap, fmt::Write};
 use tor_accounts::services::security::generate_session_token;
 use tor_commerce::{
     domain::{
-        batch_checkout::{BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand, MAX_BATCH_CHAPTERS},
+        batch_checkout::{
+            BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand, MAX_BATCH_CHAPTERS,
+        },
         money::{CheckoutError, IdempotencyKey, MoneyMinor, WalletId},
     },
     repositories::checkout::SelectableBatchOffer,
@@ -35,7 +37,12 @@ fn shell(title: &str, book_id: i64, contents: &str) -> axum::response::Html<Stri
     )
 }
 
-fn select_page(book_id: i64, title: &str, csrf: &str, offers: &[SelectableBatchOffer]) -> axum::response::Html<String> {
+fn select_page(
+    book_id: i64,
+    title: &str,
+    csrf: &str,
+    offers: &[SelectableBatchOffer],
+) -> axum::response::Html<String> {
     let mut rows = String::new();
     for item in offers.iter().take(100) {
         write!(
@@ -164,10 +171,7 @@ fn confirm_page(
     Some(shell("Подтверждение покупки", book_id, &content))
 }
 
-fn command(
-    actor: i64,
-    fields: &HashMap<String, String>,
-) -> Option<BatchPurchaseCommand> {
+fn command(actor: i64, fields: &HashMap<String, String>) -> Option<BatchPurchaseCommand> {
     if fields.len() != 6 {
         return None;
     }
@@ -206,27 +210,42 @@ fn command(
 
 fn failure(book_id: i64, error: BatchCheckoutError) -> Response {
     let (code, description) = match error {
-        BatchCheckoutError::Checkout(CheckoutError::InsufficientBalance) => {
-            (StatusCode::CONFLICT, "Недостаточно средств во внутреннем кошельке. Списание не выполнено.")
-        }
-        BatchCheckoutError::Checkout(CheckoutError::StaleOffer) => {
-            (StatusCode::CONFLICT, "Цена или редакция изменилась. Обновите выбор: списание не выполнено.")
-        }
-        BatchCheckoutError::Checkout(CheckoutError::AlreadyOwned) => {
-            (StatusCode::CONFLICT, "Одна из глав уже куплена. Обновите выбор: повторного списания нет.")
-        }
-        BatchCheckoutError::Checkout(CheckoutError::Inaccessible) => {
-            (StatusCode::NOT_FOUND, "Одна из глав недоступна. Покупка отменена целиком.")
-        }
+        BatchCheckoutError::Checkout(CheckoutError::InsufficientBalance) => (
+            StatusCode::CONFLICT,
+            "Недостаточно средств во внутреннем кошельке. Списание не выполнено.",
+        ),
+        BatchCheckoutError::Checkout(CheckoutError::StaleOffer) => (
+            StatusCode::CONFLICT,
+            "Цена или редакция изменилась. Обновите выбор: списание не выполнено.",
+        ),
+        BatchCheckoutError::Checkout(CheckoutError::AlreadyOwned) => (
+            StatusCode::CONFLICT,
+            "Одна из глав уже куплена. Обновите выбор: повторного списания нет.",
+        ),
+        BatchCheckoutError::Checkout(CheckoutError::Inaccessible) => (
+            StatusCode::NOT_FOUND,
+            "Одна из глав недоступна. Покупка отменена целиком.",
+        ),
         BatchCheckoutError::Checkout(error) => (
             checkout_status(error),
             "Не удалось подтвердить покупку. Проверьте выбор и состояние кошелька.",
         ),
-        BatchCheckoutError::InvalidBatch | BatchCheckoutError::MixedBooks => {
-            (StatusCode::UNPROCESSABLE_ENTITY, "Нужно выбрать от 2 до 20 разных глав одной книги.")
-        }
+        BatchCheckoutError::InvalidBatch | BatchCheckoutError::MixedBooks => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Нужно выбрать от 2 до 20 разных глав одной книги.",
+        ),
     };
-    private_response((code, shell("Покупка не выполнена", book_id, &format!("<p role=\"alert\">{description}</p>"))), &[])
+    private_response(
+        (
+            code,
+            shell(
+                "Покупка не выполнена",
+                book_id,
+                &format!("<p role=\"alert\">{description}</p>"),
+            ),
+        ),
+        &[],
+    )
 }
 
 pub(super) async fn page(
@@ -292,7 +311,12 @@ pub(super) async fn submit(
             };
             let picked = ids
                 .iter()
-                .map(|id| available.iter().find(|offer| offer.chapter_id == *id).cloned())
+                .map(|id| {
+                    available
+                        .iter()
+                        .find(|offer| offer.chapter_id == *id)
+                        .cloned()
+                })
                 .collect::<Option<Vec<_>>>();
             let Some(picked) = picked else {
                 return failure(
@@ -303,7 +327,10 @@ pub(super) async fn submit(
             let Some(confirm) = confirm_page(
                 book_id,
                 &book.title,
-                fields.get("csrf_token").map(String::as_str).unwrap_or_default(),
+                fields
+                    .get("csrf_token")
+                    .map(String::as_str)
+                    .unwrap_or_default(),
                 &picked,
             ) else {
                 return deny(StatusCode::UNPROCESSABLE_ENTITY);

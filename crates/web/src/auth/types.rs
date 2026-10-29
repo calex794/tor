@@ -2,7 +2,10 @@
 use super::*;
 
 /// Resolve actor from the session database, never client-supplied user IDs.
-pub(super) async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
+pub(super) async fn session_user(
+    state: &AuthState,
+    headers: &HeaderMap,
+) -> Result<Option<i64>, StatusCode> {
     let Some(token) = state.cookies.session_token(headers) else {
         return Ok(None);
     };
@@ -12,7 +15,6 @@ pub(super) async fn session_user(state: &AuthState, headers: &HeaderMap) -> Resu
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
-
 
 #[derive(Clone)]
 pub(super) struct AuthState {

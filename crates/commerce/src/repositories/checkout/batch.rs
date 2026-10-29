@@ -7,7 +7,6 @@ use crate::domain::{
 };
 use sqlx::Row;
 
-
 #[derive(Clone, Debug)]
 pub struct SelectableBatchOffer {
     pub chapter_id: i64,
@@ -54,10 +53,18 @@ impl PgCheckout {
             .map(|row| {
                 Ok(SelectableBatchOffer {
                     chapter_id: row.try_get("id").map_err(|_| CheckoutError::Unavailable)?,
-                    chapter_no: row.try_get("chapter_no").map_err(|_| CheckoutError::Unavailable)?,
-                    title: row.try_get("title").map_err(|_| CheckoutError::Unavailable)?,
-                    version_id: row.try_get("version_id").map_err(|_| CheckoutError::Unavailable)?,
-                    price_minor: row.try_get("price_amount").map_err(|_| CheckoutError::Unavailable)?,
+                    chapter_no: row
+                        .try_get("chapter_no")
+                        .map_err(|_| CheckoutError::Unavailable)?,
+                    title: row
+                        .try_get("title")
+                        .map_err(|_| CheckoutError::Unavailable)?,
+                    version_id: row
+                        .try_get("version_id")
+                        .map_err(|_| CheckoutError::Unavailable)?,
+                    price_minor: row
+                        .try_get("price_amount")
+                        .map_err(|_| CheckoutError::Unavailable)?,
                 })
             })
             .collect()
