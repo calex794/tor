@@ -1,6 +1,7 @@
 //! User account pages; preserves the original `pages` public entry points.
 use super::{escape_html, layout};
 use axum::response::Html;
+use tor_discussions::repositories::public_book_comments::ReceivedReply;
 
 pub fn registration_form(csrf: &str) -> Html<String> {
     registration_form_with_error(csrf, "", "", None)
@@ -66,10 +67,11 @@ pub fn account_error_page(title: &str, message: &str, retry_registration: bool) 
     )
 }
 
-pub fn my_account(name: &str, csrf: &str) -> Html<String> {
+pub fn my_account(name: &str, csrf: &str, replies: &[ReceivedReply]) -> Html<String> {
     let content = include_str!("../../templates/me.html")
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
-        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies));
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
     Html(
@@ -85,9 +87,51 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
     )
 }
 
+fn received_replies(replies: &[ReceivedReply]) -> String {
+    if replies.is_empty() {
+        return "<p class=\"ui-section-header__text\">Ответов пока нет. Когда другой читатель ответит на ваш комментарий, здесь появится ссылка на обсуждение.</p>".to_owned();
+    }
+    let mut html = String::from("<div class=\"me-now-list\">");
+    for reply in replies.iter().take(10) {
+        // The existing descending cursor includes this exact reply on arrival.
+        let cursor = reply
+            .comment_id
+            .checked_add(1)
+            .map(|after| format!("?after={after}"))
+            .unwrap_or_default();
+        html.push_str(&format!(
+            "<a class=\"me-now-item me-now-item--reading\" href=\"/books/{}/comments{cursor}#comment-{}\">",
+            reply.book_id, reply.comment_id,
+        ));
+        html.push_str(&format!(
+            "<span class=\"me-now-item__copy\"><strong class=\"me-now-item__title\">Ответ в книге «{}»</strong><span class=\"me-now-item__text\">Открыть ответ на ваш комментарий</span></span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>",
+            escape_html(&reply.book_title),
+        ));
+    }
+    html.push_str("</div>");
+    html
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn e_03_received_reply_links_escape_titles_and_contain_no_message_copy() {
+        let replies = vec![ReceivedReply {
+            comment_id: 26,
+            book_id: 4,
+            book_title: "<img src=x onerror=alert(1)>".to_owned(),
+        }];
+        let html = my_account("Reader", "csrf", &replies).0;
+        assert!(html.contains("/books/4/comments?after=27#comment-26"));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img src=x"));
+        assert!(!html.contains("<!--RECEIVED_REPLIES-->"));
+        assert!(my_account("Reader", "csrf", &[])
+            .0
+            .contains("Ответов пока нет"));
+    }
 
     #[test]
     fn restored_ne_wboo_auth_panda_is_present_without_client_script() {
@@ -124,7 +168,7 @@ mod tests {
 
     #[test]
     fn original_dashboard_sections_keep_only_implemented_routes() {
-        let html = my_account("<Читатель>", "csrf-token").0;
+        let html = my_account("<Читатель>", "csrf-token", &[]).0;
         assert!(html.contains("class=\"me-page\""));
         assert!(html.contains("class=\"me-overview\""));
         assert!(html.contains("class=\"me-block-grid\""));

@@ -137,7 +137,7 @@ fn account_failure_is_complete_branded_page_without_credentials() {
 
 #[test]
 fn profile_shows_only_actual_user_features() {
-    let html = my_account("<reader>", "csrf").0;
+    let html = my_account("<reader>", "csrf", &[]).0;
     assert!(html.contains("&lt;reader&gt;"));
     assert!(html.contains("href=\"/me/books\""));
     assert!(html.contains("href=\"/me/library\""));
