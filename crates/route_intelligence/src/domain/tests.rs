@@ -25,6 +25,29 @@ fn registry_is_finite_and_classifies_each_declared_method() {
 }
 
 #[test]
+fn i14_main_and_d05_route_indexes_are_preserved() {
+    // Already-merged main registrations are stable; D-05 routes retain
+    // the same numbers as the independent, still-Draft #244 integration.
+    for (index, template, method) in [
+        (75, "/api/v1/purchases/batch", "POST"),
+        (76, "/me/books/{id}/buy-chapters", "GET"),
+        (77, "/me/books/{id}/buy-chapters", "POST"),
+        (78, "/read/{id}/want-continuation", "POST"),
+        (79, "/read/layer/{chapter_id}", "GET"),
+        (87, "/me/layers/{layer_id}/offer", "POST"),
+        (88, "/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST"),
+    ] {
+        let registration = &registry()[index];
+        assert_eq!((registration.template, registration.method), (template, method));
+        let classified = classify(Some(template), method);
+        assert!(classified.route_known);
+        assert_eq!(classified.route_family, registration.family);
+        assert_eq!(classified.product_area, registration.area);
+        assert_eq!(classified.cost_class, registration.cost);
+    }
+}
+
+#[test]
 fn public_private_and_write_routes_are_distinct() {
     assert_eq!(
         classify(Some("/read/{id}/want-continuation"), "POST").cost_class,

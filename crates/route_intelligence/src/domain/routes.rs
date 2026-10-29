@@ -543,52 +543,22 @@ const ROUTES: [RouteRegistration; 89] = [
     ), // 72
     RouteRegistration::new("/me/books/{id}/chapters/illustrated", "GET", "/me/", Prefix, Page, Dashboard, Read), // 73
     RouteRegistration::new("/me/books/{id}/chapters/illustrated", "POST", "/me/", Prefix, Page, Dashboard, Write), // 74
-    RouteRegistration::new(
-        "/read/layer/{chapter_id}",
-        "GET",
-        "/read/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 75
-    RouteRegistration::new(
-        "/assets/newboo-layer-reader.mjs",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 76
-    RouteRegistration::new(
-        "/me/layers/{layer_id}/books",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 77
-    RouteRegistration::new(
-        "/me/layers/{layer_id}/books",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 78
-    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read),
-    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write),
-    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read),
-    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write),
-    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 83
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 84
-    RouteRegistration::new("/api/v1/purchases/batch", "POST", "/api/v1/purchases/", Exact, Api, ProductArea::Billing, Write), // 85
-    RouteRegistration::new("/me/books/{id}/buy-chapters", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 86
-    RouteRegistration::new("/me/books/{id}/buy-chapters", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 87
-    RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 88
+    // Preserve already-merged main route indexes 75-78 (S035 and C-15).
+    RouteRegistration::new("/api/v1/purchases/batch", "POST", "/api/v1/purchases/", Exact, Api, ProductArea::Billing, Write), // 75
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 76
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 77
+    RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 78
+    // Layer routes match the parallel main/D-05 integration registry (#244).
+    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 79
+    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 80
+    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 81
+    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 82
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 83
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 84
+    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read), // 85
+    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 86
+    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 87
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 88
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
