@@ -344,7 +344,9 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage, csrf: &str) -> Html
     layout(
         "Купленные главы",
         "Личный список доступных купленных редакций.",
-        &format!(r#"{body}<script type="module" src="/assets/newboo-paid-library-upgrade.mjs"></script>"#),
+        &format!(
+            r#"{body}<script type="module" src="/assets/newboo-paid-library-upgrade.mjs"></script>"#
+        ),
     )
 }
 
