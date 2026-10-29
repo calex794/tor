@@ -585,12 +585,8 @@ const ROUTES: [RouteRegistration; 79] = [
         Write,
     ), // 76
     // D-05: owner session creates an empty Layer with an atomic command key.
-    RouteRegistration::new(
-        "/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read,
-    ), // 77
-    RouteRegistration::new(
-        "/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write,
-    ), // 78
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 77
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 78
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
