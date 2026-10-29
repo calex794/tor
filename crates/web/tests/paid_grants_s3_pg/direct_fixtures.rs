@@ -62,6 +62,14 @@ pub(super) async fn assert_batch_first_render(
     let catalog = PgCatalog::connect(url).await.unwrap();
     let audit = PgRefundUseEvidence::new(catalog.pool().clone());
     let actor = PositiveId::new(buyer).unwrap();
+    // A reader opening is an observation, never a wallet posting.
+    let wallet_sql = format!(
+        "SELECT
+           (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer})
+           || ':' ||
+           (SELECT count(*) FROM reader_wallet_entries WHERE user_id={buyer})"
+    );
+    let wallet_before = pg(url, &wallet_sql);
     assert_eq!(
         audit
             .direct(actor, PositiveId::new(first).unwrap())
@@ -108,14 +116,14 @@ pub(super) async fn assert_batch_first_render(
         app.clone().oneshot(make(first)).await.unwrap().status(),
         StatusCode::OK
     );
-    let timestamp = pg(&env::var("TEST_DATABASE_URL").unwrap(), &format!(
+    let timestamp = pg(url, &format!(
         "SELECT confirmed_at::TEXT FROM chapter_purchase_render_confirmations WHERE purchase_id={first}"
     ));
     assert_eq!(
         app.clone().oneshot(make(first)).await.unwrap().status(),
         StatusCode::OK
     );
-    assert_eq!(pg(&env::var("TEST_DATABASE_URL").unwrap(), &format!(
+    assert_eq!(pg(url, &format!(
         "SELECT confirmed_at::TEXT FROM chapter_purchase_render_confirmations WHERE purchase_id={first}"
     )), timestamp, "replayed ACK never rewrites the first opening");
     assert_eq!(
@@ -134,5 +142,10 @@ pub(super) async fn assert_batch_first_render(
             .evidence,
         UseEvidence::Unknown,
         "opening one of two batch purchases must not consume its sibling",
+    );
+    assert_eq!(
+        pg(url, &wallet_sql),
+        wallet_before,
+        "opening ACK must not add wallet entries or change buyer balance"
     );
 }

@@ -1,0 +1,61 @@
+# I-14 — disposable main/S035 + C-06 + D-06 integration (Draft)
+
+## Integrated graph
+
+The Draft-only two-parent integration starts from `main@a877c2b7`, including
+already merged S035 #224 and public taxonomy migration
+`202610300001_public_nonempty_taxonomy.sql`. The second parent preserves
+all dependent Draft commits in #178 → #216 → #228 → #231 → #237 → #239.
+This is **not** a merge to `main` and is not a deployment.
+
+Twelve intersecting source/route/policy files were reconciled explicitly,
+and all main-only changes were preserved. The route registry now has 88 route
+pairs and 90 bound handlers, including S035 batch, Layer and C-06 ACK.
+
+## SQLx migration integrity
+
+S035 already merged `202610290003_batch_chapter_purchases.sql` into main.
+The *unmerged* Draft D-06 Layer refund snapshot file had the same numeric
+version. I-14 **deletes only its Draft path** and recreates its unchanged SQL
+blob under `202610300017_layer_refund_policy_snapshot.sql`. Thus this test
+tree has one file per version and retains the S035 version/checksum.
+
+**Migration caution:** a successful clean PostgreSQL test cannot prove that
+`202610290003_layer_refund_policy_snapshot.sql` has never been applied in a
+persistent database. Before any release, review `_sqlx_migrations` across
+every retained environment, establish installed migration identity and
+checksums, and define an explicit compatibility repair if the old Draft
+version was ever applied. Do not alter an applied checksum in place.
+
+## Acceptance matrix
+
+1. Real S035 two-chapter batch checkout creates distinct canonical purchases,
+   two buyer wallet debits and pinned private editions. Checkout itself does
+   not create either first-grant or first-open event.
+2. Grant for purchased chapter A writes an immutable, chapter/version-specific
+   first grant for A only; chapter B remains without issuance evidence.
+3. An authenticated same-origin CSRF-protected simulated browser ACK for A
+   requires its exact owner/purchase/chapter/pinned version, writes a first
+   render event once, and cannot be replayed to change the original timestamp
+   or used with B's purchase ID. B remains `Unknown`.
+4. D-06 read-only audit reports `ChapterTextGrantUnconfirmed` before the
+   ACK, `BrowserRenderReported` after it, `Unknown` for B; opening ACK does
+   not debit/credit the buyer or add ledger entries.
+5. Independent Chromium/MinIO WebCrypto tests must prove that a real reader
+   sends its ACK **after** ciphertext GET, integrity checks, AES-GCM decrypt
+   and DOM rendering. Tampered ciphertext does not send it.
+6. Real PG18 migration discovery (including version uniqueness), S035 batch
+   tests, D-05/D-06/D-08 suites, private S3 and complete required GitHub CI
+   must pass on the exact final integration SHA.
+
+An ACK is a positive client report, not proof a human read. An issued grant
+without ACK and pre-cutover missing markers remain **UNKNOWN**, not grounds for
+automatic refund approval or denial.
+
+## Excluded
+This PR does not pick any refund time limit or policy version, backfill old
+purchases, approve refunds, reverse wallet entries, revoke entitlements as
+refund settlement, create provider payouts, enable flags, merge into main or
+deploy. Finance still needs purchase-time immutable policy plus a separate
+SERIALIZABLE refund approval/reversal transaction and FIN-B05…B11.
+Issues #235 and #236 remain authoritative release/integration gates.
