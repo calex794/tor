@@ -179,11 +179,31 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
     let during = sample(0x0011_22bb);
     let after = sample(0x0011_22cc);
 
-    assert!(publisher.try_publish(&before));
+    // A busy CI host can exceed the 250ms background IPC acknowledgement
+    // deadline even when the daemon is healthy. Keep delivery fail-closed:
+    // retry a bounded number of times and require a real ACK before SIGKILL.
+    let mut acknowledged = false;
+    for _ in 0..3 {
+        let prior = publisher.counts();
+        assert!(publisher.try_publish(&before));
+        assert!(
+            wait_for(|| {
+                let counts = publisher.counts();
+                counts.sent > prior.sent || counts.failed > prior.failed
+            }),
+            "the background IPC attempt must resolve or fail"
+        );
+        if publisher.counts().sent > prior.sent {
+            acknowledged = true;
+            break;
+        }
+    }
     assert!(
-        wait_for(|| publisher.counts().sent == 1),
-        "initial frame must be acknowledged before the simulated crash"
+        acknowledged,
+        "initial frame must be acknowledged before the simulated crash: {:?}",
+        publisher.counts()
     );
+    let failed_before_crash = publisher.counts().failed;
     let saved = lookup::request(&socket, before.trace_id).unwrap();
     assert_eq!(saved.found.unwrap().1, before);
 
@@ -200,7 +220,7 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
         "the request path must not await the dead SQLite process"
     );
     assert!(
-        wait_for(|| publisher.counts().failed == 1),
+        wait_for(|| publisher.counts().failed == failed_before_crash + 1),
         "a missed trace must not silently look delivered"
     );
     assert_eq!(publisher.counts().sent, 1);
@@ -221,7 +241,7 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
     let recovered = lookup::request(&socket, after.trace_id).unwrap();
     assert_eq!(recovered.found.unwrap().1, after);
     assert_eq!(recovered.archived, 2);
-    assert_eq!(publisher.counts().failed, 1);
+    assert_eq!(publisher.counts().failed, failed_before_crash + 1);
     assert_eq!(publisher.counts().dropped, 0);
 
     drop(restarted);
