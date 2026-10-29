@@ -45,6 +45,7 @@ mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod layer_checkout;
+mod layer_storefront;
 mod library_actions;
 mod login_limiter;
 mod paid_completion;
@@ -136,6 +137,7 @@ fn router_inner(
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
     let layer_checkout_enabled = paid_checkout_enabled && layer_checkout::configured();
+    let layer_pages_enabled = std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
@@ -145,6 +147,7 @@ fn router_inner(
         checkout,
         paid_checkout_enabled,
         layer_checkout_enabled,
+        layer_pages_enabled,
         paid_reader_available,
         authoring,
         progress,
@@ -218,6 +221,7 @@ fn router_inner(
         .route("/read/{id}/complete", post(complete_chapter::complete))
         .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
+        .merge(layer_storefront::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
