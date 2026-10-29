@@ -29,11 +29,8 @@ use tor_books::repositories::{
     PgCatalog,
 };
 use tor_commerce::{
-    domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
-    repositories::{
-        checkout::PgCheckout,
-        entitlements::{MixedTocAccess, PgDirectEntitlements},
-    },
+    domain::money::{IdempotencyKey, MoneyMinor, WalletId},
+    repositories::entitlements::{MixedTocAccess, PgDirectEntitlements},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 use tor_reading::repositories::PgReader;
@@ -48,6 +45,10 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/s035_browser.rs"]
+mod s035_browser;
+#[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
+mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/direct_fixtures.rs"]
 mod direct_fixtures;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
@@ -231,7 +232,7 @@ fn save_ephemeral_fixture(
     reader_csp: String,
     expiry_probe_url: Value,
     toc_target: (i64, i64, i64, i64, i64),
-) {
+ ) {
     let (reader_html, layer_reader_html) = readers;
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
@@ -299,6 +300,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
     let (stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (live_desktop, live_desktop_session) =
+        user(&accounts, "s035-private-desktop@tor-ci.example").await;
+    let (live_mobile, live_mobile_session) =
+        user(&accounts, "s035-private-mobile@tor-ci.example").await;
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
+             VALUES({live_desktop},600,'RUB'),({live_mobile},600,'RUB')"
+        ),
+    );
     let csrf = generate_session_token();
 
     pg(
@@ -414,6 +426,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
+    // Before S035 checkout, prove that Layer credentials do not grant direct
+    // access and preserve an independent first-issuance identity.
     let layer_reader_html = layer_fixtures::assert_layer_s3_grants(
         tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
         &app,
@@ -423,21 +437,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (&stranger_cookie, &csrf),
     )
     .await;
-    let purchase = PgCheckout::new(pool.clone())
-        .checkout_once(
-            &PurchaseCommand::new(
-                PositiveId::new(buyer).unwrap(),
-                WalletId::new(buyer).unwrap(),
-                pinned,
-                MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}4", "Z".repeat(42))).unwrap(),
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let purchase_id = purchase.purchase_id.get();
-    direct_fixtures::assert_not_issued(&url, purchase_id);
     // A second fully verified paid edition proves that the TOC contains
     // live links, not synthetic chapter IDs or a public TOC.
     let chapter_two = scalar(
@@ -491,20 +490,28 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         )
         .await
         .unwrap();
-    let purchase_two = PgCheckout::new(pool.clone())
-        .checkout_once(
-            &PurchaseCommand::new(
-                PositiveId::new(buyer).unwrap(),
-                WalletId::new(buyer).unwrap(),
-                pinned_two,
-                MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap(),
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let purchase_two_id = purchase_two.purchase_id.get();
+    let (purchase_id, purchase_two_id) = s035_browser::checkout_and_verify(
+        &app,
+        &url,
+        (book, chapter, chapter_two),
+        (buyer, &buyer_cookie, &csrf),
+        MARKDOWN,
+    )
+    .await;
+    direct_fixtures::assert_not_issued(&url, purchase_id);
+    direct_fixtures::assert_not_issued(&url, purchase_two_id);
+    s035_live_chromium::verify(
+        &app,
+        s035_live_chromium::Fixture {
+            book,
+            chapters: [(chapter, v1), (chapter_two, version_two)],
+            buyers: [
+                (live_desktop, &live_desktop_session),
+                (live_mobile, &live_mobile_session),
+            ],
+        },
+    )
+    .await;
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
