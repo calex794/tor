@@ -142,17 +142,23 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         .create_layer(PositiveId::new(author).unwrap(), "Пакет <b>автора</b>")
         .await
         .unwrap();
-    let version = layers
-        .add_book(PositiveId::new(author).unwrap(), PositiveId::new(layer).unwrap(), PositiveId::new(book).unwrap())
+    let first_version = layers
+        .add_book(
+            PositiveId::new(author).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(book).unwrap(),
+        )
         .await
         .unwrap();
-    layers
-        .add_book(PositiveId::new(author).unwrap(), PositiveId::new(layer).unwrap(), PositiveId::new(hidden).unwrap())
+    let current = layers
+        .add_book(
+            PositiveId::new(author).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            PositiveId::new(hidden).unwrap(),
+        )
         .await
         .unwrap();
-    let version = version + 1; // overwritten below with the DB-authoritative pointer
-    let current = pg(&url, &format!("SELECT current_version_id FROM commerce_layers WHERE id={layer}"));
-    assert_ne!(current, version - 1);
+    assert_ne!(current, first_version);
     let offer = layers
         .publish_offer(PositiveId::new(author).unwrap(), PositiveId::new(layer).unwrap(), 125, false)
         .await
@@ -209,7 +215,8 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         form(&app, &format!("{path}/purchase"), &form_body, &stranger_token, &csrf, Some(ORIGIN))
             .await
             .status(),
-        StatusCode::FORBIDDEN,
+        StatusCode::CONFLICT,
+        "another session cannot charge the intended buyer's wallet",
     );
     assert_eq!(pg(&url, &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")), 450);
 
