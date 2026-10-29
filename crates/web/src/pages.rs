@@ -442,6 +442,20 @@ pub async fn paid_reader_script() -> impl IntoResponse {
     )
 }
 
+/// Public runtime for the authenticated purchased-library update control.
+pub async fn paid_library_upgrade_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-paid-library-upgrade.mjs"),
+    )
+}
+
 /// Local cover-selection preview, based on NEwBOO book-settings.js.
 pub async fn cover_picker_script() -> impl IntoResponse {
     (

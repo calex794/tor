@@ -366,7 +366,8 @@ async fn purchased_library(
         Ok(owned) => owned,
         Err(error) => return deny(status(error)),
     };
-    let mut response = private_response(pages::purchased_chapters_page(&owned), &[]);
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(pages::purchased_chapters_page(&owned, &csrf), &cookies);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
@@ -375,6 +376,63 @@ async fn purchased_library(
         .headers_mut()
         .insert("x-robots-tag", HeaderValue::from_static("noindex"));
     response
+}
+
+async fn upgrade_purchased_chapter(
+    State(state): State<GrantState>,
+    Path(raw_chapter): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<GrantBody>,
+) -> Response {
+    let Some(session) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let actor = match state
+        .accounts
+        .active_session_user(&session_token_digest(&session))
+        .await
+    {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
+        != Some(state.cookies.origin.as_str())
+        || !state.cookies.same_origin(&headers)
+        || !headers
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let (Some(chapter), Some(purchase), Ok(actor)) = (
+        positive(&raw_chapter),
+        body.purchase_id.as_deref().and_then(positive),
+        PositiveId::new(actor),
+    ) else {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    };
+    if !state
+        .rate_limits
+        .lock()
+        .await
+        .allow(actor.get(), Instant::now())
+    {
+        return deny(StatusCode::TOO_MANY_REQUESTS);
+    }
+    match state
+        .entitlement
+        .upgrade_purchased_chapter(actor, chapter, purchase)
+        .await
+    {
+        Ok(Some(version_id)) => private_response(
+            Json(serde_json::json!({"status":"updated","version_id":version_id})),
+            &[],
+        ),
+        Ok(None) => deny(StatusCode::FORBIDDEN),
+        Err(error) => deny(status(error)),
+    }
 }
 
 /// Mount this router ONLY after explicit operator enablement and valid
@@ -436,7 +494,11 @@ fn router_inner(
     if state.reader_s3_origin.is_some() {
         app = app
             .route("/read/paid/{chapter_id}", get(paid_reader))
-            .route("/me/purchases", get(purchased_library));
+            .route("/me/purchases", get(purchased_library))
+            .route(
+                "/api/v1/me/purchases/{chapter_id}/upgrade",
+                post(upgrade_purchased_chapter),
+            );
     }
     app.layer(DefaultBodyLimit::max(512)).with_state(state)
 }

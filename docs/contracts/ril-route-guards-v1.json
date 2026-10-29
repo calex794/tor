@@ -526,6 +526,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_comments::submit",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/purchases/{chapter_id}/upgrade",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "upgrade_purchased_chapter",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-paid-library-upgrade.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::paid_library_upgrade_script",
+      "policy": "public"
     }
   ]
 }

@@ -316,7 +316,7 @@ pub fn paid_reader_shell(
 
 /// A paid library entry exists only for a row already authorized by D.
 /// Never interpolate chapter contents, S3 keys, DEKs or bearer links.
-pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
+pub fn purchased_chapters_page(page: &ReadablePurchasesPage, csrf: &str) -> Html<String> {
     let mut cards = String::new();
     if page.items.is_empty() {
         cards.push_str("<div class=\"library-empty\"><h2>Доступных покупок пока нет</h2><p>Здесь появятся купленные главы, на которые сохраняется право чтения.</p><a class=\"button\" href=\"/catalog\">К каталогу</a></div>");
@@ -326,7 +326,7 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
         let chapter = escape_html(&item.chapter_title);
         write!(
             cards,
-            "<article class=\"library-card paid-library__item\"><div><p class=\"eyebrow\">Купленная редакция {version_no}</p><h2>{book}</h2><p>Глава {chapter_no}. {chapter}</p></div><a class=\"button\" href=\"/read/paid/{chapter_id}?purchase_id={purchase_id}\">Читать купленную редакцию</a></article>",
+            "<article class=\"library-card paid-library__item\"><div><p class=\"eyebrow\">Купленная редакция {version_no}</p><h2>{book}</h2><p>Глава {chapter_no}. {chapter}</p></div><div class=\"paid-library__actions\"><a class=\"button\" href=\"/read/paid/{chapter_id}?purchase_id={purchase_id}\">Читать купленную редакцию</a><button class=\"button button--secondary\" type=\"button\" data-paid-upgrade data-chapter-id=\"{chapter_id}\" data-purchase-id=\"{purchase_id}\">Проверить обновление</button><span data-paid-upgrade-status role=\"status\" aria-live=\"polite\"></span></div></article>",
             version_no = item.version_no,
             chapter_no = item.chapter_no,
             chapter_id = item.chapter_id,
@@ -337,13 +337,16 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
     let next = page.next_after.map_or_else(String::new, |cursor| {
         format!("<nav class=\"chapter-toc__more\" aria-label=\"Страницы покупок\"><a class=\"button button--small\" href=\"/me/purchases?after={cursor}\">Следующие покупки</a></nav>")
     });
+    let csrf = escape_html(csrf);
     let body = format!(
-        "<section class=\"section library-page paid-library\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><a href=\"/me/library\">Библиотека</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Купленные главы</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Купленные главы</h1><p>Здесь находятся доступные редакции, закреплённые за вашей покупкой. Новая редакция не заменяет ранее купленную.</p></div><div class=\"library-grid\">{cards}</div>{next}</div></section>"
+        "<section data-paid-library-csrf=\"{csrf}\" class=\"section library-page paid-library\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><a href=\"/me/library\">Библиотека</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Купленные главы</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Купленные главы</h1><p>Здесь находятся доступные редакции, закреплённые за вашей покупкой. Новая редакция не заменяет ранее купленную.</p></div><div class=\"library-grid\">{cards}</div>{next}</div></section>"
     );
     layout(
         "Купленные главы",
         "Личный список доступных купленных редакций.",
-        &body,
+        &format!(
+            r#"{body}<script type="module" src="/assets/newboo-paid-library-upgrade.mjs"></script>"#
+        ),
     )
 }
 
@@ -366,9 +369,12 @@ mod tests {
             }],
             next_after: Some(31),
         };
-        let html = purchased_chapters_page(&page).0;
+        let html = purchased_chapters_page(&page, "test-csrf").0;
         assert!(html.contains("href=\"/read/paid/23?purchase_id=31\""));
         assert!(html.contains("href=\"/me/purchases?after=31\""));
+        assert!(html.contains("data-paid-upgrade"));
+        assert!(html.contains("data-paid-library-csrf=\"test-csrf\""));
+        assert!(html.contains("/assets/newboo-paid-library-upgrade.mjs"));
         assert!(html.contains("&lt;script&gt;опасно&lt;/script&gt;"));
         assert!(html.contains("&quot;вторая&quot;"));
         assert!(!html.contains("<script>опасно</script>"));
