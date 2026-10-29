@@ -18,6 +18,10 @@ use tor_contracts::paid_delivery::PositiveId;
 
 const PAGE_SIZE: u16 = 20;
 
+fn enabled() -> bool {
+    std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1")
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PickerQuery {
@@ -97,7 +101,7 @@ pub(super) async fn page(
     Query(query): Query<PickerQuery>,
     headers: HeaderMap,
 ) -> Response {
-    if !state.layer_management_enabled {
+    if !enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
     let actor = match session_user(&state, &headers).await {
@@ -127,7 +131,7 @@ pub(super) async fn add(
     headers: HeaderMap,
     Form(form): Form<AddBookForm>,
 ) -> Response {
-    if !state.layer_management_enabled {
+    if !enabled() {
         return deny(StatusCode::NOT_FOUND);
     }
     let actor = match session_user(&state, &headers).await {
