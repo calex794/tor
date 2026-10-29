@@ -71,7 +71,7 @@ pub fn my_account(name: &str, csrf: &str, replies: &[ReceivedReply]) -> Html<Str
     let content = include_str!("../../templates/me.html")
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
-        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies));
+        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf));
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
     Html(
@@ -87,7 +87,7 @@ pub fn my_account(name: &str, csrf: &str, replies: &[ReceivedReply]) -> Html<Str
     )
 }
 
-fn received_replies(replies: &[ReceivedReply]) -> String {
+fn received_replies(replies: &[ReceivedReply], csrf: &str) -> String {
     if replies.is_empty() {
         return "<p class=\"ui-section-header__text\">Ответов пока нет. Когда другой читатель ответит на ваш комментарий, здесь появится ссылка на обсуждение.</p>".to_owned();
     }
@@ -107,6 +107,15 @@ fn received_replies(replies: &[ReceivedReply]) -> String {
             "<span class=\"me-now-item__copy\"><strong class=\"me-now-item__title\">Ответ в книге «{}»</strong><span class=\"me-now-item__text\">Открыть ответ на ваш комментарий</span></span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>",
             escape_html(&reply.book_title),
         ));
+        let (status, next_state, action) = if reply.is_read {
+            ("Прочитано", "unread", "Отметить непрочитанным")
+        } else {
+            ("Не прочитано", "read", "Отметить прочитанным")
+        };
+        html.push_str(&format!(
+            "<p class=\"ui-section-header__text\">{status}</p><form method=\"post\" action=\"/me/replies/{}/read-state\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"state\" value=\"{next_state}\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">{action}</button></form>",
+            reply.comment_id, escape_html(csrf),
+        ));
     }
     html.push_str("</div>");
     html
@@ -122,6 +131,7 @@ mod tests {
             comment_id: 26,
             book_id: 4,
             book_title: "<img src=x onerror=alert(1)>".to_owned(),
+            is_read: false,
         }];
         let html = my_account("Reader", "csrf", &replies).0;
         assert!(html.contains("/books/4/comments?after=27#comment-26"));
