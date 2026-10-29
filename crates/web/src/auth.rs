@@ -522,7 +522,6 @@ async fn private_reader(
         &cookies,
     )
 }
-
 /// Manual place save checks session, Origin, CSRF, published version and visibility.
 async fn save_place(
     State(state): State<AuthState>,
@@ -578,7 +577,6 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
