@@ -6,7 +6,7 @@ use tor_contracts::paid_delivery::PositiveId;
 
 #[derive(Clone)]
 pub struct PgLayers {
-    pool: PgPool,
+    pub(super) pool: PgPool,
 }
 impl PgLayers {
     pub fn new(pool: PgPool) -> Self {
