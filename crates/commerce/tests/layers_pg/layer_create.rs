@@ -21,6 +21,19 @@ async fn d_05_pg_layer_create_is_atomic_replay_safe_and_actor_scoped() {
         .unwrap();
     assert_eq!(replay.layer_id, first.layer_id);
     assert!(replay.replayed);
+    // Renaming display metadata must not invalidate the original command.
+    sqlx::query("UPDATE commerce_layers SET title='Renamed Layer' WHERE id=$1")
+        .bind(first.layer_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.create_layer_once(id(owner), "My Layer", &key)
+            .await
+            .unwrap()
+            .layer_id,
+        first.layer_id
+    );
     assert_eq!(
         repo.create_layer_once(id(owner), "Changed Layer", &key).await,
         Err(LayerError::ReplayConflict)
