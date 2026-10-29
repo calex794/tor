@@ -307,7 +307,10 @@ pub fn reader_with_login_link(
             "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
         ),
     };
-    let return_to_reading = if matches!(chapter.continuation(), PublicContinuation::WaitingForRelease) {
+    let return_to_reading = if matches!(
+        chapter.continuation(),
+        PublicContinuation::WaitingForRelease
+    ) {
         chapter_id
             .map(|id| {
                 format!(

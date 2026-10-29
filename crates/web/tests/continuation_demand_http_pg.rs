@@ -185,16 +185,28 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(!ready.contains("user_id"));
     assert_eq!(
         call(
-            &app, "POST", &want_path, &reader_cookie, "https://evil.invalid", &form
+            &app,
+            "POST",
+            &want_path,
+            &reader_cookie,
+            "https://evil.invalid",
+            &form
         )
         .await
         .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &want_path, &reader_cookie, ORIGIN, "csrf_token=invalid")
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &want_path,
+            &reader_cookie,
+            ORIGIN,
+            "csrf_token=invalid"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -270,7 +282,9 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         StatusCode::CONFLICT
     );
     let owner_after = html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
-    assert!(owner_after.contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+    assert!(
+        owner_after.contains("Запросов после последней опубликованной главы: <strong>0</strong>")
+    );
     pg(&url, &format!("DELETE FROM books WHERE id={book}"));
     pg(
         &url,

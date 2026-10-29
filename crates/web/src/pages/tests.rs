@@ -329,7 +329,8 @@ fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
         tor_reading::services::progress::SavedPlaceState::NotSaved,
         0,
         false,
-    ).0;
+    )
+    .0;
     assert!(private.contains("href=\"/reader/78\""));
     assert!(!private.contains("href=\"/read/78\""));
 }
