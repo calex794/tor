@@ -208,6 +208,12 @@ BEGIN
     IF latest = selected THEN
         RETURN selected;
     END IF;
+    -- Compare chapter-local revision numbers, never sequence IDs.
+    -- A restored historical publication must not downgrade the library.
+    IF (SELECT version_no FROM public.chapter_versions WHERE id = latest)
+       <= (SELECT version_no FROM public.chapter_versions WHERE id = selected) THEN
+        RETURN selected;
+    END IF;
     UPDATE public.library_purchased_chapters
     SET active_version_id = latest
     WHERE user_id = actor_id
