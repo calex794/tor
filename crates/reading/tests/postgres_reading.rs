@@ -42,7 +42,10 @@ async fn public_chapters_hide_drafts_embargoes_admin_holds_paid_and_private_book
     let last = reader.public_chapter(108).await.unwrap().unwrap();
     assert_eq!(last.previous_chapter_id, Some(101));
     assert_eq!(last.next_chapter_id, Some(103));
-    assert!(last.next_chapter_is_paid, "next published paid chapter is a paywall, not missing supply");
+    assert!(
+        last.next_chapter_is_paid,
+        "next published paid chapter is a paywall, not missing supply"
+    );
     for hidden in [0, 102, 103, 104, 105, 106, 107, u64::MAX] {
         assert!(
             reader.public_chapter(hidden).await.unwrap().is_none(),
