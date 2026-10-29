@@ -1,22 +1,17 @@
--- PERF-233: avoid three full scans of books when facets are sparse.
--- Partial indexes track each public facet independently, preserving
--- immediate visibility/hold/delete changes through PostgreSQL MVCC.
--- Store only book IDs: taxonomy text arrays can exceed btree tuple limits.
+-- PERF-233: optional fast path for sparse public taxonomy.
+-- One small btree covers visible books with at least one nonempty facet.
+-- No array payload is stored inside the index, avoiding oversized tuples.
+-- PostgreSQL MVCC maintains eligibility at commit: hiding or holding a book
+-- removes its metadata immediately from live reads.
 --
--- Array equality/inequality is supported by column MCV statistics, unlike
--- cardinality(...) > 0 (which can underestimate dense rows by 3x).
--- The planner can therefore distinguish sparse and dense facets.
-CREATE INDEX books_public_nonempty_genres_idx
+-- Dense catalogs use the original three parallel sequential scans instead
+-- of walking this index through most heap rows. Query selection consults
+-- pg_class statistics only for performance; it NEVER changes access rules.
+CREATE INDEX books_public_nonempty_taxonomy_idx
     ON books (id)
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND genres <> '{}'::text[];
-
-CREATE INDEX books_public_nonempty_tags_idx
-    ON books (id)
-    WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND tags <> '{}'::text[];
-
-CREATE INDEX books_public_nonempty_fandoms_idx
-    ON books (id)
-    WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND fandoms <> '{}'::text[];
+      AND (
+          genres <> '{}'::text[]
+          OR tags <> '{}'::text[]
+          OR fandoms <> '{}'::text[]
+      );
