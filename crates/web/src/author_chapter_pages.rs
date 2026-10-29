@@ -8,6 +8,7 @@ use tor_books::services::authoring::{
 use crate::pages::{escape_html, layout};
 
 /// The form exists only when a signed source store and cover worker are enabled.
+#[cfg(test)]
 pub fn detail_with_covers(
     book: &OwnedBook,
     published: bool,

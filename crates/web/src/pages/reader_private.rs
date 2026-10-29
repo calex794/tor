@@ -9,6 +9,7 @@ use tor_reading::services::progress::{
 
 /// Account-only reading: the browser can save a deterministic point in an
 /// immutable, currently published, free chapter without requiring JavaScript.
+#[cfg(test)]
 pub fn private_reader(
     chapter_id: u64,
     chapter: &tor_reading::services::PublicChapterPage,
