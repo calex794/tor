@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn d_05_lifetime_quote_does_not_claim_automatic_payments() {
-        let mut q = LayerOfferQuote {
+        let q = LayerOfferQuote {
             layer_id: 17,
             title: "Layer".into(),
             offer_id: 18,
@@ -232,8 +232,5 @@ mod tests {
         let html = quote_html(&q, "csrf", "key").0;
         assert!(html.contains("Бессрочно, включая будущие книги Layer"));
         assert!(html.contains("Автосписаний и внешнего платежа нет"));
-        q.books.clear();
-        // A presentation helper can render an empty sample but the repo
-        // rejects it; no empty Layer can be advertised for purchase.
     }
 }
