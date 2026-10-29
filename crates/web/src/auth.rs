@@ -172,7 +172,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/me/library", get(my_library))
+        .route("/me/library", get(library_actions::browser_library))
         .route("/me/rankings", get(rankings::page))
         .route(
             "/me/books/{id}/rate",
@@ -257,46 +257,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf), &cookies)
-}
-
-async fn my_library(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Query(query): Query<LibraryQuery>,
-) -> Response {
-    let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
-    };
-    let digest = session_token_digest(&token);
-    let user_id = match state.accounts.active_session_user(&digest).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let books = match state.progress.continue_reading(user_id).await {
-        Ok(books) => books,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let saved = match state
-        .bookmarks
-        .list_books(user_id, query.limit.unwrap_or(30), query.after)
-        .await
-    {
-        Ok(saved) => saved,
-        Err(tor_reading::services::library::LibraryError::Invalid) => {
-            return deny(StatusCode::BAD_REQUEST);
-        }
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = pages::my_library_with_options(
-        &books,
-        &saved,
-        &csrf,
-        state.paid_reader_available,
-        state.layer_pages_enabled,
-    );
-    private_response(page, &cookies)
 }
 
 /// Resolve actor from the session database, never client-supplied user IDs.
