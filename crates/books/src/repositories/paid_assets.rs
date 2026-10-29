@@ -209,7 +209,9 @@ impl PgPaidAssets {
                 if previous_mime != mime || previous_digest.as_slice() != digest {
                     return Err(AuthorError::Conflict);
                 }
-                Ok(Some(ObjectId::parse(&id).map_err(|_| AuthorError::Unavailable)?))
+                Ok(Some(
+                    ObjectId::parse(&id).map_err(|_| AuthorError::Unavailable)?,
+                ))
             }
         }
     }
