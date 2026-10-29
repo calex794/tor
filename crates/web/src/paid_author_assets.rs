@@ -138,7 +138,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
             .map_err(|_| AuthorError::Unavailable)?;
         match self
             .assets
-            .attach_prepared(actor, pinned, ordinal, media_type, &object_id)
+            .attach_prepared(actor, pinned, ordinal, media_type, object_id)
             .await
         {
             Ok(()) => Ok(object_id.clone()),
