@@ -156,7 +156,7 @@ fn state_label(state: &str) -> &'static str {
     }
 }
 
-pub fn purchased_page(terms: &[LayerTermCard]) -> Html<String> {
+pub fn purchased_page(terms: &[LayerTermCard], paid_reader_available: bool) -> Html<String> {
     let mut cards = String::new();
     if terms.is_empty() {
         cards.push_str(
@@ -176,6 +176,14 @@ pub fn purchased_page(terms: &[LayerTermCard]) -> Html<String> {
         } else {
             format!("С {} · бессрочно", escape_html(&term.starts_utc))
         };
+        let read_link = match (paid_reader_available, term.first_readable_chapter) {
+            (true, Some(chapter_id)) if term.state == "active" => {
+                format!(
+                    "<a class=\"ui-button ui-button--primary\" href=\"/read/layer/{chapter_id}\">Читать главу</a>"
+                )
+            }
+            _ => String::new(),
+        };
         write!(
             cards,
             "<article class=\"layer-panel layer-term-card\">
@@ -184,6 +192,7 @@ pub fn purchased_page(terms: &[LayerTermCard]) -> Html<String> {
              <p class=\"layer-note\">Покупка №{} · {dates}</p>
              <p class=\"layer-term-card__price\">{}</p>
              <a class=\"ui-button ui-button--ghost\" href=\"/layers/{}\">Открыть пакет</a>
+             {read_link}
              </article>",
             term.term_id,
             rubles(term.price_minor),
