@@ -115,11 +115,12 @@ pub(super) async fn count_filtered(
         && tag.is_none()
         && fandom.is_none()
     {
-        let count: i64 =
-            sqlx::query_scalar("SELECT visible_book_count FROM public_catalog_statistics WHERE singleton")
-                .fetch_one(pool)
-                .await
-                .map_err(|_| SearchError::Unavailable)?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
         return u64::try_from(count).map_err(|_| SearchError::Unavailable);
     }
     let total: i64 = sqlx::query_scalar(FILTERED_TOTAL)
