@@ -88,6 +88,10 @@ pub fn detail_with_covers(
         "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
         book.id
     );
+    let import_action = format!(
+        "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/import\">Импорт глав из TXT</a></p>",
+        book.id
+    );
     let cover_status = cover_status(latest_job);
     let upload = if uploads_enabled {
         format!(
@@ -110,6 +114,7 @@ pub fn detail_with_covers(
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <h2>Главы</h2>{items}
         {add_action}
+        {import_action}
         {action}
         <p><a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
@@ -175,6 +180,18 @@ pub fn cover_settings(
             },
         );
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
+}
+
+/// Owner-only preview page; import is never saved automatically.
+pub fn import_chapters(book_id: i64, csrf: &str) -> Html<String> {
+    let template = include_str!("../templates/author_import_chapters.html")
+        .replace("<!--BOOK_ID-->", &book_id.to_string())
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+    layout(
+        "Импорт глав",
+        "Предварительный просмотр и исправление границ глав без публикации.",
+        &template,
+    )
 }
 
 pub fn new_chapter(
