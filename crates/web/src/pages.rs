@@ -10,7 +10,7 @@ pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
 mod reader_private;
-#[cfg(test)]
+#[allow(unused_imports)]
 pub use reader_private::private_reader;
 pub use reader_private::private_reader_with_demand;
 mod paywall;
@@ -280,7 +280,7 @@ fn book_detail_body(
     layout_with_seo(&book.title, &meta_description, &content, &seo)
 }
 
-#[cfg(test)]
+#[allow(dead_code)]
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
     reader_with_login_link(chapter, None)
 }
