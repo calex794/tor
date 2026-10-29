@@ -196,7 +196,10 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
-        .route("/api/v1/layers/{id}/purchase", post(layer_checkout_api::buy))
+        .route(
+            "/api/v1/layers/{id}/purchase",
+            post(layer_checkout_api::buy),
+        )
         .route(
             "/me/books/{id}/buy-chapters",
             get(batch_checkout_browser::page).post(batch_checkout_browser::submit),
