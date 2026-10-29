@@ -1,6 +1,9 @@
 //! D-05/D-08: prove a non-posting attribution reads the paid term's
 //! frozen B-10 schedules, not the current Layer composition.
 use super::*;
+use tor_commerce::repositories::layer_provenance::{
+    DraftAllocationPolicy, LayerProvenanceError, PgLayerProvenance,
+};
 use tor_commerce::domain::layer_allocation::{
     preview_layer_attribution, AttributionError, AttributionInputs, BookWeighting, FrozenBook,
     FrozenParticipant,
@@ -80,6 +83,18 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
         books,
     };
     let preview = preview_layer_attribution(&inputs).unwrap();
+    // D-08 must derive the "verified snapshot" fact from real PostgreSQL,
+    // not from a caller asserting an arbitrary boolean.
+    let loader = PgLayerProvenance::new(pool.clone());
+    let scenario = DraftAllocationPolicy {
+        policy_id: Some("ci-non-posting-legacy-equal-v1".into()),
+        platform_fee_minor: Some(0),
+        weighting: Some(BookWeighting::LegacyEqualLast),
+        book_weights_bps: Vec::new(),
+        allocation_basis_confirmed: true,
+    };
+    let verified = loader.load(receipt.term_id).await.unwrap();
+    assert_eq!(verified.preview_nonposting(&scenario).unwrap(), preview);
     assert_eq!(preview.attributed_minor(), 101);
     assert_eq!(
         preview
@@ -192,6 +207,16 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
     assert_eq!(revision, 2);
     assert_eq!(frozen_rows(&pool, receipt.term_id).await, snapshot);
     assert_eq!(preview_layer_attribution(&inputs).unwrap(), preview);
+    assert_eq!(
+        loader
+            .load(receipt.term_id)
+            .await
+            .unwrap()
+            .preview_nonposting(&scenario)
+            .unwrap(),
+        preview,
+        "verified financial origin never follows later Book versions or B-10 revisions"
+    );
     let replay = repo.buy(&command).await.unwrap();
     assert_eq!(replay.term_id, receipt.term_id);
     assert!(replay.replayed);
@@ -215,5 +240,90 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
         preview_layer_attribution(&unknown_policy),
         Err(AttributionError::UnconfirmedPolicy)
     );
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_08_pg_verified_layer_source_denies_unverified_terms_and_policy_defaults() {
+    let (pool, repo, owner, buyer, book) = setup("verified-origin").await;
+    let (layer, version, published) = offer(&repo, owner, book, 137, false).await;
+    let paid = repo
+        .buy(&cmd(buyer, layer, published, version, 137, 'X'))
+        .await
+        .unwrap();
+    let loader = PgLayerProvenance::new(pool.clone());
+
+    assert!(matches!(
+        loader.load(i64::MAX).await,
+        Err(LayerProvenanceError::UnverifiedPurchase)
+    ));
+    assert!(matches!(
+        loader.load(0).await,
+        Err(LayerProvenanceError::UnverifiedPurchase)
+    ));
+
+    let verified = loader.load(paid.term_id).await.unwrap();
+    assert_eq!(
+        verified.preview_nonposting(&DraftAllocationPolicy::default()),
+        Err(AttributionError::UnconfirmedPolicy),
+        "a valid checkout cannot silently approve a fee or allocation rule"
+    );
+    let mut scenario = DraftAllocationPolicy {
+        policy_id: Some("ci-non-posting-scenario".into()),
+        platform_fee_minor: Some(17),
+        weighting: Some(BookWeighting::LegacyEqualLast),
+        book_weights_bps: Vec::new(),
+        allocation_basis_confirmed: false,
+    };
+    assert_eq!(
+        verified.preview_nonposting(&scenario),
+        Err(AttributionError::UnconfirmedPolicy)
+    );
+    scenario.allocation_basis_confirmed = true;
+    let draft = verified.preview_nonposting(&scenario).unwrap();
+    assert_eq!(draft.gross_minor, 137);
+    assert_eq!(draft.platform_fee_minor, 17);
+    assert_eq!(draft.books.len(), 1);
+    assert_eq!(draft.books[0].book_id, book);
+    assert_eq!(draft.books[0].amount_minor, 120);
+    assert_eq!(draft.books[0].participants[0].user_id, owner);
+    assert_eq!(draft.books[0].participants[0].amount_minor, 120);
+    assert_eq!(draft.attributed_minor(), 137);
+
+    scenario.book_weights_bps = vec![(book, 10_000)];
+    assert_eq!(
+        verified.preview_nonposting(&scenario),
+        Err(AttributionError::InvalidWeights),
+        "legacy equal attribution never accepts arbitrary weights"
+    );
+    scenario.book_weights_bps.clear();
+    scenario.platform_fee_minor = Some(138);
+    assert_eq!(
+        verified.preview_nonposting(&scenario),
+        Err(AttributionError::InvalidCharge)
+    );
+
+    // Even a hypothetical valid scenario is read-only: no new buyer debit,
+    // creator journal credit, or second purchase is generated.
+    let (terms, buyer_debits, owner_journals, balance): (i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT
+               (SELECT COUNT(*) FROM commerce_layer_terms
+                WHERE user_id=$1 AND layer_id=$2),
+               (SELECT COUNT(*) FROM reader_wallet_entries
+                WHERE user_id=$1 AND kind='layer_purchase'),
+               (SELECT COUNT(*) FROM reader_wallet_entries
+                WHERE user_id=$3),
+               (SELECT balance_minor FROM reader_wallet_accounts
+                WHERE user_id=$1)",
+        )
+        .bind(buyer)
+        .bind(layer)
+        .bind(owner)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!((terms, buyer_debits, owner_journals, balance), (1, 1, 0, 1363));
     pool.close().await;
 }
