@@ -2,7 +2,9 @@
 //! The picker is not a grant to write: add_book() takes the Book lock and
 //! rechecks every condition, including races with team membership changes.
 use super::layers::PgLayers;
-use crate::domain::layers::{LayerBookCandidate, LayerBookCandidatePage, LayerError, OwnedLayerSummary};
+use crate::domain::layers::{
+    LayerBookCandidate, LayerBookCandidatePage, LayerError, OwnedLayerSummary,
+};
 use sqlx::Row;
 use tor_contracts::paid_delivery::PositiveId;
 
