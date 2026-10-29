@@ -11,8 +11,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::services::security::generate_session_token;
 use tor_commerce::{
-    domain::money::IdempotencyKey, repositories::layers::PgLayers,
-    services::layers::LayerService,
+    domain::money::IdempotencyKey, repositories::layers::PgLayers, services::layers::LayerService,
 };
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -47,7 +46,11 @@ fn new_layer_html(csrf: &str, key: &str) -> axum::response::Html<String> {
         pages::escape_html(csrf),
         pages::escape_html(key)
     );
-    pages::layout("Создать Layer", "Создание собственного Layer без покупки.", &content)
+    pages::layout(
+        "Создать Layer",
+        "Создание собственного Layer без покупки.",
+        &content,
+    )
 }
 
 pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
