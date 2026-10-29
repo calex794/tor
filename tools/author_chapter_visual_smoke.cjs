@@ -152,7 +152,7 @@ async function inspect(page, viewport, name) {
         viewport + ': published free chapter still offers second release');
       await context.close();
     }
-    console.log('TOR BKR-96 browser PASS: 390/1440 draft-book release, immediate second free Save, public reader');
+    console.log('TOR BKR-96 browser PASS: 390/1440 free chapter Save, public editor, no double release');
   } finally {
     await browser.close();
   }
