@@ -270,7 +270,7 @@ impl PgDirectEntitlements {
                    AND EXISTS (
                      SELECT 1 FROM chapter_publications cp
                      JOIN chapter_versions pv
-                       ON pv.chapter_id=cp.chapter_id AND pv.id=cl.active_version_id
+                       ON pv.chapter_id=cp.chapter_id AND pv.id=cp.version_id
                      WHERE cp.chapter_id=c.id
                    ))
             ORDER BY ABS(c.chapter_no::BIGINT-a.chapter_no::BIGINT),
