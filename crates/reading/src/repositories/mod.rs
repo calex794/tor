@@ -14,3 +14,6 @@ pub use demand::PgContinuationDemand;
 
 pub mod book_follows;
 pub use book_follows::{FollowError, PgBookFollows};
+
+pub mod follow_updates;
+pub use follow_updates::{PgFollowUpdates, FollowUpdatesError, UpdatesCursor};
