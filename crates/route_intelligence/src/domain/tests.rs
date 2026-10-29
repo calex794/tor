@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 75);
+    assert_eq!(unique.len(), 76);
 }
 
 #[test]
@@ -39,6 +39,11 @@ fn public_private_and_write_routes_are_distinct() {
         classify(Some("/read/{id}/complete"), "POST").cost_class,
         CostClass::Write
     );
+    let demand = classify(Some("/read/{id}/want-continuation"), "POST");
+    assert!(demand.route_known);
+    assert_eq!(demand.product_area, ProductArea::Reading);
+    assert_eq!(demand.cost_class, CostClass::Write);
+    assert!(!classify(Some("/read/{id}/want-continuation"), "GET").route_known);
     assert_eq!(
         classify(Some("/api/v1/me/progress/purchased/complete"), "GET").cost_class,
         CostClass::CheapRead

@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 75] = [
+const ROUTES: [RouteRegistration; 76] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -564,6 +564,16 @@ const ROUTES: [RouteRegistration; 75] = [
         Dashboard,
         Write,
     ), // 74
+    // Explicit verified completion demand is a scoped, write-only action.
+    RouteRegistration::new(
+        "/read/{id}/want-continuation",
+        "POST",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 75
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
