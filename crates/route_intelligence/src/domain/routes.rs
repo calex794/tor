@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 73] = [
+const ROUTES: [RouteRegistration; 75] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -455,24 +455,6 @@ const ROUTES: [RouteRegistration; 73] = [
         System,
         Free,
     ), // 62
-    RouteRegistration::new(
-        "/assets/newboo-paid-library-upgrade.mjs",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // paid library runtime
-    RouteRegistration::new(
-        "/api/v1/me/purchases/{chapter_id}/upgrade",
-        "POST",
-        "/api/v1/me/purchases/",
-        Prefix,
-        Api,
-        Reading,
-        Write,
-    ), // owner-scoped edition upgrade
     // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
@@ -564,6 +546,25 @@ const ROUTES: [RouteRegistration; 73] = [
         Reading,
         Write,
     ), // 72
+    RouteRegistration::new(
+        "/assets/newboo-paid-library-upgrade.mjs",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // paid library runtime
+    RouteRegistration::new(
+        "/api/v1/me/purchases/{chapter_id}/upgrade",
+        "POST",
+        "/api/v1/me/purchases/",
+        Prefix,
+        Api,
+        Reading,
+        Write,
+    ), // owner-scoped edition upgrade
+
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
