@@ -114,9 +114,17 @@ impl PgLayers {
             // A published price must cover the complete actual composition;
             // older/paid versions are not rewritten by a new offer.
             let (count, unavailable): (i64, bool) = sqlx::query_as(
-                "SELECT COUNT(*), COALESCE(BOOL_OR(b.admin_hold OR b.is_deleted),FALSE)
+                "SELECT COUNT(*),
+                        COALESCE(BOOL_OR(
+                            b.admin_hold OR b.is_deleted OR
+                            s.current_revision IS NULL OR
+                            (SELECT COALESCE(SUM(a.share_percent),0)::BIGINT
+                             FROM revenue_share_assignments a
+                             WHERE a.book_id=b.id AND a.revision=s.current_revision) <> 100
+                        ),FALSE)
                  FROM commerce_layer_version_books vb
                  JOIN books b ON b.id=vb.book_id
+                 LEFT JOIN revenue_share_states s ON s.book_id=b.id
                  WHERE vb.layer_version_id=$1",
             )
             .bind(version)
@@ -191,9 +199,14 @@ impl PgLayers {
 
         // No partial/truncated composition can be presented as a sale.
         // The v1 bound fails closed rather than hiding paid Books behind UI.
-        let rows: Vec<(i64, String, bool, bool)> = sqlx::query_as(
-            "SELECT b.id,b.title,b.admin_hold,b.is_deleted FROM commerce_layer_version_books vb
+        let rows: Vec<(i64, String, bool, bool, Option<i64>, i64)> = sqlx::query_as(
+            "SELECT b.id,b.title,b.admin_hold,b.is_deleted,s.current_revision,
+                    (SELECT COALESCE(SUM(a.share_percent),0)::BIGINT
+                     FROM revenue_share_assignments a
+                     WHERE a.book_id=b.id AND a.revision=s.current_revision)
+             FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
+             LEFT JOIN revenue_share_states s ON s.book_id=b.id
              WHERE vb.layer_version_id=$1
              ORDER BY vb.book_id LIMIT 101",
         )
@@ -203,7 +216,9 @@ impl PgLayers {
         .map_err(|_| LayerError::Unavailable)?;
         if rows.is_empty()
             || rows.len() > 100
-            || rows.iter().any(|(_, _, held, deleted)| *held || *deleted)
+            || rows.iter().any(|(_, _, held, deleted, revision, total)| {
+                *held || *deleted || revision.is_none() || *total != 100
+            })
         {
             return Err(LayerError::Inaccessible);
         }
@@ -216,7 +231,7 @@ impl PgLayers {
             price_minor,
             books: rows
                 .into_iter()
-                .map(|(book_id, title, _, _)| LayerBookCandidate { book_id, title })
+                .map(|(book_id, title, _, _, _, _)| LayerBookCandidate { book_id, title })
                 .collect(),
         })
     }
