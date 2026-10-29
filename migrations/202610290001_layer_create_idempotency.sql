@@ -11,7 +11,8 @@ ALTER TABLE commerce_layers
     CHECK (
         (create_command_key IS NULL AND create_command_title IS NULL)
         OR (
-            create_command_title IS NOT NULL
+            create_command_key IS NOT NULL
+            AND create_command_title IS NOT NULL
             AND char_length(create_command_title) BETWEEN 1 AND 120
             AND char_length(create_command_key) = 43
             AND create_command_key ~ '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]
