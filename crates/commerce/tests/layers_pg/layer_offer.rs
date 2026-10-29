@@ -314,7 +314,10 @@ async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(original_term, (first_offer, version, "prepaid_30d".into(), 251));
+    assert_eq!(
+        original_term,
+        (first_offer, version, "prepaid_30d".into(), 251)
+    );
     let original_shares: Vec<(i64, i64, i64, i16)> = sqlx::query_as(
         "SELECT s.book_id,s.share_revision,l.user_id,l.share_percent
          FROM commerce_layer_term_share_snapshots s
@@ -398,7 +401,10 @@ async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(saved_shares, original_shares, "frozen recipient shares stay frozen");
+    assert_eq!(
+        saved_shares, original_shares,
+        "frozen recipient shares stay frozen"
+    );
     let (terms, debits): (i64, i64) = sqlx::query_as(
         "SELECT (SELECT COUNT(*) FROM commerce_layer_terms WHERE layer_id=$1),
                 (SELECT COUNT(*) FROM reader_wallet_entries
@@ -409,6 +415,10 @@ async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!((terms, debits), (2, 2), "only actual purchases create paid terms");
+    assert_eq!(
+        (terms, debits),
+        (2, 2),
+        "only actual purchases create paid terms"
+    );
     pool.close().await;
 }
