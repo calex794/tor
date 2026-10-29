@@ -33,14 +33,23 @@ async fn c_14_demand_is_explicit_deduplicated_and_bound_to_released_frontier() {
         demand.state(99401, 99410, 99411).await.unwrap(),
         DemandState::NotEligible
     );
-    assert!(demand.record_verified_continuation(99401, 99410, 99411).await.is_err());
+    assert!(demand
+        .record_verified_continuation(99401, 99410, 99411)
+        .await
+        .is_err());
     sqlx::query("INSERT INTO reader_chapter_completions(user_id,book_id,chapter_id,first_version_id,source_event_id) VALUES(99401,99410,99411,99421,gen_random_uuid())").execute(&pool).await.unwrap();
     assert_eq!(
         demand.state(99401, 99410, 99411).await.unwrap(),
         DemandState::Ready
     );
-    demand.record_verified_continuation(99401, 99410, 99411).await.unwrap();
-    demand.record_verified_continuation(99401, 99410, 99411).await.unwrap();
+    demand
+        .record_verified_continuation(99401, 99410, 99411)
+        .await
+        .unwrap();
+    demand
+        .record_verified_continuation(99401, 99410, 99411)
+        .await
+        .unwrap();
     assert_eq!(
         demand.state(99401, 99410, 99411).await.unwrap(),
         DemandState::Recorded
@@ -52,7 +61,10 @@ async fn c_14_demand_is_explicit_deduplicated_and_bound_to_released_frontier() {
         DemandState::NotEligible
     );
     assert_eq!(demand.current_count(99410).await.unwrap(), 0);
-    assert!(demand.record_verified_continuation(99401, 99410, 99411).await.is_err());
+    assert!(demand
+        .record_verified_continuation(99401, 99410, 99411)
+        .await
+        .is_err());
     sqlx::query("DELETE FROM books WHERE id=99410")
         .execute(&pool)
         .await

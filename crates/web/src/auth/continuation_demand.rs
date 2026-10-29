@@ -41,7 +41,11 @@ pub(super) async fn submit(
     let (Ok(book), Ok(chapter_id)) = (i64::try_from(chapter.book_id), i64::try_from(id)) else {
         return deny(StatusCode::NOT_FOUND);
     };
-    match state.demand.record_verified_continuation(actor, book, chapter_id).await {
+    match state
+        .demand
+        .record_verified_continuation(actor, book, chapter_id)
+        .await
+    {
         Ok(()) => private_response(Redirect::to(&format!("/read/{id}#continuation")), &[]),
         Err(DemandError::NotEligible) => deny(StatusCode::CONFLICT),
         Err(DemandError::Invalid) => deny(StatusCode::BAD_REQUEST),
