@@ -318,13 +318,8 @@ async fn b_s065_paid_image_stays_with_exact_purchased_v1_and_never_mutates() {
     .await
     .unwrap();
     let v3 = pinned(chapter, v3_id);
-    let chapter_v3 = ready_chapter(
-        &pool,
-        v3,
-        &foreign,
-        "b0b0a500-0005-4000-8000-000000000005",
-    )
-    .await;
+    let chapter_v3 =
+        ready_chapter(&pool, v3, &foreign, "b0b0a500-0005-4000-8000-000000000005").await;
     assert_eq!(
         versions
             .attach_verified_and_publish(
