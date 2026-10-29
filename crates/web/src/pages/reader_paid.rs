@@ -370,6 +370,9 @@ mod tests {
         let html = purchased_chapters_page(&page, "test-csrf").0;
         assert!(html.contains("href=\"/read/paid/23?purchase_id=31\""));
         assert!(html.contains("href=\"/me/purchases?after=31\""));
+        assert!(html.contains("data-paid-upgrade"));
+        assert!(html.contains("data-paid-library-csrf=\"test-csrf\""));
+        assert!(html.contains("/assets/newboo-paid-library-upgrade.mjs"));
         assert!(html.contains("&lt;script&gt;опасно&lt;/script&gt;"));
         assert!(html.contains("&quot;вторая&quot;"));
         assert!(!html.contains("<script>опасно</script>"));
