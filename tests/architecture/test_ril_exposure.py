@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 77)  # 75 route pairs, 77 reviewed bindings.
-        self.assertEqual(report["route_pairs"], 73)  # Adds two session-guarded public-book comment methods.
+        self.assertEqual(report["route_pairs"], 75)  # Includes the paid edition update and its static module.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
