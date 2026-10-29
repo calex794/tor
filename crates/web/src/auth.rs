@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    auth_cookies::{private_response, CookiePolicy},
+    auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
@@ -232,10 +232,6 @@ fn router_inner(
     } else {
         app
     }
-}
-
-fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
 }
 
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
