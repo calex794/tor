@@ -201,7 +201,11 @@ BEGIN
     END IF;
     -- Never downgrade: a concurrent editor could have published an older
     -- pointer, but this library must not move backwards.
-    IF latest <= selected THEN
+    -- A sequence ID is not a publication-order guarantee: concurrent
+    -- writers may allocate IDs before the winning transaction commits.
+    -- Only the current B publication pointer is eligible. Repeated clicks
+    -- are idempotent; a selected historical edition may advance once.
+    IF latest = selected THEN
         RETURN selected;
     END IF;
     UPDATE public.library_purchased_chapters
