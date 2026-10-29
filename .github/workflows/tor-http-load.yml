@@ -13,6 +13,10 @@ on:
         type: choice
         options: ['25', '50', '100', '250', '500']
         default: '25'
+      diagnostics:
+        description: 'Run isolated 300-500 RPS and route profiling (no production)'
+        type: boolean
+        default: true
       stage_seconds:
         description: 'Seconds at each rate'
         type: choice
@@ -56,7 +60,7 @@ jobs:
       - name: PostgreSQL tools and k6
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          sudo apt-get install -y postgresql-client sysstat
           curl -fsSL https://dl.k6.io/key.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/k6-archive-keyring.gpg >/dev/null
           echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
           sudo apt-get update -qq
@@ -146,6 +150,84 @@ jobs:
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
           if (( baseline_failed != 0 )); then exit 1; fi
+      - name: Diagnose 300-500 RPS and isolate expensive routes
+        if: ${{ github.event_name == 'pull_request' || inputs.diagnostics }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_AUTH_ENABLED: '0'
+          TOR_PAID_CHECKOUT_ENABLED: '0'
+          STAGE_SECONDS: '15'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load/diagnostic"
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/diagnostic/server.log" 2>&1 &
+          server_pid=$!
+          monitors=()
+          cleanup() {
+            for pid in "${monitors[@]}"; do kill "$pid" 2>/dev/null || true; done
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then cat "$RUNNER_TEMP/tor-load/diagnostic/server.log"; exit 1; fi
+          # Host-wide CPU/IO signals and per-process CPU/RSS. Nothing logs SQL text.
+          pidstat -h -u -r -d -C 'tor-web|k6|postgres' 1             > "$RUNNER_TEMP/tor-load/diagnostic/pidstat.txt" 2>&1 &
+          monitors+=("$!")
+          vmstat 1 > "$RUNNER_TEMP/tor-load/diagnostic/vmstat.txt" 2>&1 &
+          monitors+=("$!")
+          (
+            while kill -0 "$server_pid" 2>/dev/null; do
+              printf '%s\t' "$(date -u +%FT%TZ)"
+              psql -X -A -t -q -c "
+                SELECT coalesce(state,'unknown') || '/' ||
+                       coalesce(wait_event_type,'cpu-or-none') || '/' ||
+                       coalesce(wait_event,'none') || ':' || count(*)
+                  FROM pg_stat_activity
+                 WHERE datname='tor_ci' AND usename='tor_app'
+                 GROUP BY state, wait_event_type, wait_event
+                 ORDER BY state, wait_event_type, wait_event
+              " | tr '\n' ';'
+              printf '\n'
+              sleep 2
+            done
+          ) > "$RUNNER_TEMP/tor-load/diagnostic/pg-waits.tsv" 2>&1 &
+          monitors+=("$!")
+          echo -e "profile\ttarget_rps\toutcome" > "$RUNNER_TEMP/tor-load/diagnostic/results.tsv"
+          run_diag() {
+            local profile="$1" rate="$2" outcome
+            echo "::group::TOR $profile target $rate RPS"
+            date -u +'%FT%TZ' | tee -a "$RUNNER_TEMP/tor-load/diagnostic/stages.txt"
+            echo "$profile target=$rate" >> "$RUNNER_TEMP/tor-load/diagnostic/stages.txt"
+            if TOR_LOAD_PROFILE="$profile" TARGET_RPS="$rate" k6 run               --summary-export "$RUNNER_TEMP/tor-load/diagnostic/summary-$profile-$rate.json"               tests/load/tor_http.js 2>&1 |
+                tee "$RUNNER_TEMP/tor-load/diagnostic/k6-$profile-$rate.log"; then
+              outcome=PASS
+            else
+              outcome=FAIL
+            fi
+            printf '%s\t%s\t%s\n' "$profile" "$rate" "$outcome"               >> "$RUNNER_TEMP/tor-load/diagnostic/results.tsv"
+            echo "::endgroup::"
+          }
+          for rate in 300 350 400; do run_diag mixed "$rate"; done
+          for profile in health cheap catalog catalog_cursor search search_rare; do
+            run_diag "$profile" 500
+          done
+          {
+            echo '## Isolated TOR load diagnostics (one shared GitHub runner)'
+            echo '| Profile | Target RPS | Result |'
+            echo '|---|---:|---|'
+            awk -F '\t' 'NR>1 {printf "| %s | %s | %s |\n", $1, $2, $3}'               "$RUNNER_TEMP/tor-load/diagnostic/results.tsv"
+            echo
+            echo 'PASS means no dropped iterations, <1% HTTP errors, and p95 below 500ms.'
+            echo 'FAIL at higher rates is a measured limitation, not a pass.'
+            echo 'Process CPU, memory, IO and PostgreSQL wait samples are saved as artifacts.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/tor-load/diagnostic/results.tsv"
       - name: Preserve isolated benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4
