@@ -291,7 +291,10 @@ fn c_14_public_continuation_distinguishes_read_access_and_missing_release() {
 
     chapter.next_chapter_id = None;
     chapter.next_chapter_is_paid = false;
-    assert_eq!(chapter.continuation(), PublicContinuation::WaitingForRelease);
+    assert_eq!(
+        chapter.continuation(),
+        PublicContinuation::WaitingForRelease
+    );
     let waiting = reader(&chapter).0;
     assert!(waiting.contains("Следующих опубликованных глав пока нет"));
     assert!(!waiting.contains("href=\"/reader/31\""));
