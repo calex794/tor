@@ -7,13 +7,7 @@ use tor_commerce::{
 
 fn refund_intent(actor: i64, term: i64, suffix: char) -> LayerRefundIntent {
     let key = IdempotencyKey::parse(&format!("{}8", suffix.to_string().repeat(42))).unwrap();
-    LayerRefundIntent::new(
-        id(actor),
-        id(term),
-        "Платная глава недоступна",
-        key,
-    )
-    .unwrap()
+    LayerRefundIntent::new(id(actor), id(term), "Платная глава недоступна", key).unwrap()
 }
 
 #[tokio::test]
@@ -61,7 +55,10 @@ async fn d_06_pg_layer_refund_policy_missing_fails_closed_without_wallet_or_righ
     .unwrap();
     assert_eq!(before, (1, 1, 1225, 0));
     assert!(layers.can_read_book(id(buyer), id(book)).await.unwrap());
-    assert_eq!(layers.buy(&purchase).await.unwrap().term_id, receipt.term_id);
+    assert_eq!(
+        layers.buy(&purchase).await.unwrap().term_id,
+        receipt.term_id
+    );
     assert_eq!(
         service.preflight(&intent).await,
         Err(RefundGateError::PolicyUnavailable)
