@@ -75,6 +75,17 @@ pub(super) async fn assert_layer_s3_grants(
         .unwrap();
     assert!(!paid.replayed);
     assert_eq!(paid.balance_after_minor, 210);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
+        0,
+        "checkout, metadata and a reader shell are not paid content grants"
+    );
     let shell = private_get(app, &layer_page, Some(cookie)).await;
     assert_eq!(shell.status(), StatusCode::OK);
     assert_eq!(shell.headers()[header::CACHE_CONTROL], "no-store");
@@ -89,6 +100,17 @@ pub(super) async fn assert_layer_s3_grants(
     assert!(!body.contains(MARKDOWN));
     assert!(!body.contains("dek_b64u"));
     assert!(!body.contains("ciphertext_url"));
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
+        0,
+        "rendering the Layer reader shell must not mark first paid exposure"
+    );
 
     let mixed = post_grant(
         app,
@@ -100,6 +122,17 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(mixed.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
+        0,
+        "rejected grant requests must not count as content issuance"
+    );
     let granted = post_grant(
         app,
         chapter,
@@ -125,6 +158,39 @@ pub(super) async fn assert_layer_s3_grants(
         "only the configured private S3 origin may be signed"
     );
     assert!(!payload.to_string().contains(MARKDOWN));
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT chapter_id || ':' || version_id || ':' || object_kind
+             FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
+        format!("{chapter}:{published}:chapter"),
+        "only the successfully assembled protected grant may record first exposure"
+    );
+    let first_at = pg(
+        url,
+        &format!(
+            "SELECT granted_at::text FROM commerce_layer_term_first_exposures WHERE term_id={}",
+            paid.term_id
+        ),
+    );
+    // An omitted source can fall back to Layer after direct V1 is denied.
+    // It must not bypass the exposure barrier or overwrite the first fact.
+    let fallback = post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, "{}").await;
+    assert_eq!(fallback.status(), StatusCode::OK);
+    assert_eq!(
+        pg(
+            url,
+            &format!(
+                "SELECT granted_at::text FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
+        first_at
+    );
 
     // A blocked storefront disallows new sales without confiscating
     // existing rights. The term, not the storefront, is the entitlement.
