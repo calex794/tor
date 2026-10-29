@@ -158,22 +158,18 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     let allowed_form = format!("book_id={solo}&csrf_token={csrf}");
     let team_form = format!("book_id={team}&csrf_token={csrf}");
 
-    assert_eq!(
-        request(&tor_web::router_with_postgres_reading_auth(
-            catalog.clone(),
-            PgReader::new(pool.clone()),
-            accounts.clone(),
-            false,
-            ORIGIN.to_owned(),
-        ), "GET", &page, "", ORIGIN, "").await.status(),
-        StatusCode::SEE_OTHER
-    );
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
         accounts,
         false,
         ORIGIN.to_owned(),
+    );
+    assert_eq!(
+        request(&app, "GET", &page, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
     );
     assert_eq!(
         request(&app, "GET", &page, &other_cookie, ORIGIN, "").await.status(),
