@@ -173,8 +173,15 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         } else if code == StatusCode::NOT_FOUND {
             // Reader and API errors must still have empty bodies.
             assert!(text.is_empty(), "protected read error must not expose data");
-        } else {
+        } else if path == "/reader/101" {
+            // Only the published free chapter renders its escaped body.
             assert!(text.contains("&lt;script&gt;"));
+            assert!(!text.contains("<script>"));
+        } else {
+            // Paid metadata cannot borrow or expose the free or paid body.
+            assert_eq!(path, "/reader/103");
+            assert!(text.contains("Для чтения нужен доступ"));
+            assert!(!text.contains("&lt;script&gt;"));
             assert!(!text.contains("<script>"));
         }
     }
