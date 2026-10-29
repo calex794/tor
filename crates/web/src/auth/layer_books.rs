@@ -41,7 +41,7 @@ pub(super) struct AddBookForm {
     csrf_token: Option<String>,
 }
 
-fn status(error: LayerError) -> StatusCode {
+pub(super) fn status(error: LayerError) -> StatusCode {
     match error {
         LayerError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
         LayerError::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
