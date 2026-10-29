@@ -227,17 +227,21 @@ pub fn paid_reader_shell(
                  <span class="reader-topbar__chapter" title="{chapter_label}">{chapter_label}</span>
                </div>
                <div class="reader-topbar__actions">
-                 {toc_menu}
                  <button class="reader-topbar__settings" type="button" data-paid-settings-open
                    aria-controls="paid-reader-settings" aria-expanded="false"
-                   aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+                   aria-haspopup="dialog" aria-label="Настройки чтения" title="Настройки чтения">Aa</button>
+                 {toc_menu}
                  <button class="reader-topbar__theme" type="button" data-paid-theme-cycle
                    aria-label="Сменить тему" title="Сменить тему"><span aria-hidden="true">☾</span></button>
                </div>
              </header>
            <div class="container reader-width">
-             <section id="paid-reader-settings" class="reader-paid__settings"
-               data-paid-reader-settings aria-labelledby="paid-reader-settings-title" hidden>
+             <div id="paid-reader-settings" class="reader-paid__settings"
+               data-paid-reader-settings hidden>
+               <button type="button" class="reader-paid__settings-backdrop"
+                 data-paid-settings-close aria-label="Закрыть настройки чтения"></button>
+               <section class="reader-paid__settings-panel" role="dialog" aria-modal="true"
+                 aria-labelledby="paid-reader-settings-title" tabindex="-1">
                <div class="reader-paid__settings-head">
                  <h2 id="paid-reader-settings-title">Настройки чтения</h2>
                  <button type="button" data-paid-settings-close aria-label="Закрыть настройки">Закрыть</button>
@@ -249,6 +253,13 @@ pub fn paid_reader_shell(
                      <button type="button" data-paid-theme="light" aria-pressed="false">Светлая</button>
                      <button type="button" data-paid-theme="sepia" aria-pressed="false">Сепия</button>
                      <button type="button" data-paid-theme="dark" aria-pressed="false">Тёмная</button>
+                   </div>
+                 </div>
+                 <div class="reader-paid__settings-field" role="group" aria-label="Шрифт чтения">
+                   <span>Шрифт</span>
+                   <div class="reader-paid__themes" data-paid-font-choice>
+                     <button type="button" data-paid-font-family="serif" aria-pressed="true">С засечками</button>
+                     <button type="button" data-paid-font-family="sans" aria-pressed="false">Без засечек</button>
                    </div>
                  </div>
                  <label class="reader-paid__settings-field">Размер текста
@@ -265,7 +276,8 @@ pub fn paid_reader_shell(
                  </label>
                </div>
                <button type="button" data-paid-settings-reset>Сбросить настройки</button>
-             </section>
+               </section>
+             </div>
              <div class="reader-page__header">
                <p class="reader-page__meta">Купленная редакция {version_no}</p>
                <h1 id="reader-title" class="reader-page__title">{chapter_label}</h1>
@@ -451,7 +463,7 @@ mod tests {
         assert_eq!(blocked.matches("data-paid-toc-bottom").count(), 1);
         assert!(blocked.contains("reader-topbar__toc--bottom"));
         assert!(blocked.contains("href=\"/reader/21\""));
-        // The current edition is represented by aria-current, not a self-link.
+        // Active paid version is not a link back to itself.
         assert!(blocked.contains("href=\"/read/paid/23?purchase_id=31\""));
         assert!(!blocked.contains("href=\"/read/paid/24?purchase_id=32\""));
         assert!(blocked.contains("aria-current=\"page\""));
@@ -517,6 +529,12 @@ mod tests {
         assert!(body.contains("aria-current=\"page\""));
         assert!(!body.contains("data-paid-toc-link"));
         assert!(body.contains("data-paid-settings-open"));
+        assert!(body.contains("data-paid-font-family=\"serif\""));
+        assert!(body.contains("data-paid-font-family=\"sans\""));
+        assert!(body
+            .contains("class=\"reader-paid__settings-panel\" role=\"dialog\" aria-modal=\"true\""));
+        assert!(body.contains("data-paid-settings-close aria-label=\"Закрыть настройки чтения\""));
+        assert!(body.contains("aria-haspopup=\"dialog\""));
         assert!(body.contains("data-paid-theme-cycle"));
         assert!(body.contains("aria-label=\"Сменить тему\""));
         let toolbar = body.find("<header class=\"reader-topbar\"").unwrap();

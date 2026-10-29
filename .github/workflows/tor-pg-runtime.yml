@@ -178,6 +178,7 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
+          TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored
@@ -185,6 +186,7 @@ jobs:
           TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1

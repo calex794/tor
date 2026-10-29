@@ -32,7 +32,7 @@ const scripts = {
 const siteCss = fs.readFileSync("crates/web/assets/site.css");
 const newbooCss = [
   "newboo-port.css", "newboo-home-carousel.css", "newboo-book-detail.css",
-  "newboo-reader.css", "newboo-cover-picker.css",
+  "newboo-comments.css", "newboo-reader.css", "newboo-cover-picker.css",
   "newboo-layer-storefront.css",
 ].map(name => fs.readFileSync("crates/web/assets/" + name)).join("\n");
 

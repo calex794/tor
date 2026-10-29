@@ -1,17 +1,12 @@
 //! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
-
 mod classifier;
 pub use classifier::classify;
-
-// Indexes below are deliberately shared with classify(), and checked by unit tests.
-// These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
-
-const ROUTES: [RouteRegistration; 77] = [
+const ROUTES: [RouteRegistration; 83] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -297,9 +292,7 @@ const ROUTES: [RouteRegistration; 77] = [
         System,
         Free,
     ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
     RouteRegistration::new(
         "/ops/traces",
         "GET",
@@ -318,7 +311,6 @@ const ROUTES: [RouteRegistration; 77] = [
         ProductArea::Admin,
         Read,
     ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
     RouteRegistration::new(
         "/covers/{id}/{variant}",
         "GET",
@@ -455,7 +447,6 @@ const ROUTES: [RouteRegistration; 77] = [
         System,
         Free,
     ), // 62
-    // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
         "GET",
@@ -528,8 +519,24 @@ const ROUTES: [RouteRegistration; 77] = [
         Reading,
         CostClass::ExpensiveRead,
     ), // 70
-    // D-05 Layer CURRENT: the shell does not release content without
-    // a second D check at the signed S3 grant endpoint.
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "GET",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 71
+    RouteRegistration::new(
+        "/books/{id}/comments",
+        "POST",
+        "/books/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 72
     RouteRegistration::new(
         "/read/layer/{chapter_id}",
         "GET",
@@ -538,7 +545,7 @@ const ROUTES: [RouteRegistration; 77] = [
         Page,
         Reading,
         Read,
-    ), // 71
+    ), // 73
     RouteRegistration::new(
         "/assets/newboo-layer-reader.mjs",
         "GET",
@@ -547,45 +554,40 @@ const ROUTES: [RouteRegistration; 77] = [
         Static,
         System,
         Free,
-    ), // 72
-    RouteRegistration::new(
-        "/api/v1/layers/{id}/purchase",
-        "POST",
-        "/api/v1/layers/",
-        Prefix,
-        Api,
-        ProductArea::Billing,
-        Write,
-    ), // 73
-    RouteRegistration::new(
-        "/layers/{id}",
-        "GET",
-        "/layers/",
-        Prefix,
-        Page,
-        ProductArea::Billing,
-        Read,
     ), // 74
     RouteRegistration::new(
-        "/layers/{id}/purchase",
-        "POST",
-        "/layers/",
+        "/me/layers/{layer_id}/books",
+        "GET",
+        "/me/",
         Prefix,
         Page,
-        ProductArea::Billing,
-        Write,
+        Dashboard,
+        Read,
     ), // 75
     RouteRegistration::new(
-        "/me/library/layers",
-        "GET",
-        "/me/library/",
-        Exact,
+        "/me/layers/{layer_id}/books",
+        "POST",
+        "/me/",
+        Prefix,
         Page,
-        Reading,
-        Read,
+        Dashboard,
+        Write,
     ), // 76
+    LAYER_CREATE_PAGE_ROUTE, // 77
+    RouteRegistration::new(
+        "/me/layers/new",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 78
+    LAYER_CHECKOUT_ROUTE, // 79
+    LAYER_STOREFRONT_PAGE_ROUTE, // 80
+    LAYER_STOREFRONT_BUY_ROUTE, // 81
+    LAYER_PURCHASED_TERMS_ROUTE, // 82
 ];
-
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES

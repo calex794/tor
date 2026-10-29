@@ -26,7 +26,7 @@ assert(!fixture.library.includes("SECRET-LAYER-CHAPTER-PLAIN-TEXT"));
 
 const expectedStyles = [
   "newboo-port.css", "newboo-home-carousel.css",
-  "newboo-book-detail.css", "newboo-reader.css",
+  "newboo-book-detail.css", "newboo-comments.css", "newboo-reader.css",
   "newboo-cover-picker.css", "newboo-layer-storefront.css",
 ];
 const source = fs.readFileSync("crates/web/src/pages.rs", "utf8");
