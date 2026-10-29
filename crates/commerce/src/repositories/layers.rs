@@ -431,6 +431,24 @@ impl PgLayers {
         if locked_books.is_empty() {
             return Err(LayerError::Inaccessible);
         }
+        // A purchase must not charge for a Layer containing a held/deleted
+        // Book, including one inherited through a continuous paid term.
+        // All these Book rows already carry SHARE locks until commit.
+        let unavailable: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM commerce_layer_versions v
+                 JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
+                 JOIN books b ON b.id=vb.book_id
+                 WHERE v.layer_id=$1 AND (b.admin_hold OR b.is_deleted)
+             )",
+        )
+        .bind(cmd.layer.get())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+        if unavailable {
+            return Err(LayerError::Inaccessible);
+        }
         let kind: String = offer
             .try_get("term_kind")
             .map_err(|_| LayerError::Unavailable)?;
