@@ -46,6 +46,13 @@ pub struct LayerBookCandidatePage {
     pub next_after: Option<i64>,
 }
 
+/// Idempotent Layer creation changes composition metadata only, never money.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerCreateReceipt {
+    pub layer_id: i64,
+    pub replayed: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerReceipt {
     pub term_id: i64,
