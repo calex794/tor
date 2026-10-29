@@ -1,5 +1,11 @@
 name: TOR isolated HTTP load
 on:
+  pull_request:
+    paths:
+      - .github/workflows/tor-http-load.yml
+      - tests/load/**
+      - tools/ci_test_map.py
+      - tests/architecture/test_ci_workflow_wiring.py
   workflow_dispatch:
     inputs:
       peak_rps:
@@ -84,8 +90,8 @@ jobs:
           VALUES (201,101,1,'The load test chapter body.');
           INSERT INTO chapter_publications(chapter_id,version_id)
           VALUES (101,201);
-          INSERT INTO books(source_identity,target_language,title,visibility)
-          SELECT 'ci:load:book:' || n, 'ru','Load Test Book ' || n,'public'
+          INSERT INTO books(id,source_identity,target_language,title,visibility)
+          SELECT n,'ci:load:book:' || n, 'ru','Load Test Book ' || n,'public'
           FROM generate_series(2,10000) n;
           SQL
       - name: Build optimised TOR web
@@ -96,8 +102,8 @@ jobs:
           TOR_LISTEN_ADDR: 127.0.0.1:3089
           TOR_AUTH_ENABLED: '0'
           TOR_PAID_CHECKOUT_ENABLED: '0'
-          PEAK_RPS: ${{ inputs.peak_rps }}
-          STAGE_SECONDS: ${{ inputs.stage_seconds }}
+          PEAK_RPS: ${{ inputs.peak_rps || '25' }}
+          STAGE_SECONDS: ${{ inputs.stage_seconds || '15' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/tor-load"
@@ -122,7 +128,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tor-http-load-${{ inputs.peak_rps }}rps
+          name: tor-http-load-${{ inputs.peak_rps || '25' }}rps
           path: ${{ runner.temp }}/tor-load/
           if-no-files-found: warn
           retention-days: 14
