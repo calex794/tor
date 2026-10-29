@@ -289,11 +289,13 @@ async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = if state.paid_reader_available {
-        pages::my_library_with_purchases(&books, &saved, &csrf, true)
-    } else {
-        pages::my_library(&books, &saved, &csrf)
-    };
+    let page = pages::my_library_with_options(
+        &books,
+        &saved,
+        &csrf,
+        state.paid_reader_available,
+        state.layer_pages_enabled,
+    );
     private_response(page, &cookies)
 }
 
