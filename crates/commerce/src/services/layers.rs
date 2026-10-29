@@ -1,7 +1,8 @@
 //! D-05: business-facing layer operations; SQL and money authority stay in D repository.
 use crate::{
     domain::layers::{
-        LayerBookCandidatePage, LayerCheckoutCommand, LayerError, LayerReceipt, OwnedLayerSummary,
+        LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerError, LayerReceipt,
+        OwnedLayerSummary,
     },
     repositories::layers::PgLayers,
 };
@@ -17,6 +18,15 @@ impl LayerService {
     }
     pub async fn create(&self, actor: PositiveId, title: &str) -> Result<i64, LayerError> {
         self.repository.create_layer(actor, title).await
+    }
+    /// Authenticated form command. The original Layer is returned on replay.
+    pub async fn create_once(
+        &self,
+        actor: PositiveId,
+        title: &str,
+        key: &crate::domain::money::IdempotencyKey,
+    ) -> Result<LayerCreateReceipt, LayerError> {
+        self.repository.create_layer_once(actor, title, key).await
     }
     /// Show only this owner's Layer containers in the author workspace.
     pub async fn owned_layers(
