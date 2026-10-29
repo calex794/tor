@@ -366,7 +366,8 @@ async fn purchased_library(
         Ok(owned) => owned,
         Err(error) => return deny(status(error)),
     };
-    let mut response = private_response(pages::purchased_chapters_page(&owned), &[]);
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let mut response = private_response(pages::purchased_chapters_page(&owned, &csrf), &cookies);
     response.headers_mut().insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
