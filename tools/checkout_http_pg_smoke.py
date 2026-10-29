@@ -339,6 +339,86 @@ def enabled() -> None:
                "S035 purchased version does not grant owned reading progress")
         expect(stranger.call("GET", place), 404,
                "S035 purchase exposed a chapter to an unrelated user")
+
+    # S035 native browser: real form selection -> explicit total -> wallet commit.
+    browser_book = scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) "
+        f"VALUES ('ci:s035:native-form','ru','Пакет в браузере','public',{author_id}) RETURNING id")
+    browser_chapters = []
+    for number, price in ((1, 50), (2, 75)):
+        part = scalar(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) "
+            f"VALUES ({browser_book},{number},'Выбор главы','public','paid',{price}) RETURNING id")
+        edition = scalar(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) "
+            f"VALUES ({part},1,'PRIVATE S035 BROWSER') RETURNING id")
+        pg(f"INSERT INTO chapter_publications(chapter_id,version_id) VALUES ({part},{edition})")
+        browser_chapters.append(part)
+    form_path = f"/me/books/{browser_book}/buy-chapters"
+    status, _, selection_page = buyer.call("GET", form_path)
+    require(status == 200 and "Выберите от 2 до 20 глав" in selection_page,
+            "S035 native browser selection is missing")
+    for part in browser_chapters:
+        require(f'name="chapter_{part}"' in selection_page,
+                "S035 browser is missing a selectable paid chapter")
+    require("PRIVATE S035 BROWSER" not in selection_page,
+            "S035 browser leaked a paid chapter body")
+    choose = urllib.parse.urlencode({
+        "step": "select", "csrf_token": csrf,
+        **{f"chapter_{part}": "1" for part in browser_chapters},
+    }).encode()
+    expect(buyer.call("POST", form_path, choose, origin="https://evil.invalid"),
+           403, "S035 native form rejects cross-origin")
+    expect(buyer.call("POST", form_path, choose), 403,
+           "S035 native form requires same-origin POST")
+    choose_one = urllib.parse.urlencode({
+        "step": "select", "csrf_token": csrf,
+        f"chapter_{browser_chapters[0]}": "1",
+    }).encode()
+    expect(buyer.call("POST", form_path, choose_one, origin=BASE), 422,
+           "S035 cannot confirm one chapter as a batch")
+    status, _, confirmation = buyer.call("POST", form_path, choose, origin=BASE)
+    require(status == 200 and "Итого: 1,25 ₽" in confirmation
+            and "Подтвердить покупку" in confirmation,
+            "S035 native confirmation must show full amount before debit")
+    def hidden(name: str) -> str:
+        match = re.search(r'name="' + name + r'" value="([^"]+)"', confirmation)
+        require(match is not None, "S035 native confirmation field missing: " + name)
+        return match.group(1)
+    fields = {
+        "step": "commit", "csrf_token": csrf,
+        "command_key": hidden("command_key"),
+        "chapter_ids": hidden("chapter_ids"),
+        "version_ids": hidden("version_ids"),
+        "prices": hidden("prices"),
+    }
+    wrong = dict(fields)
+    wrong["prices"] = "50,76"
+    expect(buyer.call("POST", form_path, urllib.parse.urlencode(wrong).encode(),
+                      origin=BASE), 409,
+           "S035 changed confirmation price must roll back every purchase")
+    require(scalar("SELECT count(*) FROM chapter_purchase_facts "
+                   f"WHERE user_id={buyer_id}") == 3,
+            "S035 stale browser quote made a partial debit")
+    send_form = urllib.parse.urlencode(fields).encode()
+    status, _, receipt_page = buyer.call("POST", form_path, send_form, origin=BASE)
+    require(status == 200 and "Покупка завершена" in receipt_page
+            and "Из внутреннего кошелька списано 1,25 ₽" in receipt_page
+            and 'href="/me/library"' in receipt_page,
+            "S035 successful browser response must link to buyer's library")
+    status, _, replay_page = buyer.call("POST", form_path, send_form, origin=BASE)
+    require(status == 200 and "Повтор без нового списания" in replay_page,
+            "S035 duplicate native form must replay without a second debit")
+    require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
+                   f"WHERE user_id={buyer_id}") == 100,
+            "S035 browser purchase or replay had wrong final balance")
+    require(scalar("SELECT count(*) FROM chapter_purchase_facts "
+                   f"WHERE user_id={buyer_id}") == 5,
+            "S035 browser purchase created missing or duplicate purchases")
+    status, _, selection_after = buyer.call("GET", form_path)
+    require(status == 200 and "нет двух доступных" in selection_after,
+            "S035 browser must not reoffer already purchased chapters")
+    print("D/S035 native browser forms + PG: PASS (select/confirm/CSRF/stale/replay/library)")
     print("D/S035 atomic HTTP+PostgreSQL batch: PASS (ACL/CSRF/price/ledger/replay/rights)")
     print("D-04/S034 real HTTP+PostgreSQL: PASS (sessions/CSRF/replay/ledger/V1/refund)")
 

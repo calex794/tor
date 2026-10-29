@@ -1,4 +1,34 @@
 use super::*;
+
+
+#[test]
+fn s035_book_detail_only_links_batch_when_enabled_and_two_paid_chapters_exist() {
+    let book = tor_reading::services::PublicBookPage {
+        id: 91,
+        title: "<script>Book</script>".to_owned(),
+        language: "ru".to_owned(),
+        author_name: String::new(),
+        genres: Vec::new(),
+        description: String::new(),
+        chapters: (1_u64..=2)
+            .map(|id| tor_reading::services::PublicChapterLink {
+                id,
+                number: id as i32,
+                title: "Платная".to_owned(),
+                is_paid: true,
+                price_minor: 100,
+            })
+            .collect(),
+        next_cursor: None,
+    };
+    let hidden = book_detail_with_chapters_cover_internal(&book, 20, false, false).0;
+    assert!(!hidden.contains("buy-chapters"));
+    let enabled = book_detail_with_chapters_cover_internal(&book, 20, false, true).0;
+    assert!(enabled.contains("href=\"/me/books/91/buy-chapters\""));
+    assert!(!enabled.contains("<script>Book</script>"));
+    assert!(enabled.contains("&lt;script&gt;Book&lt;/script&gt;"));
+}
+
 #[test]
 fn escapes_untrusted_book_titles() {
     let page = home(&[PublicBookCard {

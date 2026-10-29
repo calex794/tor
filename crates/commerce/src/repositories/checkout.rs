@@ -1,6 +1,7 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
 mod batch;
+pub use batch::SelectableBatchOffer;
 
 use crate::domain::money::{
     CheckoutError, CheckoutRepository, MoneyMinor, PurchaseCommand, PurchaseId, PurchaseReceipt,
