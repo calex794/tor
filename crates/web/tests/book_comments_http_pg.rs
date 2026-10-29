@@ -328,11 +328,74 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         .await,
         "1"
     );
+    let writer_session = generate_session_token();
+    let writer_csrf = generate_session_token();
+    let writer_id = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            &format!("e03-recipient-{nonce}@tor-ci.example"),
+            "Other reader",
+            &hash_password("E03OnlyTestingPassword2026").unwrap(),
+            &session_token_digest(&writer_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let writer_cookie = format!("tor-dev-session={writer_session}; tor-dev-csrf={writer_csrf}");
+    let incoming_form = format!(
+        "body=NEVER_COPY_THIS_SPOILER&parent_id={parent}&command_key={}&csrf_token={writer_csrf}",
+        generate_session_token()
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &comments_path,
+                &writer_cookie,
+                ORIGIN,
+                &incoming_form
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    let incoming_id: i64 = pg(&url,&format!("SELECT id FROM discussion_comments WHERE author_user_id={writer_id} AND book_id={book}")).await.parse().unwrap();
+    let link = format!(
+        "/books/{book}/comments?after={}#comment-{incoming_id}",
+        incoming_id + 1
+    );
+    let account = call(&app, "GET", "/me", &cookies, ORIGIN, "").await;
+    assert_eq!(account.status(), StatusCode::OK);
+    assert!(account
+        .headers()
+        .get(header::CACHE_CONTROL)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("no-store"));
+    let account_html = html(account).await;
+    assert_eq!(account_html.matches(&link).count(), 1);
+    assert!(account_html.contains("Книга &lt;script&gt;"));
+    assert!(!account_html.contains("NEVER_COPY_THIS_SPOILER"));
+    assert!(
+        !html(call(&app, "GET", "/me", &writer_cookie, ORIGIN, "").await)
+            .await
+            .contains(&link)
+    );
+    assert_eq!(
+        call(&app, "GET", "/me", "", ORIGIN, "").await.status(),
+        StatusCode::SEE_OTHER
+    );
     pg(
         &url,
         &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={parent}"),
     )
     .await;
+    assert!(!html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await)
+        .await
+        .contains(&link));
+
     assert_eq!(
         call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
             .await
@@ -370,6 +433,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
     )
     .await;
+    pg(&url, &format!("DELETE FROM users WHERE id={writer_id}")).await;
     pg(&url, &format!("DELETE FROM users WHERE id={user}")).await;
     pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }

@@ -266,8 +266,16 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let discussions =
+        tor_discussions::repositories::public_book_comments::PgPublicBookComments::new(
+            state.accounts.pool().clone(),
+        );
+    let replies = match discussions.received_replies(user_id, 10).await {
+        Ok(replies) => replies,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_account(&name, &csrf), &cookies)
+    private_response(pages::my_account(&name, &csrf, &replies), &cookies)
 }
 
 async fn my_library(
