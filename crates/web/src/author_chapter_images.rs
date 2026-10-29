@@ -141,7 +141,11 @@ struct ImageForm {
     image: Option<(String, Vec<u8>)>,
 }
 
-async fn read_form(mut parts: Multipart, headers: &HeaderMap, cookies: &CookiePolicy) -> Result<ImageForm, StatusCode> {
+async fn read_form(
+    mut parts: Multipart,
+    headers: &HeaderMap,
+    cookies: &CookiePolicy,
+) -> Result<ImageForm, StatusCode> {
     let mut parsed = ImageForm::default();
     let mut count = 0;
     loop {
@@ -175,8 +179,14 @@ async fn read_form(mut parts: Multipart, headers: &HeaderMap, cookies: &CookiePo
                 parsed.command = Some(value);
             }
             "number" if parsed.number.is_none() => {
-                parsed.number = Some(field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?
-                    .parse().map_err(|_| StatusCode::BAD_REQUEST)?);
+                parsed.number = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| StatusCode::BAD_REQUEST)?
+                        .parse()
+                        .map_err(|_| StatusCode::BAD_REQUEST)?,
+                );
             }
             "title" if parsed.title.is_none() => {
                 let value = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -186,8 +196,14 @@ async fn read_form(mut parts: Multipart, headers: &HeaderMap, cookies: &CookiePo
                 parsed.title = Some(value);
             }
             "price_amount" if parsed.price.is_none() => {
-                parsed.price = Some(field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?
-                    .parse().map_err(|_| StatusCode::BAD_REQUEST)?);
+                parsed.price = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| StatusCode::BAD_REQUEST)?
+                        .parse()
+                        .map_err(|_| StatusCode::BAD_REQUEST)?,
+                );
             }
             "body" if parsed.body.is_none() => {
                 let body = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
