@@ -2,6 +2,7 @@
 use super::*;
 
 mod classifier;
+mod continuation;
 mod entries_core;
 mod entries_layer;
 pub use classifier::classify;
@@ -9,16 +10,16 @@ pub use classifier::classify;
 use entries_core::BASE_ROUTES;
 use entries_layer::LAYER_ROUTES;
 
-const ROUTES: [RouteRegistration; 87] = {
-    let mut result = [BASE_ROUTES[0]; 87];
+const ROUTES: [RouteRegistration; 88] = {
+    let mut result = [BASE_ROUTES[0]; 88];
     let mut i = 0;
-    while i < 78 {
+    while i < 79 {
         result[i] = BASE_ROUTES[i];
         i += 1;
     }
     let mut j = 0;
     while j < 9 {
-        result[78 + j] = LAYER_ROUTES[j];
+        result[79 + j] = LAYER_ROUTES[j];
         j += 1;
     }
     result

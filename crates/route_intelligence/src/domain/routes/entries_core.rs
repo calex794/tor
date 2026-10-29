@@ -1,11 +1,11 @@
-//! Stable base route indexes 0..=77, including the S035 batch purchase.
+//! Stable base route indexes 0..=78, including the S035 batch purchase.
 use super::super::*;
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-pub(super) const BASE_ROUTES: [RouteRegistration; 78] = [
+pub(super) const BASE_ROUTES: [RouteRegistration; 79] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -586,4 +586,5 @@ pub(super) const BASE_ROUTES: [RouteRegistration; 78] = [
         ProductArea::Billing,
         Write,
     ), // 77
+    super::continuation::REGISTRATION, // 78
 ];

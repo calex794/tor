@@ -1,4 +1,4 @@
-//! D-05 Layer route registrations appended after existing main route IDs.
+//! D-05 Layer routes follow C-15 continuation at 79..=87.
 use super::super::*;
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Dashboard, Reading, System};
@@ -16,7 +16,7 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
         Page,
         Reading,
         Read,
-    ), // 78
+    ), // 79
     RouteRegistration::new(
         "/assets/newboo-layer-reader.mjs",
         "GET",
@@ -25,7 +25,7 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
         Static,
         System,
         Free,
-    ), // 79
+    ), // 80
     RouteRegistration::new(
         "/me/layers/{layer_id}/books",
         "GET",
@@ -34,7 +34,7 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
         Page,
         Dashboard,
         Read,
-    ), // 80
+    ), // 81
     RouteRegistration::new(
         "/me/layers/{layer_id}/books",
         "POST",
@@ -43,7 +43,7 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
         Page,
         Dashboard,
         Write,
-    ), // 81
+    ), // 82
     RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read),
     RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write),
     RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read),
@@ -56,5 +56,5 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 9] = [
         Page,
         Dashboard,
         Write,
-    ), // 86
+    ), // 87
 ];
