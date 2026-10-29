@@ -3,10 +3,7 @@
 
 use crate::auth_cookies::CookiePolicy;
 use axum::http::{HeaderMap, StatusCode};
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_reading::repositories::PgBookFollows;
 
 #[derive(Clone)]
