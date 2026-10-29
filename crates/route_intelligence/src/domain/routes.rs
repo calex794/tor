@@ -1,17 +1,14 @@
-//! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
 
 mod classifier;
 pub use classifier::classify;
 
-// Indexes below are deliberately shared with classify(), and checked by unit tests.
-// These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 75] = [
+const ROUTES: [RouteRegistration; 79] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -297,9 +294,7 @@ const ROUTES: [RouteRegistration; 75] = [
         System,
         Free,
     ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
     RouteRegistration::new(
         "/ops/traces",
         "GET",
@@ -318,7 +313,6 @@ const ROUTES: [RouteRegistration; 75] = [
         ProductArea::Admin,
         Read,
     ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
     RouteRegistration::new(
         "/covers/{id}/{variant}",
         "GET",
@@ -418,7 +412,6 @@ const ROUTES: [RouteRegistration; 75] = [
         ProductArea::Billing,
         Write,
     ), // 58
-    // Signed, scoped paid content grant. Performs PG rights checks and S3 HEAD.
     RouteRegistration::new(
         "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
         "POST",
@@ -455,7 +448,6 @@ const ROUTES: [RouteRegistration; 75] = [
         System,
         Free,
     ), // 62
-    // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
         "GET",
@@ -564,9 +556,44 @@ const ROUTES: [RouteRegistration; 75] = [
         Dashboard,
         Write,
     ), // 74
+    RouteRegistration::new(
+        "/api/v1/purchases/batch",
+        "POST",
+        "/api/v1/purchases/",
+        Exact,
+        Api,
+        ProductArea::Billing,
+        Write,
+    ), // 75
+    RouteRegistration::new(
+        "/me/books/{id}/buy-chapters",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        ProductArea::Billing,
+        Read,
+    ), // 76
+    RouteRegistration::new(
+        "/me/books/{id}/buy-chapters",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        ProductArea::Billing,
+        Write,
+    ), // 77
+    RouteRegistration::new(
+        "/read/{id}/want-continuation",
+        "POST",
+        "/read/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 78
 ];
 
-/// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
 }
