@@ -288,3 +288,127 @@ async fn d_05_pg_owner_offer_refuses_unknown_share_schedule_and_stale_books() {
     assert_eq!(count, 0);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
+    let (pool, repo, owner, buyer, book) = setup("author-reprice-paid").await;
+    let layer = repo
+        .create_layer(id(owner), "Already paid Layer")
+        .await
+        .unwrap();
+    let version = repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
+    let first_offer = repo
+        .publish_offer_if_current(id(owner), id(layer), id(version), None, 251, false)
+        .await
+        .unwrap();
+    let original_command = cmd(buyer, layer, first_offer, version, 251, 'P');
+    let paid = repo.buy(&original_command).await.unwrap();
+    assert_eq!(paid.balance_after_minor, 1249);
+
+    let original_term: (i64, i64, String, i64) = sqlx::query_as(
+        "SELECT offer_id,base_version_id,term_kind,amount_minor
+         FROM commerce_layer_terms WHERE id=$1",
+    )
+    .bind(paid.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(original_term, (first_offer, version, "prepaid_30d".into(), 251));
+    let original_shares: Vec<(i64, i64, i64, i16)> = sqlx::query_as(
+        "SELECT s.book_id,s.share_revision,l.user_id,l.share_percent
+         FROM commerce_layer_term_share_snapshots s
+         JOIN commerce_layer_term_share_lines l
+           ON l.term_id=s.term_id AND l.book_id=s.book_id
+         WHERE s.term_id=$1 ORDER BY s.book_id,l.user_id",
+    )
+    .bind(paid.term_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(original_shares, vec![(book, 1, owner, 100)]);
+
+    // Repricing and switching future buyers to lifetime must not produce
+    // earnings, another charge, or a silent change to this paid 30-day term.
+    let next_offer = repo
+        .publish_offer_if_current(
+            id(owner),
+            id(layer),
+            id(version),
+            Some(id(first_offer)),
+            550,
+            true,
+        )
+        .await
+        .unwrap();
+    let quote = repo.offer_quote(id(layer)).await.unwrap();
+    assert_eq!(quote.offer_id, next_offer);
+    assert_eq!(quote.price_minor, 550);
+    assert_eq!(
+        quote.term_kind,
+        tor_commerce::domain::layers::LayerTermKind::Lifetime
+    );
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, first_offer, version, 251, 'Q'))
+            .await,
+        Err(LayerError::StaleOffer),
+        "a distinct command cannot purchase a superseded offer"
+    );
+    let replay = repo.buy(&original_command).await.unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.term_id, paid.term_id);
+    assert_eq!(replay.balance_after_minor, 1249);
+    let before_new_purchase: (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM commerce_layer_terms WHERE layer_id=$1),
+           (SELECT COUNT(*) FROM reader_wallet_entries
+            WHERE user_id=$2 AND kind='layer_purchase'),
+           (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$2)",
+    )
+    .bind(layer)
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before_new_purchase, (1, 1, 1249));
+
+    let later = repo
+        .buy(&cmd(buyer, layer, next_offer, version, 550, 'R'))
+        .await
+        .unwrap();
+    assert_ne!(later.term_id, paid.term_id);
+    assert_eq!(later.balance_after_minor, 699);
+    let saved_term: (i64, i64, String, i64) = sqlx::query_as(
+        "SELECT offer_id,base_version_id,term_kind,amount_minor
+         FROM commerce_layer_terms WHERE id=$1",
+    )
+    .bind(paid.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(saved_term, original_term, "old paid terms never reprice");
+    let saved_shares: Vec<(i64, i64, i64, i16)> = sqlx::query_as(
+        "SELECT s.book_id,s.share_revision,l.user_id,l.share_percent
+         FROM commerce_layer_term_share_snapshots s
+         JOIN commerce_layer_term_share_lines l
+           ON l.term_id=s.term_id AND l.book_id=s.book_id
+         WHERE s.term_id=$1 ORDER BY s.book_id,l.user_id",
+    )
+    .bind(paid.term_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(saved_shares, original_shares, "frozen recipient shares stay frozen");
+    let (terms, debits): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM commerce_layer_terms WHERE layer_id=$1),
+                (SELECT COUNT(*) FROM reader_wallet_entries
+                 WHERE user_id=$2 AND kind='layer_purchase')",
+    )
+    .bind(layer)
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((terms, debits), (2, 2), "only actual purchases create paid terms");
+    pool.close().await;
+}
