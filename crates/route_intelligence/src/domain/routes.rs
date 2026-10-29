@@ -10,7 +10,7 @@ const L: &str = "/layers/";
 // Explicit route table is independently checked by RIL parity and guard CI.
 // Keep its reviewed compact entries under the repository's 600-line limit.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 89] = [
+const ROUTES: [RouteRegistration; 91] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -559,6 +559,9 @@ const ROUTES: [RouteRegistration; 89] = [
     RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 86
     RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 87
     RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 88
+    // New merged-main C-15 book-follow routes appended without renumbering paid grants.
+    RouteRegistration::new("/me/books/{id}/follow", "POST", "/me/", Prefix, Page, Reading, Write), // 89
+    RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 90
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {

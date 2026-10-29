@@ -638,6 +638,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "continuation_demand::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/follow",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_follow_actions::follow",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/unfollow",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_follow_actions::unfollow",
+      "policy": "scoped"
     }
   ]
 }

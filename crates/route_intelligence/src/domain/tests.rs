@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 89);
+    assert_eq!(unique.len(), 91);
 }
 
 #[test]
@@ -35,6 +35,8 @@ fn i14_main_and_d05_route_indexes_are_preserved() {
         (78, "/read/{id}/want-continuation", "POST"),
         (79, "/read/layer/{chapter_id}", "GET"),
         (87, "/me/layers/{layer_id}/offer", "POST"),
+        (89, "/me/books/{id}/follow", "POST"),
+        (90, "/me/books/{id}/unfollow", "POST"),
         (
             88,
             "/api/v1/reader/chapters/{chapter_id}/open-confirmations",

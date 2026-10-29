@@ -28,7 +28,7 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     # D validates paid ownership/term under a row lock in confirm_rendered.
     "confirm_rendered",
-    "record_verified_continuation",
+    "record_verified_continuation", "follow", "unfollow",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -174,6 +174,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
+        # Both handlers share a module; require actor-scoped evidence for the
+        # specific follow/unfollow action, not just the sibling's call.
+        if policy == "scoped" and entry["template"] == "/me/books/{id}/follow":
+            proof = {"follow"}
+        elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
+            proof = {"unfollow"}
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
