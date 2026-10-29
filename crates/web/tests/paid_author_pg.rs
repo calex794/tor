@@ -351,6 +351,158 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         .grant_verified_object(&encrypted, Duration::from_secs(90))
         .await
         .is_ok());
+    // First actual owner-browser path: multipart file and text are submitted
+    // in one command. B receives the final asset marker BEFORE immutable Save.
+    let (owner_image_status, owner_image_page) = browse(
+        &app,
+        &format!("/me/books/{book}/chapters/illustrated"),
+        &owner_session,
+        &csrf,
+    )
+    .await;
+    assert_eq!(owner_image_status, StatusCode::OK);
+    assert!(owner_image_page.contains("enctype=\"multipart/form-data\""));
+    assert!(owner_image_page.contains("name=\"illustration\""));
+    let (outsider_image_status, _) = browse(
+        &app,
+        &format!("/me/books/{book}/chapters/illustrated"),
+        &other_session,
+        &csrf,
+    )
+    .await;
+    assert_eq!(outsider_image_status, StatusCode::NOT_FOUND);
+    let (unavailable_image_status, _) = browse(
+        &grants_only,
+        &format!("/me/books/{book}/chapters/illustrated"),
+        &owner_session,
+        &csrf,
+    )
+    .await;
+    assert_eq!(unavailable_image_status, StatusCode::NOT_FOUND);
+    let illustrated_key = generate_session_token();
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        1,
+        1,
+        image::Rgba([255, 0, 0, 255]),
+    ));
+    let mut illustrated_png = Cursor::new(Vec::new());
+    image
+        .write_to(&mut illustrated_png, image::ImageFormat::Png)
+        .unwrap();
+    let illustrated_png = illustrated_png.into_inner();
+    let boundary = "tor-illustrated-author-s065-2026";
+    let mut payload = Vec::new();
+    for (name, value) in [
+        ("csrf_token", csrf.as_str()),
+        ("command_key", illustrated_key.as_str()),
+        ("number", "2"),
+        ("title", "Illustrated chapter"),
+        ("price_amount", "125"),
+        ("body", "Оплаченная глава с PNG"),
+    ] {
+        payload.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+            )
+            .as_bytes(),
+        );
+    }
+    payload.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"illustration\"; filename=\"img.png\"\r\nContent-Type: image/png\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    payload.extend_from_slice(&illustrated_png);
+    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let mut recorded = 0;
+    for (session, origin, expected) in [
+        (other_session.as_str(), ORIGIN, StatusCode::NOT_FOUND),
+        (
+            owner_session.as_str(),
+            "https://evil.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (owner_session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+        (owner_session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/me/books/{book}/chapters/illustrated"))
+                    .method("POST")
+                    .header(header::ORIGIN, origin)
+                    .header(
+                        header::CONTENT_TYPE,
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .header(header::COOKIE, cookie(session, &csrf))
+                    .body(Body::from(payload.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        if expected == StatusCode::SEE_OTHER {
+            recorded += 1;
+        }
+    }
+    assert_eq!(
+        recorded, 2,
+        "lost HTTP response must not duplicate the image"
+    );
+    let published: String = pg(
+        &url,
+        &format!(
+            "SELECT v.id || '|' || v.body_markdown || '|' || a.storage_object_id::text
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.id=p.version_id
+             JOIN chapter_version_assets a ON a.chapter_id=c.id AND a.version_id=v.id
+             WHERE c.book_id={book} AND c.chapter_no=2"
+        ),
+    );
+    let parts = published.split('|').collect::<Vec<_>>();
+    assert_eq!(parts.len(), 3);
+    let illustrated_version: i64 = parts[0].parse().unwrap();
+    assert!(
+        parts[1].contains(&format!("![Иллюстрация](asset:{})", parts[2])),
+        "published immutable Markdown must reference the exact encrypted image"
+    );
+    let illustrated_chapter: i64 = pg(
+        &url,
+        &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=2"),
+    )
+    .parse()
+    .unwrap();
+    let illustrated_pin = ChapterVersionRef {
+        chapter_id: PositiveId::new(illustrated_chapter).unwrap(),
+        version_id: PositiveId::new(illustrated_version).unwrap(),
+    };
+    let illustration = PgPaidAssets::new(pool.clone())
+        .encrypted_for_pinned(
+            illustrated_pin,
+            &tor_contracts::paid_delivery::ObjectId::parse(parts[2]).unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("B must own this exact published image");
+    assert_eq!(illustration.object.kind, EncryptedObjectKind::ChapterAsset);
+    let ciphertext = store.get_verified(&illustration.object).await.unwrap();
+    assert!(!ciphertext
+        .windows(illustrated_png.len())
+        .any(|chunk| chunk == illustrated_png.as_slice()));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_version_assets a
+                 JOIN chapters c ON c.id=a.chapter_id WHERE c.book_id={book} AND c.chapter_no=2"
+            )
+        ),
+        "1"
+    );
+
     // Simulate a failed private upload. An owner-visible draft is durable,
     // but readers see no published pointer until a replay verifies real S3.
     let outage_book: i64 = pg(

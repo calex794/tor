@@ -38,9 +38,9 @@ pub(super) async fn reader_and_progress_share_access_policy(
     assert_eq!(guest_progress.headers()[header::CACHE_CONTROL], "no-store");
     assert!(body_of(guest_progress).await.is_empty());
 
-    // Published paid, draft, hidden book, held, scheduled and moderated versions.
-    // Every route denies them even when the caller is logged in and supplies a
-    // matching CSRF token and an invented version number.
+    // A published paid chapter shows only a public paywall. Drafts, hidden
+    // books, held, scheduled and moderated versions stay 404. Neither an
+    // explanatory paywall nor a forged version/CSRF token grants private reading.
     for (chapter, version) in [
         (102, 202),
         (103, 203),
@@ -58,12 +58,23 @@ pub(super) async fn reader_and_progress_share_access_policy(
             (progress.as_str(), session),
         ] {
             let reply = send(app, request("GET", path, "", cookies, ORIGIN)).await;
-            assert_eq!(reply.status(), StatusCode::NOT_FOUND, "{path}");
-            assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store", "{path}");
-            assert!(
-                body_of(reply).await.is_empty(),
-                "denied read must not include hidden chapter bytes: {path}"
-            );
+            if chapter == 103 && path == public {
+                assert_eq!(reply.status(), StatusCode::OK, "{path}");
+                assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+                assert_eq!(reply.headers()["x-robots-tag"], "noindex, nofollow");
+                let html = body_of(reply).await;
+                assert!(html.contains("Для чтения нужен доступ"));
+                assert!(html.contains("href=\"/login\""));
+                assert!(!html.contains("PRIVATE-PAID-MARKER"));
+                assert!(!html.contains("PRIVATE-DRAFT-MARKER"));
+            } else {
+                assert_eq!(reply.status(), StatusCode::NOT_FOUND, "{path}");
+                assert_eq!(reply.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+                assert!(
+                    body_of(reply).await.is_empty(),
+                    "denied read must not include hidden chapter bytes: {path}"
+                );
+            }
         }
 
         let save = format!(

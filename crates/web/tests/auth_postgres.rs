@@ -529,8 +529,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         )
         .await
         .status(),
-        StatusCode::NOT_FOUND,
-        "published chapter text cannot be edited as a draft"
+        StatusCode::OK,
+        "owner must edit the published free chapter without a second release"
     );
     // BKR-96: normal Save in a published book is an immediate release; the
     // historical B-06 explicit release API remains available for old drafts.
@@ -960,7 +960,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     eprintln!("auth_pg checkpoint: start C06 paid journey");
     tokio::time::timeout(
         std::time::Duration::from_secs(90),
-        c06_cases::purchased_version_http_journey(&app, &session, &second_session),
+        c06_cases::purchased_version_http_journey(&app, &session, &second_session, &good_login),
     )
     .await
     .expect("C06 paid HTTP journey exceeded 90 seconds");

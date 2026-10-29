@@ -11,6 +11,8 @@ pub use account::{
 };
 mod reader_private;
 pub use reader_private::private_reader;
+mod paywall;
+pub use paywall::paid_chapter_paywall;
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
@@ -82,8 +84,8 @@ pub fn book_detail_with_chapters_cover(
             if chapter.is_paid {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><span>Глава {}. {title}</span><span class=\"chapter-toc__badge\">Платная · пока недоступна</span></li>",
-                    chapter.number
+                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge\">Платная · нужен доступ</span></li>",
+                    chapter.id, chapter.number
                 )
                 .expect("writing String");
             } else {
@@ -109,7 +111,7 @@ pub fn book_detail_with_chapters_cover(
         "<section class=\"book-section-card chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><p class=\"book-section-card__kicker\">Оглавление</p><h2 class=\"book-section-card__title\" id=\"toc-title\">Главы книги</h2>{items}</section>"
     );
     // The CTA is only a chapter already verified as public and free by PgReader.
-    // We never produce a paid chapter link or invent rights from bookmarks.
+    // A paid TOC link only opens a public metadata paywall, never a grant.
     let first_free = book
         .chapters
         .iter()
@@ -281,10 +283,21 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .previous_chapter_id
         .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
         .unwrap_or_default();
-    let next = chapter
-        .next_chapter_id
-        .map(|id| format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"))
-        .unwrap_or_default();
+    use tor_reading::services::PublicContinuation;
+    let (next, continuation_status) = match chapter.continuation() {
+        PublicContinuation::ReadNow(id) => (
+            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"),
+            "",
+        ),
+        PublicContinuation::NeedsAccess(id) => (
+            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава — платная</a>"),
+            "<p class=\"reader-next-state\">Следующая глава опубликована. Для чтения может потребоваться покупка.</p>",
+        ),
+        PublicContinuation::WaitingForRelease => (
+            String::new(),
+            "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
+        ),
+    };
     let navigation = if previous.is_empty() && next.is_empty() {
         String::new()
     } else {
@@ -296,6 +309,7 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
+        .replace("<!--CONTINUATION_STATUS-->", continuation_status)
         .replace(
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),

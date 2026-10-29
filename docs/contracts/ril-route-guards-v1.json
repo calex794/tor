@@ -526,6 +526,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_comments::submit",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/illustrated",
+      "source": "crates/web/src/author_chapter_images.rs",
+      "handler": "show",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/illustrated",
+      "source": "crates/web/src/author_chapter_images.rs",
+      "handler": "create",
+      "policy": "owner"
     }
   ]
 }
