@@ -66,14 +66,14 @@ pub(super) async fn checkout_and_verify(
     assert!(!selection_html.contains(paid_marker));
     let choose =
         format!("step=select&csrf_token={csrf}&chapter_{chapter}=1&chapter_{chapter_two}=1");
-    let quote = native_batch_post(app, book, &buyer_cookie, &csrf, &choose).await;
+    let quote = native_batch_post(app, book, buyer_cookie, csrf, &choose).await;
     assert_eq!(quote.status(), StatusCode::OK);
     let quote_html = html_body(quote).await;
     assert!(quote_html.contains("Итого: 3,50 ₽"));
     assert!(quote_html.contains("Подтвердить покупку"));
     assert_eq!(
         scalar(
-            &url,
+            url,
             &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
         ),
         600
@@ -85,20 +85,20 @@ pub(super) async fn checkout_and_verify(
         hidden_field(&quote_html, "version_ids"),
         hidden_field(&quote_html, "prices")
     );
-    let purchased = native_batch_post(app, book, &buyer_cookie, &csrf, &form).await;
+    let purchased = native_batch_post(app, book, buyer_cookie, csrf, &form).await;
     assert_eq!(purchased.status(), StatusCode::OK);
     let receipt_html = html_body(purchased).await;
     assert!(receipt_html.contains("Покупка завершена"));
     assert!(receipt_html.contains("2 глав куплено"));
     assert!(!receipt_html.contains(paid_marker));
     let purchase_id = scalar(
-        &url,
+        url,
         &format!(
             "SELECT purchase_id FROM library_purchased_chapters WHERE user_id={buyer} AND chapter_id={chapter}"
         ),
     );
     let purchase_two_id = scalar(
-        &url,
+        url,
         &format!(
             "SELECT purchase_id FROM library_purchased_chapters WHERE user_id={buyer} AND chapter_id={chapter_two}"
         ),
@@ -108,21 +108,21 @@ pub(super) async fn checkout_and_verify(
     assert!(receipt_html.contains(&format!(
         "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
     )));
-    let replay = native_batch_post(app, book, &buyer_cookie, &csrf, &form).await;
+    let replay = native_batch_post(app, book, buyer_cookie, csrf, &form).await;
     assert_eq!(replay.status(), StatusCode::OK);
     assert!(html_body(replay)
         .await
         .contains("Повтор без нового списания"));
     assert_eq!(
         scalar(
-            &url,
+            url,
             &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
         ),
         250
     );
     assert_eq!(
         scalar(
-            &url,
+            url,
             &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={buyer}")
         ),
         2
