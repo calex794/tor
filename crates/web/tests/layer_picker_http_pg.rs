@@ -165,6 +165,20 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         false,
         ORIGIN.to_owned(),
     );
+    // The owner can discover the picker from their existing author
+    // dashboard; a foreign actor never receives that private Layer link.
+    let owner_dashboard = body(
+        request(&app, "GET", "/me/books", &owner_cookie, ORIGIN, "").await,
+    )
+    .await;
+    assert!(owner_dashboard.contains("my-layers-heading"));
+    assert!(owner_dashboard.contains(&format!("/me/layers/{layer}/books")));
+    assert!(owner_dashboard.contains("D05 browser picker"));
+    let foreign_dashboard = body(
+        request(&app, "GET", "/me/books", &other_cookie, ORIGIN, "").await,
+    )
+    .await;
+    assert!(!foreign_dashboard.contains(&format!("/me/layers/{layer}/books")));
     assert_eq!(
         request(&app, "GET", &page, "", ORIGIN, "").await.status(),
         StatusCode::SEE_OTHER
