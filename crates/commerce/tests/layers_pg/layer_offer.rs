@@ -143,3 +143,109 @@ async fn d_05_pg_old_held_book_does_not_block_fresh_buyer_of_current_layer() {
     assert_eq!(frozen_books, vec![current_book], "old held book is not in a new paid chain");
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
+    let (pool, repo, owner, buyer, book) = setup("author-offer").await;
+    let layer = repo.create_layer(id(owner), "Author offer").await.unwrap();
+    let empty = repo.owner_offer_state(id(owner), id(layer)).await.unwrap();
+    assert_eq!(empty.current_offer_id, None);
+    assert_eq!(
+        repo.publish_offer_if_current(
+            id(owner), id(layer), id(empty.current_version_id), None, 251, false
+        ).await,
+        Err(LayerError::Inaccessible),
+        "an empty composition has no sellable offer"
+    );
+    let version = repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
+    assert_eq!(
+        repo.owner_offer_state(id(buyer), id(layer)).await,
+        Err(LayerError::Inaccessible)
+    );
+    assert_eq!(
+        repo.publish_offer_if_current(id(buyer), id(layer), id(version), None, 251, false).await,
+        Err(LayerError::Inaccessible)
+    );
+    let first = repo
+        .publish_offer_if_current(id(owner), id(layer), id(version), None, 251, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.publish_offer_if_current(id(owner), id(layer), id(version), None, 251, false).await,
+        Err(LayerError::StaleOffer),
+        "a replayed form must not silently publish another revision"
+    );
+    let owner_state = repo.owner_offer_state(id(owner), id(layer)).await.unwrap();
+    assert_eq!(owner_state.current_offer_id, Some(first));
+    assert_eq!(owner_state.price_minor, Some(251));
+    let second = repo
+        .publish_offer_if_current(
+            id(owner), id(layer), id(version), Some(id(first)), 300, false,
+        )
+        .await
+        .unwrap();
+    assert_ne!(first, second);
+    let next = repo.owner_offer_state(id(owner), id(layer)).await.unwrap();
+    assert_eq!(next.current_offer_id, Some(second));
+    assert_eq!(next.price_minor, Some(300));
+    let original_price: i64 = sqlx::query_scalar(
+        "SELECT price_minor FROM commerce_layer_offers WHERE id=$1",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(original_price, 251, "published historic offer immutable");
+    let lifetime = repo
+        .publish_offer_if_current(
+            id(owner), id(layer), id(version), Some(id(second)), 500, true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.publish_offer_if_current(
+            id(owner), id(layer), id(version), Some(id(lifetime)), 501, false,
+        )
+        .await,
+        Err(LayerError::Invalid),
+        "a lifetime Layer cannot silently become monthly"
+    );
+    let entries: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id=$1 AND kind='layer_purchase'",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(entries, 0, "publishing never charges a wallet");
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_owner_offer_refuses_unknown_share_schedule_and_stale_books() {
+    let (pool, repo, owner, _buyer, book) = setup("author-offer-unknown").await;
+    let layer = repo.create_layer(id(owner), "Unattested layer").await.unwrap();
+    let v1 = repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
+    sqlx::query("DELETE FROM revenue_share_states WHERE book_id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.publish_offer_if_current(id(owner), id(layer), id(v1), None, 100, false)
+            .await,
+        Err(LayerError::Inaccessible),
+        "a missing 100% revenue schedule must never produce a sellable offer"
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM commerce_layer_offers WHERE layer_id=$1",
+    )
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+    pool.close().await;
+}
