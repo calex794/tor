@@ -32,20 +32,20 @@ EXPLAIN (ANALYZE, BUFFERS)
 SELECT 'genre' AS kind, name FROM (
     SELECT DISTINCT unnest(genres) AS name FROM books
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND cardinality(genres) > 0
+      AND genres <> '{}'::text[]
     ORDER BY name LIMIT 100
 ) g
 UNION ALL
 SELECT 'tag' AS kind, name FROM (
     SELECT DISTINCT unnest(tags) AS name FROM books
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND cardinality(tags) > 0
+      AND tags <> '{}'::text[]
     ORDER BY name LIMIT 100
 ) t
 UNION ALL
 SELECT 'fandom' AS kind, name FROM (
     SELECT DISTINCT unnest(fandoms) AS name FROM books
     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-      AND cardinality(fandoms) > 0
+      AND fandoms <> '{}'::text[]
     ORDER BY name LIMIT 100
 ) f;
