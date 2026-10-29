@@ -184,6 +184,7 @@ struct ImportPreviewInput {
 }
 #[derive(Serialize)]
 struct ImportPreviewChapter {
+    line: usize,
     title: String,
     body: String,
 }
@@ -229,10 +230,13 @@ async fn import_preview(
             return deny(StatusCode::UNPROCESSABLE_ENTITY);
         }
     }
+    let remaining_lines: Vec<usize> = preview.boundaries().iter().map(|b| b.line).collect();
     let chapters = match validate_editable_preview(&preview) {
         Ok(value) => value
             .into_iter()
-            .map(|chapter| ImportPreviewChapter {
+            .zip(remaining_lines)
+            .map(|(chapter, line)| ImportPreviewChapter {
+                line,
                 title: chapter.title,
                 body: chapter.body,
             })
