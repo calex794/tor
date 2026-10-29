@@ -31,7 +31,11 @@ impl PgLayers {
         lifetime: bool,
     ) -> Result<i64, LayerError> {
         self.publish_offer_internal(
-            actor, layer, price_minor, lifetime, Some((expected_version, expected_offer)),
+            actor,
+            layer,
+            price_minor,
+            lifetime,
+            Some((expected_version, expected_offer)),
         )
         .await
     }
@@ -42,19 +46,18 @@ impl PgLayers {
         actor: PositiveId,
         layer: PositiveId,
     ) -> Result<LayerOwnerOfferState, LayerError> {
-        let state: Option<(i64, Option<i64>, Option<String>, Option<i64>)> =
-            sqlx::query_as(
-                "SELECT l.current_version_id,l.current_offer_id,o.term_kind,o.price_minor
+        let state: Option<(i64, Option<i64>, Option<String>, Option<i64>)> = sqlx::query_as(
+            "SELECT l.current_version_id,l.current_offer_id,o.term_kind,o.price_minor
                  FROM commerce_layers l
                  LEFT JOIN commerce_layer_offers o
                    ON o.id=l.current_offer_id AND o.layer_id=l.id
                  WHERE l.id=$1 AND l.owner_user_id=$2 AND l.status='active'",
-            )
-            .bind(layer.get())
-            .bind(actor.get())
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| LayerError::Unavailable)?;
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
         let Some((current_version_id, current_offer_id, kind, price_minor)) = state else {
             return Err(LayerError::Inaccessible);
         };
