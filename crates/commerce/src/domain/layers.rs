@@ -46,6 +46,15 @@ pub struct LayerBookCandidatePage {
     pub next_after: Option<i64>,
 }
 
+/// Owner-only current composition page, bound to an immutable LayerVersion.
+/// The browser must supply this exact version when requesting a removal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerCurrentBookPage {
+    pub current_version_id: i64,
+    pub books: Vec<LayerBookCandidate>,
+    pub next_after: Option<i64>,
+}
+
 /// Idempotent Layer creation changes composition metadata only, never money.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayerCreateReceipt {
