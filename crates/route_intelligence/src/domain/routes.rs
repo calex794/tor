@@ -1,12 +1,12 @@
 //! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
-use RouteRegistration as Entry;
 mod classifier;
 pub use classifier::classify;
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
+const L: &str = "/layers/";
 const ROUTES: [RouteRegistration; 81] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
@@ -574,10 +574,10 @@ const ROUTES: [RouteRegistration; 81] = [
         Dashboard,
         Write,
     ), // 76
-    Entry::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 77
-    Entry::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 78
-    Entry::new("/layers/{layer_id}", "GET", "/layers/", Prefix, Page, Reading, Read), // 79
-    Entry::new("/layers/{layer_id}/buy", "POST", "/layers/", Prefix, Page, Reading, Write), // 80
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read),
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write),
+    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read),
+    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write),
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
