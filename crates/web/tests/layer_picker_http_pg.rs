@@ -252,17 +252,121 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         StatusCode::SEE_OTHER
     );
     let updated = body(request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await).await;
-    assert!(!updated.contains("Solo &lt;script&gt;"));
+    assert!(updated.contains("Solo &lt;script&gt;"));
+    assert!(updated.contains("name=\"operation\" value=\"remove\""));
+    let current_version: i64 = pg(
+        &url,
+        &format!("SELECT current_version_id FROM commerce_layers WHERE id={layer}"),
+    )
+    .parse()
+    .unwrap();
+    assert!(updated.contains(&format!(
+        "name=\"expected_version_id\" value=\"{current_version}\""
+    )));
+    let original_version: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM commerce_layer_versions WHERE layer_id={layer} AND version_no=1"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let remove = format!(
+        "operation=remove&book_id={solo}&expected_version_id={current_version}&csrf_token={csrf}"
+    );
+    let stale = format!(
+        "operation=remove&book_id={solo}&expected_version_id={original_version}&csrf_token={csrf}"
+    );
+    assert_eq!(
+        request(&app, "POST", &page, &other_cookie, ORIGIN, &remove)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&app, "POST", &page, &owner_cookie, ORIGIN, &stale)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        request(&app, "POST", &page, &owner_cookie, "https://evil.invalid", &remove)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &page,
+            &owner_cookie,
+            ORIGIN,
+            &format!(
+                "operation=remove&book_id={solo}&expected_version_id={current_version}&csrf_token=invalid"
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &page,
+            &owner_cookie,
+            ORIGIN,
+            &format!("operation=remove&book_id={solo}&csrf_token={csrf}"),
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        request(&app, "POST", &page, &owner_cookie, ORIGIN, &remove)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        request(&app, "POST", &page, &owner_cookie, ORIGIN, &remove)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "repeated removal cannot create another composition revision"
+    );
+    let snapshot_count: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM commerce_layer_version_books
+             WHERE layer_version_id={current_version} AND book_id={solo}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(snapshot_count, 1, "old composition is not rewritten");
+    let current_count: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM commerce_layer_version_books
+             WHERE layer_version_id=(SELECT current_version_id FROM commerce_layers WHERE id={layer})
+               AND book_id={solo}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(current_count, 0);
+    let after = body(request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await).await;
+    assert!(after.contains("Solo &lt;script&gt;"));
+    assert!(!after.contains("name=\"operation\" value=\"remove\""));
     let versions: i64 = pg(
         &url,
         &format!("SELECT count(*) FROM commerce_layer_versions WHERE layer_id={layer}"),
     )
     .parse()
     .unwrap();
-    assert_eq!(
-        versions, 2,
-        "exactly one Book addition, one immutable revision"
-    );
+    assert_eq!(versions, 3, "add and remove produce two immutable revisions");
     pool.close().await;
 }
 
