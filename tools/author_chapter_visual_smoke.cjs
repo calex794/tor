@@ -151,14 +151,21 @@ async function inspect(page, viewport, name) {
         viewport + ': reader did not display new public version');
       await inspect(page, viewport, 'second-reader');
 
-      // Already public free chapters cannot re-enter draft edit/release forms.
+      // BKR-96: the published free chapter editor is available to its owner.
+      // A second release remains forbidden; Save immediately publishes V2.
       const chapterId = href.split('/').pop();
-      for (const action of ['edit', 'release']) {
-        const response = await page.goto(base + '/me/books/' + bookId +
-          '/chapters/' + chapterId + '/' + action);
-        assert(response && response.status() === 404,
-          viewport + ': public free chapter exposed a pending ' + action + ' route');
-      }
+      const edit = await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/edit');
+      assert(edit && edit.status() === 200,
+        viewport + ': owner cannot edit a published free chapter');
+      assert(await page.getByText(/Сохранение сразу обновит опубликованную редакцию/).isVisible(),
+        viewport + ': published editor lacks immediate release explanation');
+      assert(await page.getByRole('button', { name: 'Сохранить изменения' }).isVisible(),
+        viewport + ': published free chapter editor has no Save');
+      const release = await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/release');
+      assert(release && release.status() === 404,
+        viewport + ': published chapter still permits second release');
 
       // S001/S002/S006/S007: follow the same book across three independent
       // browser identities. A working author session must not substitute for
