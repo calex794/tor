@@ -166,13 +166,13 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         ORIGIN.to_owned(),
     );
     assert_eq!(
-        request(&app, "GET", &page, "", ORIGIN, "")
-            .await
-            .status(),
+        request(&app, "GET", &page, "", ORIGIN, "").await.status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        request(&app, "GET", &page, &other_cookie, ORIGIN, "").await.status(),
+        request(&app, "GET", &page, &other_cookie, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let owner_page = request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await;
@@ -186,17 +186,35 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert!(!html.contains(&format!("name=\"book_id\" value=\"{team}\"")));
 
     assert_eq!(
-        request(&app, "POST", &page, &owner_cookie, "https://evil.invalid", &allowed_form)
-            .await.status(),
+        request(
+            &app,
+            "POST",
+            &page,
+            &owner_cookie,
+            "https://evil.invalid",
+            &allowed_form
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", &page, &owner_cookie, ORIGIN,
-            &format!("book_id={solo}&csrf_token=invalid")).await.status(),
+        request(
+            &app,
+            "POST",
+            &page,
+            &owner_cookie,
+            ORIGIN,
+            &format!("book_id={solo}&csrf_token=invalid")
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        request(&app, "POST", &page, &owner_cookie, ORIGIN, &team_form).await.status(),
+        request(&app, "POST", &page, &owner_cookie, ORIGIN, &team_form)
+            .await
+            .status(),
         StatusCode::NOT_FOUND,
         "team Books cannot bypass the UI with handcrafted POST"
     );
@@ -211,12 +229,16 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         &format!("UPDATE book_members SET is_active=TRUE WHERE book_id={team} AND user_id={collaborator}"),
     );
     assert_eq!(
-        request(&app, "POST", &page, &owner_cookie, ORIGIN, &team_form).await.status(),
+        request(&app, "POST", &page, &owner_cookie, ORIGIN, &team_form)
+            .await
+            .status(),
         StatusCode::NOT_FOUND,
         "stale picker must not bypass the fresh locked D check"
     );
     assert_eq!(
-        request(&app, "POST", &page, &owner_cookie, ORIGIN, &allowed_form).await.status(),
+        request(&app, "POST", &page, &owner_cookie, ORIGIN, &allowed_form)
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     let updated = body(request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await).await;
@@ -227,6 +249,9 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     )
     .parse()
     .unwrap();
-    assert_eq!(versions, 2, "exactly one Book addition, one immutable revision");
+    assert_eq!(
+        versions, 2,
+        "exactly one Book addition, one immutable revision"
+    );
     pool.close().await;
 }
