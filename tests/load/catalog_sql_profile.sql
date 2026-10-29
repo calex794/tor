@@ -58,3 +58,51 @@ SELECT kind, name FROM (
 ) AS ordered_names
 WHERE ordinal <= 100
 ORDER BY kind, name;
+
+-- PERF-233 / dense-case isolation: run the exact five-bound-argument
+-- count expression used by the Rust PgSearch path, not only the simplified
+-- no-filter Oracle above. PostgreSQL may select a different plan for the
+-- generic prepared statement with nullable filters.
+\echo 'PERF233_COUNT_PARAMETRIC_NO_FILTERS'
+PREPARE perf233_count(text,text,text,text,text) AS
+SELECT COUNT(*) FROM books
+WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+  AND ($1::text = '' OR
+       (to_tsvector('simple'::regconfig, translate(lower(normalize(title, NFKC)), 'ё', 'е'))
+        || to_tsvector('simple'::regconfig, translate(lower(normalize(author_name, NFKC)), 'ё', 'е')))
+           @@ plainto_tsquery('simple'::regconfig, translate(lower(normalize($1::text, NFKC)), 'ё', 'е')))
+  AND ($2::text IS NULL OR target_language = $2)
+  AND ($3::text IS NULL OR genres @> ARRAY[$3::text])
+  AND ($4::text IS NULL OR tags @> ARRAY[$4::text])
+  AND ($5::text IS NULL OR fandoms @> ARRAY[$5::text]);
+EXPLAIN (ANALYZE, BUFFERS)
+EXECUTE perf233_count('', NULL, NULL, NULL, NULL);
+
+\echo 'PERF233_COUNT_PARAMETRIC_DENSE_FACETS'
+EXPLAIN (ANALYZE, BUFFERS)
+EXECUTE perf233_count('', 'ru', 'f02-load', 'f02-100k-tag', 'f02-100k-fandom');
+DEALLOCATE perf233_count;
+
+-- Competing dense-table plan: one filtered heap scan, materialized once,
+-- then three independent DISTINCT branches. This is only an A/B candidate;
+-- don't replace the verified runtime query before comparing timings/buffers.
+\echo 'PERF233_TAXONOMY_DENSE_MATERIALIZED_VISIBLE'
+EXPLAIN (ANALYZE, BUFFERS)
+WITH visible AS MATERIALIZED (
+    SELECT genres,tags,fandoms FROM books
+    WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+)
+SELECT 'genre' AS kind, name FROM (
+    SELECT DISTINCT unnest(genres) AS name FROM visible
+    ORDER BY name LIMIT 100
+) g
+UNION ALL
+SELECT 'tag' AS kind, name FROM (
+    SELECT DISTINCT unnest(tags) AS name FROM visible
+    ORDER BY name LIMIT 100
+) t
+UNION ALL
+SELECT 'fandom' AS kind, name FROM (
+    SELECT DISTINCT unnest(fandoms) AS name FROM visible
+    ORDER BY name LIMIT 100
+) f;

@@ -232,7 +232,10 @@ fn router_inner(
         .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
-        .route("/read/{id}/want-continuation", post(continuation_demand::submit))
+        .route(
+            "/read/{id}/want-continuation",
+            post(continuation_demand::submit),
+        )
         .route("/logout", post(logout::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .merge(layer_books::routes())
