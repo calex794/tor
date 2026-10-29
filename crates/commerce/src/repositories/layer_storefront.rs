@@ -34,6 +34,7 @@ pub struct LayerTermCard {
     pub starts_utc: String,
     pub expires_utc: Option<String>,
     pub state: String,
+    pub first_readable_chapter: Option<i64>,
 }
 
 /// Bounded public listing; hidden, held and deleted Books cannot leak titles.
@@ -150,6 +151,7 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
         "SELECT t.layer_id,l.title,t.id AS term_id,t.amount_minor,t.term_kind,
                 TO_CHAR(t.started_at AT TIME ZONE 'UTC','DD.MM.YYYY HH24:MI') AS starts_utc,
                 TO_CHAR(t.expires_at AT TIME ZONE 'UTC','DD.MM.YYYY HH24:MI') AS expires_utc,
+                preview.chapter_id AS first_readable_chapter,
                 CASE WHEN r.term_id IS NOT NULL THEN 'revoked'
                      WHEN t.started_at>now() THEN 'pending'
                      WHEN t.expires_at IS NOT NULL AND t.expires_at<=now() THEN 'expired'
@@ -157,6 +159,29 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
          FROM commerce_layer_terms t
          JOIN commerce_layers l ON l.id=t.layer_id
          LEFT JOIN commerce_layer_term_revocations r ON r.term_id=t.id
+         LEFT JOIN LATERAL (
+           SELECT c.id AS chapter_id
+           FROM chapters c
+           JOIN books b ON b.id=c.book_id
+           JOIN chapter_publications cp ON cp.chapter_id=c.id
+           WHERE r.term_id IS NULL
+             AND t.started_at<=now()
+             AND (t.expires_at IS NULL OR t.expires_at>now())
+             AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             AND c.visibility='public' AND c.access_level='paid'
+             AND c.price_amount>0 AND NOT c.admin_hold AND NOT c.is_deleted
+             AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+             AND EXISTS (
+               SELECT 1 FROM commerce_layer_versions origin
+               JOIN commerce_layer_versions v ON v.layer_id=origin.layer_id
+                    AND v.version_no>=origin.version_no
+                    AND (t.expires_at IS NULL OR v.created_at<t.expires_at)
+               JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
+                    AND vb.book_id=b.id
+               WHERE origin.id=t.access_origin_version_id AND origin.layer_id=t.layer_id
+             )
+           ORDER BY c.id LIMIT 1
+         ) preview ON TRUE
          WHERE t.user_id=$1
          ORDER BY t.purchased_at DESC,t.id DESC LIMIT 50",
     )
@@ -188,6 +213,9 @@ pub async fn purchased_terms(actor: i64, pool: &PgPool) -> Result<Vec<LayerTermC
                     .map_err(|_| LayerError::Unavailable)?,
                 state: row
                     .try_get("term_state")
+                    .map_err(|_| LayerError::Unavailable)?,
+                first_readable_chapter: row
+                    .try_get("first_readable_chapter")
                     .map_err(|_| LayerError::Unavailable)?,
             })
         })
