@@ -195,7 +195,7 @@
       "method": "GET",
       "template": "/me/library",
       "source": "crates/web/src/auth.rs",
-      "handler": "my_library",
+      "handler": "library_actions::browser_library",
       "policy": "scoped"
     },
     {
