@@ -70,8 +70,13 @@ async fn book_page(app: &Router, book_id: i64, cookies: &str) -> String {
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await.unwrap().to_vec())
-        .unwrap()
+    String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 #[tokio::test]
