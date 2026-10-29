@@ -21,6 +21,7 @@ pub struct PublicComment {
     pub id: i64,
     pub author_user_id: i64,
     pub body: String,
+    pub parent_id: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,8 +45,23 @@ impl PgPublicBookComments {
         command_key: &str,
         payload_hash: &[u8],
     ) -> CreateResult {
+        self.create_with_parent(actor_id, book_id, body, command_key, payload_hash, None)
+            .await
+    }
+
+    /// Same canonical comment and replay identity, with an optional reply target.
+    pub async fn create_with_parent(
+        &self,
+        actor_id: i64,
+        book_id: i64,
+        body: &str,
+        command_key: &str,
+        payload_hash: &[u8],
+        parent_id: Option<i64>,
+    ) -> CreateResult {
         if actor_id <= 0
             || book_id <= 0
+            || parent_id.is_some_and(|id| id <= 0)
             || body.is_empty()
             || body.trim() != body
             || body.chars().count() > 2000
@@ -77,12 +93,30 @@ impl PgPublicBookComments {
             Ok(None) => return CreateResult::NotFound,
             Err(_) => return CreateResult::Unavailable,
         }
+        // Lock the exact visible parent until commit. A concurrent moderation
+        // update must serialize with this write; no copied parent body is stored.
+        if let Some(parent_id) = parent_id {
+            let parent = sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM discussion_comments
+                 WHERE id=$1 AND book_id=$2 AND visibility='visible'
+                   AND chapter_id IS NULL AND version_id IS NULL FOR SHARE",
+            )
+            .bind(parent_id)
+            .bind(book_id)
+            .fetch_optional(&mut *tx)
+            .await;
+            match parent {
+                Ok(Some(_)) => {}
+                Ok(None) => return CreateResult::NotFound,
+                Err(_) => return CreateResult::Unavailable,
+            }
+        }
         // Serialize attempts with the same actor/key on the same PostgreSQL row.
         // A conflicting key must not silently return a different saved comment.
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO discussion_comments
-               (author_user_id,book_id,body,command_key,command_hash,visibility)
-             VALUES ($1,$2,$3,$4,$5,'visible')
+               (author_user_id,book_id,body,command_key,command_hash,visibility,parent_id)
+             VALUES ($1,$2,$3,$4,$5,'visible',$6)
              ON CONFLICT (author_user_id,command_key) DO NOTHING
              RETURNING id",
         )
@@ -91,13 +125,14 @@ impl PgPublicBookComments {
         .bind(body)
         .bind(command_key)
         .bind(payload_hash)
+        .bind(parent_id)
         .fetch_optional(&mut *tx)
         .await;
         let result = match inserted {
             Ok(Some(id)) => CreateResult::Created(id),
             Ok(None) => {
-                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String)>(
-                    "SELECT id,book_id,command_hash,body FROM discussion_comments
+                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String, Option<i64>)>(
+                    "SELECT id,book_id,command_hash,body,parent_id FROM discussion_comments
                      WHERE author_user_id=$1 AND command_key=$2 AND book_id IS NOT NULL",
                 )
                 .bind(actor_id)
@@ -105,8 +140,11 @@ impl PgPublicBookComments {
                 .fetch_optional(&mut *tx)
                 .await;
                 match original {
-                    Ok(Some((id, original_book, hash, old_body)))
-                        if original_book == book_id && hash == payload_hash && old_body == body =>
+                    Ok(Some((id, original_book, hash, old_body, old_parent)))
+                        if original_book == book_id
+                            && hash == payload_hash
+                            && old_body == body
+                            && old_parent == parent_id =>
                     {
                         CreateResult::Replayed(id)
                     }
@@ -146,8 +184,8 @@ impl PgPublicBookComments {
             return Ok(None);
         }
         // The visibility join inside this query avoids a time-of-check/time-of-use leak.
-        let rows = sqlx::query_as::<_, (i64, i64, String)>(
-            "SELECT c.id,c.author_user_id,c.body
+        let rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>)>(
+            "SELECT c.id,c.author_user_id,c.body,c.parent_id
              FROM discussion_comments c JOIN books b ON b.id=c.book_id
              WHERE b.id=$1 AND b.visibility='public'
                AND NOT b.admin_hold AND NOT b.is_deleted
@@ -163,10 +201,11 @@ impl PgPublicBookComments {
         .map_err(|_| ListCommentsError::Unavailable)?;
         Ok(Some(
             rows.into_iter()
-                .map(|(id, author_user_id, body)| PublicComment {
+                .map(|(id, author_user_id, body, parent_id)| PublicComment {
                     id,
                     author_user_id,
                     body,
+                    parent_id,
                 })
                 .collect(),
         ))

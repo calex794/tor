@@ -56,6 +56,35 @@ module.exports = async function checkSpoilers(browser, base, out) {
       } finally {
         await guest.close();
       }
+      // E-03: second reader replies through the persisted public form.
+      const responder = await browser.newContext({ viewport: { width, height: 900 } });
+      try {
+        const replyPage = await responder.newPage();
+        await replyPage.goto(base + '/register');
+        await replyPage.getByLabel('Отображаемое имя').fill('Второй читатель');
+        await replyPage.getByLabel('Электронная почта').fill(`reply.${name}@example.test`);
+        await replyPage.getByLabel('Пароль (12–128 символов)').fill('ReplyTestPassword2026');
+        await replyPage.getByRole('button', { name: 'Создать учётную запись' }).click();
+        await replyPage.waitForURL('**/me');
+        await replyPage.goto(base + '/books/1/comments');
+        const target = replyPage.locator('.comment-card').filter({ hasText: marker });
+        const parentId = (await target.getAttribute('id')).replace('comment-', '');
+        await target.locator('details.comment-reply > summary').click();
+        await target.getByLabel(`Ваш ответ на комментарий №${parentId}`, { exact: true }).fill(`Ответ-${name} ||скрытый ответ||`);
+        await target.getByRole('button', { name: 'Отправить ответ', exact: true }).click();
+        await replyPage.waitForURL('**/books/1/comments#comments');
+        await replyPage.reload();
+        const reply = replyPage.locator('.comment-card').filter({ hasText: `Ответ-${name}` });
+        assert.equal(await reply.count(), 1);
+        assert((await reply.innerText()).includes(`Ответ на комментарий №${parentId}`));
+        assert.equal(await reply.locator('.comment-spoiler__content').isVisible(), false);
+        await replyPage.screenshot({ path: path.join(out, `reply-${name}.png`), fullPage: true });
+        const sizes = await replyPage.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+        assert(sizes[0] <= sizes[1] + 1, 'reply page no horizontal overflow');
+      } finally {
+        await responder.close();
+      }
+
     } finally {
       await context.close();
     }
