@@ -2,6 +2,7 @@
 //! No S3 call inside this transaction: G uploads/verifies before B commits.
 //! No entitlement is created here; D remains the sole rights authority.
 use crate::services::authoring::{valid_command_key, AuthorError, ChapterAccess, SaveChapter};
+use crate::services::paid_asset_markers::referenced_private_image_ids;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -10,7 +11,6 @@ use tor_contracts::paid_delivery::{
     EncryptedObjectRef, ObjectId, ObjectRef,
 };
 use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHEMA_V1};
-use crate::services::paid_asset_markers::referenced_private_image_ids;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaidPublication {
