@@ -36,6 +36,24 @@ pub(crate) async fn preflight_term_economics(
         .map_err(|_| LayerError::Unavailable)?;
         previous.unwrap_or(base_version)
     };
+    // All historical Book rows are already SHARE-locked by the checkout
+    // transaction. Never debit a Layer buyer while any included or inherited
+    // Book is administratively held or deleted.
+    let unavailable: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+             SELECT 1 FROM commerce_layer_versions v
+             JOIN commerce_layer_version_books vb ON vb.layer_version_id=v.id
+             JOIN books b ON b.id=vb.book_id
+             WHERE v.layer_id=$1 AND (b.admin_hold OR b.is_deleted)
+         )",
+    )
+    .bind(layer)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|_| LayerError::Unavailable)?;
+    if unavailable {
+        return Err(LayerError::Inaccessible);
+    }
     let required_books: i64 = sqlx::query_scalar(
         "SELECT COUNT(DISTINCT vb.book_id)
          FROM commerce_layer_versions origin
