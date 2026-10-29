@@ -10,7 +10,7 @@ pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
 mod reader_private;
-pub use reader_private::private_reader;
+pub use reader_private::{private_reader, private_reader_with_demand};
 mod paywall;
 pub use paywall::paid_chapter_paywall;
 mod reader_paid;
