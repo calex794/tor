@@ -18,7 +18,10 @@ async fn own_book(pool: &PgPool, owner: i64, suffix: &str) -> i64 {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() {
     let (pool, repo, owner, collaborator, solo_book) = setup("picker-only-owner").await;
-    let layer = repo.create_layer(id(owner), "Picker only owner").await.unwrap();
+    let layer = repo
+        .create_layer(id(owner), "Picker only owner")
+        .await
+        .unwrap();
     let team_book = own_book(&pool, owner, "team").await;
     let held_book = own_book(&pool, owner, "held").await;
     let other_owner_book = own_book(&pool, collaborator, "other-owner").await;
@@ -38,7 +41,10 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
     .await
     .unwrap();
 
-    let first = repo.addable_books(id(owner), id(layer), None, 50).await.unwrap();
+    let first = repo
+        .addable_books(id(owner), id(layer), None, 50)
+        .await
+        .unwrap();
     assert_eq!(
         first.books.iter().map(|b| b.book_id).collect::<Vec<_>>(),
         vec![solo_book],
@@ -46,7 +52,8 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
     );
     assert!(first.next_after.is_none());
     assert_eq!(
-        repo.addable_books(id(collaborator), id(layer), None, 50).await,
+        repo.addable_books(id(collaborator), id(layer), None, 50)
+            .await,
         Err(LayerError::Inaccessible),
         "a foreign actor must not enumerate the owner's private Books"
     );
@@ -67,14 +74,20 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
         .execute(&pool)
         .await
         .unwrap();
-    let all = repo.addable_books(id(owner), id(layer), None, 50).await.unwrap();
+    let all = repo
+        .addable_books(id(owner), id(layer), None, 50)
+        .await
+        .unwrap();
     assert_eq!(
         all.books.iter().map(|b| b.book_id).collect::<Vec<_>>(),
         vec![solo_book, team_book],
     );
 
     // One-row keyset pages remain stable and never reveal another owner's Book.
-    let page1 = repo.addable_books(id(owner), id(layer), None, 1).await.unwrap();
+    let page1 = repo
+        .addable_books(id(owner), id(layer), None, 1)
+        .await
+        .unwrap();
     assert_eq!(page1.books[0].book_id, solo_book);
     let page2 = repo
         .addable_books(id(owner), id(layer), page1.next_after.map(id), 1)
@@ -101,7 +114,9 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
         .execute(&pool)
         .await
         .unwrap();
-    repo.add_book(id(owner), id(layer), id(team_book)).await.unwrap();
+    repo.add_book(id(owner), id(layer), id(team_book))
+        .await
+        .unwrap();
     assert!(
         repo.addable_books(id(owner), id(layer), None, 50)
             .await
