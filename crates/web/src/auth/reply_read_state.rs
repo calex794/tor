@@ -1,8 +1,13 @@
 //! E-03: private reply read/unread state, no copied comment body.
 use super::{deny, session_user, AuthState};
 use crate::auth_cookies::private_response;
-use axum::{extract::{Form, Path, State}, http::{HeaderMap, StatusCode}, response::{Redirect, Response}};
+use axum::{
+    extract::{Form, Path, State},
+    http::{HeaderMap, StatusCode},
+    response::{Redirect, Response},
+};
 use serde::Deserialize;
+use tor_discussions::repositories::public_book_comments::ReadStateResult;
 
 #[derive(Deserialize)]
 struct ReplyReadStateForm {
@@ -17,7 +22,10 @@ pub(super) async fn submit(
     Form(form): Form<ReplyReadStateForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !form.csrf_token.as_deref().is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
+        || !form
+            .csrf_token
+            .as_deref()
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -34,11 +42,9 @@ pub(super) async fn submit(
     let store = tor_discussions::repositories::public_book_comments::PgPublicBookComments::new(
         state.accounts.pool().clone(),
     );
-    use tor_discussions::repositories::public_book_comments::ReadStateResult;
     match store.set_reply_read_state(actor, id, read).await {
         ReadStateResult::Updated => private_response(Redirect::to("/me#me-replies-title"), &[]),
         ReadStateResult::NotFound => deny(StatusCode::NOT_FOUND),
         ReadStateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
