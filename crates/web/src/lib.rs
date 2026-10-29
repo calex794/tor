@@ -21,6 +21,8 @@ mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
+mod book_detail_http;
+mod book_follow_page;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
@@ -62,6 +64,7 @@ struct AppState {
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
     paid_batch_browser_enabled: bool,
+    follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
 
@@ -209,68 +212,11 @@ async fn book_detail(
     Path(id): Path<u64>,
     OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    // Require the canonical numeric spelling before consulting public book data.
-    if !tor_search::domain::seo_urls::BookUrl::from_id(id)
-        .is_some_and(|book_url| book_url.matches_path(uri.path()))
-    {
-        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
-    }
-    if let Some(reader) = state.reader.as_ref() {
-        let limit = query.limit.unwrap_or(100);
-        let book = match reader
-            .public_book_page(id, limit, query.after.as_deref())
-            .await
-        {
-            Ok(Some(book)) => book,
-            Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-            Err(error) => return book_error(&state, reading_status(error)).await,
-        };
-        let has_cover = if let Some(delivery) = state.covers.as_ref() {
-            match delivery.available_card_ids(&[book.id]).await {
-                Ok(ids) => ids.contains(&book.id),
-                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-            }
-        } else {
-            false
-        };
-        if let Some(catalog) = state.postgres.as_ref() {
-            let id = match i64::try_from(book.id) {
-                Ok(id) => id,
-                Err(_) => return book_error(&state, StatusCode::NOT_FOUND).await,
-            };
-            let store = tor_recommendations::repositories::PgBookStars::new(catalog.pool().clone());
-            let stars = match store.visible_summary(id).await {
-                Ok(Some(stars)) => stars,
-                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-            };
-            let html = if state.paid_batch_browser_enabled {
-                pages::book_detail_with_chapters_cover_stars_batch(
-                    &book, limit, has_cover, &stars, true,
-                )
-            } else {
-                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
-            };
-            return html.into_response();
-        }
-        return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
-    }
-    let repo = state.books.as_ref();
-    let book = match GetPublicBook::new(repo).execute(id).await {
-        Ok(Some(book)) => book,
-        Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
-        Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
-    };
-    pages::book_detail(&pages::PublicBookCard {
-        id: book.id(),
-        title: book.title().into(),
-        language: book.key().target_language().into(),
-        author_name: None,
-        genres: Vec::new(),
-    })
-    .into_response()
+    book_detail_http::page(State(state), Path(id), OriginalUri(uri), Query(query), headers).await
 }
+
 /// Keep the security-reviewed public route identity stable while isolating
 /// the actual S005/C-10 reader logic in the C/H feature module.
 async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
@@ -360,7 +306,7 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    ril::instrument(make_router(repo, None, None, false, None))
+    ril::instrument(make_router(repo, None, None, false, None, None))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     ril::instrument(make_router(
@@ -368,6 +314,7 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
         Some(catalog),
         None,
         false,
+        None,
         None,
     ))
 }
@@ -377,6 +324,7 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         Some(catalog),
         Some(reader),
         false,
+        None,
         None,
     ))
 }
@@ -397,6 +345,11 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
+            Some(book_follow_page::FollowBookControl::new(
+                accounts.clone(),
+                secure,
+                public_origin.clone(),
+            )),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -408,6 +361,7 @@ fn make_router(
     reader: Option<PgReader>,
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    follow_control: Option<book_follow_page::FollowBookControl>,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     let mut app = Router::new()
@@ -471,6 +425,7 @@ fn make_router(
         paid_batch_browser_enabled: active_auth
             && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
         covers,
+        follow_control,
     })
     .merge(api)
     .merge(search_api)
