@@ -28,16 +28,7 @@ use tor_books::repositories::{
     paid_storage::{PaidPublication, PgPaidStorage},
     PgCatalog,
 };
-use tor_commerce::{
-    domain::{
-        batch_checkout::{BatchChapterOffer, BatchPurchaseCommand},
-        money::{IdempotencyKey, MoneyMinor, WalletId},
-    },
-    repositories::{
-        checkout::PgCheckout,
-        entitlements::{MixedTocAccess, PgDirectEntitlements},
-    },
-};
+use tor_commerce::repositories::entitlements::{MixedTocAccess, PgDirectEntitlements};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 use tor_reading::repositories::PgReader;
 use tor_storage::{
@@ -210,6 +201,35 @@ async fn private_get(app: &Router, uri: &str, session: Option<&str>) -> Response
         .oneshot(request.body(Body::empty()).unwrap())
         .await
         .unwrap()
+}
+
+fn hidden_field(html: &str, name: &str) -> String {
+    let marker = format!("name=\"{name}\" value=\"");
+    let start = html.find(&marker).expect("confirmation field") + marker.len();
+    let value = html[start..].split('"').next().unwrap();
+    assert!(!value.is_empty());
+    value.to_owned()
+}
+
+async fn native_batch_post(
+    app: &Router,
+    book: i64,
+    session: &str,
+    csrf: &str,
+    form: &str,
+) -> Response {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/me/books/{book}/buy-chapters"))
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={session}; tor-dev-csrf={csrf}"),
+        )
+        .body(Body::from(form.to_owned()))
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap()
 }
 
 async fn html_body(response: Response) -> String {
@@ -464,40 +484,93 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         )
         .await
         .unwrap();
-    // S035: both encrypted editions are acquired in a single immutable
-    // wallet transaction, then exercised by the real S034 MinIO reader.
-    let batch_command = BatchPurchaseCommand::new(
-        PositiveId::new(buyer).unwrap(),
-        WalletId::new(buyer).unwrap(),
-        vec![
-            BatchChapterOffer {
-                edition: pinned,
-                expected_price: MoneyMinor::new(175).unwrap(),
-            },
-            BatchChapterOffer {
-                edition: pinned_two,
-                expected_price: MoneyMinor::new(175).unwrap(),
-            },
-        ],
-        IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap(),
-    )
-    .unwrap();
-    let checkout = PgCheckout::new(pool.clone());
-    let batch = checkout.checkout_batch_once(&batch_command).await.unwrap();
-    assert!(!batch.replayed);
-    assert_eq!(batch.purchases.len(), 2);
-    assert_eq!(batch.total.get(), 350);
-    assert_eq!(batch.balance_after.get(), 250);
-    let purchase_id = batch.purchases[0].purchase_id.get();
-    let purchase_two_id = batch.purchases[1].purchase_id.get();
+    // S035 browser-facing HTTP: select both offers, see the aggregate quote,
+    // then buy both real encrypted editions through one wallet transaction.
+    assert_eq!(env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(), Ok("1"));
+    let selection = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/me/books/{book}/buy-chapters"))
+                .header(
+                    header::COOKIE,
+                    format!("tor-dev-session={buyer_cookie}; tor-dev-csrf={csrf}"),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(selection.status(), StatusCode::OK);
+    let selection_html = html_body(selection).await;
+    for chapter_id in [chapter, chapter_two] {
+        assert!(selection_html.contains(&format!("name=\"chapter_{chapter_id}\"")));
+    }
+    assert!(!selection_html.contains(MARKDOWN));
+    let choose = format!(
+        "step=select&csrf_token={csrf}&chapter_{chapter}=1&chapter_{chapter_two}=1"
+    );
+    let quote = native_batch_post(&app, book, &buyer_cookie, &csrf, &choose).await;
+    assert_eq!(quote.status(), StatusCode::OK);
+    let quote_html = html_body(quote).await;
+    assert!(quote_html.contains("Итого: 3,50 ₽"));
+    assert!(quote_html.contains("Подтвердить покупку"));
+    assert_eq!(
+        scalar(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        600
+    );
+    let form = format!(
+        "step=commit&csrf_token={csrf}&command_key={}&chapter_ids={}&version_ids={}&prices={}",
+        hidden_field(&quote_html, "command_key"),
+        hidden_field(&quote_html, "chapter_ids"),
+        hidden_field(&quote_html, "version_ids"),
+        hidden_field(&quote_html, "prices")
+    );
+    let purchased = native_batch_post(&app, book, &buyer_cookie, &csrf, &form).await;
+    assert_eq!(purchased.status(), StatusCode::OK);
+    let receipt_html = html_body(purchased).await;
+    assert!(receipt_html.contains("Покупка завершена"));
+    assert!(receipt_html.contains("2 глав куплено"));
+    assert!(!receipt_html.contains(MARKDOWN));
+    let purchase_id = scalar(
+        &url,
+        &format!(
+            "SELECT purchase_id FROM library_purchased_chapters WHERE user_id={buyer} AND chapter_id={chapter}"
+        ),
+    );
+    let purchase_two_id = scalar(
+        &url,
+        &format!(
+            "SELECT purchase_id FROM library_purchased_chapters WHERE user_id={buyer} AND chapter_id={chapter_two}"
+        ),
+    );
     assert_ne!(purchase_id, purchase_two_id);
-    assert_eq!(batch.purchases[0].pinned, pinned);
-    assert_eq!(batch.purchases[1].pinned, pinned_two);
-    let replay = checkout.checkout_batch_once(&batch_command).await.unwrap();
-    assert!(replay.replayed);
-    assert_eq!(replay.purchases[0].purchase_id.get(), purchase_id);
-    assert_eq!(replay.purchases[1].purchase_id.get(), purchase_two_id);
-    assert_eq!(replay.balance_after.get(), 250);
+    assert!(receipt_html.contains(&format!(
+        "/read/paid/{chapter}?purchase_id={purchase_id}"
+    )));
+    assert!(receipt_html.contains(&format!(
+        "/read/paid/{chapter_two}?purchase_id={purchase_two_id}"
+    )));
+    let replay = native_batch_post(&app, book, &buyer_cookie, &csrf, &form).await;
+    assert_eq!(replay.status(), StatusCode::OK);
+    assert!(html_body(replay).await.contains("Повтор без нового списания"));
+    assert_eq!(
+        scalar(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        250
+    );
+    assert_eq!(
+        scalar(
+            &url,
+            &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={buyer}")
+        ),
+        2
+    );
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
