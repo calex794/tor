@@ -155,6 +155,29 @@ impl PgLayers {
         layer: PositiveId,
         book: PositiveId,
     ) -> Result<i64, LayerError> {
+        self.remove_book_internal(actor, layer, book, None).await
+    }
+
+    /// Browser removal uses an optimistic current-version precondition.
+    /// It is evaluated while holding the Layer row lock, not before it.
+    pub async fn remove_book_if_current(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        book: PositiveId,
+        expected_version: PositiveId,
+    ) -> Result<i64, LayerError> {
+        self.remove_book_internal(actor, layer, book, Some(expected_version))
+            .await
+    }
+
+    async fn remove_book_internal(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        book: PositiveId,
+        expected_version: Option<PositiveId>,
+    ) -> Result<i64, LayerError> {
         let mut tx = self
             .pool
             .begin()
@@ -170,6 +193,9 @@ impl PgLayers {
         .await
         .map_err(|_| LayerError::Unavailable)?
         .ok_or(LayerError::Inaccessible)?;
+        if expected_version.is_some_and(|v| v.get() != current) {
+            return Err(LayerError::StaleOffer);
+        }
         // The same Book lock coordinates removal with transfer/membership
         // checks so a concurrent owner swap cannot observe stale composition.
         let locked: Option<i64> = sqlx::query_scalar("SELECT id FROM books WHERE id=$1 FOR UPDATE")
