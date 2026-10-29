@@ -1,4 +1,4 @@
-"""Guard the real manual-only TOR VPS workflow without contacting a VPS."""
+"""Ensure retired TOR staging workflow cannot deploy; test extracted legacy script."""
 
 from pathlib import Path
 import os
@@ -46,12 +46,16 @@ def run_approval(install: bool, confirmation: str, sha: str = GOOD_SHA):
 
 
 class ManualVpsReleaseTests(unittest.TestCase):
-    def test_only_manual_run_on_main_may_contact_vps(self):
+    def test_legacy_job_is_permanently_inert_even_on_manual_dispatch(self):
+        # The retired workflow is kept only to exercise the old shell rollback
+        # behavior. It must never reach SSH or receive environment secrets.
         self.assertIn("on:\n  workflow_dispatch:", WORKFLOW)
         self.assertNotIn("  workflow_run:", WORKFLOW)
         self.assertNotIn("  push:", WORKFLOW)
         self.assertNotIn("TOR_AUTO_DEPLOY", WORKFLOW)
-        self.assertIn(
+        self.assertIn("\n  stage:\n", WORKFLOW)
+        self.assertIn("    if: ${{ false }}", WORKFLOW)
+        self.assertNotIn(
             "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
             WORKFLOW,
         )
