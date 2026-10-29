@@ -148,5 +148,104 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
             .is_err(),
         "SQL trigger keeps the unique-owner rule after inclusion"
     );
+    let visible = repo
+        .current_books(id(owner), id(layer), None, 50)
+        .await
+        .unwrap();
+    assert_eq!(visible.books.len(), 1);
+    assert_eq!(visible.books[0].book_id, team_book);
+    assert_eq!(
+        repo.current_books(id(collaborator), id(layer), None, 50)
+            .await,
+        Err(LayerError::Inaccessible)
+    );
+    assert_eq!(
+        repo.current_books(id(owner), id(layer), None, 0).await,
+        Err(LayerError::Invalid)
+    );
+
+    // A second write makes the reader's earlier remove form stale.
+    let v2 = visible.current_version_id;
+    repo.add_book(id(owner), id(layer), id(solo_book))
+        .await
+        .unwrap();
+    let newer = repo
+        .current_books(id(owner), id(layer), None, 1)
+        .await
+        .unwrap();
+    assert_eq!(newer.books.len(), 1);
+    assert_eq!(newer.books[0].book_id, solo_book);
+    assert!(newer.next_after.is_some());
+    let second_page = repo
+        .current_books(id(owner), id(layer), newer.next_after.map(id), 1)
+        .await
+        .unwrap();
+    assert_eq!(second_page.books[0].book_id, team_book);
+    assert_eq!(
+        repo.remove_book_if_current(id(owner), id(layer), id(team_book), id(v2))
+            .await,
+        Err(LayerError::StaleOffer),
+        "a stale HTTP form must not remove a Book from a newer composition"
+    );
+    let unchanged: i64 = sqlx::query_scalar(
+        "SELECT current_version_id FROM commerce_layers WHERE id=$1",
+    )
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unchanged, newer.current_version_id);
+    assert_eq!(
+        repo.remove_book_if_current(
+            id(collaborator),
+            id(layer),
+            id(team_book),
+            id(newer.current_version_id),
+        )
+        .await,
+        Err(LayerError::Inaccessible)
+    );
+    repo.remove_book_if_current(
+        id(owner),
+        id(layer),
+        id(team_book),
+        id(newer.current_version_id),
+    )
+    .await
+    .unwrap();
+    let historical: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM commerce_layer_version_books
+         WHERE layer_version_id=$1 AND book_id=$2",
+    )
+    .bind(newer.current_version_id)
+    .bind(team_book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(historical, 1, "historical versions are immutable");
+    let current = repo
+        .current_books(id(owner), id(layer), None, 50)
+        .await
+        .unwrap();
+    assert_eq!(
+        current.books.iter().map(|b| b.book_id).collect::<Vec<_>>(),
+        vec![solo_book],
+    );
+    // Once removed from the current composition, the Book may gain a team.
+    sqlx::query("UPDATE book_members SET is_active=TRUE WHERE book_id=$1 AND user_id=$2")
+        .bind(team_book)
+        .bind(collaborator)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(
+        repo.addable_books(id(owner), id(layer), None, 50)
+            .await
+            .unwrap()
+            .books
+            .iter()
+            .all(|b| b.book_id != team_book),
+        "reactivated collaborator keeps a removed Book out of the picker"
+    );
     pool.close().await;
 }
