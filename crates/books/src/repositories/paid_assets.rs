@@ -169,6 +169,53 @@ impl PgPaidAssets {
         Ok(())
     }
 
+    /// A retried owner upload may reuse only the exact same immutable
+    /// image bytes, MIME and ordinal. A different image in the same slot is
+    /// never an overwrite, even before chapter publication.
+    pub async fn existing_draft_upload(
+        &self,
+        actor: i64,
+        pinned: ChapterVersionRef,
+        ordinal: i16,
+        mime: &str,
+        digest: &[u8; 32],
+    ) -> Result<Option<ObjectId>, AuthorError> {
+        if actor <= 0 || !(1..=64).contains(&ordinal) {
+            return Err(AuthorError::Invalid);
+        }
+        let row: Option<(String, String, Vec<u8>)> = sqlx::query_as(
+            "SELECT a.storage_object_id::text, a.media_type,
+                    o.plaintext_sha256
+             FROM chapter_version_assets a
+             JOIN chapters c ON c.id=a.chapter_id
+             JOIN books b ON b.id=c.book_id
+             JOIN storage_objects o ON o.id=a.storage_object_id
+             WHERE a.chapter_id=$1 AND a.version_id=$2 AND a.ordinal=$3
+               AND b.owner_user_id=$4
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND o.state='attached' AND o.object_kind='chapter_asset'",
+        )
+        .bind(pinned.chapter_id.get())
+        .bind(pinned.version_id.get())
+        .bind(ordinal)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(write_error)?;
+        match row {
+            None => Ok(None),
+            Some((id, previous_mime, previous_digest)) => {
+                if previous_mime != mime || previous_digest.as_slice() != digest {
+                    return Err(AuthorError::Conflict);
+                }
+                Ok(Some(
+                    ObjectId::parse(&id).map_err(|_| AuthorError::Unavailable)?,
+                ))
+            }
+        }
+    }
+
     /// B resolves only a verified image of the exact immutable edition.
     /// This method is not an entitlement; C must confirm D before use.
     pub async fn encrypted_for_pinned(

@@ -36,9 +36,13 @@ mod operator_overview;
 mod operator_traces;
 mod pages;
 #[cfg(feature = "s3-paid")]
+pub mod paid_author_assets;
+#[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
+#[cfg(feature = "s3-paid")]
+pub use paid_author_assets::PgPaidAuthorAssets;
 #[cfg(feature = "s3-paid")]
 pub use paid_author_publish::PgPaidAuthorPublisher;
 #[cfg(feature = "s3-paid")]
