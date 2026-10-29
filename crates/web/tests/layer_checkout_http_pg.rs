@@ -75,7 +75,13 @@ async fn http(
 }
 
 async fn response_body(res: Response) -> String {
-    String::from_utf8(to_bytes(res.into_body(), 128 * 1024).await.unwrap().to_vec()).unwrap()
+    String::from_utf8(
+        to_bytes(res.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 fn field(html: &str, name: &str) -> String {
@@ -101,8 +107,14 @@ fn buy_form(html: &str, csrf: &str) -> String {
 #[tokio::test]
 #[ignore = "requires disposable tor_ci and opt-in Layer wallet checkout"]
 async fn d_05_http_layer_checkout_verifies_quote_drift_and_one_debit() {
-    assert_eq!(std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(),
+        Ok("1")
+    );
+    assert_eq!(
+        std::env::var("TOR_LAYER_CHECKOUT_ENABLED").as_deref(),
+        Ok("1")
+    );
     let url = std::env::var("TEST_DATABASE_URL").expect("tor_ci fixture");
     assert!(url.ends_with("/tor_ci"));
     let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -156,7 +168,10 @@ async fn d_05_http_layer_checkout_verifies_quote_drift_and_one_debit() {
     let repo = PgLayers::new(pool.clone());
     let layer = repo.create_layer(id(owner), "Paid Layer").await.unwrap();
     let version = repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
-    let offer = repo.publish_offer(id(owner), id(layer), 250, false).await.unwrap();
+    let offer = repo
+        .publish_offer(id(owner), id(layer), 250, false)
+        .await
+        .unwrap();
     let page = format!("/layers/{layer}");
     let checkout = format!("/layers/{layer}/buy");
     let buyer_cookie = format!("tor-dev-session={buyer_token}; tor-dev-csrf={csrf}");
@@ -222,31 +237,55 @@ async fn d_05_http_layer_checkout_verifies_quote_drift_and_one_debit() {
     )
     .parse()
     .unwrap();
-    repo.add_book(id(owner), id(layer), id(second)).await.unwrap();
+    repo.add_book(id(owner), id(layer), id(second))
+        .await
+        .unwrap();
     assert_eq!(
-        http(&app, "POST", &checkout, &buyer_cookie, ORIGIN, &stale_version_form)
-            .await
-            .status(),
+        http(
+            &app,
+            "POST",
+            &checkout,
+            &buyer_cookie,
+            ORIGIN,
+            &stale_version_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "changed composition refuses the old quote without wallet debit"
     );
-    let after_version = response_body(http(&app, "GET", &page, &buyer_cookie, ORIGIN, "").await).await;
+    let after_version =
+        response_body(http(&app, "GET", &page, &buyer_cookie, ORIGIN, "").await).await;
     assert!(after_version.contains("Second book"));
     let stale_price_form = buy_form(&after_version, &csrf);
     repo.publish_offer(id(owner), id(layer), 300, false)
         .await
         .unwrap();
     assert_eq!(
-        http(&app, "POST", &checkout, &buyer_cookie, ORIGIN, &stale_price_form)
-            .await
-            .status(),
+        http(
+            &app,
+            "POST",
+            &checkout,
+            &buyer_cookie,
+            ORIGIN,
+            &stale_price_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "changed price refuses the old offer and does not take money"
     );
     assert_eq!(
-        http(&app, "POST", &checkout, &owner_cookie, ORIGIN, &stale_price_form)
-            .await
-            .status(),
+        http(
+            &app,
+            "POST",
+            &checkout,
+            &owner_cookie,
+            ORIGIN,
+            &stale_price_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "even the owner cannot reuse a superseded quote"
     );
@@ -278,7 +317,8 @@ async fn d_05_http_layer_checkout_verifies_quote_drift_and_one_debit() {
     assert_eq!(bought.headers()[header::CACHE_CONTROL], "no-store");
     let bought_html = response_body(bought).await;
     assert!(bought_html.contains("Баланс кошелька после оплаты: 1200 коп."));
-    let replay = response_body(http(&app, "POST", &checkout, &buyer_cookie, ORIGIN, &form).await).await;
+    let replay =
+        response_body(http(&app, "POST", &checkout, &buyer_cookie, ORIGIN, &form).await).await;
     assert!(replay.contains("Повторное списание не выполнялось."));
     assert_eq!(
         http(
