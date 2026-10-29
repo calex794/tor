@@ -1,6 +1,6 @@
 //! D-05: owner-only book picker with the same eligibility as add_book().
 //! The picker is not a grant to write: add_book() takes the Book lock and
- //! rechecks every condition, including races with team membership changes.
+//! rechecks every condition, including races with team membership changes.
 use super::layers::PgLayers;
 use crate::domain::layers::{LayerBookCandidate, LayerBookCandidatePage, LayerError};
 use sqlx::Row;
@@ -68,7 +68,9 @@ impl PgLayers {
         for record in results.into_iter().take(usize::from(limit)) {
             books.push(LayerBookCandidate {
                 book_id: record.try_get("id").map_err(|_| LayerError::Unavailable)?,
-                title: record.try_get("title").map_err(|_| LayerError::Unavailable)?,
+                title: record
+                    .try_get("title")
+                    .map_err(|_| LayerError::Unavailable)?,
             });
         }
         Ok(LayerBookCandidatePage {
