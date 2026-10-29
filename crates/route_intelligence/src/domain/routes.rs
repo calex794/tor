@@ -564,8 +564,24 @@ const ROUTES: [RouteRegistration; 77] = [
         Dashboard,
         Write,
     ), // 74
-    RouteRegistration::new("/me/books/{id}/follow", "POST", "/me/", Prefix, Page, Reading, Write), // 75
-    RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 76
+    RouteRegistration::new(
+        "/me/books/{id}/follow",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 75
+    RouteRegistration::new(
+        "/me/books/{id}/unfollow",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 76
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
