@@ -7,6 +7,9 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 const L: &str = "/layers/";
+// Explicit route table is independently checked by RIL parity and guard CI.
+// Keep its reviewed compact entries under the repository's 600-line limit.
+#[rustfmt::skip]
 const ROUTES: [RouteRegistration; 82] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
