@@ -2,8 +2,8 @@
 //! frozen B-10 schedules, not the current Layer composition.
 use super::*;
 use tor_commerce::domain::layer_allocation::{
-    preview_layer_attribution, AttributionError, AttributionInputs, BookWeighting,
-    FrozenBook, FrozenParticipant,
+    preview_layer_attribution, AttributionError, AttributionInputs, BookWeighting, FrozenBook,
+    FrozenParticipant,
 };
 
 async fn frozen_rows(pool: &PgPool, term: i64) -> Vec<(i64, i64, i64, i16)> {
@@ -38,7 +38,10 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
         .add_book(id(owner), id(layer), id(second_book))
         .await
         .unwrap();
-    let published_offer = repo.publish_offer(id(owner), id(layer), 101, false).await.unwrap();
+    let published_offer = repo
+        .publish_offer(id(owner), id(layer), 101, false)
+        .await
+        .unwrap();
 
     let command = cmd(buyer, layer, published_offer, paid_version, 101, 'A');
     let receipt = repo.buy(&command).await.unwrap();
@@ -47,9 +50,12 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
 
     let snapshot = frozen_rows(&pool, receipt.term_id).await;
     assert_eq!(snapshot.len(), 2);
-    assert!(snapshot.iter().all(|row| row.1 == 1 && row.2 == owner && row.3 == 100));
-    let books = snapshot.iter().map(|&(book_id, share_revision, user_id, percent)| {
-        FrozenBook {
+    assert!(snapshot
+        .iter()
+        .all(|row| row.1 == 1 && row.2 == owner && row.3 == 100));
+    let books = snapshot
+        .iter()
+        .map(|&(book_id, share_revision, user_id, percent)| FrozenBook {
             book_id,
             share_revision,
             weight_bps: None,
@@ -57,8 +63,8 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
                 user_id,
                 percent: u16::try_from(percent).unwrap(),
             }],
-        }
-    }).collect();
+        })
+        .collect();
     // A test-approved, zero-fee arithmetic example is NOT authority to
     // recognize cash earnings or to enable payout endpoints.
     let inputs = AttributionInputs {
@@ -75,8 +81,22 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
     };
     let preview = preview_layer_attribution(&inputs).unwrap();
     assert_eq!(preview.attributed_minor(), 101);
-    assert_eq!(preview.books.iter().map(|b| b.amount_minor).collect::<Vec<_>>(), vec![50, 51]);
-    assert_eq!(preview.books.iter().map(|b| b.share_revision).collect::<Vec<_>>(), vec![1, 1]);
+    assert_eq!(
+        preview
+            .books
+            .iter()
+            .map(|b| b.amount_minor)
+            .collect::<Vec<_>>(),
+        vec![50, 51]
+    );
+    assert_eq!(
+        preview
+            .books
+            .iter()
+            .map(|b| b.share_revision)
+            .collect::<Vec<_>>(),
+        vec![1, 1]
+    );
 
     // A future Book enters the live Layer and the reader's CURRENT rights,
     // but an old paid term must not silently fabricate new money lines.
@@ -92,7 +112,10 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
     repo.add_book(id(owner), id(layer), id(future_book))
         .await
         .unwrap();
-    assert!(repo.can_read_book(id(buyer), id(future_book)).await.unwrap());
+    assert!(repo
+        .can_read_book(id(buyer), id(future_book))
+        .await
+        .unwrap());
     assert_eq!(
         frozen_rows(&pool, receipt.term_id).await,
         snapshot,
@@ -103,12 +126,17 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
     repo.remove_book(id(owner), id(layer), id(original_book))
         .await
         .unwrap();
-    assert!(repo.can_read_book(id(buyer), id(original_book)).await.unwrap());
+    assert!(repo
+        .can_read_book(id(buyer), id(original_book))
+        .await
+        .unwrap());
     let translator: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'D05 allocation translator','$argon2id$test') RETURNING id",
     )
-    .bind(format!("d05-allocation-translator-{original_book}@example.test"))
+    .bind(format!(
+        "d05-allocation-translator-{original_book}@example.test"
+    ))
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -155,13 +183,12 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let revision: i64 = sqlx::query_scalar(
-        "SELECT current_revision FROM revenue_share_states WHERE book_id=$1",
-    )
-    .bind(original_book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let revision: i64 =
+        sqlx::query_scalar("SELECT current_revision FROM revenue_share_states WHERE book_id=$1")
+            .bind(original_book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(revision, 2);
     assert_eq!(frozen_rows(&pool, receipt.term_id).await, snapshot);
     assert_eq!(preview_layer_attribution(&inputs).unwrap(), preview);
@@ -177,7 +204,10 @@ async fn d_05_pg_layer_equal_minor_preview_preserves_paid_books_after_future_add
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(debits, 1, "preview must not produce another debit or earning");
+    assert_eq!(
+        debits, 1,
+        "preview must not produce another debit or earning"
+    );
 
     let mut unknown_policy = inputs;
     unknown_policy.platform_fee_minor = None;
