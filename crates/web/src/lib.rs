@@ -171,7 +171,6 @@ async fn book_toc(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Query(query): Query<TocQuery>,
-    headers: axum::http::HeaderMap,
 ) -> Response {
     let Some(reader) = state.reader else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
@@ -211,6 +210,7 @@ async fn book_detail(
     Path(id): Path<u64>,
     OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     // Require the canonical numeric spelling before consulting public book data.
     if !tor_search::domain::seo_urls::BookUrl::from_id(id)
@@ -254,10 +254,10 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
-            return book_follow_page::attach(&state.follow_control, &headers, id, html).await;
+            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
-        return book_follow_page::attach(&state.follow_control, &headers, id, html).await;
+        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
