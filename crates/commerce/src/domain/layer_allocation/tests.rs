@@ -180,9 +180,8 @@ fn d_08_rejects_unknown_book_weights_or_invalid_team_percentages() {
         Err(AttributionError::IncompleteShareSnapshot)
     );
     input = base();
-    input.books[1]
-        .participants
-        .push(input.books[1].participants[0].clone());
+    let duplicate = input.books[1].participants[0].clone();
+    input.books[1].participants.push(duplicate);
     assert_eq!(
         preview_layer_attribution(&input),
         Err(AttributionError::IncompleteShareSnapshot)
