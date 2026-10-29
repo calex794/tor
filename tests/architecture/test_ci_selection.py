@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from ci_test_map import SUITES
+from ci_test_map import RULES_ONLY_FILES, SUITES
 from select_feature_tests import cargo_graph, closure, event_selection, select
 
 
@@ -89,6 +89,36 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(result["mode"], "cheap")
         self.assertEqual(enabled(result), set())
         self.assertTrue(result["groups"]["cheap"])
+
+    def test_exact_ci_metrics_files_run_rules_only(self):
+        # Their sole caller is tests/architecture in unconditional rules.yml.
+        self.assertEqual(RULES_ONLY_FILES, frozenset({
+            "tools/ci_metrics.py", "tests/architecture/test_ci_metrics.py",
+        }))
+        for path in sorted(RULES_ONLY_FILES):
+            with self.subTest(path=path):
+                selected = select(ROOT, [path])
+                self.assertEqual(selected["mode"], "cheap")
+                self.assertEqual(enabled(selected), set())
+                self.assertIn("rules-only independent CI metrics", selected["reasons"][0])
+
+    def test_rules_only_does_not_weaken_production_security_inputs(self):
+        for path in (
+            "tools/ci_metrics_extra.py",
+            "tools/audit_release_candidate.py",
+            "tests/architecture/test_release_candidate_audit.py",
+            "tests/architecture/test_ci_selection.py",
+            "crates/contracts/src/paid_delivery.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(enabled(select(ROOT, [path])), set(SUITES))
+        paths = ["tools/ci_metrics.py", "crates/books/src/services/author.rs"]
+        self.assertEqual(enabled(select(ROOT, paths)), set(SUITES))
+
+    def test_rules_only_scope_never_restricts_main_or_manual(self):
+        for event in ("push", "workflow_dispatch", "merge_group"):
+            r = event_selection(ROOT, event, {}, "a" * 40)
+            self.assertEqual(enabled(r), set(SUITES))
 
     def test_mix_uses_union_not_last_file(self):
         result = select(ROOT, ["README.md", "tools/visual-smoke.cjs", "crates/ingest/tests/image_pipeline.rs"])
