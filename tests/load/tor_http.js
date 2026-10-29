@@ -2,34 +2,30 @@
 // IMPORTANT: intentionally hardcoded loopback; do not point at production.
 import http from 'k6/http';
 import { check } from 'k6';
+import { Trend } from 'k6/metrics';
 
 const allowedRates = [25, 50, 100, 250, 500];
-const peak = Number(__ENV.PEAK_RPS || '25');
+const rate = Number(__ENV.TARGET_RPS || '25');
 const seconds = Number(__ENV.STAGE_SECONDS || '15');
 
-if (!allowedRates.includes(peak)) {
-  throw new Error('PEAK_RPS must be one of 25,50,100,250,500');
+if (!allowedRates.includes(rate)) {
+  throw new Error('TARGET_RPS must be one of 25,50,100,250,500');
 }
 if (![10, 15, 30, 60].includes(seconds)) {
   throw new Error('STAGE_SECONDS must be 10,15,30,60');
 }
 
-const stages = [];
-for (const rate of allowedRates.filter((value) => value <= peak)) {
-  stages.push({ duration: '5s', target: rate });
-  stages.push({ duration: seconds + 's', target: rate });
-}
-
 export const options = {
   discardResponseBodies: true,
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     public_read_http: {
-      executor: 'ramping-arrival-rate',
-      startRate: 1,
+      executor: 'constant-arrival-rate',
+      rate: rate,
       timeUnit: '1s',
-      preAllocatedVUs: Math.max(20, Math.ceil(peak * 0.35)),
-      maxVUs: Math.max(50, Math.ceil(peak * 1.25)),
-      stages: stages,
+      duration: seconds + 's',
+      preAllocatedVUs: Math.max(20, Math.ceil(rate * 0.35)),
+      maxVUs: Math.max(50, Math.ceil(rate * 1.25)),
       gracefulStop: '5s',
     },
   },
@@ -50,6 +46,11 @@ const routes = [
   { end: 1.00, path: '/api/v1/books/1/toc?limit=20', label: 'toc' },
 ];
 
+const routeDurations = {};
+for (const route of routes) {
+  routeDurations[route.label] = new Trend('tor_duration_' + route.label, true);
+}
+
 export default function () {
   const roll = Math.random();
   const route = routes.find((item) => roll < item.end) || routes[routes.length - 1];
@@ -58,4 +59,5 @@ export default function () {
     timeout: '5s',
   });
   check(response, { 'HTTP 200': (res) => res.status === 200 });
+  routeDurations[route.label].add(response.timings.duration);
 }
