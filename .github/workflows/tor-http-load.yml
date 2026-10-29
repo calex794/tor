@@ -242,6 +242,12 @@ jobs:
             echo 'Process CPU, memory, IO and PostgreSQL wait samples are saved as artifacts.'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/tor-load/diagnostic/results.tsv"
+      - name: Compare 100k dense first-page catalogue with cheap cursor
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          # Test script refuses any database other than the disposable tor_ci,
+          # and the k6 harness hardcodes a localhost-only HTTP target.
+          bash tests/load/catalog_dense_100k_ci.sh
       - name: Preserve isolated benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4
