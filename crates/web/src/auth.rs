@@ -182,6 +182,10 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route(
+            "/me/chapters/{id}/buy",
+            get(checkout::browser_offer).post(checkout::browser_buy),
+        )
+        .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
         )

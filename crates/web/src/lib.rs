@@ -62,6 +62,7 @@ struct AppState {
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
     covers: Option<cover_delivery::CoverDelivery>,
+    paid_checkout_browser: bool,
 }
 
 async fn health() -> &'static str {
@@ -353,7 +354,7 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    ril::instrument(make_router(repo, None, None, false, None))
+    ril::instrument(make_router(repo, None, None, false, None, false))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     ril::instrument(make_router(
@@ -362,6 +363,7 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
         None,
         false,
         None,
+        false,
     ))
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
@@ -371,6 +373,7 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         Some(reader),
         false,
         None,
+        false,
     ))
 }
 
@@ -390,6 +393,7 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
+            false,
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -401,6 +405,7 @@ fn make_router(
     reader: Option<PgReader>,
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    paid_browser_enabled: bool,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     let mut app = Router::new()
@@ -458,6 +463,9 @@ fn make_router(
         reader,
         search,
         covers,
+        paid_checkout_browser: active_auth
+            && paid_browser_enabled
+            && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
     })
     .merge(api)
     .merge(search_api)

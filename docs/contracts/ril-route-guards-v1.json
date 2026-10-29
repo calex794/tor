@@ -540,6 +540,20 @@
       "source": "crates/web/src/author_chapter_images.rs",
       "handler": "create",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::browser_offer",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::browser_buy",
+      "policy": "session"
     }
   ]
 }

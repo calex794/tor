@@ -177,6 +177,7 @@ fn paid_grants_router(
             Some(reader),
             true,
             cover_storage,
+            browser_enabled,
         )
         .merge(author_router)
         .merge(grants),

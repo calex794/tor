@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 75] = [
+const ROUTES: [RouteRegistration; 77] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -564,6 +564,25 @@ const ROUTES: [RouteRegistration; 75] = [
         Dashboard,
         Write,
     ), // 74
+    // S034: a private price/version confirmation, followed by D-owned debit.
+    RouteRegistration::new(
+        "/me/chapters/{id}/buy",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        ProductArea::Billing,
+        Read,
+    ), // 75
+    RouteRegistration::new(
+        "/me/chapters/{id}/buy",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        ProductArea::Billing,
+        Write,
+    ), // 76
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
