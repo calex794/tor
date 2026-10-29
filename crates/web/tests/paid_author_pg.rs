@@ -446,6 +446,20 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         .upload_to_draft(owner, &draft, 1, &png, "image/png")
         .await
         .expect("G verified real MinIO image then B pinned it to the draft");
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 1, &png, "image/png")
+            .await,
+        Ok(image_id.clone()),
+        "retry must use the original server-issued asset ID"
+    );
+    assert_eq!(
+        uploader
+            .upload_to_draft(owner, &draft, 1, &png, "image/webp")
+            .await,
+        Err(AuthorError::Conflict),
+        "the same image slot cannot be relabeled as another MIME"
+    );
     let pending = PgPaidStorage::new(pool.clone())
         .prepare_new_paid_chapter(owner, &draft)
         .await
