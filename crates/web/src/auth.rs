@@ -45,6 +45,7 @@ mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
+mod book_follow_actions;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -140,6 +141,7 @@ fn router_inner(
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
+    let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -158,6 +160,7 @@ fn router_inner(
         sync,
         bookmarks,
         demand,
+        book_follows,
         reader,
         rankings,
         cookies,
@@ -211,6 +214,11 @@ fn router_inner(
             get(paid_completion::get).post(paid_completion::post),
         )
         .route("/me/library/add/{id}", get(library_actions::show_add))
+        .route("/me/books/{id}/follow", post(book_follow_actions::follow))
+        .route(
+            "/me/books/{id}/unfollow",
+            post(book_follow_actions::unfollow),
+        )
         .route("/me/library/{id}/save", post(library_actions::browser_add))
         .route(
             "/me/library/{id}/remove",
