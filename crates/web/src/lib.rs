@@ -21,6 +21,7 @@ mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
+mod book_follow_page;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
@@ -62,6 +63,7 @@ struct AppState {
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
     covers: Option<cover_delivery::CoverDelivery>,
+    follow_control: Option<book_follow_page::FollowBookControl>,
 }
 
 async fn health() -> &'static str {
@@ -208,6 +210,7 @@ async fn book_detail(
     Path(id): Path<u64>,
     OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     // Require the canonical numeric spelling before consulting public book data.
     if !tor_search::domain::seo_urls::BookUrl::from_id(id)
@@ -244,10 +247,11 @@ async fn book_detail(
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
-            return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
-                .into_response();
+            let html = pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars);
+            return book_follow_page::attach(&state.follow_control, &headers, id, html).await;
         }
-        return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
+        let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
+        return book_follow_page::attach(&state.follow_control, &headers, id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -255,14 +259,14 @@ async fn book_detail(
         Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
         Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
     };
-    pages::book_detail(&pages::PublicBookCard {
+    let html = pages::book_detail(&pages::PublicBookCard {
         id: book.id(),
         title: book.title().into(),
         language: book.key().target_language().into(),
         author_name: None,
         genres: Vec::new(),
-    })
-    .into_response()
+    });
+    Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", "")).into_response()
 }
 /// Keep the security-reviewed public route identity stable while isolating
 /// the actual S005/C-10 reader logic in the C/H feature module.
@@ -353,7 +357,7 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    ril::instrument(make_router(repo, None, None, false, None))
+    ril::instrument(make_router(repo, None, None, false, None, None))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     ril::instrument(make_router(
@@ -361,6 +365,7 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
         Some(catalog),
         None,
         false,
+        None,
         None,
     ))
 }
@@ -390,6 +395,11 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
+            Some(book_follow_page::FollowBookControl::new(
+                accounts.clone(),
+                secure,
+                public_origin.clone(),
+            )),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -401,6 +411,7 @@ fn make_router(
     reader: Option<PgReader>,
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    follow_control: Option<book_follow_page::FollowBookControl>,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     let mut app = Router::new()
@@ -458,6 +469,7 @@ fn make_router(
         reader,
         search,
         covers,
+        follow_control,
     })
     .merge(api)
     .merge(search_api)
