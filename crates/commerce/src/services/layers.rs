@@ -1,6 +1,8 @@
 //! D-05: business-facing layer operations; SQL and money authority stay in D repository.
 use crate::{
-    domain::layers::{LayerBookCandidatePage, LayerCheckoutCommand, LayerError, LayerReceipt, OwnedLayerSummary},
+    domain::layers::{
+        LayerBookCandidatePage, LayerCheckoutCommand, LayerError, LayerReceipt, OwnedLayerSummary,
+    },
     repositories::layers::PgLayers,
 };
 use tor_contracts::paid_delivery::PositiveId;
