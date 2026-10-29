@@ -12,7 +12,7 @@ use axum::{
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_commerce::{
-    domain::layers::{LayerBookCandidatePage, LayerError},
+    domain::layers::{LayerBookCandidatePage, LayerCurrentBookPage, LayerError},
     repositories::layers::PgLayers,
     services::layers::LayerService,
 };
@@ -32,6 +32,7 @@ pub(super) fn enabled() -> bool {
 #[serde(deny_unknown_fields)]
 pub(super) struct PickerQuery {
     after: Option<i64>,
+    current_after: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +40,8 @@ pub(super) struct PickerQuery {
 pub(super) struct AddBookForm {
     book_id: i64,
     csrf_token: Option<String>,
+    operation: Option<String>,
+    expected_version_id: Option<i64>,
 }
 
 pub(super) fn status(error: LayerError) -> StatusCode {
@@ -55,6 +58,7 @@ pub(super) fn status(error: LayerError) -> StatusCode {
 fn picker_html(
     layer: i64,
     page: &LayerBookCandidatePage,
+    current: &LayerCurrentBookPage,
     csrf: &str,
 ) -> axum::response::Html<String> {
     let mut list = String::new();
@@ -88,10 +92,45 @@ fn picker_html(
         )
         .expect("write String");
     }
+    let mut current_list = String::from("<h2>Книги в Layer</h2>");
+    if current.books.is_empty() {
+        current_list.push_str("<p class=\"empty-state\">Книги пока не добавлены.</p>");
+    } else {
+        current_list.push_str("<ul class=\"author-book-list\">");
+        for book in &current.books {
+            write!(
+                current_list,
+                "<li><form method=\"post\" action=\"/me/layers/{layer}/books\">
+                 <span>{}</span>
+                 <input type=\"hidden\" name=\"book_id\" value=\"{}\">
+                 <input type=\"hidden\" name=\"operation\" value=\"remove\">
+                 <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">
+                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
+                 <button class=\"button button--small\" type=\"submit\">Убрать из Layer</button>
+                 </form></li>",
+                pages::escape_html(&book.title),
+                book.book_id,
+                current.current_version_id,
+                pages::escape_html(csrf),
+            )
+            .expect("write String");
+        }
+        current_list.push_str("</ul>");
+    }
+    if let Some(cursor) = current.next_after {
+        write!(
+            current_list,
+            "<p><a class=\"text-link\" href=\"/me/layers/{layer}/books?current_after={cursor}\">Следующие книги в Layer</a></p>"
+        )
+        .expect("write String");
+    }
     let content = format!(
         "<section class=\"section auth-section\"><div class=\"container\">
          <div class=\"auth-card author-card\">
-         <p class=\"eyebrow\">Подписка Layer</p><h1>Добавить книгу</h1>
+         <p class=\"eyebrow\">Подписка Layer</p><h1>Управление книгами</h1>
+         {current_list}
+         <p>Удаление из текущего состава не отменяет чтение, уже оплаченное подписчиками.</p>
+         <h2>Добавить книгу</h2>
          <p>В списке только собственные книги без других активных участников.
          Книги с переводчиками или модераторами, даже с долей 0%, недоступны.
          Перед добавлением состав команды проверяется повторно.</p>
@@ -131,8 +170,16 @@ pub(super) async fn page(
         Ok(candidates) => candidates,
         Err(error) => return deny(status(error)),
     };
+    let current_after = match query.current_after.map(PositiveId::new).transpose() {
+        Ok(after) => after,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let current = match service.current_books(actor, layer, current_after, PAGE_SIZE).await {
+        Ok(current) => current,
+        Err(error) => return deny(status(error)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(picker_html(layer.get(), &candidates, &csrf), &cookies)
+    private_response(picker_html(layer.get(), &candidates, &current, &csrf), &cookies)
 }
 
 pub(super) async fn add(
@@ -164,7 +211,21 @@ pub(super) async fn add(
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
-    match service.add_book(actor, layer, book).await {
+    let result = match form.operation.as_deref() {
+        None | Some("add") if form.expected_version_id.is_none() => {
+            service.add_book(actor, layer, book).await
+        }
+        Some("remove") => {
+            let Some(Ok(expected)) = form.expected_version_id.map(PositiveId::new) else {
+                return deny(StatusCode::UNPROCESSABLE_ENTITY);
+            };
+            service
+                .remove_book_if_current(actor, layer, book, expected)
+                .await
+        }
+        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    };
+    match result {
         Ok(_) => private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[]),
         Err(error) => deny(status(error)),
     }
@@ -175,6 +236,14 @@ mod tests {
     use super::*;
     use tor_commerce::domain::layers::LayerBookCandidate;
 
+    fn current_empty() -> LayerCurrentBookPage {
+        LayerCurrentBookPage {
+            current_version_id: 42,
+            books: vec![],
+            next_after: None,
+        }
+    }
+
     #[test]
     fn d_05_picker_escapes_untrusted_book_titles_and_excludes_user_identity() {
         let page = LayerBookCandidatePage {
@@ -184,7 +253,7 @@ mod tests {
             }],
             next_after: Some(91),
         };
-        let html = picker_html(9, &page, "test_csrf").0;
+        let html = picker_html(9, &page, &current_empty(), "test_csrf").0;
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("name=\"book_id\" value=\"91\""));
@@ -202,10 +271,38 @@ mod tests {
                 books: vec![],
                 next_after: None,
             },
+            &current_empty(),
             "token",
         )
         .0;
         assert!(html.contains("Подходящих книг нет"));
         assert!(!html.contains("name=\"book_id\""));
+    }
+    #[test]
+    fn d_05_current_layer_book_renders_version_bound_remove_form() {
+        let page = LayerCurrentBookPage {
+            current_version_id: 42,
+            books: vec![tor_commerce::domain::layers::LayerBookCandidate {
+                book_id: 91,
+                title: "<img onerror=alert(1)>".into(),
+            }],
+            next_after: Some(91),
+        };
+        let html = picker_html(
+            9,
+            &LayerBookCandidatePage {
+                books: vec![],
+                next_after: None,
+            },
+            &page,
+            "test_csrf",
+        )
+        .0;
+        assert!(html.contains("name=\"operation\" value=\"remove\""));
+        assert!(html.contains("name=\"expected_version_id\" value=\"42\""));
+        assert!(html.contains("name=\"book_id\" value=\"91\""));
+        assert!(html.contains("&lt;img onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img onerror="));
+        assert!(html.contains("current_after=91"));
     }
 }
