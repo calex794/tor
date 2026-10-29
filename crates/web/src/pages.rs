@@ -14,6 +14,7 @@ pub use reader_private::private_reader;
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
+mod seo_head;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
     PublicBookCard,
@@ -35,10 +36,20 @@ pub fn escape_html(value: &str) -> String {
 }
 
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
+    layout_with_seo(title, description, content, seo_head::default_head())
+}
+
+fn layout_with_seo(
+    title: &str,
+    description: &str,
+    content: &str,
+    seo_markup: &str,
+) -> Html<String> {
     Html(
         include_str!("../templates/layout.html")
             .replace("<!--PAGE_TITLE-->", &escape_html(title))
             .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+            .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
             .replace("<!--PAGE_CONTENT-->", content),
     )
 }
@@ -254,7 +265,15 @@ fn book_detail_body(
         .replace("<!--LIBRARY_ACTION-->", &library_action)
         .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
         .replace("<!--BOOK_DISCUSSION-->", &discussion);
-    layout(&book.title, &meta_description, &content)
+    // The current release has no authorized SEO-owner/approval projection wired
+    // to H. Keep real book pages noindex; the F policy controls future activation.
+    let seo = seo_head::disabled_book_head(
+        book.id,
+        first_free.is_some(),
+        &book.title,
+        &meta_description,
+    );
+    layout_with_seo(&book.title, &meta_description, &content, &seo)
 }
 
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
