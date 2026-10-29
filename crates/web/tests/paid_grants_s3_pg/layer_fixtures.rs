@@ -1,6 +1,12 @@
 //! A real PostgreSQL Layer purchase through the already configured S3 grant.
 use super::*;
-use tor_commerce::{domain::layers::LayerCheckoutCommand, repositories::layers::PgLayers};
+use tor_commerce::{
+    domain::{
+        layers::LayerCheckoutCommand,
+        money::{IdempotencyKey, MoneyMinor, WalletId},
+    },
+    repositories::layers::PgLayers,
+};
 
 pub(super) async fn assert_layer_s3_grants(
     repo: PgLayers,

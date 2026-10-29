@@ -20,9 +20,14 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
-fn pg(url: &str, statement: &str) -> String {
+fn pg_blocking(url: &str, statement: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let result = Command::new("psql")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=10000 -c lock_timeout=5000",
+        )
+        .env("PGCONNECT_TIMEOUT", "5")
         .args([
             "-X",
             "-A",
@@ -43,6 +48,16 @@ fn pg(url: &str, statement: &str) -> String {
         String::from_utf8_lossy(&result.stderr),
     );
     String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
+// psql may wait for a SQLx rollback queued by a rejected HTTP command.
+// Keep the single-thread Tokio runtime polling while the fixture process waits.
+async fn pg(url: &str, statement: &str) -> String {
+    let url = url.to_owned();
+    let statement = statement.to_owned();
+    tokio::task::spawn_blocking(move || pg_blocking(&url, &statement))
+        .await
+        .expect("fixture process task")
 }
 
 async fn call(
@@ -105,6 +120,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
              VALUES('ci:e02:http:{nonce}','ru','Книга <script>','public') RETURNING id"
         ),
     )
+    .await
     .parse()
     .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
@@ -217,14 +233,117 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &url,
         &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}"),
     )
+    .await
     .parse()
     .unwrap();
     assert_eq!(count, 1);
 
+    let parent: i64 = pg(
+        &url,
+        &format!("SELECT id FROM discussion_comments WHERE book_id={book}"),
+    )
+    .await
+    .parse()
+    .unwrap();
+    let reply_form = format!(
+        "body=Reply%20%7C%7Csecret%7C%7C&parent_id={parent}&command_key={}&csrf_token={csrf}",
+        generate_session_token()
+    );
+    let own_page = html(call(&app, "GET", &comments_path, &cookies, ORIGIN, "").await).await;
+    assert!(own_page.contains(&format!("Ваш ответ на комментарий №{parent}")));
+    assert!(!visible.contains("Отправить ответ"));
+    for (origin, body, expected) in [
+        (
+            "https://evil.invalid",
+            reply_form.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            ORIGIN,
+            reply_form.replace(&csrf, "forged"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            ORIGIN,
+            reply_form.replace(&format!("parent_id={parent}"), "parent_id=0"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            ORIGIN,
+            reply_form.replace(
+                &format!("parent_id={parent}"),
+                "parent_id=9223372036854775807",
+            ),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        assert_eq!(
+            call(&app, "POST", &comments_path, &cookies, origin, &body)
+                .await
+                .status(),
+            expected
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &format!("tor-dev-csrf={csrf}"),
+            ORIGIN,
+            &reply_form
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &cookies,
+            ORIGIN,
+            &reply_form.replace("Reply", "Changed")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let replies_page = html(call(&app, "GET", &comments_path, "", ORIGIN, "").await).await;
+    assert!(replies_page.contains(&format!("Ответ на комментарий №{parent}")));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM discussion_comments WHERE parent_id={parent}")
+        )
+        .await,
+        "1"
+    );
+    pg(
+        &url,
+        &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={parent}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
-    );
+    )
+    .await;
     assert_eq!(
         call(&app, "GET", &comments_path, "", ORIGIN, "")
             .await
@@ -244,7 +363,13 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
-    );
-    pg(&url, &format!("DELETE FROM users WHERE id={user}"));
-    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
+    )
+    .await;
+    pg(&url, &format!("DELETE FROM users WHERE id={user}")).await;
+    pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }
