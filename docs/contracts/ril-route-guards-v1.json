@@ -568,6 +568,20 @@
       "source": "crates/web/src/auth/layer_create.rs",
       "handler": "create",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/layers/{layer_id}",
+      "source": "crates/web/src/auth/layer_checkout.rs",
+      "handler": "page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{layer_id}/buy",
+      "source": "crates/web/src/auth/layer_checkout.rs",
+      "handler": "buy",
+      "policy": "session"
     }
   ]
 }
