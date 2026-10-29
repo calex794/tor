@@ -133,9 +133,7 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    let cover_jobs = storage
-        .as_ref()
-        .map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         accounts,
@@ -181,6 +179,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .route("/api/v1/purchases/batch", post(checkout::batch::buy))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
