@@ -18,7 +18,10 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(!can_modify, "application role must not alter exact facet counts");
+    assert!(
+        !can_modify,
+        "application role must not alter exact facet counts"
+    );
 
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,visibility,
@@ -47,10 +50,16 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(reference_count, 1, "duplicate genre inside book counts once");
-    assert!(
-        search.taxonomy_options().await.unwrap().genres.contains(&"perf233-exact".to_owned())
+    assert_eq!(
+        reference_count, 1,
+        "duplicate genre inside book counts once"
     );
+    assert!(search
+        .taxonomy_options()
+        .await
+        .unwrap()
+        .genres
+        .contains(&"perf233-exact".to_owned()));
 
     // Unhide one book, then change its arrays and verify one-to-one deltas.
     sqlx::query(
@@ -119,7 +128,12 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     .await
     .unwrap();
     assert!(
-        !search.taxonomy_options().await.unwrap().genres.contains(&"perf233-exact".to_owned()),
+        !search
+            .taxonomy_options()
+            .await
+            .unwrap()
+            .genres
+            .contains(&"perf233-exact".to_owned()),
         "revoked genre must disappear immediately"
     );
     assert_public_catalog_projection_count(&pool).await;
@@ -144,12 +158,10 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     assert_eq!(total, database_total as u64);
 
     // A delete is a real SQL DELETE, not merely a soft-delete flag.
-    sqlx::query(
-        "DELETE FROM books WHERE source_identity='ci:perf233:count:b'",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("DELETE FROM books WHERE source_identity='ci:perf233:count:b'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let absent: Option<i64> = sqlx::query_scalar(
         "SELECT reference_count FROM public_catalog_facets
          WHERE kind='genre' AND name='perf233-new'",
@@ -172,5 +184,8 @@ async fn assert_public_catalog_projection_count(pool: &PgPool) {
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(stored, actual, "transactional total must match source books");
+    assert_eq!(
+        stored, actual,
+        "transactional total must match source books"
+    );
 }
