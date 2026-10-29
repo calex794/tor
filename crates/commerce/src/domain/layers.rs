@@ -15,6 +15,15 @@ impl LayerTermKind {
         }
     }
 }
+/// Owner-only publication state. No public access or financial balance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerOwnerOfferState {
+    pub current_version_id: i64,
+    pub current_offer_id: Option<i64>,
+    pub term_kind: Option<LayerTermKind>,
+    pub price_minor: Option<i64>,
+}
+
 /// An advertised immutable offer plus exactly the current composition.
 /// A quote is advisory: checkout must compare both offer and composition IDs
 /// again inside its transaction before any wallet debit.
