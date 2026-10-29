@@ -27,8 +27,9 @@ pub fn my_library_with_updates(
     purchased_available: bool,
     checkout_enabled: bool,
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
+    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
-    let update_html = update_cards(updates, checkout_enabled);
+    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned);
     my_library_inner(items, saved, csrf, purchased_available, &update_html)
 }
 
@@ -100,6 +101,8 @@ fn my_library_inner(
 fn update_cards(
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     checkout_enabled: bool,
+    paid_reader_available: bool,
+    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> String {
     let mut body = String::new();
     if updates.items.is_empty() {
@@ -108,37 +111,58 @@ fn update_cards(
         for item in &updates.items {
             let book = escape_html(&item.book_title);
             let chapter = escape_html(&item.chapter_title);
+            let purchased = owned.iter().find(|row| row.chapter_id == item.chapter_id);
             let (state, link, button) = if item.is_paid {
-                let label = format!(
-                    "Платная · {},{:02} ₽",
+                let price = format!(
+                    "{},{:02} ₽",
                     item.price_minor / 100,
                     item.price_minor % 100
                 );
-                if checkout_enabled {
+                if let Some(purchase) = purchased {
+                    if paid_reader_available {
+                        (
+                            format!("Купленная глава · {price}"),
+                            format!(
+                                "/read/paid/{}?purchase_id={}",
+                                item.chapter_id, purchase.purchase_id
+                            ),
+                            "Читать купленную главу",
+                        )
+                    } else {
+                        (format!("Купленная глава · {price}"), String::new(),
+                         "Чтение временно недоступно")
+                    }
+                } else if checkout_enabled {
                     (
-                        label,
+                        format!("Платная глава · {price}"),
                         format!("/me/books/{}/buy-chapters", item.book_id),
                         "Перейти к покупке",
                     )
                 } else {
                     (
-                        label,
+                        format!("Платная глава · {price}"),
                         format!("/reader/{}", item.chapter_id),
                         "Условия доступа",
                     )
                 }
             } else {
                 (
-                    "Бесплатная".to_owned(),
+                    "Бесплатная глава".to_owned(),
                     format!("/reader/{}", item.chapter_id),
                     "Читать",
                 )
             };
+            let action = if link.is_empty() {
+                format!("<span class=\"library-card__place\">{button}</span>")
+            } else {
+                format!(
+                    "<a class=\"button button--small\" href=\"{link}\">{button}</a>"
+                )
+            };
             write!(
                 body,
-                "<article class=\"library-card\"><div><p class=\"eyebrow\">{state} глава</p>\
-                 <h3>{book}</h3><p>Глава {}. {chapter}</p></div>\
-                 <a class=\"button button--small\" href=\"{link}\">{button}</a></article>",
+                "<article class=\"library-card\"><div><p class=\"eyebrow\">{state}</p>\\
+                 <h3>{book}</h3><p>Глава {}. {chapter}</p></div>{action}</article>",
                 item.chapter_number,
             )
             .expect("writing safe HTML");
@@ -187,15 +211,26 @@ mod update_tests {
                 chapter_id: 12,
             }),
         };
-        let enabled = update_cards(&page, true);
+        let enabled = update_cards(&page, true, true, &[]);
         assert!(enabled.contains("/me/books/9/buy-chapters"));
         assert!(enabled.contains("199,00 ₽"));
         assert!(enabled.contains("&lt;script&gt;title"));
         assert!(enabled.contains("A &amp; B"));
         assert!(!enabled.contains("<script>"));
         assert!(enabled.contains("updates_after=123-12"));
-        let disabled = update_cards(&page, false);
+        let disabled = update_cards(&page, false, true, &[]);
         assert!(!disabled.contains("/me/books/9/buy-chapters"));
         assert!(disabled.contains("/reader/12"));
+        let owned = [tor_commerce::repositories::entitlements::ReadablePurchaseLink {
+            chapter_id: 12,
+            purchase_id: 77,
+        }];
+        let purchased = update_cards(&page, true, true, &owned);
+        assert!(purchased.contains("/read/paid/12?purchase_id=77"));
+        assert!(!purchased.contains("/me/books/9/buy-chapters"));
+        let unavailable = update_cards(&page, true, false, &owned);
+        assert!(unavailable.contains("Чтение временно недоступно"));
+        assert!(!unavailable.contains("/read/paid/12"));
+        assert!(!unavailable.contains("/me/books/9/buy-chapters"));
     }
 }

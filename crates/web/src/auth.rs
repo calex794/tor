@@ -46,6 +46,7 @@ mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
+mod followed_purchase_links;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -328,10 +329,14 @@ async fn my_library(
         Ok(updates) => updates,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let owned = match followed_purchase_links::for_reader(&state, user_id, &updates).await {
+        Ok(owned) => owned,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let page = pages::my_library_with_updates(
         &books, &saved, &csrf, state.paid_reader_available,
-        state.paid_checkout_enabled, &updates,
+        state.paid_checkout_enabled, &updates, &owned,
     );
     private_response(page, &cookies)
 }
