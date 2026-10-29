@@ -133,4 +133,58 @@ impl PgLayerFirstExposure {
         }
         tx.commit().await.map_err(|_| DeliveryError::Unavailable)
     }
+
+    /// A client-reported verified chapter render, distinct from issuance.
+    /// Only already-granted, currently eligible terms may be confirmed.
+    pub async fn confirm_rendered(
+        &self,
+        actor: PositiveId,
+        chapter: PositiveId,
+        version: PositiveId,
+    ) -> Result<(), DeliveryError> {
+        // Shared eligibility SQL includes term window, immutable versions,
+        // revocations, moderation hold and D-05 wallet provenance. A recorded
+        // credential issuance is an additional necessary precondition.
+        let eligible = format!(
+            "SELECT t.id FROM commerce_layer_terms t
+             JOIN commerce_layer_term_first_exposures g ON g.term_id=t.id
+             WHERE t.id IN ({ELIGIBLE_TERMS}) ORDER BY t.id"
+        );
+        let mut tx = self.pool.begin().await.map_err(|_| DeliveryError::Unavailable)?;
+        let locked: Vec<i64> = sqlx::query_scalar(&format!("{eligible} FOR UPDATE OF t"))
+            .bind(actor.get())
+            .bind(chapter.get())
+            .bind(version.get())
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
+        if locked.is_empty() {
+            return Err(DeliveryError::Denied);
+        }
+        // Fresh post-lock read closes the wait-for-lock revocation race.
+        let fresh: Vec<i64> = sqlx::query_scalar(&eligible)
+            .bind(actor.get())
+            .bind(chapter.get())
+            .bind(version.get())
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
+        if locked != fresh {
+            return Err(DeliveryError::Denied);
+        }
+        for term_id in locked {
+            sqlx::query(
+                "INSERT INTO commerce_layer_term_render_confirmations
+                  (term_id,chapter_id,version_id)
+                 VALUES($1,$2,$3) ON CONFLICT(term_id) DO NOTHING",
+            )
+            .bind(term_id)
+            .bind(chapter.get())
+            .bind(version.get())
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| DeliveryError::Unavailable)?;
+        }
+        tx.commit().await.map_err(|_| DeliveryError::Unavailable)
+    }
 }
