@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 from ci_test_map import SUITES
 
 ROOT = Path(__file__).resolve().parents[1]
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
+SHA = re.compile(r"[0-9a-f]{40}\Z")
 REPO = "calex794/tor"
 
 
@@ -37,7 +37,7 @@ def workflow_names(root: Path = ROOT) -> dict[str, str]:
         first = source.splitlines()[0].strip() if source else ""
         if not first.startswith("name: "):
             raise EvidenceError(f"missing workflow title: {filename}")
-        title = first.removeprefix("name: ").strip().strip("'\\\"")
+        title = first.removeprefix("name: ").strip().strip(chr(34) + chr(39))
         if not title or title in names:
             raise EvidenceError(f"duplicate or empty workflow title: {filename}")
         names[title] = filename
