@@ -50,7 +50,6 @@ pub(super) async fn purchased_version_http_journey(
     first_session: &str,
     second_session: &str,
     re_login_form: &str,
-    re_login_csrf_cookie: &str,
 ) {
     // The test user was registered through the public HTTP form beforehand.
     // Settlement facts are inserted only into the disposable PG database;
@@ -273,15 +272,19 @@ pub(super) async fn purchased_version_http_journey(
     let still_owned = owned_get(app, first_session, GET_V1, StatusCode::OK).await;
     assert!(still_owned.contains(r#""revision":3"#));
 
+    let login_page = send(app, request("GET", "/login", "", "", ORIGIN)).await;
+    assert_eq!(login_page.status(), StatusCode::OK);
+    let login_cookie = cookie(&login_page, "tor-dev-csrf=");
+    let login_html = body_of(login_page).await;
+    let csrf = csrf_token(&login_html);
+    let credentials = re_login_form
+        .split("&csrf_token=")
+        .next()
+        .expect("test login form");
+    let login_form = format!("{credentials}&csrf_token={csrf}");
     let logged_in = send(
         app,
-        request(
-            "POST",
-            "/login",
-            re_login_form,
-            re_login_csrf_cookie,
-            ORIGIN,
-        ),
+        request("POST", "/login", &login_form, &login_cookie, ORIGIN),
     )
     .await;
     assert_eq!(logged_in.status(), StatusCode::SEE_OTHER);
