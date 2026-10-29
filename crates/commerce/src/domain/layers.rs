@@ -15,6 +15,20 @@ impl LayerTermKind {
         }
     }
 }
+/// An advertised immutable offer plus exactly the current composition.
+/// A quote is advisory: checkout must compare both offer and composition IDs
+/// again inside its transaction before any wallet debit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LayerOfferQuote {
+    pub layer_id: i64,
+    pub title: String,
+    pub offer_id: i64,
+    pub version_id: i64,
+    pub term_kind: LayerTermKind,
+    pub price_minor: i64,
+    pub books: Vec<LayerBookCandidate>,
+}
+
 #[derive(Clone, Debug)]
 pub struct LayerCheckoutCommand {
     pub actor: PositiveId,
