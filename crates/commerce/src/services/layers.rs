@@ -1,6 +1,6 @@
 //! D-05: business-facing layer operations; SQL and money authority stay in D repository.
 use crate::{
-    domain::layers::{LayerBookCandidatePage, LayerCheckoutCommand, LayerError, LayerReceipt},
+    domain::layers::{LayerBookCandidatePage, LayerCheckoutCommand, LayerError, LayerReceipt, OwnedLayerSummary},
     repositories::layers::PgLayers,
 };
 use tor_contracts::paid_delivery::PositiveId;
@@ -15,6 +15,14 @@ impl LayerService {
     }
     pub async fn create(&self, actor: PositiveId, title: &str) -> Result<i64, LayerError> {
         self.repository.create_layer(actor, title).await
+    }
+    /// Show only this owner's Layer containers in the author workspace.
+    pub async fn owned_layers(
+        &self,
+        actor: PositiveId,
+        limit: u16,
+    ) -> Result<Vec<OwnedLayerSummary>, LayerError> {
+        self.repository.owned_layers(actor, limit).await
     }
     /// UI list is advisory; the write performs a locked recheck.
     pub async fn addable_books(
