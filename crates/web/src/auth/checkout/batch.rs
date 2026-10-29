@@ -25,7 +25,7 @@ struct Selection {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct BatchSelection {
+pub(in crate::auth) struct BatchSelection {
     chapters: Vec<Selection>,
 }
 
