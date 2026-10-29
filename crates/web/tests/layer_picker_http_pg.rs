@@ -365,7 +365,10 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     );
     let created = request(&app, "POST", route, &cookie, ORIGIN, &form).await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    let destination = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let destination = created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     assert!(destination.starts_with("/me/layers/"));
     assert!(destination.ends_with("/books"));
     let replay = request(&app, "POST", route, &cookie, ORIGIN, &form).await;
