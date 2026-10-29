@@ -554,6 +554,20 @@
       "source": "crates/web/src/auth/layer_books.rs",
       "handler": "add",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/new",
+      "source": "crates/web/src/auth/layer_create.rs",
+      "handler": "page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/new",
+      "source": "crates/web/src/auth/layer_create.rs",
+      "handler": "create",
+      "policy": "owner"
     }
   ]
 }
