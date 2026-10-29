@@ -41,7 +41,7 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/reader/103');
       assert(await page.getByRole('heading', { name: 'Для чтения нужен доступ' }).isVisible(),
         name + ': paywall heading missing');
-      assert(await page.getByRole('link', { name: 'Войти', exact: true }).isVisible(),
+      assert(await page.locator('.reader-access-page').getByRole('link', { name: 'Войти', exact: true }).isVisible(),
         name + ': paywall sign-in link missing');
       assert(await page.getByRole('link', { name: 'Вернуться к книге' }).isVisible(),
         name + ': paywall return link missing');
