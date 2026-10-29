@@ -1,4 +1,5 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
+mod book_description;
 mod chapter_edit;
 mod chapter_publish_free;
 mod chapter_published_edit;
@@ -204,8 +205,8 @@ impl PgAuthoring {
         }
 
         let book_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms)
-             VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8) RETURNING id",
+            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms, description, access_level)
+             VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, 'basic') RETURNING id",
         )
         .bind(&book.source_identity)
         .bind(&book.target_language)
@@ -215,6 +216,7 @@ impl PgAuthoring {
         .bind(&book.genres)
         .bind(&book.tags)
         .bind(&book.fandoms)
+        .bind(&book.description)
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| match error {

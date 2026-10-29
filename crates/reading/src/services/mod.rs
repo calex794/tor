@@ -29,8 +29,22 @@ pub struct PublicBookPage {
     pub id: u64,
     pub title: String,
     pub language: String,
+    pub author_name: String,
+    pub genres: Vec<String>,
+    pub description: String,
     pub chapters: Vec<PublicChapterLink>,
     pub next_cursor: Option<String>,
+}
+
+/// Public TOC metadata for a published paid chapter; never a purchase right.
+/// No chapter text, private object reference or paid edition is included.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicPaidChapterPreview {
+    pub book_id: u64,
+    pub book_title: String,
+    pub chapter_no: i32,
+    pub chapter_title: String,
+    pub price_minor: i64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

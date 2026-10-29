@@ -30,9 +30,57 @@ async function inspect(page, name, where) {
       const book = await page.goto(base + '/books/1', { waitUntil: 'networkidle' });
       assert(book && book.status() === 200, name + ': public book missing');
       assert(await page.getByText('Глава 1. Начало истории').isVisible(), name + ': TOC invisible');
-      assert(await page.getByText('Платная · пока недоступна').isVisible(), name + ': paywall label missing');
+      assert(await page.getByText('Платная · нужен доступ').isVisible(), name + ': paywall label missing');
       assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'), name + ': paid text in TOC');
       await inspect(page, name, 'toc');
+      // S005: a visible paid TOC entry must lead to an explanatory page,
+      // not an empty 404, an invented checkout, or private chapter text.
+      const paidLink = page.getByRole('link', { name: /Глава 3\. Платная глава/ });
+      assert(await paidLink.isVisible(), name + ': paid chapter link missing');
+      await paidLink.click();
+      await page.waitForURL('**/reader/103');
+      assert(await page.getByRole('heading', { name: 'Для чтения нужен доступ' }).isVisible(),
+        name + ': paywall heading missing');
+      assert(await page.locator('.reader-access-page').getByRole('link', { name: 'Войти', exact: true }).isVisible(),
+        name + ': paywall sign-in link missing');
+      assert(await page.getByRole('link', { name: 'Вернуться к книге' }).isVisible(),
+        name + ': paywall return link missing');
+      assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
+        name + ': paid chapter leaked in paywall');
+      const paidResponse = await page.goto(base + '/reader/103');
+      assert(paidResponse && paidResponse.status() === 200,
+        name + ': published paid chapter should show access explanation');
+      assert((paidResponse.headers()['cache-control'] || '').includes('no-store'),
+        name + ': paywall must not enter shared caches');
+      assert((paidResponse.headers()['x-robots-tag'] || '').includes('noindex'),
+        name + ': paywall must not be indexed');
+      await inspect(page, name, 'paywall');
+      await page.goto(base + '/books/1');
+      // E-02: Chromium must exercise the actual NEwBOO discussion link and page,
+      // not just HTTP tests of the Rust handlers. Use only public fixture data.
+      const commentsLink = page.getByRole('link', { name: 'Читать и оставить комментарий' });
+      assert(await commentsLink.isVisible(), name + ': book discussion link missing');
+      await commentsLink.click();
+      await page.waitForURL('**/books/1/comments');
+      assert(await page.getByRole('heading', { name: /Комментарии к книге/ }).isVisible(),
+        name + ': discussion heading missing');
+      assert(await page.getByRole('link', { name: 'Войти, чтобы оставить комментарий' }).isVisible(),
+        name + ': anonymous reader must see sign-in invitation');
+      assert(await page.locator('form.comments-form').count() === 0,
+        name + ': guest must not receive an authenticated comment form');
+      assert(await page.getByText('Комментариев пока нет.').isVisible(),
+        name + ': empty discussion state missing');
+      const commentsHTML = await page.content();
+      assert(!commentsHTML.includes('PRIVATE-PAID-MARKER') &&
+        !commentsHTML.includes('PRIVATE-DRAFT-MARKER'),
+        name + ': private text leaked through discussion page');
+      await inspect(page, name, 'comments-guest');
+      const hiddenDiscussion = await page.goto(base + '/books/2/comments');
+      assert(hiddenDiscussion && hiddenDiscussion.status() === 404,
+        name + ': hidden book discussion must be denied');
+      assert((hiddenDiscussion.headers()['cache-control'] || '').includes('no-store'),
+        name + ': hidden discussion response must not enter shared caches');
+      await page.goto(base + '/books/1');
       const pageOne = await page.goto(base + '/books/1?limit=1');
       assert(pageOne && pageOne.status() === 200, name + ': paginated book HTTP');
       assert(await page.getByRole('link', { name: 'Следующие главы' }).isVisible(),
@@ -75,11 +123,22 @@ async function inspect(page, name, where) {
         assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
           name + ': private marker leaked from ' + url);
       }
-      for (const denied of ['/reader/102', '/reader/103', '/books/2', '/api/v1/books/2/toc']) {
+      for (const denied of ['/reader/102', '/reader/104', '/books/2', '/api/v1/books/2/toc']) {
         const response = await page.goto(base + denied);
         assert(response && response.status() === 404, name + ': denied URL ' + denied);
         assert((response.headers()['cache-control'] || '').includes('no-store'),
           name + ': shared-cacheable denied URL ' + denied);
+        if (denied === '/books/2') {
+          const cards = page.locator('.book-error-promos__card');
+          assert(await cards.count() >= 1 && await cards.count() <= 3,
+            name + ': missing published-book recovery links');
+          assert(await page.getByRole('heading', { name: 'Другие книги на сайте' }).isVisible(),
+            name + ': book recovery heading missing');
+          assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
+            name + ': private chapter body leaked into 404');
+          assert((await page.locator('meta[name="robots"]').getAttribute('content')).includes('noindex'),
+            name + ': 404 indexed');
+        }
       }
       await page.close();
     }
@@ -94,6 +153,7 @@ async function inspect(page, name, where) {
         ['home', '/'],
         ['catalog', '/catalog'],
         ['book', '/books/1'],
+        ['comments', '/books/1/comments'],
         ['reader', '/reader/101'],
         ['register', '/register']
       ]) {
@@ -331,6 +391,7 @@ async function inspect(page, name, where) {
       await inspect(page, name + '-dark', 'registration-error');
       await page.close();
     }
+    await require('./comment_spoilers_browser.cjs')(browser, base, out);
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
     await browser.close();

@@ -27,7 +27,9 @@ const script = fs.readFileSync("crates/web/assets/newboo-paid-reader.mjs");
 const siteCss = fs.readFileSync("crates/web/assets/site.css");
 const orderedNewbooFiles = [
   "newboo-port.css",
+  "newboo-home-carousel.css",
   "newboo-book-detail.css",
+  "newboo-comments.css",
   "newboo-reader.css",
   "newboo-cover-picker.css",
 ];
@@ -93,6 +95,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 let grantCalls = 0;
 let saved = null;
+let progressRevision = 0;
 let markedComplete = false;
 let completionPosts = 0;
 const server = http.createServer(async (req, reply) => {
@@ -158,16 +161,28 @@ const server = http.createServer(async (req, reply) => {
       assert.equal(uri.searchParams.get("purchase_id"), purchase);
       assert.equal(uri.searchParams.get("version_id"), grant.version_id);
       send(reply, 200, JSON.stringify({
-        chapter_id: chapter, version_id: grant.version_id, revision: 0,
-        block_id: null, char_offset: null,
+        chapter_id: chapter, version_id: grant.version_id,
+        revision: progressRevision,
+        block_id: saved?.block_id ?? null,
+        char_offset: saved?.char_offset ?? null,
       }), "application/json");
     } else if (uri.pathname === "/api/v1/me/progress/purchased" &&
       req.method === "PUT") {
       assert.equal(req.headers.origin, SITE);
       assert.equal(req.headers["x-csrf-token"], csrf);
-      saved = JSON.parse(await readBody(req));
-      send(reply, 200, JSON.stringify({ revision: 1, version_id: grant.version_id }),
-        "application/json");
+      const cursor = JSON.parse(await readBody(req));
+      assert.equal(cursor.chapter_id, chapter);
+      assert.equal(cursor.purchase_id, purchase);
+      assert.equal(cursor.version_id, grant.version_id);
+      if (cursor.expected_revision !== progressRevision) {
+        send(reply, 409, "", "application/json");
+      } else {
+        saved = cursor;
+        progressRevision++;
+        send(reply, 200, JSON.stringify({
+          revision: progressRevision, version_id: grant.version_id,
+        }), "application/json");
+      }
     } else {
       send(reply, 404, "", "text/plain");
     }
@@ -242,6 +257,48 @@ async function run() {
         assert(chunks.join("\n\n") === fixture.expected_markdown,
           "Decrypted synthetic fixture differs (do not log paid plaintext)");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
+        // Design reference: capture the ACTUAL first screen at scroll=0.
+        // Full-page screenshots taken after clicking bottom controls move
+        // sticky headers into the middle and are not valid initial-state QA.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY === 0);
+        const initial = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.querySelector("#reader-title").getBoundingClientRect();
+          return {
+            barTop: bar.top,
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            overflow: document.documentElement.scrollWidth >
+              document.documentElement.clientWidth + 1,
+          };
+        });
+        assert(initial.barTop >= -1 && initial.barTop < 8 &&
+          initial.headingTop >= initial.barBottom - 2 && !initial.overflow,
+          device + ": first-screen NEwBOO reader header overlaps chapter title");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-first-screen-" + device + ".png"),
+          fullPage: false, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+        // Compare the real control with the source NEwBOO 44px touch targets.
+        // A save action must look like a button, not an underlined text link.
+        const saveStyle = await page.locator(".reader-save-button").first()
+          .evaluate((button) => {
+            const style = getComputedStyle(button);
+            return {
+              height: button.getBoundingClientRect().height,
+              decoration: style.textDecorationLine,
+              display: style.display,
+              border: style.borderTopStyle,
+              fontWeight: Number(style.fontWeight),
+              background: style.backgroundColor,
+            };
+          });
+        assert(saveStyle.height >= 44 && saveStyle.decoration === "none" &&
+          saveStyle.display === "inline-flex" && saveStyle.border === "solid" &&
+          saveStyle.fontWeight >= 700 && saveStyle.background !== "rgba(0, 0, 0, 0)",
+          device + ": save-position button lost original reader styling");
         // These are the original PostgreSQL titles in real Rust HTML, not
         // the chapter IDs, last-published V2, or test-only page labels.
         assert.equal(await page.locator(".reader-topbar__book").textContent(),
@@ -258,6 +315,134 @@ async function run() {
           "No HTML parsed from private book metadata");
         assert.equal(await page.locator(".reader-topbar__book").getAttribute("title"),
           fixture.expected_book_title);
+        // NEwBOO-like next/previous cards exist both above and below the
+        // actual decrypted text. Buttons are navigable only for D/B grants.
+        const topNavigation = page.locator(".reader-paid__chapter-nav--top");
+        const bottomNavigation = page.locator(".reader-paid__chapter-nav--bottom");
+        assert.equal(await topNavigation.count(), 1, device + ": top chapter navigation missing");
+        assert.equal(await bottomNavigation.count(), 1,
+          device + ": bottom chapter navigation missing");
+        for (const navigation of [topNavigation, bottomNavigation]) {
+          const next = navigation.locator("[data-paid-nav-next]");
+          const previous = navigation.locator("[data-paid-nav-prev]");
+          assert.equal(await next.getAttribute("href"),
+            "/read/paid/" + fixture.toc_second_chapter_id +
+            "?purchase_id=" + fixture.toc_second_purchase_id,
+            device + ": next must point to the pinned paid V1 purchase");
+          assert.equal(await next.getAttribute("rel"), "next");
+          assert.equal(await previous.getAttribute("aria-disabled"), "true",
+            device + ": do not invent a previous purchase");
+          assert.equal(await next.getAttribute("aria-label"), "Следующая глава",
+            device + ": accessible next label differs from NEwBOO");
+          assert.equal(await previous.getAttribute("aria-label"), "Предыдущая глава",
+            device + ": accessible previous label differs from NEwBOO");
+          assert.equal(await next.locator(".reader-paid__nav-direction").textContent(),
+            "→ Дальше", device + ": original NEwBOO action wording lost");
+          assert.equal(await previous.locator(".reader-paid__nav-direction").textContent(),
+            "← Назад", device + ": original NEwBOO action wording lost");
+          assert.equal(await previous.locator("a").count(), 0,
+            device + ": disabled previous must not link to a locked chapter");
+          assert((await next.textContent()).includes("Вторая купленная глава"),
+            device + ": next card has wrong real chapter title");
+        }
+        // The original NEwBOO footer has a real TOC between previous and
+        // next. It must duplicate only safe B/D-scoped navigation metadata.
+        const footerToc = bottomNavigation.locator("[data-paid-toc-bottom]");
+        assert.equal(await footerToc.count(), 1,
+          device + ": NEwBOO footer TOC missing");
+        await footerToc.locator("summary").click();
+        assert(await footerToc.evaluate((element) => element.open),
+          device + ": footer TOC cannot open");
+        assert.equal(await footerToc.locator("a[data-paid-toc-link]").count(), 1,
+          device + ": paid V1 missing from footer TOC");
+        assert.equal(await footerToc.locator("a[data-free-toc-link]").count(), 1,
+          device + ": public free chapter missing from footer TOC");
+        assert.equal(await footerToc.locator('[data-toc-state="locked"] a').count(), 0,
+          device + ": locked chapter clickable in footer TOC");
+        assert.equal(await footerToc.locator('[aria-current="page"]').count(), 1,
+          device + ": footer TOC lost selected edition");
+        const footerGeometry = await footerToc.locator(".reader-paid__toc-menu")
+          .evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            return {
+              left: bounds.left,
+              right: bounds.right,
+              bottom: bounds.bottom,
+              top: bounds.top,
+              summaryTop: element.closest("details").querySelector("summary")
+                .getBoundingClientRect().top,
+              viewportWidth: document.documentElement.clientWidth,
+              viewportHeight: window.innerHeight,
+            };
+          });
+        assert(footerGeometry.left >= 0 &&
+          footerGeometry.right <= footerGeometry.viewportWidth + 1 &&
+          footerGeometry.bottom <= footerGeometry.viewportHeight + 1,
+          device + ": footer menu clips beyond viewport");
+        assert(footerGeometry.bottom <= footerGeometry.summaryTop - 4,
+          device + ": footer menu covers the button required to close it");
+        assert(footerGeometry.top >= -1,
+          device + ": footer menu begins outside the visible viewport");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-bottom-toc-" + device + ".png"),
+          fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+        await footerToc.locator("summary").click();
+        assert(!(await footerToc.evaluate((element) => element.open)),
+          device + ": footer TOC does not close");
+        const footerStyles = await bottomNavigation.evaluate((element) => {
+          const toc = element.querySelector("[data-paid-toc-bottom]");
+          const prev = element.querySelector("[data-paid-nav-prev]");
+          const next = element.querySelector("[data-paid-nav-next]");
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            tocWidth: toc.getBoundingClientRect().width,
+            summaryHeight: toc.querySelector("summary").getBoundingClientRect().height,
+            previousHeight: prev.getBoundingClientRect().height,
+            nextHeight: next.getBoundingClientRect().height,
+            previousTitleDisplay: getComputedStyle(
+              prev.querySelector(".reader-paid__nav-name")).display,
+            nextTitleDisplay: getComputedStyle(
+              next.querySelector(".reader-paid__nav-name")).display,
+          };
+        });
+        assert(footerStyles.columns === 3 &&
+          footerStyles.tocWidth >= (device === "desktop" ? 220 : 44) &&
+          footerStyles.summaryHeight >= 44 &&
+          footerStyles.previousHeight >= 44 &&
+          footerStyles.nextHeight >= 44 &&
+          footerStyles.previousTitleDisplay === "none" &&
+          footerStyles.nextTitleDisplay === "none",
+          device + ": bottom arrows/TOC deviate from original NEwBOO layout");
+        const navStyles = await topNavigation.evaluate((element) => {
+          const next = element.querySelector("[data-paid-nav-next]");
+          const prev = element.querySelector("[data-paid-nav-prev]");
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+            nextBorder: getComputedStyle(next).borderStyle,
+            disabledBorder: getComputedStyle(prev).borderStyle,
+            width: element.getBoundingClientRect().width,
+            viewport: document.documentElement.clientWidth,
+            minHeight: Number.parseFloat(getComputedStyle(next).minHeight),
+            gap: Number.parseFloat(getComputedStyle(element).columnGap),
+            nameClamp: getComputedStyle(next.querySelector(".reader-paid__nav-name"))
+              .webkitLineClamp,
+          };
+        });
+        assert(navStyles.columns === 2 && navStyles.nextBorder === "solid" &&
+          navStyles.disabledBorder === "dashed" &&
+          navStyles.width <= navStyles.viewport &&
+          navStyles.minHeight >= 44 && navStyles.minHeight <= 90 &&
+          navStyles.gap >= 8 && navStyles.gap <= 12 &&
+          navStyles.nameClamp === "2",
+          device + ": NEwBOO previous/next card design regression");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-prev-next-" + device + ".png"),
+          fullPage: true, mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
         // The native <details> menu is server-rendered from the buyer's D
         // entitlements; it must link to the second verified paid edition.
         const toc = page.locator("[data-paid-toc]");
@@ -358,14 +543,52 @@ async function run() {
         assert.equal(await page.locator(".reader-topbar__back").getAttribute("href"),
           "/me/purchases", device + ": buyer has no safe way out");
 
+        // Full-page screenshots taken after scrolling can visually move a
+        // sticky header across the title. Check the real initial viewport,
+        // with both header and heading in their actual on-screen positions.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForFunction(() => window.scrollY < 2);
+        const topLayout = await page.evaluate(() => {
+          const bar = document.querySelector(".reader-topbar").getBoundingClientRect();
+          const heading = document.getElementById("reader-title").getBoundingClientRect();
+          return {
+            barBottom: bar.bottom,
+            headingTop: heading.top,
+            viewport: document.documentElement.clientWidth,
+            barWidth: bar.width,
+          };
+        });
+        assert(topLayout.barBottom <= topLayout.headingTop + 1 &&
+          topLayout.barWidth <= topLayout.viewport + 1,
+          device + ": NEwBOO sticky toolbar overlaps reader title at page start");
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-viewport-top-" + device + ".png"),
+          fullPage: false,
+          mask: [page.locator("[data-paid-content] .reader-piece__text")],
+          maskColor: "#e5e7eb",
+        });
+
         const metrics = await page.evaluate(() => {
           const readerWidth = document.querySelector(".reader-paid .reader-width");
           const content = document.querySelector(".reader-paid__content");
           const body = getComputedStyle(document.body);
           const textStyle = getComputedStyle(document.querySelector(".reader-piece__text"));
           const contentStyle = getComputedStyle(content);
-          const topbarStyle = getComputedStyle(document.querySelector(".reader-topbar"));
+          const topbar = document.querySelector(".reader-paid .reader-topbar");
+          const topbarStyle = getComputedStyle(topbar);
+          const topbarRect = topbar.getBoundingClientRect();
+          const columnRect = readerWidth.getBoundingClientRect();
+          const titleRect = topbar.querySelector(".reader-topbar__title").getBoundingClientRect();
+          const actionsRect = topbar.querySelector(".reader-topbar__actions").getBoundingClientRect();
           return {
+            toolbarLeft: topbarRect.left,
+            toolbarWidth: topbarRect.width,
+            viewportWidth: document.documentElement.clientWidth,
+            titleWithinToolbar: titleRect.left >= topbarRect.left &&
+              titleRect.right <= topbarRect.right,
+            actionsWithinToolbar: actionsRect.left >= topbarRect.left &&
+              actionsRect.right <= topbarRect.right,
+            columnWidth: columnRect.width,
             bodyMargin: body.marginTop,
             background: body.backgroundColor,
             readerWidth: readerWidth.getBoundingClientRect().width,
@@ -390,6 +613,13 @@ async function run() {
           device + ": paid reading surface lost its padding/border");
         assert(metrics.topbarPosition === "sticky" && metrics.topbarTop === 0,
           device + ": standalone NEwBOO reader topbar not sticky");
+        // The original has a full-width toolbar; body text stays in a
+        // bounded column. Mobile controls may never spill out of the toolbar.
+        assert(Math.abs(metrics.toolbarLeft) < 2 &&
+          Math.abs(metrics.toolbarWidth - metrics.viewportWidth) < 2 &&
+          metrics.toolbarWidth > metrics.columnWidth &&
+          metrics.titleWithinToolbar && metrics.actionsWithinToolbar,
+          device + ": NEwBOO reader toolbar must span the viewport without clipping");
         assert(metrics.stylesheets >= 2, device + ": layout stylesheets missing");
 
         // Render the real Rust HTML + exact production CSS on two viewports.
@@ -411,11 +641,81 @@ async function run() {
         // Controls must be real interactions, not decorative buttons. No
         // browser storage is used for paid text, keys or preferences.
         const panel = page.locator("#paid-reader-settings");
-        const control = page.getByRole("button", { name: "Настройки чтения" });
+        const control = page.locator("[data-paid-settings-open]");
         assert(await panel.isHidden(), device + ": reader settings shown by default");
         await control.click();
         assert(await panel.isVisible(), device + ": settings button does not open panel");
         assert.equal(await control.getAttribute("aria-expanded"), "true");
+        const dialog = panel.getByRole("dialog", { name: "Настройки чтения" });
+        assert(await dialog.isVisible(), device + ": original modal panel missing");
+        assert.equal(await dialog.getAttribute("aria-modal"), "true");
+        assert(await control.evaluate((node) => node.closest("[inert]") !== null),
+          device + ": reader remains interactive under settings modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "hidden",
+          device + ": page scroll not locked under settings");
+        const dialogBounds = await dialog.boundingBox();
+        assert(dialogBounds && dialogBounds.width <= 362 &&
+          dialogBounds.x >= 0 &&
+          dialogBounds.x + dialogBounds.width <=
+            (device === "desktop" ? 1440 : 390) + 1,
+          device + ": settings panel overflows screen");
+        await page.getByRole("button", { name: "Сбросить настройки" }).focus();
+        await page.keyboard.press("Tab");
+        assert(await page.getByRole("button", { name: "Закрыть настройки", exact: true })
+          .evaluate((node) => node === document.activeElement),
+          device + ": Tab escapes original settings modal");
+        await page.keyboard.press("Shift+Tab");
+        assert(await page.getByRole("button", { name: "Сбросить настройки" })
+          .evaluate((node) => node === document.activeElement),
+          device + ": reverse Tab does not wrap inside modal");
+        await panel.locator(".reader-paid__settings-backdrop").click({
+          position: { x: 5, y: 5 },
+        });
+        assert(await panel.isHidden(), device + ": backdrop did not close modal");
+        assert.equal(await page.evaluate(() => document.body.style.overflow), "",
+          device + ": backdrop did not restore scrolling");
+        assert(await control.evaluate((node) => node.closest("[inert]") === null),
+          device + ": reader remained inert after closing settings");
+        // NEwBOO's original topbar also provides one-tap theme cycling.
+        // Test computed colors and synchronization with the Aa panel.
+        const quick = page.locator("[data-paid-theme-cycle]");
+        const quickRect = await quick.boundingBox();
+        assert(quickRect && quickRect.width >= 44 && quickRect.height >= 44,
+          device + ": quick theme touch target smaller than 44px");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "light", device + ": dark system theme should cycle to light");
+        const quickLight = await page.evaluate(() =>
+          getComputedStyle(document.body).backgroundColor);
+        assert.notEqual(quickLight, darkBackground, device + ": quick light has no visual effect");
+        assert.equal(await page.locator('[data-paid-theme="light"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await quick.getAttribute("aria-label"), "Сменить тему. Сейчас: светлая");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "sepia", device + ": quick sepia step missing");
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
+          .getAttribute("aria-pressed"), "true");
+        await quick.click();
+        assert.equal(await page.locator("body").getAttribute("data-paid-reader-theme"),
+          "dark", device + ": quick dark step missing");
+        assert.equal(await page.locator('[data-paid-theme="dark"]')
+          .getAttribute("aria-pressed"), "true");
+        await control.click();
+        assert(await panel.isVisible(), device + ": settings not reopenable after cycling");
+        const serifFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(serifFamily.includes("Georgia"),
+          device + ": original serif reading font missing");
+        await page.getByRole("button", { name: "Без засечек" }).click();
+        const sansFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert(sansFamily.includes("Arial") && sansFamily !== serifFamily,
+          device + ": changing NEwBOO reader font does not change actual text");
+        assert.equal(await page.locator('[data-paid-font-family="sans"]')
+          .getAttribute("aria-pressed"), "true");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "false");
         const sizeBefore = await page.locator(".reader-piece__text").first().evaluate(
           (element) => Number.parseFloat(getComputedStyle(element).fontSize));
         await page.locator("[data-paid-font-scale]").evaluate((input) => {
@@ -443,23 +743,27 @@ async function run() {
           assert(newWidth <= 620 && newWidth < metrics.readerWidth,
             "reader width setting ignored");
         }
-        await page.getByRole("button", { name: "Сепия" }).click();
+        await page.locator('[data-paid-theme="sepia"]').click();
         const sepiaBackground = await page.evaluate(() =>
           getComputedStyle(document.body).backgroundColor);
         assert.notEqual(sepiaBackground, darkBackground, device + ": sepia theme ignored");
-        assert.equal(await page.getByRole("button", { name: "Сепия" })
+        assert.equal(await page.locator('[data-paid-theme="sepia"]')
           .getAttribute("aria-pressed"), "true");
-        if (device === "desktop") {
-          await page.screenshot({
-            path: path.join(screenshotRoot, "s065-reader-settings-desktop.png"),
-            fullPage: true, mask, maskColor: "#e5e7eb",
-          });
-        }
+        await page.screenshot({
+          path: path.join(screenshotRoot, "s065-reader-settings-" + device + ".png"),
+          fullPage: true, mask, maskColor: "#e5e7eb",
+        });
         await page.getByRole("button", { name: "Сбросить настройки" }).click();
+        const resetFamily = await page.locator(".reader-piece__text").first().evaluate(
+          (element) => getComputedStyle(element).fontFamily);
+        assert.equal(resetFamily, serifFamily,
+          device + ": resetting reader preferences does not restore serif");
+        assert.equal(await page.locator('[data-paid-font-family="serif"]')
+          .getAttribute("aria-pressed"), "true");
         assert.equal(await page.locator("[data-paid-font-output]").textContent(), "100%");
         assert.equal(await page.evaluate(() => document.body.hasAttribute(
           "data-paid-reader-theme")), false, device + ": reset did not clear theme");
-        await page.getByRole("button", { name: "Закрыть настройки" }).click();
+        await page.getByRole("button", { name: "Закрыть настройки", exact: true }).click();
         assert(await panel.isHidden(), device + ": settings close did not work");
         assert.equal(await control.getAttribute("aria-expanded"), "false");
         await control.click();
@@ -472,13 +776,31 @@ async function run() {
           (await indexedDB.databases()).length);
         assert.equal(storageCount, 0, device + ": settings wrote into persistent storage");
 
+        // These are separate clean browser contexts. The mobile session must
+        // discover the desktop's paid V1 cursor through the private progress
+        // endpoint, not through localStorage or a stale DOM snapshot.
+        if (device === "desktop") {
+          assert(await page.locator("[data-paid-resume]")
+            .getByText("Место ещё не сохранено.").isVisible(),
+            "first paid session unexpectedly had saved progress");
+        } else {
+          const resumeAnchor = page.locator('[data-paid-resume] a[href="#p-1"]');
+          assert(await resumeAnchor.isVisible(),
+            "second independent paid browser did not restore the V1 cursor");
+          await resumeAnchor.click();
+          assert.equal(new URL(page.url()).hash, "#p-1",
+            "resumed link must target the exact purchased V1 block");
+        }
         await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
         await page.getByText("Место сохранено.").waitFor();
         const first = fixture.expected_markdown.split("\n\n")[0];
         assert.deepEqual(saved, {
           chapter_id: chapter, purchase_id: purchase, version_id: grant.version_id,
-          block_id: 1, char_offset: first.length, expected_revision: 0,
+          block_id: 1, char_offset: first.length,
+          expected_revision: device === "desktop" ? 0 : 1,
         });
+        assert.equal(progressRevision, device === "desktop" ? 1 : 2,
+          "independent paid saves did not advance the owned cursor revision");
         const section = page.locator("[data-paid-completion]");
         assert(await section.isVisible(), device + ": missing completion UI");
         if (device === "desktop") {
@@ -491,6 +813,48 @@ async function run() {
           await section.getByText("Глава уже отмечена прочитанной.").waitFor();
           assert.equal(await page.getByRole("button", { name: "Глава прочитана" }).count(), 0);
           assert.equal(completionPosts, 1, "reopening does not duplicate completion");
+          // 320px is smaller than our standard 390px fixture and catches
+          // crowding between TOC, Aa, theme and the clipped book title.
+          await page.setViewportSize({ width: 320, height: 720 });
+          const compact = await page.evaluate(() => {
+            const toolbar = document.querySelector(".reader-topbar").getBoundingClientRect();
+            const actions = document.querySelector(".reader-topbar__actions").getBoundingClientRect();
+            const title = document.querySelector(".reader-topbar__title").getBoundingClientRect();
+            const buttons = [...document.querySelectorAll(
+              ".reader-topbar__actions > button, .reader-topbar__actions summary",
+            )].map((element) => {
+              const rect = element.getBoundingClientRect();
+              return { width: rect.width, height: rect.height };
+            });
+            return {
+              overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+              toolbarWidth: toolbar.width,
+              actionsRight: actions.right,
+              titleRight: title.right,
+              buttons,
+            };
+          });
+          assert(!compact.overflow && compact.toolbarWidth <= 321 &&
+            compact.actionsRight <= 321 && compact.titleRight <= 321 &&
+            compact.buttons.length === 3 &&
+            compact.buttons.every((button) => button.width >= 44 && button.height >= 44),
+            "320px topbar overlaps, overflows or hides a touch target");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-quick-theme-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+          await control.click();
+          const narrowDialog = await dialog.boundingBox();
+          assert(narrowDialog && narrowDialog.x >= 0 &&
+            narrowDialog.x + narrowDialog.width <= 321 &&
+            narrowDialog.height <= 720,
+            "320px modal clips outside safe viewport");
+          await page.screenshot({
+            path: path.join(screenshotRoot, "s065-reader-modal-320.png"),
+            fullPage: true, mask, maskColor: "#e5e7eb",
+          });
+          await page.keyboard.press("Escape");
+          assert(await panel.isHidden(), "320px Escape failed to close modal");
         }
       } finally {
         await page.close();

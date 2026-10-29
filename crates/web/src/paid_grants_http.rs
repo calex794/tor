@@ -1,6 +1,8 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
+mod asset_grants;
+
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
     pages,
@@ -20,7 +22,7 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_books::repositories::paid_storage::PgPaidStorage;
+use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
 use tor_commerce::repositories::entitlements::PgDirectEntitlements;
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
@@ -64,6 +66,7 @@ struct GrantState {
     accounts: PgAccounts,
     entitlement: PgDirectEntitlements,
     versions: PgPaidStorage,
+    assets: PgPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
@@ -308,7 +311,7 @@ async fn paid_reader(
         &cookies,
     );
     let csp = format!(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; \
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; \
          connect-src 'self' {s3_origin}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     let Ok(value) = HeaderValue::from_str(&csp) else {
@@ -413,17 +416,23 @@ fn router_inner(
     let state = GrantState {
         accounts,
         entitlement: PgDirectEntitlements::new(pool.clone()),
-        versions: PgPaidStorage::new(pool),
+        versions: PgPaidStorage::new(pool.clone()),
+        assets: PgPaidAssets::new(pool),
         storage,
         cookies,
         rate_limits: Arc::new(Mutex::new(RateLimits::default())),
         concurrent: Arc::new(Semaphore::new(MAX_CONCURRENT_SIGNINGS)),
         reader_s3_origin,
     };
-    let mut app = Router::new().route(
-        "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
-        post(grant),
-    );
+    let mut app = Router::new()
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
+            post(grant),
+        )
+        .route(
+            "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
+            post(asset_grants::grant_asset),
+        );
     if state.reader_s3_origin.is_some() {
         app = app
             .route("/read/paid/{chapter_id}", get(paid_reader))

@@ -987,3 +987,38 @@ img.home-spotlight-card__cover {
 .catalog-active-filters .ui-chip__remove { flex: none; margin-left: 2px; font-size: 18px; line-height: 1; }
 /* H-10: native NEwBOO taxonomy controls share the existing catalogue grid. */
 .catalog-filters .ui-select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+
+/* H-10: restore original NEwBOO public BookCard text boundaries. */
+.book-mini-card__body { min-width: 0; }
+.book-mini-card__title {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; line-clamp: 2;
+}
+.book-mini-card__meta {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.book-mini-card__cover { position: relative; }
+/* H-11: original NEwBOO not_found/service_unavailable error layout. */
+.not-found-page { padding: 40px 0 64px; }
+.not-found-card { max-width: 680px; margin: 0 auto; padding: 40px; border: 1px solid var(--border-color); border-radius: var(--radius-xl); background: var(--bg-surface); text-align: center; }
+.not-found-card__code { margin: 0 0 10px; color: var(--primary-color); font-size: 34px; line-height: 1; font-weight: 900; }
+.not-found-card__title { margin: 0 0 12px; color: var(--text-main); font-size: 28px; line-height: 1.1; }
+.not-found-card__text { max-width: 520px; margin: 0 auto; color: var(--text-muted); }
+.not-found-card__actions { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 24px; }
+.not-found-card__button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 14px; border-radius: var(--radius-sm); background: var(--text-main); color: var(--bg-surface); font-weight: 800; text-decoration: none; }
+.not-found-card__button--ghost { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-dark); }
+.not-found-card__button:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+@media (max-width: 560px) { .not-found-card { padding: 26px 18px; } }
+/* H-11: internal public-book discovery, only for a missing book (404). */
+.book-error-promos { max-width: 940px; margin: 28px auto 0; }
+.book-error-promos h2 { margin: 0 0 14px; color: var(--text-main); font-size: 21px; }
+.book-error-promos__grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.book-error-promos__card { display: flex; align-items: flex-start; gap: 12px; padding: 12px; min-width: 0; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-main); text-decoration: none; }
+.book-error-promos__card:hover { border-color: var(--primary-color); }
+.book-error-promos__card:focus-visible { outline: 3px solid var(--primary-color); outline-offset: 3px; }
+.book-error-promos__cover { flex: 0 0 68px; width: 68px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); background: var(--book-card-cover-bg); }
+.book-error-promos__cover--empty { display: grid; place-items: center; padding: 4px; color: var(--book-card-cover-text); font-size: 12px; text-align: center; }
+.book-error-promos__body { display: block; min-width: 0; overflow-wrap: anywhere; }
+.book-error-promos__title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.35; }
+.book-error-promos__author { display: block; margin-top: 8px; color: var(--text-muted); font-size: 13px; }
+@media (max-width: 640px) { .book-error-promos__grid { grid-template-columns: minmax(0,1fr); } .book-error-promos__card { min-height: 118px; } }

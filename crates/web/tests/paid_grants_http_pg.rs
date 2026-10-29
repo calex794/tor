@@ -200,14 +200,45 @@ async fn s065_alternate_reader_access_matrix(
     ] {
         for session in [buyer, outsider] {
             let response = read_page(browser, &path, Some(session)).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            let is_paywall = path.starts_with("/reader/");
+            let expected = if is_paywall {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_FOUND
+            };
+            assert_eq!(response.status(), expected, "{path}");
             assert_eq!(
                 response.headers()[header::CACHE_CONTROL],
                 "no-store",
                 "{path}"
             );
-            let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
-            assert!(bytes.is_empty(), "paid read leaked on {path}");
+            if is_paywall {
+                assert_eq!(response.headers()["x-robots-tag"], "noindex, nofollow");
+            }
+            let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+            assert!(
+                !bytes
+                    .windows(BODY.len())
+                    .any(|part| part == BODY.as_bytes()),
+                "paid plaintext leaked on {path}"
+            );
+            assert!(
+                !bytes
+                    .windows(b"X-Amz-Signature".len())
+                    .any(|part| part == b"X-Amz-Signature"),
+                "S3 signing data leaked on {path}"
+            );
+            if is_paywall {
+                let html = String::from_utf8(bytes.to_vec()).unwrap();
+                assert!(html.contains("Для чтения нужен доступ"));
+                assert!(html.contains("href=\"/login\""));
+                assert!(
+                    !html.contains(&format!("purchase_id={purchase}")),
+                    "untrusted public query must not echo a purchase token"
+                );
+            } else {
+                assert!(bytes.is_empty(), "paid compatibility route revealed data");
+            }
         }
     }
 
@@ -531,6 +562,73 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         0,
         "alternate reader or progress routes must not sign G objects"
     );
+    // A chapter ciphertext UUID is not an image B membership, even for
+    // its valid buyer. No fallback to public media or generic G signing.
+    let asset_route = format!("/api/v1/reader/chapters/{chapter}/assets/{UUID}/delivery-grants");
+    assert_eq!(
+        send(
+            &app,
+            &asset_route,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            "{}"
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+    );
+    assert_eq!(
+        send(
+            &app,
+            &asset_route,
+            Some(&author_cookie),
+            Some(&author_csrf),
+            Some(ORIGIN),
+            "{}"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        send(&app, &asset_route, None, None, Some(ORIGIN), "{}")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED,
+    );
+    assert_eq!(
+        send(
+            &app,
+            &asset_route,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            Some("https://hostile.invalid"),
+            "{}"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        send(
+            &app,
+            &asset_route,
+            Some(&buyer_cookie),
+            Some(&csrf),
+            Some(ORIGIN),
+            r#"{"version_id":"999"}"#
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    assert_eq!(
+        fake.signed.load(Ordering::SeqCst),
+        0,
+        "forged asset grants must never reach G"
+    );
+
     for invalid in [
         r#"{"version_id":"2"}"#,
         r#"{"bucket":"public"}"#,

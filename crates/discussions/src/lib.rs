@@ -4,4 +4,9 @@
 
 pub mod domain {
     pub mod comments;
+    pub mod spoilers;
+}
+
+pub mod repositories {
+    pub mod public_book_comments;
 }

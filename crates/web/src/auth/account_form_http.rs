@@ -2,7 +2,7 @@
 use super::{login_limiter, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
-    pages,
+    observability, pages,
 };
 use axum::{
     extract::{ConnectInfo, Form, State},
@@ -17,6 +17,7 @@ use tor_accounts::{
     },
     services::validation as rules,
 };
+use tor_observability::services::auth::LoginOutcome;
 
 #[derive(Deserialize)]
 pub(super) struct RegisterForm {
@@ -54,6 +55,13 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
 }
 
 fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
+    if !registration {
+        observability::record_login_outcome(if status == StatusCode::TOO_MANY_REQUESTS {
+            LoginOutcome::RateLimited
+        } else {
+            LoginOutcome::RateLimiterUnavailable
+        });
+    }
     if status == StatusCode::TOO_MANY_REQUESTS {
         let title = if registration {
             "Слишком много попыток регистрации"
@@ -85,9 +93,10 @@ fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
     }
 }
 
-fn login_storage_error(stage: &'static str) -> Response {
-    // Static stage only: do not log email, password, cookie or password hash.
-    eprintln!("TOR_AUTH_LOGIN_UNAVAILABLE stage={stage}");
+fn login_storage_error(stage: LoginOutcome) -> Response {
+    observability::record_login_outcome(stage);
+    // Static label only: do not log email, password, cookie or password hash.
+    eprintln!("TOR_AUTH_LOGIN_UNAVAILABLE stage={}", stage.label());
     auth_problem(
         StatusCode::SERVICE_UNAVAILABLE,
         "Вход временно недоступен",
@@ -97,6 +106,7 @@ fn login_storage_error(stage: &'static str) -> Response {
 }
 
 fn invalid_credentials() -> Response {
+    observability::record_login_outcome(LoginOutcome::InvalidCredentials);
     auth_problem(
         StatusCode::UNAUTHORIZED,
         "Не удалось войти",
@@ -209,6 +219,7 @@ pub(super) async fn login(
             .cookies
             .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
+        observability::record_login_outcome(LoginOutcome::InvalidForm);
         return auth_problem(
             StatusCode::FORBIDDEN,
             "Форма устарела",
@@ -226,7 +237,7 @@ pub(super) async fn login(
     };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
-        Err(_) => return login_storage_error("lookup"),
+        Err(_) => return login_storage_error(LoginOutcome::LookupUnavailable),
     };
     let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
@@ -244,6 +255,7 @@ pub(super) async fn login(
     {
         Ok(valid) => valid,
         Err(StatusCode::TOO_MANY_REQUESTS) => {
+            observability::record_login_outcome(LoginOutcome::PasswordPoolBusy);
             let mut response = auth_problem(
                 StatusCode::TOO_MANY_REQUESTS,
                 "Сервис входа перегружен",
@@ -255,7 +267,7 @@ pub(super) async fn login(
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
             return response;
         }
-        Err(_) => return login_storage_error("password_worker"),
+        Err(_) => return login_storage_error(LoginOutcome::PasswordWorkerUnavailable),
     };
     if !verified {
         return invalid_credentials();
@@ -269,7 +281,7 @@ pub(super) async fn login(
         .await
         .is_err()
     {
-        return login_storage_error("clear_attempt");
+        return login_storage_error(LoginOutcome::AttemptResetUnavailable);
     }
     let token = generate_session_token();
     let digest = session_token_digest(&token);
@@ -280,9 +292,10 @@ pub(super) async fn login(
         .await
         .is_err()
     {
-        return login_storage_error("create_session");
+        return login_storage_error(LoginOutcome::SessionUnavailable);
     }
     // No next parameter is accepted: redirects always stay on this site.
+    observability::record_login_outcome(LoginOutcome::Success);
     private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
 }
 
