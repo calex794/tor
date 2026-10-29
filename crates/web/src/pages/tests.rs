@@ -192,6 +192,27 @@ fn book_detail_toc_keeps_approved_library_action_and_free_only_policy() {
 }
 
 #[test]
+fn s005_paywall_escapes_public_metadata_and_never_fakes_checkout() {
+    let page = paid_chapter_paywall(&tor_reading::services::PublicPaidChapterPreview {
+        book_id: 99,
+        book_title: "<script>Книга</script>".to_owned(),
+        chapter_no: 7,
+        chapter_title: "Глава \"<script>\"".to_owned(),
+        price_minor: 1234,
+    })
+    .0;
+    assert!(page.contains("Платная глава"));
+    assert!(page.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+    assert!(page.contains("Глава &quot;&lt;script&gt;&quot;"));
+    assert!(!page.contains("<script>Книга</script>"));
+    assert!(page.contains("12,34 ₽"));
+    assert!(page.contains("href=\"/login\""));
+    assert!(page.contains("href=\"/books/99#chapters\""));
+    assert!(!page.contains("api/v1/purchases"));
+    assert!(!page.contains("content_access"));
+}
+
+#[test]
 fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
     let template = include_str!("../../templates/reader.html");
     assert!(template.contains("reader-topbar"));

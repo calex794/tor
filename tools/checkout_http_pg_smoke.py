@@ -158,7 +158,23 @@ def enabled() -> None:
            "Author cannot buy their own chapter")
     require(scalar("SELECT count(*) FROM chapter_purchase_facts "
                    f"WHERE user_id={buyer_id}") == 0, "Denials caused a debit")
-    expect(buyer.call("GET", f"/reader/{chapter}"), 404, "Free reader must hide paid bytes")
+    # S005: paid text stays private, but published metadata now has a safe
+    # explanatory page, not a 404. Check body and cache policy, not status alone.
+    paywall_status, paywall_headers, paywall_body = buyer.call(
+        "GET", f"/reader/{chapter}")
+    require(paywall_status == 200, "Public paid paywall must explain access")
+    require(paywall_headers.get("cache-control") == "no-store",
+            "Public paid paywall must not enter a shared cache")
+    require(paywall_headers.get("x-robots-tag") == "noindex, nofollow",
+            "Paid paywall must not be indexed")
+    require("script-src 'none'" in paywall_headers.get("content-security-policy", ""),
+            "Paid paywall must forbid scripts")
+    require("Для чтения нужен доступ" in paywall_body
+            and 'href="/login"' in paywall_body,
+            "Paid paywall must show a safe path to sign-in")
+    require("SECRET-PAID-D04-NO-LEAK" not in paywall_body
+            and "X-Amz-Signature" not in paywall_body,
+            "Public paid paywall leaked text or private S3 credentials")
 
     status, headers, body = buy(buyer, payload, csrf=csrf, key=key)
     require(status == 200 and headers.get("cache-control") == "no-store", "First purchase failed")

@@ -95,6 +95,7 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 let grantCalls = 0;
 let saved = null;
+let progressRevision = 0;
 let markedComplete = false;
 let completionPosts = 0;
 const server = http.createServer(async (req, reply) => {
@@ -160,16 +161,28 @@ const server = http.createServer(async (req, reply) => {
       assert.equal(uri.searchParams.get("purchase_id"), purchase);
       assert.equal(uri.searchParams.get("version_id"), grant.version_id);
       send(reply, 200, JSON.stringify({
-        chapter_id: chapter, version_id: grant.version_id, revision: 0,
-        block_id: null, char_offset: null,
+        chapter_id: chapter, version_id: grant.version_id,
+        revision: progressRevision,
+        block_id: saved?.block_id ?? null,
+        char_offset: saved?.char_offset ?? null,
       }), "application/json");
     } else if (uri.pathname === "/api/v1/me/progress/purchased" &&
       req.method === "PUT") {
       assert.equal(req.headers.origin, SITE);
       assert.equal(req.headers["x-csrf-token"], csrf);
-      saved = JSON.parse(await readBody(req));
-      send(reply, 200, JSON.stringify({ revision: 1, version_id: grant.version_id }),
-        "application/json");
+      const cursor = JSON.parse(await readBody(req));
+      assert.equal(cursor.chapter_id, chapter);
+      assert.equal(cursor.purchase_id, purchase);
+      assert.equal(cursor.version_id, grant.version_id);
+      if (cursor.expected_revision !== progressRevision) {
+        send(reply, 409, "", "application/json");
+      } else {
+        saved = cursor;
+        progressRevision++;
+        send(reply, 200, JSON.stringify({
+          revision: progressRevision, version_id: grant.version_id,
+        }), "application/json");
+      }
     } else {
       send(reply, 404, "", "text/plain");
     }
@@ -763,13 +776,31 @@ async function run() {
           (await indexedDB.databases()).length);
         assert.equal(storageCount, 0, device + ": settings wrote into persistent storage");
 
+        // These are separate clean browser contexts. The mobile session must
+        // discover the desktop's paid V1 cursor through the private progress
+        // endpoint, not through localStorage or a stale DOM snapshot.
+        if (device === "desktop") {
+          assert(await page.locator("[data-paid-resume]")
+            .getByText("Место ещё не сохранено.").isVisible(),
+            "first paid session unexpectedly had saved progress");
+        } else {
+          const resumeAnchor = page.locator('[data-paid-resume] a[href="#p-1"]');
+          assert(await resumeAnchor.isVisible(),
+            "second independent paid browser did not restore the V1 cursor");
+          await resumeAnchor.click();
+          assert.equal(new URL(page.url()).hash, "#p-1",
+            "resumed link must target the exact purchased V1 block");
+        }
         await page.getByRole("button", { name: "Сохранить после фрагмента 1" }).click();
         await page.getByText("Место сохранено.").waitFor();
         const first = fixture.expected_markdown.split("\n\n")[0];
         assert.deepEqual(saved, {
           chapter_id: chapter, purchase_id: purchase, version_id: grant.version_id,
-          block_id: 1, char_offset: first.length, expected_revision: 0,
+          block_id: 1, char_offset: first.length,
+          expected_revision: device === "desktop" ? 0 : 1,
         });
+        assert.equal(progressRevision, device === "desktop" ? 1 : 2,
+          "independent paid saves did not advance the owned cursor revision");
         const section = page.locator("[data-paid-completion]");
         assert(await section.isVisible(), device + ": missing completion UI");
         if (device === "desktop") {
