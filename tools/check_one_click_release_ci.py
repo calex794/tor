@@ -27,6 +27,59 @@ BAD_CONCLUSIONS = {
 GOOD_CONCLUSIONS = {"success", "neutral", "skipped"}
 
 
+def evaluate_branch_policy(branch: dict) -> tuple[str, str]:
+    """I-06 release minimum: enforced \`rules\` GitHub check on protected main.
+
+    This read-only check cannot prove the PR-only setting or bypass policy.
+    Those require a separate administrative review and a denied-push test.
+    """
+    if not isinstance(branch, dict) or branch.get("name") != "main":
+        return "fail", "missing or unexpected main branch metadata"
+    if branch.get("protected") is not True:
+        return "fail", "main is unprotected (GitHub branches/main protected=false)"
+    policy = branch.get("protection")
+    if not isinstance(policy, dict) or policy.get("enabled") is not True:
+        return "fail", "main protection enabled flag is missing"
+    checks = policy.get("required_status_checks")
+    if not isinstance(checks, dict):
+        return "fail", "main has no required status checks"
+    # GitHub reports 'non_admins' if owners can ignore these checks.
+    if checks.get("enforcement_level") != "everyone":
+        return "fail", "main checks must also apply to administrators"
+    contexts = checks.get("contexts", [])
+    required_checks = checks.get("checks", [])
+    if not isinstance(contexts, list) or not isinstance(required_checks, list):
+        return "fail", "malformed required status checks"
+    names = set()
+    for value in contexts:
+        if not isinstance(value, str):
+            return "fail", "malformed context"
+        names.add(value)
+    for value in required_checks:
+        if not isinstance(value, dict) or not isinstance(value.get("context"), str):
+            return "fail", "malformed required check entry"
+        names.add(value["context"])
+    if "rules" not in names:
+        return "fail", "Repository rules job is not mandatory on main"
+    return "pass", "main protects required Repository rules check for admins too"
+
+
+def fetch_branch(repo: str, token: str) -> dict:
+    request = Request(
+        f"https://api.github.com/repos/{repo}/branches/main",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with urlopen(request, timeout=15) as response:
+        payload = json.load(response)
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected main branch response")
+    return payload
+
+
 def evaluate(runs: list[dict], sha: str) -> tuple[str, str]:
     """Return pass/wait/fail and a short explanation; newest rerun wins."""
     latest = {}
@@ -100,6 +153,14 @@ def main() -> int:
     if not 0 <= opts.timeout_seconds <= 1800:
         print("TOR_CI_REFUSED: timeout outside allowed range", file=sys.stderr)
         return 1
+    try:
+        state, detail = evaluate_branch_policy(fetch_branch(opts.repo, token))
+    except (ValueError, URLError, HTTPError) as exc:
+        print(f"TOR_CI_REFUSED: cannot verify main protection: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    if state != "pass":
+        print(f"TOR_CI_REFUSED: I-06: {detail}", file=sys.stderr)
+        return 1
     deadline = time.monotonic() + opts.timeout_seconds
     while True:
         try:
@@ -109,6 +170,15 @@ def main() -> int:
             return 1
         print(f"TOR_CI_{outcome.upper()}: {detail}", flush=True)
         if outcome == "pass":
+            # Protection might be removed while waiting for the checks.
+            try:
+                state, detail = evaluate_branch_policy(fetch_branch(opts.repo, token))
+            except (ValueError, URLError, HTTPError) as exc:
+                print(f"TOR_CI_REFUSED: cannot reverify main protection: {type(exc).__name__}", file=sys.stderr)
+                return 1
+            if state != "pass":
+                print(f"TOR_CI_REFUSED: I-06: {detail}", file=sys.stderr)
+                return 1
             return 0
         if outcome == "fail" or time.monotonic() >= deadline:
             print("TOR_CI_REFUSED: no verified green build for selected commit", file=sys.stderr)
