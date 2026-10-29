@@ -108,10 +108,7 @@ pub(super) async fn publish(
         )
         .await
     {
-        Ok(_) => private_response(
-            Redirect::to(&format!("/me/layers/{raw_layer}/books")),
-            &[],
-        ),
+        Ok(_) => private_response(Redirect::to(&format!("/me/layers/{raw_layer}/books")), &[]),
         Err(error) => deny(layer_books::status(error)),
     }
 }
