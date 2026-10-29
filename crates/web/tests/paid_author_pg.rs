@@ -418,7 +418,11 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let mut recorded = 0;
     for (session, origin, expected) in [
         (other_session.as_str(), ORIGIN, StatusCode::NOT_FOUND),
-        (owner_session.as_str(), "https://evil.invalid", StatusCode::FORBIDDEN),
+        (
+            owner_session.as_str(),
+            "https://evil.invalid",
+            StatusCode::FORBIDDEN,
+        ),
         (owner_session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
         (owner_session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
     ] {
@@ -429,7 +433,10 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
                     .uri(format!("/me/books/{book}/chapters/illustrated"))
                     .method("POST")
                     .header(header::ORIGIN, origin)
-                    .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+                    .header(
+                        header::CONTENT_TYPE,
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
                     .header(header::COOKIE, cookie(session, &csrf))
                     .body(Body::from(payload.clone()))
                     .unwrap(),
@@ -441,7 +448,10 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
             recorded += 1;
         }
     }
-    assert_eq!(recorded, 2, "lost HTTP response must not duplicate the image");
+    assert_eq!(
+        recorded, 2,
+        "lost HTTP response must not duplicate the image"
+    );
     let published: String = pg(
         &url,
         &format!(
@@ -461,9 +471,7 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     );
     let illustrated_chapter: i64 = pg(
         &url,
-        &format!(
-            "SELECT id FROM chapters WHERE book_id={book} AND chapter_no=2"
-        ),
+        &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=2"),
     )
     .parse()
     .unwrap();
