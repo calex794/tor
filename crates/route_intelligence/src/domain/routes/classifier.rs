@@ -87,6 +87,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/newboo-layer-reader.mjs"), "GET") => Some(74),
         (Some("/me/layers/{layer_id}/books"), "GET") => Some(75),
         (Some("/me/layers/{layer_id}/books"), "POST") => Some(76),
+        (Some("/me/layers/new"), "GET") => Some(77),
+        (Some("/me/layers/new"), "POST") => Some(78),
         _ => None,
     };
     index
