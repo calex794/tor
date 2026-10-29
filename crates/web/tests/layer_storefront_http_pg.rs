@@ -162,6 +162,27 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
                  VALUES('ci:d05:storefront:{author}','ru','Книга <script>alert(1)</script>','public',{author})
                  RETURNING id"),
     );
+    let chapter = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'Глава для подписчика','public','paid',75) RETURNING id"
+        ),
+    );
+    let published = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'SECRET-LAYER-CHAPTER-PLAIN-TEXT') RETURNING id"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({chapter},{published}) RETURNING chapter_id"
+        ),
+    );
     let hidden = pg(
         &url,
         &format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
@@ -339,11 +360,27 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     );
     assert_eq!(pg(&url, &format!("SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id={buyer} AND kind='layer_purchase'")), 1);
 
+    let scoped_terms = tor_commerce::repositories::layer_storefront::purchased_terms(buyer, &pool)
+        .await
+        .unwrap();
+    assert_eq!(scoped_terms.len(), 1);
+    assert_eq!(scoped_terms[0].first_readable_chapter, Some(chapter));
+    assert!(scoped_terms[0].state == "active");
+    assert_eq!(
+        tor_commerce::repositories::layer_storefront::purchased_terms(buyer + 10000, &pool)
+            .await
+            .unwrap()
+            .len(),
+        0,
+        "terms are user scoped"
+    );
     let terms = get(&app, "/me/library/layers", Some(&buyer_token)).await;
     assert_eq!(terms.status(), StatusCode::OK);
     let terms = html(terms).await;
     assert!(terms.contains("Пакет &lt;b&gt;автора&lt;/b&gt;"));
     assert!(terms.contains("Доступен"));
+    assert!(!terms.contains(&format!("/read/layer/{chapter}")), "no link to unmounted S3 reader");
+    assert!(!terms.contains("SECRET-LAYER-CHAPTER-PLAIN-TEXT"));
     assert!(!terms.contains("SECRET-DRAFT-LAYER"));
     let bought_page =
         html(get(&app, &format!("{path}?purchased=1"), Some(&buyer_token)).await).await;
