@@ -74,7 +74,7 @@ pub(super) async fn grant_asset(
         Ok(grant) => {
             let version_id = grant.version_id.clone();
             let mut response = private_response(Json(grant), &[]);
-            if let Err(error) = record_layer_grant_if_needed(
+            if let Err(error) = exposure::record_paid_grant_exposure(
                 &state,
                 actor_id,
                 chapter_id,

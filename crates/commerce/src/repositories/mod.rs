@@ -1,4 +1,5 @@
 pub mod checkout;
+pub mod direct_exposure;
 pub mod entitlements;
 pub mod layer_creation;
 pub(crate) mod layer_economics;
