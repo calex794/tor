@@ -44,6 +44,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
+#[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
+mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -289,6 +291,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
     let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (live_desktop, live_desktop_session) =
+        user(&accounts, "s035-private-desktop@tor-ci.example").await;
+    let (live_mobile, live_mobile_session) =
+        user(&accounts, "s035-private-mobile@tor-ci.example").await;
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
+             VALUES({live_desktop},600,'RUB'),({live_mobile},600,'RUB')"
+        ),
+    );
     let csrf = generate_session_token();
 
     pg(
@@ -463,6 +476,18 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         (book, chapter, chapter_two),
         (buyer, &buyer_cookie, &csrf),
         MARKDOWN,
+    )
+    .await;
+    s035_live_chromium::verify(
+        &app,
+        s035_live_chromium::Fixture {
+            book,
+            chapters: [(chapter, v1), (chapter_two, version_two)],
+            buyers: [
+                (live_desktop, &live_desktop_session),
+                (live_mobile, &live_mobile_session),
+            ],
+        },
     )
     .await;
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
