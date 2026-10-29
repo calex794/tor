@@ -49,6 +49,7 @@
 | Изменение PR | Выбранные проверки сверх Repository rules |
 | --- | --- |
 | `README.md` | Нет тяжёлых заданий |
+| `tools/ci_metrics.py`, `tests/architecture/test_ci_metrics.py` | Только Repository rules; программа только читает GitHub Actions, её испытания уже запускаются в rules.yml |
 | `crates/ingest/tests/image_pipeline.rs` | Rust и image pipeline |
 | `tools/visual-smoke.cjs` | Visual smoke |
 | `tools/paid_reader_minio_chromium_e2e.cjs` | Paid S3 grant E2E с настоящим Chromium |
@@ -76,6 +77,17 @@ python3 tools/select_feature_tests.py --base FULL_BASE_SHA --head FULL_HEAD_SHA
 python3 tools/select_feature_tests.py --full
 python3 -m unittest discover -s tests/architecture -v
 ```
+
+**I-09: строго ограниченная экономия на проверках метрик.** До [I-07
+исправления](https://github.com/calex794/tor/pulls) даже изменение одной
+программы измерения `tools/ci_metrics.py` поднимало все 14 тяжёлых
+наборов. Доказано просмотром всех 18 workflow (29.10): программу
+метрик не вызывает ни один из 14; тесты `test_ci_metrics.py` исполняет
+обязательная `Repository rules`. Только **два точных пути** получают
+`cheap`; любое изменение общего реестра, селектора, политики выпуска,
+контрактов, SQL или неизвестного теста оставляет `full`.
+На `main` все 14 выполняются без исключений. Экономию времени
+не утверждаем до наблюдаемого сравнения PR с одинаковой областью работы.
 
 Изменение реестра, селектора или workflow само выбирает полный набор.
 Для нового набора добавить входные Cargo-пакеты и workflow в `SUITES`, вызвать
