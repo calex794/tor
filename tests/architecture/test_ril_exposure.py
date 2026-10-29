@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 79)  # Includes the two reviewed S034 wallet browser routes.
-        self.assertEqual(report["route_pairs"], 75)  # 73 existing + GET/POST illustrated-author forms.
+        self.assertEqual(report["route_pairs"], 77)  # Includes GET/POST forms for both illustrated authoring and S034 checkout.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
