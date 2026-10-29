@@ -30,7 +30,7 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgLibrary, PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -137,6 +137,7 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -156,6 +157,7 @@ fn router_inner(
         bookmarks,
         demand,
         book_follows,
+        follow_updates,
         reader,
         rankings,
         cookies,
@@ -315,12 +317,22 @@ async fn my_library(
         }
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = if state.paid_reader_available {
-        pages::my_library_with_purchases(&books, &saved, &csrf, true)
-    } else {
-        pages::my_library(&books, &saved, &csrf)
+    let cursor = match query.updates_after.as_deref() {
+        Some(raw) => match tor_reading::repositories::UpdatesCursor::parse(raw) {
+            Some(cursor) => Some(cursor),
+            None => return deny(StatusCode::BAD_REQUEST),
+        },
+        None => None,
     };
+    let updates = match state.follow_updates.latest(user_id, cursor).await {
+        Ok(updates) => updates,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let page = pages::my_library_with_updates(
+        &books, &saved, &csrf, state.paid_reader_available,
+        state.paid_checkout_enabled, &updates,
+    );
     private_response(page, &cookies)
 }
 
