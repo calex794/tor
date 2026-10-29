@@ -106,10 +106,7 @@ pub(super) async fn publish_second_chapter(
     let private_html = body_of(private).await;
     assert!(!private_html.contains("Черновик (не виден читателям)"));
     // BKR-96 reopens the editor for an owner, but never the release form.
-    for (suffix, expected) in [
-        ("edit", StatusCode::OK),
-        ("release", StatusCode::NOT_FOUND),
-    ] {
+    for (suffix, expected) in [("edit", StatusCode::OK), ("release", StatusCode::NOT_FOUND)] {
         assert_eq!(
             send(
                 app,
