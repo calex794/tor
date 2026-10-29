@@ -57,6 +57,23 @@ async fn d_05_pg_layer_create_is_atomic_replay_safe_and_actor_scoped() {
             .layer_id,
         first.layer_id
     );
+    assert!(
+        sqlx::query("UPDATE commerce_layers SET create_command_title='Wrong' WHERE id=$1")
+            .bind(first.layer_id)
+            .execute(&pool)
+            .await
+            .is_err(),
+        "the original form title is immutable in PostgreSQL"
+    );
+    assert!(
+        sqlx::query("UPDATE commerce_layers SET create_command_key=$2 WHERE id=$1")
+            .bind(first.layer_id)
+            .bind(create_key('D').as_str())
+            .execute(&pool)
+            .await
+            .is_err(),
+        "changing the original command key is forbidden"
+    );
     assert_eq!(
         repo.create_layer_once(id(owner), "Changed Layer", &key).await,
         Err(LayerError::ReplayConflict)
