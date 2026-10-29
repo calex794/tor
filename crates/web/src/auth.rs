@@ -54,6 +54,7 @@ mod login_limiter;
 mod paid_completion;
 mod private_reader;
 mod rankings;
+mod reply_read_state;
 mod sync_actions;
 mod types;
 use types::*;
@@ -172,7 +173,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/me/replies/{id}/read-state", post(reply_read_state))
+        .route("/me/replies/{id}/read-state", post(reply_read_state::submit))
         .route("/me/library", get(my_library))
         .route("/me/rankings", get(rankings::page))
         .route(
@@ -277,44 +278,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf, &replies), &cookies)
-}
-
-#[derive(Deserialize)]
-struct ReplyReadStateForm {
-    csrf_token: Option<String>,
-    state: String,
-}
-
-async fn reply_read_state(
-    State(state): State<AuthState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-    Form(form): Form<ReplyReadStateForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !form.csrf_token.as_deref().is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
-        Err(status) => return deny(status),
-    };
-    let read = match form.state.as_str() {
-        "read" => true,
-        "unread" => false,
-        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
-    };
-    let store = tor_discussions::repositories::public_book_comments::PgPublicBookComments::new(
-        state.accounts.pool().clone(),
-    );
-    use tor_discussions::repositories::public_book_comments::ReadStateResult;
-    match store.set_reply_read_state(actor, id, read).await {
-        ReadStateResult::Updated => private_response(Redirect::to("/me#me-replies-title"), &[]),
-        ReadStateResult::NotFound => deny(StatusCode::NOT_FOUND),
-        ReadStateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
 }
 
 async fn my_library(
