@@ -1,12 +1,12 @@
 //! D-05/D-08: prove a non-posting attribution reads the paid term's
 //! frozen B-10 schedules, not the current Layer composition.
 use super::*;
-use tor_commerce::repositories::layer_provenance::{
-    DraftAllocationPolicy, LayerProvenanceError, PgLayerProvenance,
-};
 use tor_commerce::domain::layer_allocation::{
     preview_layer_attribution, AttributionError, AttributionInputs, BookWeighting, FrozenBook,
     FrozenParticipant,
+};
+use tor_commerce::repositories::layer_provenance::{
+    DraftAllocationPolicy, LayerProvenanceError, PgLayerProvenance,
 };
 
 async fn frozen_rows(pool: &PgPool, term: i64) -> Vec<(i64, i64, i64, i16)> {
@@ -306,9 +306,8 @@ async fn d_08_pg_verified_layer_source_denies_unverified_terms_and_policy_defaul
 
     // Even a hypothetical valid scenario is read-only: no new buyer debit,
     // creator journal credit, or second purchase is generated.
-    let (terms, buyer_debits, owner_journals, balance): (i64, i64, i64, i64) =
-        sqlx::query_as(
-            "SELECT
+    let (terms, buyer_debits, owner_journals, balance): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT
                (SELECT COUNT(*) FROM commerce_layer_terms
                 WHERE user_id=$1 AND layer_id=$2),
                (SELECT COUNT(*) FROM reader_wallet_entries
@@ -317,13 +316,16 @@ async fn d_08_pg_verified_layer_source_denies_unverified_terms_and_policy_defaul
                 WHERE user_id=$3),
                (SELECT balance_minor FROM reader_wallet_accounts
                 WHERE user_id=$1)",
-        )
-        .bind(buyer)
-        .bind(layer)
-        .bind(owner)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!((terms, buyer_debits, owner_journals, balance), (1, 1, 0, 1363));
+    )
+    .bind(buyer)
+    .bind(layer)
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (terms, buyer_debits, owner_journals, balance),
+        (1, 1, 0, 1363)
+    );
     pool.close().await;
 }

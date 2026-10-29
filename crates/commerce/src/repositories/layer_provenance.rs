@@ -2,8 +2,8 @@
 //! Never substitute client-provided "verified" booleans for wallet evidence.
 //! Neither this repository nor its preview creates earnings, refunds or payouts.
 use crate::domain::layer_allocation::{
-    preview_layer_attribution, AttributionError, AttributionInputs, AttributionPreview, BookWeighting,
-    FrozenBook, FrozenParticipant,
+    preview_layer_attribution, AttributionError, AttributionInputs, AttributionPreview,
+    BookWeighting, FrozenBook, FrozenParticipant,
 };
 use sqlx::{PgPool, Row};
 use std::collections::BTreeMap;
@@ -49,10 +49,7 @@ impl VerifiedLayerProvenance {
             Some(BookWeighting::WeightedLargestRemainder) => {
                 let mut weights = BTreeMap::new();
                 for &(book_id, weight) in &draft.book_weights_bps {
-                    if book_id <= 0
-                        || weight == 0
-                        || weights.insert(book_id, weight).is_some()
-                    {
+                    if book_id <= 0 || weight == 0 || weights.insert(book_id, weight).is_some() {
                         return Err(AttributionError::InvalidWeights);
                     }
                 }
@@ -132,8 +129,7 @@ impl PgLayerProvenance {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| LayerProvenanceError::Unavailable)?;
-        let (gross_minor, currency) =
-            term.ok_or(LayerProvenanceError::UnverifiedPurchase)?;
+        let (gross_minor, currency) = term.ok_or(LayerProvenanceError::UnverifiedPurchase)?;
 
         // Check the true origin..base paid composition, not the current
         // Layer version; later Book additions can change reader rights only.
