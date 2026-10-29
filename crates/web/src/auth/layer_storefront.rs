@@ -92,7 +92,7 @@ async fn my_terms(State(state): State<AuthState>, headers: HeaderMap) -> Respons
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match layer_storefront::purchased_terms(state.accounts.pool(), actor).await {
+    match layer_storefront::purchased_terms(actor, state.accounts.pool()).await {
         Ok(terms) => private_response(pages::purchased_layers_page(&terms), &[]),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
