@@ -17,6 +17,67 @@ async fn d_06_pg_layer_refund_policy_missing_fails_closed_without_wallet_or_righ
     let (layer, version, current_offer) = offer(&layers, owner, book, 275, false).await;
     let purchase = cmd(buyer, layer, current_offer, version, 275, 'K');
     let receipt = layers.buy(&purchase).await.unwrap();
+    // Existing and freshly purchased terms must never silently inherit an
+    // unapproved version or an invented deadline.
+    let no_policy: bool = sqlx::query_scalar(
+        "SELECT refund_policy_version IS NULL AND refund_deadline_at IS NULL
+         FROM commerce_layer_terms WHERE id=$1",
+    )
+    .bind(receipt.term_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(no_policy, "checkout must not silently invent refund terms");
+
+    // A later change to terms is forbidden by the original paid-history
+    // immutable trigger, even if the caller supplies both fields together.
+    let retroactive = sqlx::query(
+        "UPDATE commerce_layer_terms
+         SET refund_policy_version='ci-unapproved',
+             refund_deadline_at=purchased_at+INTERVAL '7 days'
+         WHERE id=$1",
+    )
+    .bind(receipt.term_id)
+    .execute(&pool)
+    .await;
+    assert!(retroactive.is_err(), "never retrofit paid refund terms");
+
+    // The CHECK must reject either half of a forged policy snapshot before
+    // the deferred ledger-evidence trigger can see the fabricated term.
+    let only_version = sqlx::query(
+        "INSERT INTO commerce_layer_terms
+         (user_id,layer_id,offer_id,base_version_id,access_origin_version_id,
+          term_kind,amount_minor,started_at,expires_at,refund_policy_version)
+         SELECT user_id,layer_id,offer_id,base_version_id,access_origin_version_id,
+                term_kind,amount_minor,started_at,expires_at,'ci-unapproved'
+         FROM commerce_layer_terms WHERE id=$1",
+    )
+    .bind(receipt.term_id)
+    .execute(&pool)
+    .await
+    .expect_err("a policy version without its purchase deadline must fail");
+    assert!(
+        only_version.to_string().contains("d06_term_refund_snapshot_complete"),
+        "must reject due to the new snapshot CHECK: {only_version}"
+    );
+    let only_deadline = sqlx::query(
+        "INSERT INTO commerce_layer_terms
+         (user_id,layer_id,offer_id,base_version_id,access_origin_version_id,
+          term_kind,amount_minor,started_at,expires_at,refund_deadline_at)
+         SELECT user_id,layer_id,offer_id,base_version_id,access_origin_version_id,
+                term_kind,amount_minor,started_at,expires_at,purchased_at
+         FROM commerce_layer_terms WHERE id=$1",
+    )
+    .bind(receipt.term_id)
+    .execute(&pool)
+    .await
+    .expect_err("a refund deadline without its policy version must fail");
+    assert!(
+        only_deadline
+            .to_string()
+            .contains("d06_term_refund_snapshot_complete"),
+        "must reject due to the new snapshot CHECK: {only_deadline}"
+    );
     let service = LayerRefundService::new(PgLayerRefundPreflight::new(pool.clone()));
     let intent = refund_intent(buyer, receipt.term_id, 'L');
 
