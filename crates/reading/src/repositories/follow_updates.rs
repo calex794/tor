@@ -90,7 +90,7 @@ impl PgFollowUpdates {
              JOIN chapter_publications AS publication
                ON publication.chapter_id=chapter.id
              WHERE follow.user_id=$1
-               AND release.created_at>follow.created_at
+               AND release.created_at>=follow.created_at
                AND book.visibility='public'
                AND NOT book.admin_hold AND NOT book.is_deleted
                AND chapter.visibility='public'
