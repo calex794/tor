@@ -17,6 +17,8 @@ mod layer_picker;
 mod layer_refund_preflight;
 #[path = "layers_pg/layer_wallet_evidence.rs"]
 mod layer_wallet_evidence;
+#[path = "layers_pg/refund_use_evidence.rs"]
+mod refund_use_evidence;
 use sqlx::PgPool;
 use tor_commerce::{
     domain::{

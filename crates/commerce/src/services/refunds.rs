@@ -4,6 +4,7 @@
 //! same SERIALIZABLE PostgreSQL transaction that reverses the purchase.
 use crate::domain::money::IdempotencyKey;
 use crate::repositories::refund_preflight::PgLayerRefundPreflight;
+
 use sha2::{Digest, Sha256};
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -19,6 +20,28 @@ pub enum RefundGateError {
     /// Access was revoked, but that does NOT prove a financial reversal.
     RevocationPresent,
     Unavailable,
+}
+
+/// Classification of observable immutable history, **never** a refund
+/// eligibility verdict. In particular Unknown does NOT mean unopened.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UseEvidence {
+    /// The browser reported verified decryption and DOM rendering.
+    BrowserRenderReported,
+    /// Protected chapter text credentials issued; no browser receipt.
+    ChapterTextGrantUnconfirmed,
+    /// Only a protected non-text grant (or another Layer chapter) is known.
+    ProtectedGrantOnly,
+    /// Missing markers, including uninstrumented history, are inconclusive.
+    Unknown,
+}
+
+/// A read-only, momentary observation, NOT a durable financial decision.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UseObservation {
+    pub evidence: UseEvidence,
+    /// A revocation does not prove a wallet credit or external refund.
+    pub access_revoked: bool,
 }
 
 /// A typed request intention, NOT a refund request fact or a permission to
@@ -97,6 +120,15 @@ impl LayerRefundService {
     /// It never inserts a refund request or mutates entitlement/wallet state.
     pub async fn preflight(&self, intent: &LayerRefundIntent) -> Result<(), RefundGateError> {
         self.repository.inspect(intent).await
+    }
+
+    /// Advisory read-only observation, deliberately separate from eligibility.
+    /// No call to this function can authorize a refund or move wallet money.
+    pub async fn observe_use(
+        &self,
+        intent: &LayerRefundIntent,
+    ) -> Result<UseObservation, RefundGateError> {
+        self.repository.observe_use(intent).await
     }
 }
 
