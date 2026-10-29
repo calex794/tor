@@ -5,9 +5,7 @@ use super::escape_html;
 use std::fmt::Write;
 use tor_search::{
     domain::{
-        seo::{
-            SeoBookFacts, SeoBookView, SeoDecision, SeoMode, SeoPage, SeoSite, SeoVisibility,
-        },
+        seo::{SeoBookFacts, SeoBookView, SeoDecision, SeoMode, SeoPage, SeoSite, SeoVisibility},
         seo_urls::{BookUrl, TrustedSeoOrigin},
     },
     services::seo::SeoPolicy,
@@ -27,21 +25,19 @@ pub(super) fn disabled_book_head(
     title: &str,
     description: &str,
 ) -> String {
-    let decision = SeoPolicy::new(SeoSite::Pandaolate, SeoMode::Disabled).decide(
-        SeoPage::Book {
-            book: SeoBookFacts {
-                book_id,
-                visibility: SeoVisibility::AnonymousPublic,
-                has_public_content: has_public_free_chapter,
-                // Placeholder cannot accidentally enable indexing: mode is
-                // hard-disabled until verified owner and pilot facts are added.
-                index_owner: SeoSite::Pandaolate,
-                shadow_enabled: false,
-                pilot_approved: false,
-            },
-            view: SeoBookView::Canonical,
+    let decision = SeoPolicy::new(SeoSite::Pandaolate, SeoMode::Disabled).decide(SeoPage::Book {
+        book: SeoBookFacts {
+            book_id,
+            visibility: SeoVisibility::AnonymousPublic,
+            has_public_content: has_public_free_chapter,
+            // Placeholder cannot accidentally enable indexing: mode is
+            // hard-disabled until verified owner and pilot facts are added.
+            index_owner: SeoSite::Pandaolate,
+            shadow_enabled: false,
+            pilot_approved: false,
         },
-    );
+        view: SeoBookView::Canonical,
+    });
     render_book_head(title, description, &decision, None)
 }
 
