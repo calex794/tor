@@ -29,7 +29,9 @@ use tor_books::{
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
-use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
+use tor_reading::repositories::{
+    PgContinuationDemand, PgLibrary, PgReadingProgress, PgReadingSync,
+};
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -46,6 +48,7 @@ mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
+mod continuation_demand;
 mod layer_books;
 mod layer_checkout;
 mod layer_create;
@@ -54,6 +57,7 @@ mod library_actions;
 mod login_limiter;
 mod logout;
 mod paid_completion;
+mod private_reader;
 mod rankings;
 mod sync_actions;
 mod types;
@@ -135,6 +139,7 @@ fn router_inner(
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
+    let demand = PgContinuationDemand::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -152,6 +157,7 @@ fn router_inner(
         progress,
         sync,
         bookmarks,
+        demand,
         reader,
         rankings,
         cookies,
@@ -223,9 +229,10 @@ fn router_inner(
             get(book_description::edit).post(book_description::save),
         )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
-        .route("/read/{id}", get(private_reader))
+        .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
+        .route("/read/{id}/want-continuation", post(continuation_demand::submit))
         .route("/logout", post(logout::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .merge(layer_books::routes())
@@ -411,6 +418,10 @@ async fn author_book(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let demand_count = match state.demand.current_count(id).await {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let chapters = match state.authoring.list_owned_chapters(actor, id).await {
         Ok(chapters) => chapters,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -425,13 +436,14 @@ async fn author_book(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        author_chapter_pages::detail_with_covers(
+        author_chapter_pages::detail_with_covers_with_demand(
             &book,
             published,
             &chapters,
             &csrf,
             state.cover_upload_enabled,
             latest_cover.as_deref(),
+            demand_count,
         ),
         &cookies,
     )
@@ -487,53 +499,6 @@ async fn cover_settings(
         ),
     );
     response
-}
-
-/// Private verified reader; public free chapters use /reader/{id}.
-async fn private_reader(
-    State(state): State<AuthState>,
-    Path(id): Path<u64>,
-    headers: HeaderMap,
-) -> Response {
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    let chapter = match state.reader.public_chapter(id).await {
-        Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
-        Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(chapter.version_id)) {
-        (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
-        _ => return deny(StatusCode::NOT_FOUND),
-    };
-    let saved = match state
-        .progress
-        .saved_state(actor, chapter_id, version_id)
-        .await
-    {
-        Ok(saved) => saved,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    // A completion form uses the current per-book CAS revision, not a
-    // client-invented one. A late second device will receive 409.
-    let revision = match state.sync.free_state(actor, chapter_id).await {
-        Ok(Some(progress)) => progress.receipt.revision,
-        Ok(None) => 0,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let completed = match state.sync.completion_event_id(actor, chapter_id).await {
-        Ok(event) => event.is_some(),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        pages::private_reader(id, &chapter, &csrf, saved, revision, completed),
-        &cookies,
-    )
 }
 
 /// Manual place save checks session, Origin, CSRF, published version and visibility.
