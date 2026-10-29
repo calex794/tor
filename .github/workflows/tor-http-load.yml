@@ -163,6 +163,29 @@ jobs:
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
           if (( baseline_failed != 0 )); then exit 1; fi
+      - name: Measure multi-page reader journeys (isolated smoke)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_AUTH_ENABLED: '0'
+          TOR_PAID_CHECKOUT_ENABLED: '0'
+          TOR_JOURNEYS_PER_SECOND: '25'
+          TOR_JOURNEY_SECONDS: '60'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load/journeys"
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/journeys/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then exit 1; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3089/readyz >/dev/null
+          k6 run --summary-export "$RUNNER_TEMP/tor-load/journeys/summary.json" \
+            tests/load/tor_journeys_baseline.js | tee "$RUNNER_TEMP/tor-load/journeys/k6.log"
       - name: Diagnose 300-500 RPS and isolate expensive routes
         if: ${{ github.event_name == 'pull_request' || inputs.diagnostics }}
         env:
