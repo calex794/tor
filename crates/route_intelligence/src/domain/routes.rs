@@ -583,7 +583,7 @@ const ROUTES: [RouteRegistration; 83] = [
         Dashboard,
         Write,
     ), // 78
-    LAYER_CHECKOUT_ROUTE, // 79
+    LAYER_CHECKOUT_ROUTE,    // 79
     LAYER_STOREFRONT_PAGE_ROUTE, // 80
     LAYER_STOREFRONT_BUY_ROUTE, // 81
     LAYER_PURCHASED_TERMS_ROUTE, // 82
