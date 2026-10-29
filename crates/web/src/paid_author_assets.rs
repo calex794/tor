@@ -10,9 +10,7 @@ use tor_storage::{
     domain::provider::valid_private_bucket,
     repositories::registry::PgStorageRegistry,
     services::{
-        crypto::{
-            fresh_private_object_id, seal_asset_with_keyring, ContentKeyring, CryptoError,
-        },
+        crypto::{fresh_private_object_id, seal_asset_with_keyring, ContentKeyring, CryptoError},
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
@@ -95,17 +93,12 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
             return Ok(existing);
         }
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
-        let sealed = seal_asset_with_keyring(
-            pinned,
-            object_id.clone(),
-            bytes,
-            media_type,
-            &self.keyring,
-        )
-        .map_err(|error| match error {
-            CryptoError::InvalidMaterial => AuthorError::Invalid,
-            _ => AuthorError::Unavailable,
-        })?;
+        let sealed =
+            seal_asset_with_keyring(pinned, object_id.clone(), bytes, media_type, &self.keyring)
+                .map_err(|error| match error {
+                    CryptoError::InvalidMaterial => AuthorError::Invalid,
+                    _ => AuthorError::Unavailable,
+                })?;
         let object = self
             .registry
             .reserve_pending_asset(&sealed, &self.keyring, &self.bucket)
