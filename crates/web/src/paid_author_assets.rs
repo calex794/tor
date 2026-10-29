@@ -86,6 +86,14 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         };
         // The server, not the browser, mints the private object ID. Its
         // canonical chapter/version/hash AAD is immutable after G sealing.
+        let digest = tor_storage::services::crypto::sha256_bytes(bytes);
+        if let Some(existing) = self
+            .assets
+            .existing_draft_upload(actor, pinned, ordinal, media_type, &digest)
+            .await?
+        {
+            return Ok(existing);
+        }
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
         let sealed = seal_asset_with_keyring(
             pinned,
@@ -112,9 +120,18 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
             .mark_ready(&receipt)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        self.assets
+        match self
+            .assets
             .attach_prepared(actor, pinned, ordinal, media_type, &object_id)
-            .await?;
-        Ok(object_id)
+            .await
+        {
+            Ok(()) => Ok(object_id),
+            Err(AuthorError::Conflict) => self
+                .assets
+                .existing_draft_upload(actor, pinned, ordinal, media_type, &digest)
+                .await?
+                .ok_or(AuthorError::Conflict),
+            Err(error) => Err(error),
+        }
     }
 }
