@@ -204,16 +204,7 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     // BKR-96: the same public chapter can be edited from the owner's
     // existing form. Saving V2 immediately changes the reader pointer.
     let edit_path = format!("/me/books/{book}/chapters/{chapter_id}/edit");
-    let (status, editor) = send(
-        &app,
-        "GET",
-        &edit_path,
-        "",
-        Some(&token),
-        &csrf,
-        ORIGIN,
-    )
-    .await;
+    let (status, editor) = send(&app, "GET", &edit_path, "", Some(&token), &csrf, ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(editor.contains("Сохранение сразу обновит опубликованную редакцию"));
     assert!(editor.contains("name=\"expected_revision\" value=\"1\""));
@@ -249,29 +240,61 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     );
     let invalid_csrf = edited.replace(&format!("csrf_token={csrf}"), "csrf_token=wrong");
     assert_eq!(
-        send(&app, "POST", &edit_path, &invalid_csrf, Some(&token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &invalid_csrf,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        send(&app, "POST", &edit_path, &edited, Some(&token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &edited,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        send(&app, "POST", &edit_path, &edited, Some(&token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &edited,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER,
         "same author Save may replay without another version",
     );
     let stale = edited.replace(edit_key, &"s".repeat(43));
     assert_eq!(
-        send(&app, "POST", &edit_path, &stale, Some(&token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &stale,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::CONFLICT,
         "a stale edit form cannot replace a new published version",
     );

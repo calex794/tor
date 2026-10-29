@@ -52,12 +52,18 @@ impl PgAuthoring {
         .map_err(write_error)?;
         row.map(|row| {
             Ok(OwnedChapter {
-                number: row.try_get("chapter_no").map_err(|_| AuthorError::Unavailable)?,
+                number: row
+                    .try_get("chapter_no")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
-                body: row.try_get("body_markdown").map_err(|_| AuthorError::Unavailable)?,
+                body: row
+                    .try_get("body_markdown")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 access: ChapterAccess::Free,
                 price_amount: 0,
-                revision: row.try_get("edit_revision").map_err(|_| AuthorError::Unavailable)?,
+                revision: row
+                    .try_get("edit_revision")
+                    .map_err(|_| AuthorError::Unavailable)?,
             })
         })
         .transpose()
@@ -146,12 +152,15 @@ impl PgAuthoring {
             .fetch_one(&mut *tx)
             .await
             .map_err(write_error)?;
-            let previous: Vec<u8> = row.try_get("payload_hash").map_err(|_| AuthorError::Unavailable)?;
+            let previous: Vec<u8> = row
+                .try_get("payload_hash")
+                .map_err(|_| AuthorError::Unavailable)?;
             if previous.as_slice() != command_digest.as_slice() {
                 return Err(AuthorError::Conflict);
             }
-            let previous_chapter: Option<i64> =
-                row.try_get("chapter_id").map_err(|_| AuthorError::Unavailable)?;
+            let previous_chapter: Option<i64> = row
+                .try_get("chapter_id")
+                .map_err(|_| AuthorError::Unavailable)?;
             if previous_chapter != Some(chapter_id) {
                 return Err(AuthorError::Conflict);
             }
@@ -188,14 +197,22 @@ impl PgAuthoring {
         .await
         .map_err(write_error)?
         .ok_or(AuthorError::Missing)?;
-        let revision: i64 = row.try_get("edit_revision").map_err(|_| AuthorError::Unavailable)?;
-        let number: i32 = row.try_get("chapter_no").map_err(|_| AuthorError::Unavailable)?;
+        let revision: i64 = row
+            .try_get("edit_revision")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let number: i32 = row
+            .try_get("chapter_no")
+            .map_err(|_| AuthorError::Unavailable)?;
         if revision != input.expected_revision || number != input.number {
             return Err(AuthorError::Conflict);
         }
         let old_title: String = row.try_get("title").map_err(|_| AuthorError::Unavailable)?;
-        let old_body: String = row.try_get("body_markdown").map_err(|_| AuthorError::Unavailable)?;
-        let old_version: i64 = row.try_get("version_id").map_err(|_| AuthorError::Unavailable)?;
+        let old_body: String = row
+            .try_get("body_markdown")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let old_version: i64 = row
+            .try_get("version_id")
+            .map_err(|_| AuthorError::Unavailable)?;
         let same_body = old_body == input.body;
         let unchanged = old_title == input.title && same_body;
         let version_id = if same_body {

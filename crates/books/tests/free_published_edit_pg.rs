@@ -133,7 +133,12 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
     .unwrap();
     assert_eq!(
         current,
-        (saved.version_id, "Исправленная глава".to_owned(), "Новый текст V2\n文 😀".to_owned(), 2)
+        (
+            saved.version_id,
+            "Исправленная глава".to_owned(),
+            "Новый текст V2\n文 😀".to_owned(),
+            2
+        )
     );
     let old_body: String =
         sqlx::query_scalar("SELECT body_markdown FROM chapter_versions WHERE id=$1")
@@ -150,13 +155,12 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
     .await
     .unwrap();
     assert_eq!(first, (initial.chapter_id, initial.version_id));
-    let unchanged_working: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1",
-    )
-    .bind(initial.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let unchanged_working: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
+            .bind(initial.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(unchanged_working, 0);
 
     // Lost HTTP response: same command/key gives exact original result.
@@ -180,18 +184,24 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
             .await,
         Err(AuthorError::Conflict)
     );
-    let stale = update(book, initial.chapter_id, 1, "Вкладка 2", "Старые данные", &"c".repeat(43));
+    let stale = update(
+        book,
+        initial.chapter_id,
+        1,
+        "Вкладка 2",
+        "Старые данные",
+        &"c".repeat(43),
+    );
     assert_eq!(
         author.edit_published_free_chapter(owner, &stale).await,
         Err(AuthorError::Conflict)
     );
-    let current_after_conflict: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(initial.chapter_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let current_after_conflict: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(initial.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(current_after_conflict, saved.version_id);
 
     // Same published content with a new command is a no-op, not another
@@ -225,8 +235,22 @@ async fn bkr96_two_edit_tabs_conflict_and_reverted_text_reuses_old_version() {
     assert!(url.ends_with("/tor_ci"), "never write production");
     let pool = PgPool::connect(&url).await.unwrap();
     let (author, owner, _stranger, book, initial) = fixture(&pool, "race").await;
-    let first = update(book, initial.chapter_id, 1, "Первая вкладка", "Текст А", &"e".repeat(43));
-    let second = update(book, initial.chapter_id, 1, "Вторая вкладка", "Текст Б", &"f".repeat(43));
+    let first = update(
+        book,
+        initial.chapter_id,
+        1,
+        "Первая вкладка",
+        "Текст А",
+        &"e".repeat(43),
+    );
+    let second = update(
+        book,
+        initial.chapter_id,
+        1,
+        "Вторая вкладка",
+        "Текст Б",
+        &"f".repeat(43),
+    );
     let (left, right) = tokio::join!(
         author.edit_published_free_chapter(owner, &first),
         author.edit_published_free_chapter(owner, &second)
@@ -266,12 +290,13 @@ async fn bkr96_two_edit_tabs_conflict_and_reverted_text_reuses_old_version() {
             .await
             .unwrap();
     assert_eq!(after_count, 2, "revert reuses historical immutable body");
-    let first_release: i64 =
-        sqlx::query_scalar("SELECT version_id FROM chapter_first_release_events WHERE chapter_id=$1")
-            .bind(initial.chapter_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let first_release: i64 = sqlx::query_scalar(
+        "SELECT version_id FROM chapter_first_release_events WHERE chapter_id=$1",
+    )
+    .bind(initial.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(first_release, initial.version_id);
     pool.close().await;
 }

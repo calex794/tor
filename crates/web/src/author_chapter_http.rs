@@ -282,12 +282,14 @@ async fn edit_chapter(
     let command_key = generate_session_token();
     let page = if is_published {
         crate::author_chapter_pages::edit_published_chapter(
-            id, chapter_id, &chapter, &csrf, &command_key,
+            id,
+            chapter_id,
+            &chapter,
+            &csrf,
+            &command_key,
         )
     } else {
-        crate::author_chapter_pages::edit_chapter(
-            id, chapter_id, &chapter, &csrf, &command_key,
-        )
+        crate::author_chapter_pages::edit_chapter(id, chapter_id, &chapter, &csrf, &command_key)
     };
     private_response(page, &cookies)
 }
@@ -346,9 +348,15 @@ async fn update_chapter(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let outcome = if published {
-        state.authoring.edit_published_free_chapter(actor, &input).await
+        state
+            .authoring
+            .edit_published_free_chapter(actor, &input)
+            .await
     } else {
-        state.authoring.edit_unpublished_free_chapter(actor, &input).await
+        state
+            .authoring
+            .edit_unpublished_free_chapter(actor, &input)
+            .await
     };
     match outcome {
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),

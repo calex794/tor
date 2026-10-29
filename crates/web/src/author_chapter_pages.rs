@@ -255,7 +255,11 @@ fn edit_chapter_mode(
     let html = include_str!("../templates/author_edit_chapter.html")
         .replace(
             "<!--EDIT_EYEBROW-->",
-            if published { "редактирование опубликованной главы" } else { "редактирование черновика" },
+            if published {
+                "редактирование опубликованной главы"
+            } else {
+                "редактирование черновика"
+            },
         )
         .replace("<!--EDIT_DESCRIPTION-->", description)
         .replace("<!--BOOK_ID-->", &book_id.to_string())
@@ -402,14 +406,8 @@ mod tests {
             access: ChapterAccess::Free,
             published: true,
         };
-        let detail_page = detail_with_covers(
-            &published_book,
-            true,
-            &[summary],
-            "csrf",
-            false,
-            None,
-        ).0;
+        let detail_page =
+            detail_with_covers(&published_book, true, &[summary], "csrf", false, None).0;
         assert!(detail_page.contains("/me/books/42/chapters/55/edit"));
         let chapter = OwnedChapter {
             number: 1,
