@@ -592,16 +592,7 @@ const ROUTES: [RouteRegistration; 79] = [
         ProductArea::Billing,
         Write,
     ), // 77
-    // Verified demand exists only at the current published reading frontier.
-    RouteRegistration::new(
-        "/read/{id}/want-continuation",
-        "POST",
-        "/read/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 78
+    RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 78
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
