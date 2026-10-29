@@ -1,7 +1,6 @@
 //! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
 mod classifier;
-mod checkout;
 pub use classifier::classify;
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
@@ -592,7 +591,7 @@ const ROUTES: [RouteRegistration; 80] = [
         Dashboard,
         Write,
     ), // 78
-    checkout::LAYER_PURCHASE_ROUTE, // 79
+    RouteRegistration::new("/api/v1/layers/{id}/purchase", "POST", "/api/v1/layers/", Prefix, Api, ProductArea::Billing, Write), // 79
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
