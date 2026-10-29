@@ -328,3 +328,38 @@ fn c_14_public_continuation_distinguishes_read_access_and_missing_release() {
     assert!(waiting.contains("Следующих опубликованных глав пока нет"));
     assert!(!waiting.contains("href=\"/reader/31\""));
 }
+
+#[test]
+fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
+    let mut chapter = tor_reading::services::PublicChapterPage {
+        version_id: 15,
+        book_id: 6,
+        book_title: "Ожидаемая книга".to_owned(),
+        chapter_title: "Конец главы".to_owned(),
+        version_no: 1,
+        body_markdown: "Последний абзац".to_owned(),
+        previous_chapter_id: None,
+        next_chapter_id: None,
+        next_chapter_is_paid: false,
+    };
+    let waiting = reader_with_login_link(&chapter, Some(77)).0;
+    assert!(waiting.contains("href=\"/read/77\""));
+    assert!(waiting.contains("попросить продолжение"));
+    assert!(!reader(&chapter).0.contains("href=\"/read/77\""));
+    chapter.next_chapter_id = Some(78);
+    chapter.next_chapter_is_paid = true;
+    let published = reader_with_login_link(&chapter, Some(77)).0;
+    assert!(!published.contains("href=\"/read/77\""));
+    assert!(published.contains("Следующая глава — платная"));
+    let private = private_reader(
+        77,
+        &chapter,
+        "csrf",
+        tor_reading::services::progress::SavedPlaceState::NotSaved,
+        0,
+        false,
+    )
+    .0;
+    assert!(private.contains("href=\"/reader/78\""));
+    assert!(!private.contains("href=\"/read/78\""));
+}

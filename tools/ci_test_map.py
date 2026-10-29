@@ -84,6 +84,17 @@ PROSE_FILES = {"README.md", "AGENTS.md", "docs/development.md"}
 PROSE_PREFIXES = ("docs/research/", "docs/ci/")
 
 
+# I-07/I-09: exact-path tools executed ONLY by Repository rules.
+# Verified against all 18 CI workflows on 2026-10-29: CI metrics is a
+# read-only Actions reporting script; its tests run in rules.yml architecture.
+# Do not broaden to other tools/architecture tests. Every push to main still
+# runs the complete 14-suite integration pack.
+RULES_ONLY_FILES = frozenset({
+    "tools/ci_metrics.py",
+    "tests/architecture/test_ci_metrics.py",
+})
+
+
 def workflow_gate(suite):
     """A failed/missing planner runs the suite; cancellation can still stop it."""
     return (
