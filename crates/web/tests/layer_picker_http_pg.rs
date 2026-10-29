@@ -265,9 +265,7 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     )));
     let original_version: i64 = pg(
         &url,
-        &format!(
-            "SELECT id FROM commerce_layer_versions WHERE layer_id={layer} AND version_no=1"
-        ),
+        &format!("SELECT id FROM commerce_layer_versions WHERE layer_id={layer} AND version_no=1"),
     )
     .parse()
     .unwrap();
@@ -290,9 +288,16 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         StatusCode::CONFLICT
     );
     assert_eq!(
-        request(&app, "POST", &page, &owner_cookie, "https://evil.invalid", &remove)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &page,
+            &owner_cookie,
+            "https://evil.invalid",
+            &remove
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -366,7 +371,10 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     )
     .parse()
     .unwrap();
-    assert_eq!(versions, 3, "add and remove produce two immutable revisions");
+    assert_eq!(
+        versions, 3,
+        "add and remove produce two immutable revisions"
+    );
     pool.close().await;
 }
 
