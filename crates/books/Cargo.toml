@@ -12,5 +12,7 @@ sqlx.workspace = true
 tor-contracts = { path = "../contracts" }
 
 [dev-dependencies]
+serde_json = "1"
+tower = { version = "0.5", features = ["util"] }
 tokio.workspace = true
 hex = "0.4"
