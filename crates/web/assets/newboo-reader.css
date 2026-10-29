@@ -279,7 +279,7 @@
 .reader-paid .reader-piece__text.reader-markdown {
   margin: 0 0 14px;
   white-space: pre-wrap;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--paid-font-family, Georgia, "Times New Roman", serif);
   font-size: var(--paid-font-size, clamp(17px, 2.3vw, 20px));
   line-height: var(--paid-line-height, 1.85);
 }
@@ -395,16 +395,51 @@
   background: var(--bg-secondary);
   border-color: var(--primary-color);
 }
-.reader-paid__settings[hidden] {
+/* Exact NEwBOO reader settings treatment: modal scrim and a right-anchored
+   panel, not an inline form that pushes the paid text off the screen. */
+.reader-paid .reader-paid__settings[hidden] {
   display: none !important;
 }
-.reader-paid__settings {
-  margin: 0 0 20px;
-  padding: clamp(15px, 3vw, 24px);
-  background: var(--bg-surface);
+.reader-paid .reader-paid__settings {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.reader-paid .reader-paid__settings-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  /* The scrim must darken both light and dark themes.
+     --text-main becomes white in dark mode and was washing the reader out. */
+  background: color-mix(in srgb, #09101d 36%, transparent);
+  cursor: pointer;
+}
+.reader-paid .reader-paid__settings-panel {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  box-sizing: border-box;
+  display: grid;
+  gap: 16px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+  background: var(--bg-surface);
   color: var(--text-main);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--text-main) 26%, transparent);
 }
 .reader-paid__settings-head {
   display: flex;
@@ -419,8 +454,8 @@
 }
 .reader-paid__settings-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
 }
 .reader-paid__settings-field {
   display: grid;
@@ -432,8 +467,8 @@
   width: 100%;
   accent-color: var(--primary-color);
 }
-.reader-paid__settings button {
-  min-height: 42px;
+.reader-paid__settings-panel button {
+  min-height: 44px;
   padding: 8px 12px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
@@ -441,11 +476,11 @@
   color: var(--text-main);
   cursor: pointer;
 }
-.reader-paid__settings button[aria-pressed="true"] {
+.reader-paid__settings-panel button[aria-pressed="true"] {
   border-color: var(--primary-color);
   box-shadow: inset 0 0 0 1px var(--primary-color);
 }
-.reader-paid__settings button[data-paid-settings-reset] {
+.reader-paid__settings-panel button[data-paid-settings-reset] {
   margin-top: 16px;
 }
 .reader-paid__themes {
@@ -453,7 +488,7 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.reader-paid__settings output {
+.reader-paid__settings-panel output {
   color: var(--text-muted);
   font-size: 13px;
 }
@@ -491,8 +526,12 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   --primary-color: #84582e;
 }
 @media (max-width: 640px) {
-  .reader-paid__settings-fields {
-    grid-template-columns: minmax(0, 1fr);
+  .reader-paid .reader-paid__settings-panel {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    width: min(360px, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px - env(safe-area-inset-top));
+    padding: 16px;
   }
 }
 
