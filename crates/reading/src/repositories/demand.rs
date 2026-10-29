@@ -55,7 +55,7 @@ impl PgContinuationDemand {
         })
     }
 
-    pub async fn record(&self, actor: i64, book: i64, chapter: i64) -> Result<(), DemandError> {
+    pub async fn record_verified_continuation(&self, actor: i64, book: i64, chapter: i64) -> Result<(), DemandError> {
         if actor <= 0 || book <= 0 || chapter <= 0 {
             return Err(DemandError::Invalid);
         }
