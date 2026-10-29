@@ -221,6 +221,104 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     .unwrap();
     assert_eq!(count, 1);
 
+    let parent: i64 = pg(
+        &url,
+        &format!("SELECT id FROM discussion_comments WHERE book_id={book}"),
+    )
+    .parse()
+    .unwrap();
+    let reply_form = format!(
+        "body=Reply%20%7C%7Csecret%7C%7C&parent_id={parent}&command_key={}&csrf_token={csrf}",
+        generate_session_token()
+    );
+    let own_page = html(call(&app, "GET", &comments_path, &cookies, ORIGIN, "").await).await;
+    assert!(own_page.contains(&format!("Ваш ответ на комментарий №{parent}")));
+    assert!(!visible.contains("Отправить ответ"));
+    for (origin, body, expected) in [
+        (
+            "https://evil.invalid",
+            reply_form.clone(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            ORIGIN,
+            reply_form.replace(&csrf, "forged"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            ORIGIN,
+            reply_form.replace(&format!("parent_id={parent}"), "parent_id=0"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            ORIGIN,
+            reply_form.replace(
+                &format!("parent_id={parent}"),
+                "parent_id=9223372036854775807",
+            ),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        assert_eq!(
+            call(&app, "POST", &comments_path, &cookies, origin, &body)
+                .await
+                .status(),
+            expected
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &format!("tor-dev-csrf={csrf}"),
+            ORIGIN,
+            &reply_form
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &comments_path,
+            &cookies,
+            ORIGIN,
+            &reply_form.replace("Reply", "Changed")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let replies_page = html(call(&app, "GET", &comments_path, "", ORIGIN, "").await).await;
+    assert!(replies_page.contains(&format!("Ответ на комментарий №{parent}")));
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM discussion_comments WHERE parent_id={parent}")
+        ),
+        "1"
+    );
+    pg(
+        &url,
+        &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={parent}"),
+    );
+    assert_eq!(
+        call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
@@ -244,6 +342,10 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
     );
     pg(&url, &format!("DELETE FROM users WHERE id={user}"));
     pg(&url, &format!("DELETE FROM books WHERE id={book}"));
