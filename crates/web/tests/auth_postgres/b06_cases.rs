@@ -105,8 +105,11 @@ pub(super) async fn publish_second_chapter(
     assert_eq!(private.status(), StatusCode::OK);
     let private_html = body_of(private).await;
     assert!(!private_html.contains("Черновик (не виден читателям)"));
-    // No second release page exists for an already published free chapter.
-    for suffix in ["edit", "release"] {
+    // BKR-96 reopens the editor for an owner, but never the release form.
+    for (suffix, expected) in [
+        ("edit", StatusCode::OK),
+        ("release", StatusCode::NOT_FOUND),
+    ] {
         assert_eq!(
             send(
                 app,
@@ -120,7 +123,7 @@ pub(super) async fn publish_second_chapter(
             )
             .await
             .status(),
-            StatusCode::NOT_FOUND
+            expected
         );
     }
 }
