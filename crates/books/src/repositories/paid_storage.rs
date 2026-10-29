@@ -10,6 +10,7 @@ use tor_contracts::paid_delivery::{
     EncryptedObjectRef, ObjectId, ObjectRef,
 };
 use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHEMA_V1};
+use crate::services::paid_asset_markers::referenced_private_image_ids;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaidPublication {
@@ -360,6 +361,30 @@ impl PgPaidStorage {
         .fetch_one(&mut *tx)
         .await
         .map_err(map_write)?;
+        // A stored Markdown reference is not itself permission to read media.
+        // At B's publication boundary, every H-renderable asset marker must
+        // belong to this exact immutable version and be G-attached. A V2
+        // cannot silently borrow the historical image of a purchased V1.
+        let referenced = referenced_private_image_ids(&body).map_err(|_| AuthorError::Invalid)?;
+        if !referenced.is_empty() {
+            let attached: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM chapter_version_assets a
+                 JOIN storage_objects o ON o.id=a.storage_object_id
+                 WHERE a.chapter_id=$1 AND a.version_id=$2
+                   AND o.id::text = ANY($3::text[])
+                   AND o.state='attached' AND o.object_kind='chapter_asset'
+                   AND o.codec='none'",
+            )
+            .bind(chapter_id)
+            .bind(version_id)
+            .bind(&referenced)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_write)?;
+            if attached != i64::try_from(referenced.len()).map_err(|_| AuthorError::Invalid)? {
+                return Err(AuthorError::Conflict);
+            }
+        }
         let manifest = ReaderVersionManifestV1::from_markdown(&body).ok_or(AuthorError::Invalid)?;
         let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
         let digest: [u8; 32] = Sha256::digest(normalized.as_bytes()).into();
