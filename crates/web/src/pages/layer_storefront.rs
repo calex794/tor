@@ -281,11 +281,17 @@ mod tests {
         assert!(enabled.contains("Читать главу"));
         assert!(enabled.contains("Мой &lt;пакет&gt;"));
         assert!(!enabled.contains("<пакет>"));
-        assert!(!purchased_page(&[term.clone()], false).0.contains("/read/layer/"));
+        assert!(!purchased_page(&[term.clone()], false)
+            .0
+            .contains("/read/layer/"));
         term.state = "expired".into();
-        assert!(!purchased_page(&[term.clone()], true).0.contains("/read/layer/"));
+        assert!(!purchased_page(&[term.clone()], true)
+            .0
+            .contains("/read/layer/"));
         term.state = "revoked".into();
-        assert!(!purchased_page(&[term.clone()], true).0.contains("/read/layer/"));
+        assert!(!purchased_page(&[term.clone()], true)
+            .0
+            .contains("/read/layer/"));
         term.state = "active".into();
         term.first_readable_chapter = None;
         assert!(!purchased_page(&[term], true).0.contains("/read/layer/"));
