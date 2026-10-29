@@ -89,6 +89,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/buy-chapters"), "GET") => Some(76),
         (Some("/me/books/{id}/buy-chapters"), "POST") => Some(77),
         (Some("/read/{id}/want-continuation"), "POST") => Some(78),
+        (Some("/me/replies/{id}/read-state"), "POST") => Some(79),
         _ => None,
     };
     index
