@@ -143,3 +143,73 @@ SET search_path = pg_catalog, public AS $$
           )
     );
 $$;
+
+-- Trusted D operation: one atomic, owner-scoped selection of the currently
+-- published paid edition. The client never chooses a version or S3 object.
+-- PostgreSQL serializes competing requests on the library row; the guard
+-- above checks B/G verified release membership again before committing.
+CREATE FUNCTION tor_select_latest_purchased_edition(
+    actor_id BIGINT, target_purchase BIGINT, target_chapter BIGINT
+) RETURNS BIGINT LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path = pg_catalog, public AS $$
+DECLARE
+    selected BIGINT;
+    latest BIGINT;
+BEGIN
+    SELECT owned.active_version_id INTO selected
+    FROM public.library_purchased_chapters AS owned
+    WHERE owned.user_id = actor_id
+      AND owned.purchase_id = target_purchase
+      AND owned.chapter_id = target_chapter
+    FOR UPDATE;
+    IF selected IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF NOT public.tor_purchase_version_readable(
+        actor_id, target_purchase, target_chapter, selected
+    ) THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT publication.version_id INTO latest
+    FROM public.chapter_publications AS publication
+    JOIN public.chapters AS chapter ON chapter.id = publication.chapter_id
+    JOIN public.books AS book ON book.id = chapter.book_id
+    JOIN public.chapter_versions AS edition
+      ON edition.id = publication.version_id
+     AND edition.chapter_id = publication.chapter_id
+    JOIN public.chapter_encrypted_release_events AS release
+      ON release.chapter_id = edition.chapter_id
+     AND release.version_id = edition.id
+     AND release.storage_object_id = edition.storage_object_id
+    JOIN public.storage_objects AS stored
+      ON stored.id = edition.storage_object_id AND stored.state = 'attached'
+    WHERE publication.chapter_id = target_chapter
+      AND book.visibility = 'public'
+      AND chapter.visibility = 'public'
+      AND chapter.access_level = 'paid'
+      AND chapter.price_amount > 0
+      AND NOT book.admin_hold AND NOT book.is_deleted
+      AND NOT chapter.admin_hold AND NOT chapter.is_deleted
+      AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())
+      AND NOT EXISTS (
+          SELECT 1 FROM public.chapter_purchase_revocations AS revoked
+          WHERE revoked.purchase_id = target_purchase
+      );
+    IF latest IS NULL THEN
+        RETURN selected;
+    END IF;
+    -- Never downgrade: a concurrent editor could have published an older
+    -- pointer, but this library must not move backwards.
+    IF (SELECT version_no FROM public.chapter_versions WHERE id = latest)
+       <= (SELECT version_no FROM public.chapter_versions WHERE id = selected) THEN
+        RETURN selected;
+    END IF;
+    UPDATE public.library_purchased_chapters
+    SET active_version_id = latest
+    WHERE user_id = actor_id
+      AND chapter_id = target_chapter
+      AND purchase_id = target_purchase;
+    RETURN latest;
+END;
+$$;
