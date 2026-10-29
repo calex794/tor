@@ -45,6 +45,7 @@ mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod library_actions;
+mod layer_books;
 mod login_limiter;
 mod paid_completion;
 mod rankings;
