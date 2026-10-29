@@ -378,6 +378,21 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     assert_eq!(account_html.matches(&link).count(), 1);
     assert!(account_html.contains("Книга &lt;script&gt;"));
     assert!(!account_html.contains("NEVER_COPY_THIS_SPOILER"));
+    assert!(account_html.contains("Не прочитано"));
+    let read_path = format!("/me/replies/{incoming_id}/read-state");
+    let read_form = format!("csrf_token={csrf}&state=read");
+    assert_eq!(call(&app, "POST", &read_path, &cookies, "https://evil.invalid", &read_form).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(call(&app, "POST", &read_path, &writer_cookie, ORIGIN, &format!("csrf_token={writer_csrf}&state=read")).await.status(), StatusCode::NOT_FOUND);
+    for _ in 0..2 {
+        assert_eq!(call(&app, "POST", &read_path, &cookies, ORIGIN, &read_form).await.status(), StatusCode::SEE_OTHER);
+    }
+    assert!(html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await).await.contains("Отметить непрочитанным"));
+    for _ in 0..2 {
+        assert_eq!(call(&app, "POST", &read_path, &cookies, ORIGIN, &format!("csrf_token={csrf}&state=unread")).await.status(), StatusCode::SEE_OTHER);
+    }
+    assert!(html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await).await.contains("Отметить прочитанным"));
+    assert_eq!(call(&app, "POST", &read_path, &cookies, ORIGIN, "csrf_token=invalid&state=read").await.status(), StatusCode::FORBIDDEN);
+
     assert!(
         !html(call(&app, "GET", "/me", &writer_cookie, ORIGIN, "").await)
             .await
