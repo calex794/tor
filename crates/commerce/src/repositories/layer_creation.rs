@@ -27,8 +27,9 @@ impl PgLayers {
             .await
             .map_err(|_| LayerError::Unavailable)?;
         let created: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO commerce_layers(owner_user_id,title,create_command_key)
-             VALUES($1,$2,$3)
+            "INSERT INTO commerce_layers
+                (owner_user_id,title,create_command_key,create_command_title)
+             VALUES($1,$2,$3,$2)
              ON CONFLICT (owner_user_id,create_command_key) DO NOTHING
              RETURNING id",
         )
@@ -63,7 +64,7 @@ impl PgLayers {
         // The conflicting INSERT waits on any concurrent winner. This SELECT
         // sees its committed row; an unfinished/inconsistent row fails closed.
         let row: Option<(i64, String, Option<i64>)> = sqlx::query_as(
-            "SELECT id,title,current_version_id FROM commerce_layers
+            "SELECT id,create_command_title,current_version_id FROM commerce_layers
              WHERE owner_user_id=$1 AND create_command_key=$2",
         )
         .bind(actor.get())
