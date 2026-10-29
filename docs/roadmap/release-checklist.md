@@ -52,7 +52,7 @@ python3 -m unittest discover -s tests/architecture -p 'test_release_candidate_au
 | I-03 | Axum, SQLx и PostgreSQL 18 в `crates/web` | Fresh migration + restart + HTTP на одном SHA |
 | I-04 | Браузерные проверки чтения и отказа в доступе | Регистрация → публикация → чтение/прогресс → прямой отказ |
 | I-05 | PostgreSQL/миграции в GitHub Actions | Фактические PG18 и браузерные результаты на конечном SHA |
-| I-06 | `architecture/modules.toml`, проверки границ | **Блокер:** административно подтвердить и обеспечить защиту `main` |
+| I-06 | `architecture/modules.toml`, проверки границ | **Блокер:** `main protected=false` (29.10); обязательный `rules` и запрет обхода надо включить в Settings |
 | I-07 | `tools/select_feature_tests.py`, `tests/architecture/test_ci_selection.py` | Проверить полный запуск на неизвестном/опасном изменении |
 | I-08 | Очередь слияний PR A–H в одном `main` | Совместная приёмка конечного SHA после каждого слияния |
 | I-09 | `tools/ci_metrics.py`, `tests/architecture/test_ci_metrics.py` | Фактическое сравнение времени/очереди до/после на двух SHA |
@@ -87,9 +87,21 @@ python3 -m unittest discover -s tests/architecture -p 'test_release_candidate_au
 - Готовность основного кода **не равна** утверждённому `full_approved_scope`.
   Прямой платёжный источник и выплаты, часть социального функционала,
   импорт и персональные рекомендации пока не доказаны. Флаги по умолчанию выключены.
-- [Rulesets API](https://api.github.com/repos/calex794/tor/rulesets) вернул
-  `[]` 29.10; классическая защита `main` при проверке через доступную
-  интеграцию вернула HTTP 403, то есть её наличие **неизвестно**.
+- **I-06 не пройден.** [GitHub branches/main](https://api.github.com/repos/calex794/tor/branches/main)
+  29.10 вернул `protected=false`, `protection.enabled=false` и
+  `required_status_checks.enforcement_level=off`; [rulesets](https://api.github.com/repos/calex794/tor/rulesets)
+  вернул `[]`. Это **подтверждённое отсутствие** обязательной защиты.
+  `tools/check_one_click_release_ci.py` теперь отказывает **до SSH**, когда
+  `main` не защищена, проверка `rules` из GitHub Actions не обязательна
+  или администратор может обойти правило. Защита повторно проверяется
+  после завершения CI — нельзя снимать её посреди запуска.
+  До ручной настройки в GitHub Settings одношаговый выпуск намеренно
+  заблокирован. Код не меняет правила GitHub самостоятельно.
+  В настройках репозитория следует потребовать PR, проверку `rules`,
+  применение ограничений к администраторам и запрет force-push/удаления;
+  отдельно подтвердить запрет прямой записи тестовым действием.
+  **Проверка `branches/main` доказывает только обязательность статуса,
+  но не настройку PR-процесса и остальных ограничений.**
 - Для хранилища трасс [OBS-10](https://github.com/calex794/tor/pull/183)
   прошёл процессный тест 5/5 и 15/15 GitHub Actions до слияния. Но отдельный
   systemd-стенд и ограничение памяти около 1 ГиБ не испытаны, а
