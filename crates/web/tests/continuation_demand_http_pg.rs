@@ -1,4 +1,4 @@
-//! C-15 / Loop 1: real sessions, CSRF, verified completion and author demand.
+//! C-15: authenticated demand and owner aggregate via real isolated PostgreSQL.
 #![forbid(unsafe_code)]
 use axum::{
     body::{to_bytes, Body},
@@ -6,8 +6,10 @@ use axum::{
     response::Response,
     Router,
 };
-use sqlx::PgPool;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -18,6 +20,32 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+/// Keep SQLx outside tor-web. These are test-only fixtures using the test role.
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.ends_with("/tor_ci"), "production DB forbidden");
+    let result = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .output()
+        .expect("psql client");
+    assert!(
+        result.status.success(),
+        "fixture SQL failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
 async fn call(
     app: &Router,
     method: &str,
@@ -26,7 +54,7 @@ async fn call(
     origin: &str,
     body: &str,
 ) -> Response {
-    let req = Request::builder()
+    let request = Request::builder()
         .uri(path)
         .method(method)
         .header(header::COOKIE, cookies)
@@ -34,7 +62,7 @@ async fn call(
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .expect("HTTP request");
-    app.clone().oneshot(req).await.expect("HTTP response")
+    app.clone().oneshot(request).await.expect("HTTP response")
 }
 
 async fn html(response: Response) -> String {
@@ -53,7 +81,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test database");
     assert!(url.ends_with("/tor_ci"), "never run against production");
     let catalog = PgCatalog::connect(&url).await.expect("test pool");
-    let pool: PgPool = catalog.pool().clone();
+    let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
     let owner_session = generate_session_token();
     let reader_session = generate_session_token();
@@ -84,37 +112,39 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         .await
         .unwrap();
 
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','Книга для читателей','public',$2) RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:c15:http:{nonce}','ru','Книга для читателей','public',{owner}) RETURNING id"
+        ),
     )
-    .bind(format!("c15:http:{nonce}"))
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let chapter: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES($1,1,'Глава 1','public','free',0) RETURNING id",
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},1,'Глава 1','public','free',0) RETURNING id"
+        ),
     )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let version: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,'Первая глава') RETURNING id",
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'Первая глава') RETURNING id"
+        ),
     )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
+    );
 
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
@@ -141,46 +171,30 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "opened chapter is not a trusted completion"
     );
 
-    sqlx::query(
-        "INSERT INTO reader_chapter_completions
-           (user_id,book_id,chapter_id,first_version_id,source_event_id)
-         VALUES($1,$2,$3,$4,gen_random_uuid())",
-    )
-    .bind(reader)
-    .bind(book)
-    .bind(chapter)
-    .bind(version)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_chapter_completions
+             (user_id,book_id,chapter_id,first_version_id,source_event_id)
+             VALUES({reader},{book},{chapter},{version},gen_random_uuid())"
+        ),
+    );
 
     let ready = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
     assert!(ready.contains("Хочу продолжение"));
     assert!(!ready.contains("user_id"));
     assert_eq!(
         call(
-            &app,
-            "POST",
-            &want_path,
-            &reader_cookie,
-            "https://evil.invalid",
-            &form
+            &app, "POST", &want_path, &reader_cookie, "https://evil.invalid", &form
         )
         .await
         .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &want_path,
-            &reader_cookie,
-            ORIGIN,
-            "csrf_token=invalid"
-        )
-        .await
-        .status(),
+        call(&app, "POST", &want_path, &reader_cookie, ORIGIN, "csrf_token=invalid")
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -197,15 +211,14 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
             StatusCode::SEE_OTHER
         );
     }
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_continuation_demand
-         WHERE user_id=$1 AND book_id=$2 AND frontier_chapter_id=$3",
+    let count: i64 = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM reader_continuation_demand
+             WHERE user_id={reader} AND book_id={book} AND frontier_chapter_id={chapter}"
+        ),
     )
-    .bind(reader)
-    .bind(book)
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     assert_eq!(count, 1, "duplicate requests must be idempotent");
     let confirmed = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
@@ -222,28 +235,31 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(author.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
     assert!(!author.contains(&format!("c15-reader-{nonce}@tor-ci.example")));
 
-    let next: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES($1,2,'Продолжение','public','paid',150) RETURNING id",
+    let next: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},2,'Продолжение','public','paid',150) RETURNING id"
+        ),
     )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    let paid_version: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,'PAID-CONTENT-SECRET') RETURNING id",
+    let paid_version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({next},1,'PAID-CONTENT-SECRET') RETURNING id"
+        ),
     )
-    .bind(next)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(next)
-        .bind(paid_version)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({next},{paid_version})"
+        ),
+    );
     let after_release = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
     assert!(!after_release.contains("Хочу продолжение"));
     assert!(!after_release.contains("PAID-CONTENT-SECRET"));
@@ -254,20 +270,11 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         StatusCode::CONFLICT
     );
     let owner_after = html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
-    assert!(
-        owner_after.contains("Запросов после последней опубликованной главы: <strong>0</strong>")
+    assert!(owner_after.contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
+    pg(
+        &url,
+        &format!("DELETE FROM users WHERE id IN ({owner},{reader})"),
     );
-
-    sqlx::query("DELETE FROM books WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM users WHERE id=$1 OR id=$2")
-        .bind(reader)
-        .bind(owner)
-        .execute(&pool)
-        .await
-        .unwrap();
     pool.close().await;
 }
