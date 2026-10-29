@@ -61,6 +61,7 @@ struct AppState {
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
+    paid_batch_browser_enabled: bool,
     covers: Option<cover_delivery::CoverDelivery>,
 }
 
@@ -244,8 +245,14 @@ async fn book_detail(
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
-            return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
-                .into_response();
+            let html = if state.paid_batch_browser_enabled {
+                pages::book_detail_with_chapters_cover_stars_batch(
+                    &book, limit, has_cover, &stars, true,
+                )
+            } else {
+                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
+            };
+            return html.into_response();
         }
         return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
     }
@@ -457,6 +464,8 @@ fn make_router(
         postgres,
         reader,
         search,
+        paid_batch_browser_enabled: active_auth
+            && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
         covers,
     })
     .merge(api)

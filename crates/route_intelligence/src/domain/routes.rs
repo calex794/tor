@@ -11,7 +11,7 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 75] = [
+const ROUTES: [RouteRegistration; 78] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -564,6 +564,34 @@ const ROUTES: [RouteRegistration; 75] = [
         Dashboard,
         Write,
     ), // 74
+    // D/S035: strict authenticated batch checkout from the internal wallet.
+    RouteRegistration::new(
+        "/api/v1/purchases/batch",
+        "POST",
+        "/api/v1/purchases/",
+        Exact,
+        Api,
+        ProductArea::Billing,
+        Write,
+    ), // 75
+    RouteRegistration::new(
+        "/me/books/{id}/buy-chapters",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        ProductArea::Billing,
+        Read,
+    ), // 76
+    RouteRegistration::new(
+        "/me/books/{id}/buy-chapters",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        ProductArea::Billing,
+        Write,
+    ), // 77
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.

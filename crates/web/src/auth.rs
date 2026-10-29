@@ -39,6 +39,7 @@ use tor_reading::{
 };
 
 mod account_form_http;
+mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
@@ -181,6 +182,11 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .route("/api/v1/purchases/batch", post(checkout::buy_batch))
+        .route(
+            "/me/books/{id}/buy-chapters",
+            get(batch_checkout_browser::page).post(batch_checkout_browser::submit),
+        )
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
@@ -290,18 +296,6 @@ async fn my_library(
         pages::my_library(&books, &saved, &csrf)
     };
     private_response(page, &cookies)
-}
-
-/// Resolve actor from the session database, never client-supplied user IDs.
-async fn session_user(state: &AuthState, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
-    let Some(token) = state.cookies.session_token(headers) else {
-        return Ok(None);
-    };
-    state
-        .accounts
-        .active_session_user(&session_token_digest(&token))
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 /// Browser author workspace backed by the current PostgreSQL user session.
