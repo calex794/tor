@@ -210,7 +210,10 @@ fn router_inner(
         )
         .route("/me/library/add/{id}", get(library_actions::show_add))
         .route("/me/books/{id}/follow", post(book_follow_actions::follow))
-        .route("/me/books/{id}/unfollow", post(book_follow_actions::unfollow))
+        .route(
+            "/me/books/{id}/unfollow",
+            post(book_follow_actions::unfollow),
+        )
         .route("/me/library/{id}/save", post(library_actions::browser_add))
         .route(
             "/me/library/{id}/remove",
