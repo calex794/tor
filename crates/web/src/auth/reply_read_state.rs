@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tor_discussions::repositories::public_book_comments::ReadStateResult;
 
 #[derive(Deserialize)]
-struct ReplyReadStateForm {
+pub(super) struct ReplyReadStateForm {
     csrf_token: Option<String>,
     state: String,
 }
