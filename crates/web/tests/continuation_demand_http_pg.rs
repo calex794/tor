@@ -285,10 +285,8 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(
         owner_after.contains("Запросов после последней опубликованной главы: <strong>0</strong>")
     );
-    pg(&url, &format!("DELETE FROM books WHERE id={book}"));
-    pg(
-        &url,
-        &format!("DELETE FROM users WHERE id IN ({owner},{reader})"),
-    );
+    // The isolated tor_ci database is disposed after CI. Book ownership rows
+    // deliberately have RESTRICT integrity; avoid false failures from a direct
+    // book DELETE that bypasses the application ownership lifecycle.
     pool.close().await;
 }
