@@ -369,8 +369,12 @@ def enabled() -> None:
     }).encode()
     expect(buyer.call("POST", form_path, choose, origin="https://evil.invalid"),
            403, "S035 native form rejects cross-origin")
-    expect(buyer.call("POST", form_path, choose), 403,
-           "S035 native form requires same-origin POST")
+    without_csrf = urllib.parse.urlencode({
+        "step": "select",
+        **{f"chapter_{part}": "1" for part in browser_chapters},
+    }).encode()
+    expect(buyer.call("POST", form_path, without_csrf, origin=BASE), 403,
+           "S035 native form requires valid CSRF")
     choose_one = urllib.parse.urlencode({
         "step": "select", "csrf_token": csrf,
         f"chapter_{browser_chapters[0]}": "1",
