@@ -41,6 +41,7 @@ pub mod paid_author_assets;
 pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
+mod public_reader_http;
 #[cfg(feature = "s3-paid")]
 pub use paid_author_assets::PgPaidAuthorAssets;
 #[cfg(feature = "s3-paid")]
@@ -265,38 +266,6 @@ async fn book_detail(
     })
     .into_response()
 }
-/// C-10: successful and denied reading both use no-store and strict CSP.
-async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
-    let Some(reader) = state.reader else {
-        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
-    };
-    let chapter = match reader.public_chapter(id).await {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => match reader.public_paid_chapter_preview(id).await {
-            Ok(Some(preview)) => {
-                // Publicly visible paid metadata has a paywall, never plaintext.
-                // Hidden, held, deleted and unreleased chapters still yield 404.
-                let mut response =
-                    auth_cookies::private_response(pages::paid_chapter_paywall(&preview), &[]);
-                response.headers_mut().insert(
-                    "x-robots-tag",
-                    axum::http::HeaderValue::from_static("noindex, nofollow"),
-                );
-                return response;
-            }
-            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-            Err(_) => {
-                return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
-            }
-        },
-        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
-        return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
-    }
-    auth_cookies::private_response(pages::reader(&chapter), &[])
-}
-
 /// S3 delivery is not connected: deny every alternative reader API request.
 /// Neither a published free chapter nor a paid ID can expose raw markdown.
 async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
@@ -436,7 +405,7 @@ fn make_router(
         .route("/books/{id}", get(book_detail))
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route("/api/v1/books/{id}/toc", get(book_toc))
-        .route("/reader/{id}", get(reader_page))
+        .route("/reader/{id}", get(public_reader_http::reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
