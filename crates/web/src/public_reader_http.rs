@@ -34,5 +34,5 @@ pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u6
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
-    auth_cookies::private_response(pages::reader(&chapter), &[])
+    auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[])
 }

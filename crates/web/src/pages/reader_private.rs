@@ -129,7 +129,13 @@ pub fn private_reader_with_demand(
         .unwrap_or_default();
     let next = chapter
         .next_chapter_id
-        .map(|id| format!(r#"<a rel="next" href="/read/{id}">Следующая глава</a>"#))
+        .map(|id| {
+            if chapter.next_chapter_is_paid {
+                format!(r#"<a rel="next" href="/reader/{id}">Следующая глава — платная</a>"#)
+            } else {
+                format!(r#"<a rel="next" href="/read/{id}">Следующая глава</a>"#)
+            }
+        })
         .unwrap_or_default();
     let navigation = format!(
         r#"<nav class="chapter-navigation" aria-label="Переход между главами">{prev}{next}</nav>"#
