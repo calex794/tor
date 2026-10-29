@@ -198,6 +198,13 @@ pub fn new_chapter(
         r#"<input type="hidden" name="access" value="free">
         <input type="hidden" name="price_amount" value="0">"#
     };
+    let illustrated_link = if paid_enabled {
+        format!(
+            "<p><a href=\"/me/books/{book_id}/chapters/illustrated\">Добавить платную главу с иллюстрацией</a></p>"
+        )
+    } else {
+        String::new()
+    };
     let html = include_str!("../templates/author_new_chapter.html")
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -216,16 +223,7 @@ pub fn new_chapter(
             },
         )
         .replace("<!--SAVE_LABEL-->", "Сохранить главу")
-        .replace(
-            "<!--PAID_IMAGE_LINK-->",
-            if paid_enabled {
-                &format!(
-                    "<p><a href=\"/me/books/{book_id}/chapters/illustrated\">Добавить платную главу с иллюстрацией</a></p>"
-                )
-            } else {
-                ""
-            },
-        );
+        .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link);
     layout("Добавить главу", "Публикация главы автором", &html)
 }
 
