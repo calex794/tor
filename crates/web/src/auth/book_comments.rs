@@ -211,7 +211,8 @@ mod tests {
     use super::*;
     #[test]
     fn e_04_spoiler_is_closed_escaped_and_mentions_are_masked() {
-        let html = render_comment("до ||<img src=x onerror=alert(1)> @private_user @[user:42]|| после");
+        let html =
+            render_comment("до ||<img src=x onerror=alert(1)> @private_user @[user:42]|| после");
         assert!(html.contains("<details class=\"comment-spoiler\">"));
         assert!(!html.contains(" open"));
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
