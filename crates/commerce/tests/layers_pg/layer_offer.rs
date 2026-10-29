@@ -168,8 +168,14 @@ async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
     assert_eq!(empty.current_offer_id, None);
     assert_eq!(
         repo.publish_offer_if_current(
-            id(owner), id(layer), id(empty.current_version_id), None, 251, false
-        ).await,
+            id(owner),
+            id(layer),
+            id(empty.current_version_id),
+            None,
+            251,
+            false
+        )
+        .await,
         Err(LayerError::Inaccessible),
         "an empty composition has no sellable offer"
     );
@@ -179,7 +185,8 @@ async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
         Err(LayerError::Inaccessible)
     );
     assert_eq!(
-        repo.publish_offer_if_current(id(buyer), id(layer), id(version), None, 251, false).await,
+        repo.publish_offer_if_current(id(buyer), id(layer), id(version), None, 251, false)
+            .await,
         Err(LayerError::Inaccessible)
     );
     let first = repo
@@ -187,7 +194,8 @@ async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
         .await
         .unwrap();
     assert_eq!(
-        repo.publish_offer_if_current(id(owner), id(layer), id(version), None, 251, false).await,
+        repo.publish_offer_if_current(id(owner), id(layer), id(version), None, 251, false)
+            .await,
         Err(LayerError::StaleOffer),
         "a replayed form must not silently publish another revision"
     );
@@ -196,7 +204,12 @@ async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
     assert_eq!(owner_state.price_minor, Some(251));
     let second = repo
         .publish_offer_if_current(
-            id(owner), id(layer), id(version), Some(id(first)), 300, false,
+            id(owner),
+            id(layer),
+            id(version),
+            Some(id(first)),
+            300,
+            false,
         )
         .await
         .unwrap();
@@ -204,23 +217,32 @@ async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
     let next = repo.owner_offer_state(id(owner), id(layer)).await.unwrap();
     assert_eq!(next.current_offer_id, Some(second));
     assert_eq!(next.price_minor, Some(300));
-    let original_price: i64 = sqlx::query_scalar(
-        "SELECT price_minor FROM commerce_layer_offers WHERE id=$1",
-    )
-    .bind(first)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let original_price: i64 =
+        sqlx::query_scalar("SELECT price_minor FROM commerce_layer_offers WHERE id=$1")
+            .bind(first)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(original_price, 251, "published historic offer immutable");
     let lifetime = repo
         .publish_offer_if_current(
-            id(owner), id(layer), id(version), Some(id(second)), 500, true,
+            id(owner),
+            id(layer),
+            id(version),
+            Some(id(second)),
+            500,
+            true,
         )
         .await
         .unwrap();
     assert_eq!(
         repo.publish_offer_if_current(
-            id(owner), id(layer), id(version), Some(id(lifetime)), 501, false,
+            id(owner),
+            id(layer),
+            id(version),
+            Some(id(lifetime)),
+            501,
+            false,
         )
         .await,
         Err(LayerError::Invalid),
@@ -241,7 +263,10 @@ async fn d_05_pg_owner_price_publication_is_cas_bound_and_append_only() {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_pg_owner_offer_refuses_unknown_share_schedule_and_stale_books() {
     let (pool, repo, owner, _buyer, book) = setup("author-offer-unknown").await;
-    let layer = repo.create_layer(id(owner), "Unattested layer").await.unwrap();
+    let layer = repo
+        .create_layer(id(owner), "Unattested layer")
+        .await
+        .unwrap();
     let v1 = repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
     sqlx::query("DELETE FROM revenue_share_states WHERE book_id=$1")
         .bind(book)
@@ -254,13 +279,12 @@ async fn d_05_pg_owner_offer_refuses_unknown_share_schedule_and_stale_books() {
         Err(LayerError::Inaccessible),
         "a missing 100% revenue schedule must never produce a sellable offer"
     );
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM commerce_layer_offers WHERE layer_id=$1",
-    )
-    .bind(layer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM commerce_layer_offers WHERE layer_id=$1")
+            .bind(layer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 0);
     pool.close().await;
 }
