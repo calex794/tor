@@ -7,7 +7,7 @@ use crate::{
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{DefaultBodyLimit, Form, Path, Query, State},
+    extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Redirect, Response},
