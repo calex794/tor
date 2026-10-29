@@ -264,6 +264,34 @@ mod tests {
     }
 
     #[test]
+    fn d05_only_active_terms_with_a_live_private_reader_offer_chapter_links() {
+        let mut term = LayerTermCard {
+            layer_id: 7,
+            title: "Мой <пакет>".into(),
+            term_id: 91,
+            price_minor: 125,
+            term_kind: "prepaid_30d".into(),
+            starts_utc: "29.10.2026 12:00".into(),
+            expires_utc: Some("28.11.2026 12:00".into()),
+            state: "active".into(),
+            first_readable_chapter: Some(111),
+        };
+        let enabled = purchased_page(&[term.clone()], true).0;
+        assert!(enabled.contains("href=\"/read/layer/111\""));
+        assert!(enabled.contains("Читать главу"));
+        assert!(enabled.contains("Мой &lt;пакет&gt;"));
+        assert!(!enabled.contains("<пакет>"));
+        assert!(!purchased_page(&[term.clone()], false).0.contains("/read/layer/"));
+        term.state = "expired".into();
+        assert!(!purchased_page(&[term.clone()], true).0.contains("/read/layer/"));
+        term.state = "revoked".into();
+        assert!(!purchased_page(&[term.clone()], true).0.contains("/read/layer/"));
+        term.state = "active".into();
+        term.first_readable_chapter = None;
+        assert!(!purchased_page(&[term], true).0.contains("/read/layer/"));
+    }
+
+    #[test]
     fn d05_lifetime_and_empty_offer_cannot_render_purchase_form() {
         let mut offer = LayerStorefront {
             id: 1,
