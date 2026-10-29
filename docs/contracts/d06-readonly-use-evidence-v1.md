@@ -47,8 +47,12 @@ or automatically rejected on this audit alone.
 ## Integration status and constraints
 This Draft stacks after #237 and assumes its exact C-06 evidence schema; it
 adds **no migration**, so does not create another SQLx version collision.
-PR #224 is already merged into main and its version `202610290003` collides
-with an earlier unmerged #216 migration (tracked in #235). This audit does not
-resolve that conflict or integrate S035/S034 (tracked in #236).
+I-14 Draft integrates merged S035 #224 at migration
+`202610290003_batch_chapter_purchases.sql`. The Draft #216 snapshot is
+renamed **only here** to `202610300017_layer_refund_policy_snapshot.sql`;
+this does not prove the old version was never applied to any retained DB.
+Before production, audit installed `_sqlx_migrations` and apply a distinct
+compatibility plan if needed. Passing an isolated integration test does not
+constitute release approval.
 No policy defaults, payments/refunds, creator settlement/payout, feature flags,
 merge to main or deployment are authorized.
