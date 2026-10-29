@@ -1,0 +1,63 @@
+<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
+<p class="eyebrow">Кабинет автора · книга №<!--BOOK_ID--></p>
+<h1>Импорт глав из TXT</h1>
+<p>Проверьте распознанные главы. Предпросмотр ничего не сохраняет и не публикует.</p>
+<label for="chapter-import-file">Текстовый файл UTF-8</label>
+<input id="chapter-import-file" type="file" accept=".txt,text/plain">
+<input id="chapter-import-csrf" type="hidden" value="<!--CSRF_TOKEN-->">
+<p><button class="button" id="chapter-import-preview" type="button">Распознать главы</button></p>
+<p id="chapter-import-status" role="status" aria-live="polite"></p>
+<div id="chapter-import-results"></div>
+<p><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+</div></div></section>
+<script>
+(() => {
+  const input = document.getElementById('chapter-import-file');
+  const button = document.getElementById('chapter-import-preview');
+  const status = document.getElementById('chapter-import-status');
+  const results = document.getElementById('chapter-import-results');
+  const csrf = document.getElementById('chapter-import-csrf').value;
+  const url = '/me/books/<!--BOOK_ID-->/chapters/import-preview';
+  let text = '';
+  const merged = new Set();
+  async function refresh() {
+    status.textContent = 'Распознавание…';
+    button.disabled = true;
+    try {
+      const response = await fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, csrf_token: csrf, merge_at_lines: [...merged]})
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+      results.replaceChildren();
+      data.chapters.forEach((chapter, index) => {
+        const section = document.createElement('section');
+        const heading = document.createElement('h2');
+        heading.textContent = chapter.title;
+        section.append(heading);
+        const pre = document.createElement('pre');
+        pre.textContent = chapter.body.slice(0, 1200);
+        section.append(pre);
+        if (index > 0) {
+          const line = data.detected_boundaries.find(n => !merged.has(n) && n > 0);
+          // Boundary editing is intentionally deferred until line mapping is returned.
+        }
+        results.append(section);
+      });
+      status.textContent = 'Распознано глав: ' + data.chapters.length + '. Сохранение пока недоступно.';
+    } catch (error) {
+      status.textContent = 'Ошибка предпросмотра: ' + error.message;
+    } finally { button.disabled = false; }
+  }
+  button.addEventListener('click', async () => {
+    const file = input.files && input.files[0];
+    if (!file) { status.textContent = 'Выберите TXT-файл.'; return; }
+    if (file.size > 700000) { status.textContent = 'Файл превышает 700 КБ.'; return; }
+    text = await file.text();
+    merged.clear();
+    await refresh();
+  });
+})();
+</script>
