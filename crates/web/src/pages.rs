@@ -9,6 +9,8 @@ mod account;
 pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
+mod layer_storefront;
+pub use layer_storefront::{offer_page as layer_offer_page, purchase_error as layer_purchase_error, purchased_page as purchased_layers_page};
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
 mod reader_private;
@@ -389,6 +391,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css
     });
     (
