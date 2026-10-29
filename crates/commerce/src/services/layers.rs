@@ -2,7 +2,7 @@
 use crate::{
     domain::layers::{
         LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerCurrentBookPage,
-        LayerError, LayerReceipt, OwnedLayerSummary,
+        LayerError, LayerOfferQuote, LayerReceipt, OwnedLayerSummary,
     },
     repositories::layers::PgLayers,
 };
@@ -99,6 +99,10 @@ impl LayerService {
         self.repository
             .publish_offer(actor, layer, price_minor, lifetime)
             .await
+    }
+    /// Advisory current offer; purchase uses a separate locked D preflight.
+    pub async fn quote(&self, layer: PositiveId) -> Result<LayerOfferQuote, LayerError> {
+        self.repository.offer_quote(layer).await
     }
     pub async fn purchase(&self, cmd: &LayerCheckoutCommand) -> Result<LayerReceipt, LayerError> {
         self.repository.buy(cmd).await
