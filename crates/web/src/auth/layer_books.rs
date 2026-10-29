@@ -13,8 +13,8 @@ use serde::Deserialize;
 use std::fmt::Write;
 use tor_commerce::{
     domain::layers::{LayerBookCandidatePage, LayerError},
-    services::layers::LayerService,
     repositories::layers::PgLayers,
+    services::layers::LayerService,
 };
 use tor_contracts::paid_delivery::PositiveId;
 
@@ -98,7 +98,11 @@ fn picker_html(
          {list}<p><a href=\"/me/books\">Мои книги</a></p>
          </div></div></section>"
     );
-    pages::layout("Книги для Layer", "Подбор только личных книг для подписки.", &content)
+    pages::layout(
+        "Книги для Layer",
+        "Подбор только личных книг для подписки.",
+        &content,
+    )
 }
 
 pub(super) async fn page(
@@ -192,10 +196,15 @@ mod tests {
 
     #[test]
     fn d_05_empty_picker_has_no_add_book_form() {
-        let html = picker_html(9, &LayerBookCandidatePage {
-            books: vec![],
-            next_after: None,
-        }, "token").0;
+        let html = picker_html(
+            9,
+            &LayerBookCandidatePage {
+                books: vec![],
+                next_after: None,
+            },
+            "token",
+        )
+        .0;
         assert!(html.contains("Подходящих книг нет"));
         assert!(!html.contains("name=\"book_id\""));
     }
