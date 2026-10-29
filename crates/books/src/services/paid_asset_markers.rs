@@ -5,7 +5,12 @@ use std::collections::BTreeSet;
 use tor_contracts::paid_delivery::ObjectId;
 
 /// Distinct object UUIDs in valid H-renderable image markers, max 64 per edition.
-pub fn referenced_private_image_ids(body: &str) -> Result<Vec<String>, ()> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrivateImageMarkerError {
+    TooManyDistinctImages,
+}
+
+pub fn referenced_private_image_ids(body: &str) -> Result<Vec<String>, PrivateImageMarkerError> {
     let mut ids = BTreeSet::new();
     for line in body.split('\n') {
         let Some(raw) = line.strip_prefix("![") else {
@@ -26,7 +31,7 @@ pub fn referenced_private_image_ids(body: &str) -> Result<Vec<String>, ()> {
         };
         ids.insert(uuid.as_str().to_owned());
         if ids.len() > 64 {
-            return Err(());
+            return Err(PrivateImageMarkerError::TooManyDistinctImages);
         }
     }
     Ok(ids.into_iter().collect())
