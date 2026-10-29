@@ -4,7 +4,7 @@ use super::*;
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_pg_layer_offer_quote_is_complete_and_never_authoritative_for_checkout() {
-    let (pool, repo, owner, _buyer, book) = setup("quote-complete").await;
+    let (pool, repo, owner, buyer, book) = setup("quote-complete").await;
     let layer = repo.create_layer(id(owner), "Layer <test>").await.unwrap();
     assert_eq!(
         repo.offer_quote(id(layer)).await,
@@ -56,6 +56,34 @@ async fn d_05_pg_layer_offer_quote_is_complete_and_never_authoritative_for_check
     .await
     .unwrap();
     assert_eq!(purchases, 0);
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.offer_quote(id(layer)).await,
+        Err(LayerError::Inaccessible),
+        "an incomplete or held composition must not be advertised"
+    );
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offer, revision, 251, 'H')).await,
+        Err(LayerError::Inaccessible),
+        "the wallet may not be debited for a held Layer Book"
+    );
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(balance, 1500);
+    sqlx::query("UPDATE books SET admin_hold=FALSE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE commerce_layers SET status='blocked' WHERE id=$1")
         .bind(layer)
         .execute(&pool)
