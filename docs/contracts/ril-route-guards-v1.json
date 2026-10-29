@@ -533,6 +533,27 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::layer_reader_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/layers/{id}",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{id}/purchase",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "buy_form",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/layers",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "my_terms",
+      "policy": "scoped"
     }
   ]
 }
