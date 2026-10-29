@@ -31,11 +31,15 @@ async fn write(
     add: bool,
 ) -> Result<(), StatusCode> {
     if !state.cookies.same_origin(headers)
-        || !state.cookies.valid_csrf(headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    let actor = session_user(state, headers).await?.ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = session_user(state, headers)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let book_id = i64::try_from(id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let result = if add {
         state.book_follows.follow(actor, book_id).await
