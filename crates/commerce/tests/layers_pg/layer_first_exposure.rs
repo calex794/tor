@@ -82,6 +82,18 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
         Err(DeliveryError::Denied),
         "no browser confirmation before first grant"
     );
+    // A signed image can be a term's immutable FIRST GRANT. It cannot
+    // satisfy a later browser claim of opening the chapter text.
+    barrier
+        .record(id(buyer), id(chapter), id(published), LayerGrantKind::Asset)
+        .await
+        .unwrap();
+    assert_eq!(
+        barrier.confirm_rendered(id(buyer), id(chapter), id(published))
+            .await,
+        Err(DeliveryError::Denied),
+        "an image grant must not count as opening protected text"
+    );
     let (a, b) = tokio::join!(
         barrier.record(
             id(buyer),

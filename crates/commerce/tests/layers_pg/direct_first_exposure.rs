@@ -100,6 +100,30 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
         .await,
         Err(DeliveryError::Denied)
     );
+    // First grant for an IMAGE does not establish that the text was issued.
+    gate.record(
+        id(buyer),
+        id(chapter),
+        id(version),
+        None,
+        DirectGrantKind::Asset,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        gate.confirm_rendered(id(buyer), id(chapter), id(version), id(purchase))
+            .await,
+        Err(DeliveryError::Denied),
+        "an image grant cannot confirm the chapter text was opened"
+    );
+    let signed_text: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_purchase_text_grants WHERE purchase_id=$1",
+    )
+    .bind(purchase)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(signed_text, 0);
     let (explicit, unsourced) = tokio::join!(
         gate.record(
             id(buyer),

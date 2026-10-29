@@ -32,7 +32,7 @@ CREATE TRIGGER c06_layer_text_grants_immutable
 
 CREATE TABLE chapter_purchase_render_confirmations (
     purchase_id BIGINT PRIMARY KEY
-        REFERENCES chapter_purchase_first_exposures(purchase_id) ON DELETE RESTRICT,
+        REFERENCES chapter_purchase_text_grants(purchase_id) ON DELETE RESTRICT,
     user_id BIGINT NOT NULL,
     chapter_id BIGINT NOT NULL,
     version_id BIGINT NOT NULL,
@@ -48,10 +48,12 @@ CREATE TRIGGER c06_direct_render_confirmations_immutable
     FOR EACH ROW EXECUTE FUNCTION reject_purchase_history_mutation();
 
 CREATE TABLE commerce_layer_term_render_confirmations (
-    term_id BIGINT PRIMARY KEY
-        REFERENCES commerce_layer_term_first_exposures(term_id) ON DELETE RESTRICT,
+    term_id BIGINT PRIMARY KEY,
     chapter_id BIGINT NOT NULL REFERENCES chapters(id) ON DELETE RESTRICT,
     version_id BIGINT NOT NULL REFERENCES chapter_versions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (term_id,chapter_id,version_id)
+        REFERENCES commerce_layer_term_text_grants(term_id,chapter_id,version_id)
+        ON DELETE RESTRICT,
     evidence_kind TEXT NOT NULL DEFAULT 'browser_render_ack_v1'
         CHECK (evidence_kind='browser_render_ack_v1'),
     confirmed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
