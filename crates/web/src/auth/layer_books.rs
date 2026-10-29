@@ -12,7 +12,10 @@ use axum::{
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_commerce::{
-    domain::layers::{LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState, LayerTermKind},
+    domain::layers::{
+        LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
+        LayerTermKind,
+    },
     repositories::layers::PgLayers,
     services::layers::LayerService,
 };
