@@ -80,15 +80,14 @@ impl PgDirectEntitlements {
         chapter_id: PositiveId,
         purchase_id: PositiveId,
     ) -> Result<Option<i64>, DeliveryError> {
-        let version: Option<i64> = sqlx::query_scalar(
-            "SELECT tor_select_latest_purchased_edition($1,$2,$3)",
-        )
-        .bind(actor.get())
-        .bind(purchase_id.get())
-        .bind(chapter_id.get())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| DeliveryError::Unavailable)?;
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT tor_select_latest_purchased_edition($1,$2,$3)")
+                .bind(actor.get())
+                .bind(purchase_id.get())
+                .bind(chapter_id.get())
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|_| DeliveryError::Unavailable)?;
         Ok(version)
     }
 
