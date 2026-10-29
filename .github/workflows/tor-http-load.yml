@@ -1,0 +1,156 @@
+name: TOR isolated HTTP load
+on:
+  pull_request:
+    paths:
+      - .github/workflows/tor-http-load.yml
+      - tests/load/**
+      - tools/ci_test_map.py
+      - tests/architecture/test_ci_workflow_wiring.py
+  workflow_dispatch:
+    inputs:
+      peak_rps:
+        description: 'Peak request rate (25, 50, 100, 250, 500)'
+        type: choice
+        options: ['25', '50', '100', '250', '500']
+        default: '25'
+      stage_seconds:
+        description: 'Seconds at each rate'
+        type: choice
+        options: ['10', '15', '30', '60']
+        default: '15'
+permissions:
+  contents: read
+concurrency:
+  group: tor-load-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  local-http-load:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-load-ci-superuser
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-load-ci-superuser
+      TEST_DATABASE_URL: postgresql://tor_app:tor-load-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-load-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: PostgreSQL tools and k6
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          curl -fsSL https://dl.k6.io/key.gpg | gpg --dearmor | sudo tee /usr/share/keyrings/k6-archive-keyring.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq
+          sudo apt-get install -y k6
+      - name: Create disposable database and application role
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-load-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-load-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Run migrations and populate read fixtures
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO books(id,source_identity,target_language,title,visibility)
+          VALUES (1,'ci:load:book:1','ru','Load Test Book','public');
+          INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
+          VALUES (101,1,1,'Load Test Chapter','public','free',0);
+          INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
+          VALUES (201,101,1,'The load test chapter body.');
+          INSERT INTO chapter_publications(chapter_id,version_id)
+          VALUES (101,201);
+          INSERT INTO books(id,source_identity,target_language,title,visibility)
+          SELECT n,'ci:load:book:' || n, 'ru','Load Test Book ' || n,'public'
+          FROM generate_series(2,10000) n;
+          SQL
+      - name: Build optimised TOR web
+        run: cargo build --release -p tor-web
+      - name: Run local server and benchmark
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_AUTH_ENABLED: '0'
+          TOR_PAID_CHECKOUT_ENABLED: '0'
+          MAX_RPS: ${{ github.event_name == 'pull_request' && '500' || inputs.peak_rps || '25' }}
+          STAGE_SECONDS: ${{ inputs.stage_seconds || '15' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load"
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then tail -n 100 "$RUNNER_TEMP/tor-load/server.log"; exit 1; fi
+          for path in /catalog /api/v1/books /api/v1/search/books?q=Load /books/1 /reader/101 /api/v1/books/1/toc; do
+            curl --fail --silent --show-error "http://127.0.0.1:3089$path" -o /dev/null
+          done
+          baseline_failed=0
+          : > "$RUNNER_TEMP/tor-load/results.tsv"
+          for rate in 25 50 100 250 500; do
+            if (( rate > MAX_RPS )); then break; fi
+            echo "::group::k6 target $rate requests/s"
+            if TARGET_RPS="$rate" k6 run --summary-export "$RUNNER_TEMP/tor-load/summary-$rate.json" tests/load/tor_http.js 2>&1 | tee "$RUNNER_TEMP/tor-load/k6-$rate.log"; then
+              printf '%s\t%s\n' "$rate" 'PASS' >> "$RUNNER_TEMP/tor-load/results.tsv"
+            else
+              printf '%s\t%s\n' "$rate" 'THRESHOLD_OR_RUNTIME_FAIL' >> "$RUNNER_TEMP/tor-load/results.tsv"
+              if (( rate == 25 )); then baseline_failed=1; fi
+            fi
+            echo "::endgroup::"
+          done
+          {
+            echo '## TOR localhost-only HTTP load'
+            echo '| Target requests/s | Result |'
+            echo '|---:|---|'
+            awk -F '\t' '{printf "| %s | %s |\n", $1, $2}' "$RUNNER_TEMP/tor-load/results.tsv"
+            echo
+            echo 'Higher-rate failures are measured capacity signals, not automatic release gates. Results are on GitHub-hosted hardware.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/tor-load/results.tsv"
+          PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -c 'SELECT datname, numbackends, xact_commit, blks_hit, blks_read FROM pg_stat_database WHERE datname = current_database();' > "$RUNNER_TEMP/tor-load/postgres.txt"
+          nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
+          free -h > "$RUNNER_TEMP/tor-load/memory.txt"
+          if (( baseline_failed != 0 )); then exit 1; fi
+      - name: Preserve isolated benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-http-load-up-to-${{ github.event_name == 'pull_request' && '500' || inputs.peak_rps || '25' }}rps
+          path: ${{ runner.temp }}/tor-load/
+          if-no-files-found: warn
+          retention-days: 14

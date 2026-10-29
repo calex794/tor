@@ -18,8 +18,11 @@ SUITES = {
     "purchased_recovery": ("tor-s334-restore.yml", ("tor-web", "tor-migrations")),
 }
 
-# These workflows contact the live VPS and must never be invoked by selection.
+# Deployment workflows contact the VPS: operator dispatch only, never automatic CI.
 MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
+# Safe local-only performance workflows run for changes to their harness, and
+# can also be started manually. They never contact live infrastructure.
+PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
 POSTGRES_SUITES = {
     "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",

@@ -60,7 +60,7 @@ fn layout_with_seo(
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None, None, false, None)
+    book_detail_body(book, None, None, false, None, false)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
@@ -68,6 +68,15 @@ pub fn book_detail_with_chapters_cover(
     book: &tor_reading::services::PublicBookPage,
     limit: u16,
     has_cover: bool,
+) -> Html<String> {
+    book_detail_with_chapters_cover_internal(book, limit, has_cover, false)
+}
+
+fn book_detail_with_chapters_cover_internal(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+    has_cover: bool,
+    batch_enabled: bool,
 ) -> Html<String> {
     let card = PublicBookCard {
         id: book.id,
@@ -125,6 +134,14 @@ pub fn book_detail_with_chapters_cover(
         first_free,
         has_cover,
         Some(&book.description),
+        batch_enabled
+            && book
+                .chapters
+                .iter()
+                .filter(|chapter| chapter.is_paid)
+                .take(2)
+                .count()
+                == 2,
     )
 }
 
@@ -136,7 +153,17 @@ pub fn book_detail_with_chapters_cover_stars(
     has_cover: bool,
     stars: &tor_recommendations::repositories::BookStars,
 ) -> Html<String> {
-    let html = book_detail_with_chapters_cover(book, limit, has_cover);
+    book_detail_with_chapters_cover_stars_batch(book, limit, has_cover, stars, false)
+}
+
+pub fn book_detail_with_chapters_cover_stars_batch(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+    has_cover: bool,
+    stars: &tor_recommendations::repositories::BookStars,
+    batch_enabled: bool,
+) -> Html<String> {
+    let html = book_detail_with_chapters_cover_internal(book, limit, has_cover, batch_enabled);
     Html(
         html.0
             .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
@@ -175,6 +202,7 @@ fn book_detail_body(
     first_free: Option<u64>,
     has_cover: bool,
     published_description: Option<&str>,
+    batch_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
@@ -267,6 +295,17 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace(
+            "<!--BATCH_PURCHASE_ACTION-->",
+            &if batch_enabled {
+                format!(
+                    "<a class=\"ui-button ui-button--ghost\" href=\"/me/books/{}/buy-chapters\">Купить несколько глав</a>",
+                    book.id
+                )
+            } else {
+                String::new()
+            },
+        )
         .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
         .replace("<!--BOOK_DISCUSSION-->", &discussion);
     // The current release has no authorized SEO-owner/approval projection wired

@@ -28,13 +28,7 @@ use tor_books::repositories::{
     paid_storage::{PaidPublication, PgPaidStorage},
     PgCatalog,
 };
-use tor_commerce::{
-    domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
-    repositories::{
-        checkout::PgCheckout,
-        entitlements::{MixedTocAccess, PgDirectEntitlements},
-    },
-};
+use tor_commerce::repositories::entitlements::{MixedTocAccess, PgDirectEntitlements};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 use tor_reading::repositories::PgReader;
 use tor_storage::{
@@ -48,6 +42,8 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/s035_browser.rs"]
+mod s035_browser;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -408,20 +404,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
-    let purchase = PgCheckout::new(pool.clone())
-        .checkout_once(
-            &PurchaseCommand::new(
-                PositiveId::new(buyer).unwrap(),
-                WalletId::new(buyer).unwrap(),
-                pinned,
-                MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}4", "Z".repeat(42))).unwrap(),
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let purchase_id = purchase.purchase_id.get();
     // A second fully verified paid edition proves that the TOC contains
     // live links, not synthetic chapter IDs or a public TOC.
     let chapter_two = scalar(
@@ -475,20 +457,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         )
         .await
         .unwrap();
-    let purchase_two = PgCheckout::new(pool.clone())
-        .checkout_once(
-            &PurchaseCommand::new(
-                PositiveId::new(buyer).unwrap(),
-                WalletId::new(buyer).unwrap(),
-                pinned_two,
-                MoneyMinor::new(175).unwrap(),
-                IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap(),
-            )
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    let purchase_two_id = purchase_two.purchase_id.get();
+    let (purchase_id, purchase_two_id) = s035_browser::checkout_and_verify(
+        &app,
+        &url,
+        (book, chapter, chapter_two),
+        (buyer, &buyer_cookie, &csrf),
+        MARKDOWN,
+    )
+    .await;
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
     assert_eq!(second_reader.status(), StatusCode::OK);
     let second_html = html_body(second_reader).await;
