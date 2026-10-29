@@ -27,9 +27,10 @@ use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidSto
 use tor_commerce::repositories::{
     entitlements::PgDirectEntitlements,
     layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements},
+    layer_exposure::{LayerGrantKind, PgLayerFirstExposure},
 };
 use tor_contracts::paid_delivery::{
-    Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
+    Actor, DeliveryError, DenialReason, EntitlementDecision, EntitlementPort, PositiveId,
     PrivateObjectDeliveryPort,
 };
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
@@ -71,6 +72,7 @@ struct GrantState {
     entitlement: PgReaderEntitlements,
     layer: PgLayerChapterEntitlements,
     direct: PgDirectEntitlements,
+    first_layer_grant: PgLayerFirstExposure,
     versions: PgPaidStorage,
     assets: PgPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -155,6 +157,51 @@ fn deny(code: StatusCode) -> Response {
     private_response(code, &[])
 }
 
+/// Only successful protected chapter/image grants may mark Layer consumption.
+/// A direct purchased V1, including the unsourced default reader path, is
+/// deliberately outside this Layer-specific barrier. Any default fallback
+/// from missing/refunded direct rights to Layer must still record exposure.
+async fn record_layer_grant_if_needed(
+    state: &GrantState,
+    actor: PositiveId,
+    chapter: PositiveId,
+    purchase: Option<PositiveId>,
+    source: Option<GrantSource>,
+    version: &str,
+    kind: LayerGrantKind,
+) -> Result<(), DeliveryError> {
+    if purchase.is_some() {
+        return Ok(());
+    }
+    let version_id = positive(version).ok_or(DeliveryError::Unavailable)?;
+    if source.is_none() {
+        match state
+            .direct
+            .resolve_entitlement(Actor { user_id: actor }, chapter, None)
+            .await?
+        {
+            EntitlementDecision::Allowed { pinned } if pinned.version_id == version_id => {
+                return Ok(());
+            }
+            EntitlementDecision::Allowed { .. } => return Err(DeliveryError::Conflict),
+            EntitlementDecision::Denied {
+                reason: DenialReason::NotPurchased | DenialReason::Refunded,
+            } => {}
+            EntitlementDecision::Denied {
+                reason: DenialReason::Hidden,
+            } => return Err(DeliveryError::Hidden),
+            EntitlementDecision::Denied {
+                reason: DenialReason::Unknown,
+            } => return Err(DeliveryError::Unavailable),
+            EntitlementDecision::Denied { .. } => return Err(DeliveryError::Denied),
+        }
+    }
+    state
+        .first_layer_grant
+        .record(actor, chapter, version_id, kind)
+        .await
+}
+
 async fn grant(
     State(state): State<GrantState>,
     Path(raw_chapter): Path<String>,
@@ -228,7 +275,16 @@ async fn grant(
     .await;
     match result {
         Ok(grant) => {
+            // JSON must be built before exposure is written; failed G signing,
+            // edition mismatch and metadata shells never record an open.
+            let version_id = grant.version_id.clone();
             let mut response = private_response(Json(grant), &[]);
+            if let Err(error) = record_layer_grant_if_needed(
+                &state, actor_id, chapter_id, purchase_id, body.source,
+                &version_id, LayerGrantKind::Chapter,
+            ).await {
+                return deny(status(error));
+            }
             response.headers_mut().insert(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("private, no-store"),
@@ -440,6 +496,7 @@ fn router_inner(
         entitlement: PgReaderEntitlements::new(pool.clone()),
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         direct: PgDirectEntitlements::new(pool.clone()),
+        first_layer_grant: PgLayerFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         assets: PgPaidAssets::new(pool),
         storage,
