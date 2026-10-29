@@ -13,6 +13,8 @@ export const options = {
   thresholds: { checks: ['rate>0.99'], dropped_iterations: ['count==0'], journey_failures: ['count==0'] },
 };
 function cookie(response, name) {
+  const stored = response.cookies[name];
+  if (stored && stored.length) return name + '=' + stored[0].value;
   const items = response.headers['Set-Cookie'];
   const values = Array.isArray(items) ? items : [items || ''];
   for (const item of values) {
@@ -44,17 +46,20 @@ export function setup() {
     });
     const session = cookie(registered, 'tor-dev-session');
     if (registered.status !== 303 || !session) throw new Error('registration failed ' + registered.status);
-    users.push({ session });
+    const me = http.get(base + '/me', { headers: { Cookie: session }, redirects: 0 });
+    const csrfCookie = cookie(me, 'tor-dev-csrf');
+    const csrfValue = csrf(me.body);
+    if (me.status !== 200 || !csrfCookie || !csrfValue) throw new Error('profile CSRF failed');
+    users.push({ session, csrfCookie, csrfValue });
   }
   return { users };
 }
 export default function (data) {
   const user = data.users[(__VU - 1) % data.users.length];
-  const csrfPage = http.get(base + '/me', { headers: { Cookie: user.session } });
-  const csrfCookie = cookie(csrfPage, 'tor-dev-csrf');
-  const csrfValue = csrf(csrfPage.body);
-  if (!csrfCookie || !csrfValue) { failures.add(1); return; }
-  const headers = { Cookie: user.session + '; ' + csrfCookie, Origin: base };
+  const headers = {
+    Cookie: user.session + '; ' + user.csrfCookie,
+    Origin: base,
+  };
   const lookup = http.get(base + '/api/v1/me/progress/free?chapter_id=401', { headers });
   if (!check(lookup, { 'progress read': r => r.status === 200 })) { failures.add(1); return; }
   const prior = lookup.json();
@@ -62,7 +67,7 @@ export default function (data) {
   const saved = http.put(base + '/api/v1/me/progress/free', JSON.stringify({
     chapter_id: '401', version_id: '501', block_id: 1,
     char_offset: position, expected_revision: prior.revision,
-  }), { headers: Object.assign({}, headers, { 'x-csrf-token': csrfValue, 'Content-Type': 'application/json' }) });
+  }), { headers: Object.assign({}, headers, { 'x-csrf-token': user.csrfValue, 'Content-Type': 'application/json' }) });
   if (!check(saved, { 'progress saved': r => r.status === 200 })) { failures.add(1); return; }
   const receipt = saved.json();
   if (receipt.revision !== position) { failures.add(1); return; }
