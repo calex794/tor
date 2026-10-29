@@ -98,9 +98,16 @@ impl AttributionPreview {
     /// Includes zero-value participants for complete historical provenance.
     pub fn attributed_minor(&self) -> i128 {
         i128::from(self.platform_fee_minor)
-            + self.books.iter().map(|b| {
-                b.participants.iter().map(|p| i128::from(p.amount_minor)).sum::<i128>()
-            }).sum::<i128>()
+            + self
+                .books
+                .iter()
+                .map(|b| {
+                    b.participants
+                        .iter()
+                        .map(|p| i128::from(p.amount_minor))
+                        .sum::<i128>()
+                })
+                .sum::<i128>()
     }
 
     /// Mathematical negative mirror only. An authorized refund and a unique
@@ -136,7 +143,11 @@ fn largest_remainder(
     if total_minor < 0
         || weights.is_empty()
         || weights.iter().any(|(id, weight)| *id <= 0 || *weight <= 0)
-        || weights.iter().map(|(_, weight)| i128::from(*weight)).sum::<i128>() != denominator
+        || weights
+            .iter()
+            .map(|(_, weight)| i128::from(*weight))
+            .sum::<i128>()
+            != denominator
     {
         return Err(AttributionError::InvalidWeights);
     }
@@ -158,13 +169,22 @@ fn largest_remainder(
     }
     let mut rank: Vec<usize> = (0..shares.len()).collect();
     rank.sort_by(|a, b| {
-        shares[*b].2.cmp(&shares[*a].2).then_with(|| shares[*a].0.cmp(&shares[*b].0))
+        shares[*b]
+            .2
+            .cmp(&shares[*a].2)
+            .then_with(|| shares[*a].0.cmp(&shares[*b].0))
     });
     for index in rank.into_iter().take(left as usize) {
-        shares[index].1 = shares[index].1.checked_add(1).ok_or(AttributionError::Overflow)?;
+        shares[index].1 = shares[index]
+            .1
+            .checked_add(1)
+            .ok_or(AttributionError::Overflow)?;
     }
     shares.sort_by_key(|item| item.0);
-    Ok(shares.into_iter().map(|(id, amount, _)| (id, amount)).collect())
+    Ok(shares
+        .into_iter()
+        .map(|(id, amount, _)| (id, amount))
+        .collect())
 }
 
 /// Explicit finance inputs only. No money is posted, transferred, cleared or
@@ -172,16 +192,29 @@ fn largest_remainder(
 pub fn preview_layer_attribution(
     input: &AttributionInputs,
 ) -> Result<AttributionPreview, AttributionError> {
-    let policy = input.policy_id.as_ref().filter(|s| {
-        !s.is_empty() && s.len() <= 80 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    }).ok_or(AttributionError::UnconfirmedPolicy)?;
-    let fee = input.platform_fee_minor.ok_or(AttributionError::UnconfirmedPolicy)?;
+    let policy = input
+        .policy_id
+        .as_ref()
+        .filter(|s| {
+            !s.is_empty()
+                && s.len() <= 80
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
+        .ok_or(AttributionError::UnconfirmedPolicy)?;
+    let fee = input
+        .platform_fee_minor
+        .ok_or(AttributionError::UnconfirmedPolicy)?;
     let weighting = input.weighting.ok_or(AttributionError::UnconfirmedPolicy)?;
     if !input.frozen_schedule_verified || !input.allocation_basis_confirmed {
         return Err(AttributionError::UnconfirmedPolicy);
     }
-    if input.payment_id <= 0 || input.term_id <= 0 || input.gross_minor <= 0
-        || input.currency != "RUB" || fee < 0 || fee > input.gross_minor
+    if input.payment_id <= 0
+        || input.term_id <= 0
+        || input.gross_minor <= 0
+        || input.currency != "RUB"
+        || fee < 0
+        || fee > input.gross_minor
     {
         return Err(AttributionError::InvalidCharge);
     }
@@ -219,32 +252,53 @@ pub fn preview_layer_attribution(
             let count = i64::try_from(ordered.len()).map_err(|_| AttributionError::Overflow)?;
             let unit = pool / count;
             let residue = pool % count;
-            ordered.iter().enumerate().map(|(index, b)| {
-                (b.book_id, unit + if index + 1 == ordered.len() { residue } else { 0 })
-            }).collect::<Vec<_>>()
+            ordered
+                .iter()
+                .enumerate()
+                .map(|(index, b)| {
+                    (
+                        b.book_id,
+                        unit + if index + 1 == ordered.len() {
+                            residue
+                        } else {
+                            0
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
         }
         BookWeighting::WeightedLargestRemainder => {
-            let weights = ordered.iter().map(|b| {
-                b.weight_bps
-                    .filter(|w| *w > 0)
-                    .map(|weight| (b.book_id, i64::from(weight)))
-                    .ok_or(AttributionError::InvalidWeights)
-            }).collect::<Result<Vec<_>, _>>()?;
+            let weights = ordered
+                .iter()
+                .map(|b| {
+                    b.weight_bps
+                        .filter(|w| *w > 0)
+                        .map(|weight| (b.book_id, i64::from(weight)))
+                        .ok_or(AttributionError::InvalidWeights)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             largest_remainder(pool, &weights, BOOK_WEIGHT_BPS)?
         }
     };
     let mut books = Vec::with_capacity(ordered.len());
     for (book, (_, book_amount)) in ordered.into_iter().zip(per_book) {
-        let weights: Vec<(i64, i64)> = book.participants.iter()
-            .map(|p| (p.user_id, i64::from(p.percent))).collect();
+        let weights: Vec<(i64, i64)> = book
+            .participants
+            .iter()
+            .map(|p| (p.user_id, i64::from(p.percent)))
+            .collect();
         let members = largest_remainder(book_amount, &weights, 100)?;
         books.push(BookAmount {
             book_id: book.book_id,
             share_revision: book.share_revision,
             amount_minor: book_amount,
-            participants: members.into_iter().map(|(user_id, amount_minor)| {
-                ParticipantAmount { user_id, amount_minor }
-            }).collect(),
+            participants: members
+                .into_iter()
+                .map(|(user_id, amount_minor)| ParticipantAmount {
+                    user_id,
+                    amount_minor,
+                })
+                .collect(),
         });
     }
     let result = AttributionPreview {
