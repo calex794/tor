@@ -4,10 +4,15 @@ use axum::{
     http::{header, StatusCode},
     response::Html,
     routing::get,
+    serve::ListenerExt,
     Router,
 };
-use std::sync::LazyLock;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    LazyLock,
+};
 
+static BACKEND_ACCEPTS: AtomicU64 = AtomicU64::new(0);
 static CATALOG: LazyLock<String> = LazyLock::new(|| {
     let card =
         "<article class='book'><h2>Example book</h2><p>Author, genre, language</p></article>";
@@ -51,6 +56,10 @@ async fn main() {
         .route("/books/1", get(reader))
         .route("/api/v1/books", get(books_api))
         .route(
+            "/__bench/accepts",
+            get(|| async { BACKEND_ACCEPTS.load(Ordering::Relaxed).to_string() }),
+        )
+        .route(
             "/status/429",
             get(|| async { StatusCode::TOO_MANY_REQUESTS }),
         )
@@ -61,8 +70,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:6194")
         .await
         .expect("fixture must bind to loopback");
+    let monitored_listener = listener.tap_io(|_stream| {
+        BACKEND_ACCEPTS.fetch_add(1, Ordering::Relaxed);
+    });
     println!("PINGORA_FIXTURE_ONLY 127.0.0.1:6194");
-    axum::serve(listener, app)
+    axum::serve(monitored_listener, app)
         .await
         .expect("fixture HTTP server");
 }
