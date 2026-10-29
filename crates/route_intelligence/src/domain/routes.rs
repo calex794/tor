@@ -580,7 +580,15 @@ const ROUTES: [RouteRegistration; 82] = [
         Reading,
         Write,
     ), // 80
-    RouteRegistration::new("/me/replies/{id}/read-state", "POST", "/me/replies/", Prefix, Page, Dashboard, Write), // 81
+    RouteRegistration::new(
+        "/me/replies/{id}/read-state",
+        "POST",
+        "/me/replies/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 81
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
