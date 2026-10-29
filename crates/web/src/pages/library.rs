@@ -97,7 +97,6 @@ fn my_library_inner(
     )
 }
 
-
 fn update_cards(
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     checkout_enabled: bool,
@@ -113,11 +112,7 @@ fn update_cards(
             let chapter = escape_html(&item.chapter_title);
             let purchased = owned.iter().find(|row| row.chapter_id == item.chapter_id);
             let (state, link, button) = if item.is_paid {
-                let price = format!(
-                    "{},{:02} ₽",
-                    item.price_minor / 100,
-                    item.price_minor % 100
-                );
+                let price = format!("{},{:02} ₽", item.price_minor / 100, item.price_minor % 100);
                 if let Some(purchase) = purchased {
                     if paid_reader_available {
                         (
@@ -129,8 +124,11 @@ fn update_cards(
                             "Читать купленную главу",
                         )
                     } else {
-                        (format!("Купленная глава · {price}"), String::new(),
-                         "Чтение временно недоступно")
+                        (
+                            format!("Купленная глава · {price}"),
+                            String::new(),
+                            "Чтение временно недоступно",
+                        )
                     }
                 } else if checkout_enabled {
                     (
@@ -155,9 +153,7 @@ fn update_cards(
             let action = if link.is_empty() {
                 format!("<span class=\"library-card__place\">{button}</span>")
             } else {
-                format!(
-                    "<a class=\"button button--small\" href=\"{link}\">{button}</a>"
-                )
+                format!("<a class=\"button button--small\" href=\"{link}\">{button}</a>")
             };
             write!(
                 body,
@@ -221,10 +217,12 @@ mod update_tests {
         let disabled = update_cards(&page, false, true, &[]);
         assert!(!disabled.contains("/me/books/9/buy-chapters"));
         assert!(disabled.contains("/reader/12"));
-        let owned = [tor_commerce::repositories::entitlements::ReadablePurchaseLink {
-            chapter_id: 12,
-            purchase_id: 77,
-        }];
+        let owned = [
+            tor_commerce::repositories::entitlements::ReadablePurchaseLink {
+                chapter_id: 12,
+                purchase_id: 77,
+            },
+        ];
         let purchased = update_cards(&page, true, true, &owned);
         assert!(purchased.contains("/read/paid/12?purchase_id=77"));
         assert!(!purchased.contains("/me/books/9/buy-chapters"));

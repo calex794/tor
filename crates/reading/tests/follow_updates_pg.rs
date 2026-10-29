@@ -8,12 +8,11 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated postgres");
     assert!(url.ends_with("/tor_ci"), "never test production");
     let pool = PgPool::connect(&url).await.unwrap();
-    let nonce: i64 = sqlx::query_scalar(
-        "SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let nonce: i64 =
+        sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let author_email = format!("c16-author-{nonce}@example.invalid");
     let reader_email = format!("c16-reader-{nonce}@example.invalid");
     let outsider_email = format!("c16-other-{nonce}@example.invalid");
@@ -42,7 +41,12 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     .await
     .unwrap();
     let releases = PgFollowUpdates::new(pool.clone());
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
 
     // The first chapter is published BEFORE the reader follows the book.
     let mut chapter_ids = Vec::new();
@@ -97,8 +101,16 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     assert_eq!(first.items.len(), 30);
     assert!(first.next_cursor.is_some());
     assert!(first.items.iter().all(|item| item.book_id == book));
-    assert!(!first.items.iter().any(|item| item.chapter_id == chapter_ids[0]));
-    assert!(releases.latest(outsider, None).await.unwrap().items.is_empty());
+    assert!(!first
+        .items
+        .iter()
+        .any(|item| item.chapter_id == chapter_ids[0]));
+    assert!(releases
+        .latest(outsider, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     let second = releases.latest(reader, first.next_cursor).await.unwrap();
     assert_eq!(second.items.len(), 2);
     assert_eq!(second.next_cursor, None);
@@ -110,22 +122,47 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     let paid: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
          VALUES($1,34,'Платная глава','public','paid',19900) RETURNING id",
-    ).bind(book).fetch_one(&pool).await.unwrap();
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let paid_version: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES($1,1,'Платный текст') RETURNING id",
-    ).bind(paid).fetch_one(&pool).await.unwrap();
+    )
+    .bind(paid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(paid).bind(paid_version).execute(&pool).await.unwrap();
+        .bind(paid)
+        .bind(paid_version)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO chapter_first_release_events(chapter_id,version_id)
          VALUES($1,$2)",
-    ).bind(paid).bind(paid_version).execute(&pool).await.unwrap();
-    assert!(!releases.latest(reader,None).await.unwrap().items.iter().any(|x|x.chapter_id==paid));
+    )
+    .bind(paid)
+    .bind(paid_version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(!releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|x| x.chapter_id == paid));
     // Production B publishes only after G verified and attached ciphertext.
     // The isolated fixture records the same immutable B/G proof shape.
     let object_id: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO storage_objects(
            id,object_kind,bucket,object_key,state,size_bytes,
@@ -140,23 +177,50 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
               $3::text || E'\\n' || $1::text || E'\\n' ||
               encode(sha256(convert_to('Платный текст','UTF8')),'hex') || E'\\n','UTF8'),
            'gzip',now(),now())",
-    ).bind(&object_id).bind(paid).bind(paid_version)
-    .execute(&pool).await.unwrap();
+    )
+    .bind(&object_id)
+    .bind(paid)
+    .bind(paid_version)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "UPDATE chapter_versions SET storage_object_id=$2::text::uuid
          WHERE id=$1",
-    ).bind(paid_version).bind(&object_id).execute(&pool).await.unwrap();
+    )
+    .bind(paid_version)
+    .bind(&object_id)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO chapter_encrypted_release_events
            (chapter_id,version_id,storage_object_id) VALUES($1,$2,$3::text::uuid)",
-    ).bind(paid).bind(paid_version).bind(&object_id)
-    .execute(&pool).await.unwrap();
-    let verified = releases.latest(reader,None).await.unwrap();
-    let offer = verified.items.iter().find(|x| x.chapter_id == paid).unwrap();
-    assert!(offer.is_paid, "verified paid release belongs in update list");
+    )
+    .bind(paid)
+    .bind(paid_version)
+    .bind(&object_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let verified = releases.latest(reader, None).await.unwrap();
+    let offer = verified
+        .items
+        .iter()
+        .find(|x| x.chapter_id == paid)
+        .unwrap();
+    assert!(
+        offer.is_paid,
+        "verified paid release belongs in update list"
+    );
     assert_eq!(offer.price_minor, 19900);
-    assert!(!releases.latest(outsider,None).await.unwrap().items.iter().any(|x|x.chapter_id==paid));
-
+    assert!(!releases
+        .latest(outsider, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|x| x.chapter_id == paid));
 
     // The latest chapter disappears if made private; edits cannot create a
     // second first-release row because chapter_id is the primary key.
@@ -172,7 +236,12 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     assert!(UpdatesCursor::parse("bad-cursor").is_none());
     // The disposable tor_ci database is discarded by the workflow. Do not
     // delete owned books manually across RESTRICT ownership constraints.

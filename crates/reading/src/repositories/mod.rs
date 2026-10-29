@@ -16,4 +16,4 @@ pub mod book_follows;
 pub use book_follows::{FollowError, PgBookFollows};
 
 pub mod follow_updates;
-pub use follow_updates::{PgFollowUpdates, FollowUpdatesError, UpdatesCursor};
+pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};

@@ -156,7 +156,8 @@ impl PgFollowUpdates {
                         .map_err(|_| FollowUpdatesError::Unavailable)?,
                     is_paid: row
                         .try_get::<String, _>("access_level")
-                        .map_err(|_| FollowUpdatesError::Unavailable)? == "paid",
+                        .map_err(|_| FollowUpdatesError::Unavailable)?
+                        == "paid",
                     price_minor: row
                         .try_get("price_minor")
                         .map_err(|_| FollowUpdatesError::Unavailable)?,

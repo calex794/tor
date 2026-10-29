@@ -46,11 +46,11 @@ mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
-mod followed_purchase_links;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod followed_purchase_links;
 mod library_actions;
 mod login_limiter;
 mod paid_completion;
@@ -335,8 +335,13 @@ async fn my_library(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let page = pages::my_library_with_updates(
-        &books, &saved, &csrf, state.paid_reader_available,
-        state.paid_checkout_enabled, &updates, &owned,
+        &books,
+        &saved,
+        &csrf,
+        state.paid_reader_available,
+        state.paid_checkout_enabled,
+        &updates,
+        &owned,
     );
     private_response(page, &cookies)
 }
