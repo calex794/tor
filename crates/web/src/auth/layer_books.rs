@@ -12,7 +12,10 @@ use axum::{
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_commerce::{
-    domain::layers::{LayerBookCandidatePage, LayerCurrentBookPage, LayerError},
+    domain::layers::{
+        LayerBookCandidatePage, LayerCurrentBookPage, LayerError, LayerOwnerOfferState,
+        LayerTermKind,
+    },
     repositories::layers::PgLayers,
     services::layers::LayerService,
 };
@@ -55,10 +58,59 @@ pub(super) fn status(error: LayerError) -> StatusCode {
     }
 }
 
+fn offer_form_html(layer: i64, offer: &LayerOwnerOfferState, csrf: &str) -> String {
+    let old = match (offer.price_minor, offer.term_kind) {
+        (Some(price), Some(kind)) => format!(
+            "Текущая оферта: {},{:02} ₽; {}.",
+            price / 100,
+            price % 100,
+            if kind == LayerTermKind::Lifetime {
+                "бессрочно"
+            } else {
+                "30 дней, ручное продление"
+            }
+        ),
+        _ => "Оферта ещё не опубликована.".to_owned(),
+    };
+    let price_value = offer.price_minor.map_or_else(String::new, |price| {
+        format!("{},{:02}", price / 100, price % 100)
+    });
+    let options = if offer.term_kind == Some(LayerTermKind::Lifetime) {
+        "<option value=\"lifetime\">Бессрочно</option>"
+    } else {
+        "<option value=\"prepaid_30d\">30 дней, только ручное продление</option>
+         <option value=\"lifetime\">Бессрочно, включая будущие книги</option>"
+    };
+    format!(
+        "<section aria-labelledby=\"layer-offer-heading\">
+         <h2 id=\"layer-offer-heading\">Цена и условия Layer</h2><p>{old}</p>
+         <p>Новая цена действует только для новых добровольных оплат.
+         Старые оплаченные сроки не меняются, автосписаний нет.
+         Для продажи нужен непустой состав и подтверждённые доли книг.</p>
+         <form method=\"post\" action=\"/me/layers/{layer}/offer\">
+         <label for=\"layer-price\">Цена в рублях</label>
+         <input id=\"layer-price\" name=\"price_rub\" type=\"text\"
+                inputmode=\"decimal\" placeholder=\"Например, 149,00\"
+                pattern=\"[0-9]+([,.][0-9]{{1,2}})?\" required
+                value=\"{price_value}\">
+         <label for=\"layer-term\">Вид доступа</label>
+         <select id=\"layer-term\" name=\"term_kind\">{options}</select>
+         <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">
+         <input type=\"hidden\" name=\"expected_offer_id\" value=\"{}\">
+         <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
+         <button class=\"button\" type=\"submit\">Опубликовать условия</button>
+         </form></section>",
+        offer.current_version_id,
+        offer.current_offer_id.unwrap_or(0),
+        pages::escape_html(csrf),
+    )
+}
+
 fn picker_html(
     layer: i64,
     page: &LayerBookCandidatePage,
     current: &LayerCurrentBookPage,
+    offer: &LayerOwnerOfferState,
     csrf: &str,
 ) -> axum::response::Html<String> {
     let mut list = String::new();
@@ -124,12 +176,14 @@ fn picker_html(
         )
         .expect("write String");
     }
+    let offer_section = offer_form_html(layer, offer, csrf);
     let content = format!(
         "<section class=\"section auth-section\"><div class=\"container\">
          <div class=\"auth-card author-card\">
          <p class=\"eyebrow\">Подписка Layer</p><h1>Управление книгами</h1>
          {current_list}
          <p>Удаление из текущего состава не отменяет чтение, уже оплаченное подписчиками.</p>
+         {offer_section}
          <h2>Добавить книгу</h2>
          <p>В списке только собственные книги без других активных участников.
          Книги с переводчиками или модераторами, даже с долей 0%, недоступны.
@@ -181,9 +235,16 @@ pub(super) async fn page(
         Ok(current) => current,
         Err(error) => return deny(status(error)),
     };
+    let offer = match service.owner_offer_state(actor, layer).await {
+        Ok(offer) => offer,
+        Err(error) => return deny(status(error)),
+    };
+    if offer.current_version_id != current.current_version_id {
+        return deny(StatusCode::CONFLICT);
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        picker_html(layer.get(), &candidates, &current, &csrf),
+        picker_html(layer.get(), &candidates, &current, &offer, &csrf),
         &cookies,
     )
 }
@@ -250,6 +311,15 @@ mod tests {
         }
     }
 
+    fn offer_empty() -> LayerOwnerOfferState {
+        LayerOwnerOfferState {
+            current_version_id: 42,
+            current_offer_id: None,
+            term_kind: None,
+            price_minor: None,
+        }
+    }
+
     #[test]
     fn d_05_picker_escapes_untrusted_book_titles_and_excludes_user_identity() {
         let page = LayerBookCandidatePage {
@@ -259,7 +329,7 @@ mod tests {
             }],
             next_after: Some(91),
         };
-        let html = picker_html(9, &page, &current_empty(), "test_csrf").0;
+        let html = picker_html(9, &page, &current_empty(), &offer_empty(), "test_csrf").0;
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("name=\"book_id\" value=\"91\""));
@@ -278,12 +348,32 @@ mod tests {
                 next_after: None,
             },
             &current_empty(),
+            &offer_empty(),
             "token",
         )
         .0;
         assert!(html.contains("Подходящих книг нет"));
         assert!(!html.contains("name=\"book_id\""));
     }
+    #[test]
+    fn d_05_offer_form_is_cas_bound_and_never_contains_wallet_actor() {
+        let mut offer = offer_empty();
+        let html = offer_form_html(9, &offer, "<csrf>");
+        assert!(html.contains("action=\"/me/layers/9/offer\""));
+        assert!(html.contains("name=\"expected_version_id\" value=\"42\""));
+        assert!(html.contains("name=\"expected_offer_id\" value=\"0\""));
+        assert!(html.contains("&lt;csrf&gt;"));
+        assert!(!html.contains("wallet_id"));
+        assert!(!html.contains("user_id"));
+        offer.current_offer_id = Some(31);
+        offer.term_kind = Some(LayerTermKind::Lifetime);
+        offer.price_minor = Some(14999);
+        let html = offer_form_html(9, &offer, "csrf");
+        assert!(html.contains("value=\"149,99\""));
+        assert!(html.contains("name=\"expected_offer_id\" value=\"31\""));
+        assert!(!html.contains("value=\"prepaid_30d\""));
+    }
+
     #[test]
     fn d_05_current_layer_book_renders_version_bound_remove_form() {
         let page = LayerCurrentBookPage {
@@ -301,6 +391,7 @@ mod tests {
                 next_after: None,
             },
             &page,
+            &offer_empty(),
             "test_csrf",
         )
         .0;

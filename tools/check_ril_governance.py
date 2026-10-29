@@ -35,7 +35,7 @@ OWNER_CALLS = {
     "release_book", "owned_book_description", "update_book_description",
     # Both D methods bind the verified session actor and check Layer owner.
     # The picker is advisory; add_book rechecks under the canonical Book lock.
-    "addable_books", "add_book", "create_once",
+    "addable_books", "add_book", "create_once", "offer_if_current",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("

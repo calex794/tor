@@ -48,6 +48,7 @@ mod complete_chapter;
 mod layer_books;
 mod layer_checkout;
 mod layer_create;
+mod layer_offer_manage;
 mod layer_storefront;
 mod library_actions;
 mod login_limiter;
@@ -228,6 +229,7 @@ fn router_inner(
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .merge(layer_books::routes())
         .merge(layer_create::routes())
+        .merge(layer_offer_manage::routes())
         .merge(layer_storefront::router())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -242,11 +244,9 @@ fn router_inner(
         app
     }
 }
-
 fn deny(status: StatusCode) -> Response {
     private_response(status, &[])
 }
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);

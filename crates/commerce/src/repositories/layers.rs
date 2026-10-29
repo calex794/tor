@@ -249,68 +249,6 @@ impl PgLayers {
         Ok(next)
     }
 
-    pub async fn publish_offer(
-        &self,
-        actor: PositiveId,
-        layer: PositiveId,
-        price_minor: i64,
-        lifetime: bool,
-    ) -> Result<i64, LayerError> {
-        if price_minor <= 0 {
-            return Err(LayerError::Invalid);
-        }
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| LayerError::Unavailable)?;
-        let locked = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM commerce_layers WHERE id=$1 AND owner_user_id=$2
-             AND status='active' FOR UPDATE",
-        )
-        .bind(layer.get())
-        .bind(actor.get())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| LayerError::Unavailable)?;
-        if locked.is_none() {
-            return Err(LayerError::Inaccessible);
-        }
-        let previous_kind: Option<String> = sqlx::query_scalar(
-            "SELECT o.term_kind FROM commerce_layers l
-             JOIN commerce_layer_offers o ON o.id=l.current_offer_id
-             WHERE l.id=$1",
-        )
-        .bind(layer.get())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| LayerError::Unavailable)?;
-        // An already offered lifetime entitlement cannot silently become
-        // a 30-day subscription on the same layer.
-        if previous_kind.as_deref() == Some("lifetime") && !lifetime {
-            return Err(LayerError::Invalid);
-        }
-        let offer: i64 = sqlx::query_scalar(
-            "INSERT INTO commerce_layer_offers(layer_id,revision,term_kind,price_minor)
-             SELECT $1,COALESCE(MAX(revision),0)+1,$2,$3
-             FROM commerce_layer_offers WHERE layer_id=$1 RETURNING id",
-        )
-        .bind(layer.get())
-        .bind(if lifetime { "lifetime" } else { "prepaid_30d" })
-        .bind(price_minor)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| LayerError::Unavailable)?;
-        sqlx::query("UPDATE commerce_layers SET current_offer_id=$2 WHERE id=$1")
-            .bind(layer.get())
-            .bind(offer)
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| LayerError::Unavailable)?;
-        tx.commit().await.map_err(|_| LayerError::Unavailable)?;
-        Ok(offer)
-    }
-
     /// A fresh wallet purchase and term, never a mutation of a prior term.
     /// A retry of the same key returns the original historical balance snapshot.
     pub async fn buy(&self, cmd: &LayerCheckoutCommand) -> Result<LayerReceipt, LayerError> {
@@ -400,15 +338,17 @@ impl PgLayers {
         {
             return Err(LayerError::Inaccessible);
         }
-        let has_books: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM commerce_layer_version_books
-             WHERE layer_version_id=$1)",
+        let book_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM commerce_layer_version_books
+             WHERE layer_version_id=$1",
         )
         .bind(cmd.version.get())
         .fetch_one(&mut *tx)
         .await
         .map_err(|_| LayerError::Unavailable)?;
-        if !has_books {
+        // S031 v1 refuses any sale whose complete composition cannot be
+        // displayed by the bounded, immutable quote page.
+        if !(1..=100).contains(&book_count) {
             return Err(LayerError::Inaccessible);
         }
         // The first subscription and every renewal take a Book SHARE lock

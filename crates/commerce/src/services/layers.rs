@@ -2,7 +2,7 @@
 use crate::{
     domain::layers::{
         LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerCurrentBookPage,
-        LayerError, LayerReceipt, OwnedLayerSummary,
+        LayerError, LayerOfferQuote, LayerOwnerOfferState, LayerReceipt, OwnedLayerSummary,
     },
     repositories::layers::PgLayers,
 };
@@ -99,6 +99,41 @@ impl LayerService {
         self.repository
             .publish_offer(actor, layer, price_minor, lifetime)
             .await
+    }
+    /// Read current offer only after checking verified owner identity in PG.
+    pub async fn owner_offer_state(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+    ) -> Result<LayerOwnerOfferState, LayerError> {
+        self.repository.owner_offer_state(actor, layer).await
+    }
+
+    /// A browser change checks the original offer and composition under lock.
+    pub async fn offer_if_current(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        expected_version: PositiveId,
+        expected_offer: Option<PositiveId>,
+        price_minor: i64,
+        lifetime: bool,
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .publish_offer_if_current(
+                actor,
+                layer,
+                expected_version,
+                expected_offer,
+                price_minor,
+                lifetime,
+            )
+            .await
+    }
+
+    /// Advisory current offer; purchase uses a separate locked D preflight.
+    pub async fn quote(&self, layer: PositiveId) -> Result<LayerOfferQuote, LayerError> {
+        self.repository.offer_quote(layer).await
     }
     pub async fn purchase(&self, cmd: &LayerCheckoutCommand) -> Result<LayerReceipt, LayerError> {
         self.repository.buy(cmd).await

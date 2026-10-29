@@ -400,6 +400,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
+        css.push_str(include_str!("../assets/newboo-comments.css"));
+        css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
