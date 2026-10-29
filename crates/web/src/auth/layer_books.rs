@@ -6,6 +6,8 @@ use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
+    routing::get,
+    Router,
 };
 use serde::Deserialize;
 use std::fmt::Write;
@@ -17,6 +19,10 @@ use tor_commerce::{
 use tor_contracts::paid_delivery::PositiveId;
 
 const PAGE_SIZE: u16 = 20;
+
+pub(super) fn routes() -> Router<AuthState> {
+    Router::new().route("/me/layers/{layer_id}/books", get(page).post(add))
+}
 
 fn enabled() -> bool {
     std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1")
