@@ -47,6 +47,14 @@ pub struct PublicPaidChapterPreview {
     pub price_minor: i64,
 }
 
+/// Public navigation does not infer the logged-in reader's paid entitlement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PublicContinuation {
+    ReadNow(u64),
+    NeedsAccess(u64),
+    WaitingForRelease,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicChapterPage {
     pub version_id: u64,
@@ -57,6 +65,17 @@ pub struct PublicChapterPage {
     pub body_markdown: String,
     pub previous_chapter_id: Option<u64>,
     pub next_chapter_id: Option<u64>,
+    pub next_chapter_is_paid: bool,
+}
+
+impl PublicChapterPage {
+    pub fn continuation(&self) -> PublicContinuation {
+        match self.next_chapter_id {
+            Some(id) if self.next_chapter_is_paid => PublicContinuation::NeedsAccess(id),
+            Some(id) => PublicContinuation::ReadNow(id),
+            None => PublicContinuation::WaitingForRelease,
+        }
+    }
 }
 
 /// This port deliberately has no method to read paid, draft, held or deleted text.

@@ -98,7 +98,9 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     assert!(html.contains("<strong>"));
     assert!(html.contains("&lt;script&gt;"));
     assert!(!html.contains("<script>"));
-    assert!(html.contains("href=\"/reader/108\""));
+    assert!(html.contains("href=\"/reader/103\""));
+    assert!(html.contains("Следующая глава — платная"));
+    assert!(!html.contains("href=\"/reader/108\""));
     assert!(!html.contains("PRIVATE-PAID-MARKER"));
     let (status, locked) = get(app.clone(), "/reader/103").await;
     assert_eq!(status, StatusCode::OK);
