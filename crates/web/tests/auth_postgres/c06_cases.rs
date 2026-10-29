@@ -89,14 +89,19 @@ pub(super) async fn purchased_version_http_journey(
     assert_eq!(paywall.headers()[header::CACHE_CONTROL], "no-store");
     assert_eq!(paywall.headers()["x-robots-tag"], "noindex, nofollow");
     assert_eq!(paywall.headers()["x-content-type-options"], "nosniff");
-    let csp = paywall.headers()["content-security-policy"].to_str().unwrap();
+    let csp = paywall.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
     assert!(csp.contains("script-src 'none'"));
     assert!(csp.contains("frame-ancestors 'none'"));
     let html = body_of(paywall).await;
     assert!(html.contains("Для чтения нужен доступ"));
     assert!(html.contains("href=\"/login\""));
     assert!(html.contains("href=\"/books/95810#chapters\""));
-    assert!(!html.contains(SECRET), "paid V1 leaked through public paywall");
+    assert!(
+        !html.contains(SECRET),
+        "paid V1 leaked through public paywall"
+    );
     assert!(!html.contains("C06-PRIVATE-V2-MARKER"), "paid V2 leaked");
     assert!(!html.contains("<script>"), "paywall must not run scripts");
     let anonymous = owned_get(app, "", GET_V1, StatusCode::UNAUTHORIZED).await;
