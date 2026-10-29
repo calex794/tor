@@ -866,3 +866,83 @@ async fn f_02_taxonomy_combination_revocation_and_public_options() {
     assert_eq!(remaining.items.len(), 1);
     assert_ne!(remaining.items[0].id, revocable as u64);
 }
+
+#[tokio::test]
+#[ignore = "requires isolated tor_ci PostgreSQL and latest migrations"]
+async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database URL");
+    let pool = PgPool::connect(&url).await.expect("connect to test database");
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(database, "tor_ci", "never touch production");
+
+    // Repeated values must appear only once; no hidden book can keep a
+    // supposedly cached category alive after a committed publication change.
+    let book_id: i64 = sqlx::query_scalar(
+        "INSERT INTO books
+             (source_identity,target_language,title,genres,tags,fandoms,visibility)
+         VALUES ('ci:perf233:live-taxonomy','ru','PERF 233 Facet Test',
+                 ARRAY['aaa-perf233-genre','aaa-perf233-genre'],
+                 ARRAY['aaa-perf233-tag'],
+                 ARRAY['aaa-perf233-fandom'],'public')
+         ON CONFLICT (source_identity,target_language)
+         DO UPDATE SET visibility='public',admin_hold=FALSE,is_deleted=FALSE,
+                       genres=EXCLUDED.genres,tags=EXCLUDED.tags,
+                       fandoms=EXCLUDED.fandoms
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let search = tor_search::repositories::PgSearch::new(pool.clone());
+    let initial = search.taxonomy_options().await.unwrap();
+    assert_eq!(
+        initial
+            .genres
+            .iter()
+            .filter(|value| value.as_str() == "aaa-perf233-genre")
+            .count(),
+        1,
+        "duplicates must not affect the taxonomy selector"
+    );
+    assert!(initial.tags.contains(&"aaa-perf233-tag".to_owned()));
+    assert!(initial.fandoms.contains(&"aaa-perf233-fandom".to_owned()));
+    assert!(initial.genres.len() <= 100);
+    assert!(initial.tags.len() <= 100);
+    assert!(initial.fandoms.len() <= 100);
+    assert!(initial.genres.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert!(initial.tags.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert!(initial.fandoms.windows(2).all(|pair| pair[0] <= pair[1]));
+
+    for statement in [
+        "UPDATE books SET admin_hold=TRUE WHERE id=$1",
+        "UPDATE books SET admin_hold=FALSE,visibility='draft' WHERE id=$1",
+        "UPDATE books SET visibility='public',is_deleted=TRUE WHERE id=$1",
+        "UPDATE books SET is_deleted=FALSE,genres='{}',tags='{}',fandoms='{}' WHERE id=$1",
+    ] {
+        sqlx::query(statement).bind(book_id).execute(&pool).await.unwrap();
+        let hidden = search.taxonomy_options().await.unwrap();
+        assert!(!hidden.genres.contains(&"aaa-perf233-genre".to_owned()));
+        assert!(!hidden.tags.contains(&"aaa-perf233-tag".to_owned()));
+        assert!(!hidden.fandoms.contains(&"aaa-perf233-fandom".to_owned()));
+    }
+
+    // The partial index must include a newly published row without any lag.
+    sqlx::query(
+        "UPDATE books
+         SET genres=ARRAY['aaa-perf233-genre'],
+             tags=ARRAY['aaa-perf233-tag'],
+             fandoms=ARRAY['aaa-perf233-fandom']
+         WHERE id=$1",
+    )
+    .bind(book_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let restored = search.taxonomy_options().await.unwrap();
+    assert!(restored.genres.contains(&"aaa-perf233-genre".to_owned()));
+    assert!(restored.tags.contains(&"aaa-perf233-tag".to_owned()));
+    assert!(restored.fandoms.contains(&"aaa-perf233-fandom".to_owned()));
+}
