@@ -4,7 +4,7 @@ for (const button of document.querySelectorAll('[data-paid-upgrade]')) {
     const chapter = button.dataset.chapterId;
     const purchase = button.dataset.purchaseId;
     const status = button.parentElement.querySelector('[data-paid-upgrade-status]');
-    const csrf = document.cookie.split('; ').find(x => x.startsWith('__Host-tor-csrf=') || x.startsWith('tor-dev-csrf='));
+    const csrf = document.querySelector('[data-paid-library-csrf]')?.dataset.paidLibraryCsrf;
     if (!chapter || !purchase || !csrf) {
       status.textContent = 'Не удалось подтвердить запрос. Обновите страницу.';
       return;
@@ -17,7 +17,7 @@ for (const button of document.querySelectorAll('[data-paid-upgrade]')) {
         credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': decodeURIComponent(csrf.split('=').slice(1).join('=')),
+          'X-CSRF-Token': csrf,
         },
         body: JSON.stringify({ purchase_id: purchase }),
       });
