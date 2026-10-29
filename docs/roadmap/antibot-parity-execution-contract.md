@@ -118,6 +118,7 @@ E-02/E-06/E-11, F-07/F-09/F-10/F-11, I-02/I-12/I-13 и RIL-04.
 
 ## Связанные дорожные карты
 
+- [ACCESS-AUDIT-01…06: IP → account → session, GeoIP/risk и пользовательский контроль](account-access-audit-parity-v1.md). История входов **не равна** учёту rate-limit по IP, а геоаномалии требуют привязки к конкретной сессии.
 - [61 functions and F043](functions-coverage-audit.tsv)
 - [RIL-04 / A-09 dependency](../contracts/ril-platform-v1.md)
 - [AE-A04 account spray](domains-a-e-parity-2026-10-26.md)
