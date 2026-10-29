@@ -99,9 +99,12 @@ impl PgReferrals {
             let manual_candidate = sqlx::query(
                 "SELECT c.code,c.owner_user_id,c.program_type,NULL::bigint AS capture_id \
                  FROM referral_codes c \
-                 WHERE c.code=$1 AND c.status='active'",
+                 JOIN account_registration_referral_outbox o ON o.user_id=$2 \
+                 WHERE c.code=$1 AND c.status='active' \
+                   AND c.created_at <= o.registered_at",
             )
             .bind(code)
+            .bind(user_id)
             .fetch_optional(&mut *tx)
             .await?;
             if manual_candidate.is_some() {
@@ -119,9 +122,10 @@ impl PgReferrals {
                 "SELECT c.code,c.owner_user_id,c.program_type,r.id AS capture_id \
                  FROM referral_captures r JOIN referral_codes c ON c.code=r.referral_code \
                  JOIN account_registration_referral_outbox o ON o.user_id=$2 \
-                 WHERE r.guest_hash=$1 AND r.status='active' \
+                 WHERE r.guest_hash=$1 AND r.status IN ('active','expired','consumed') \
                    AND r.captured_at <= o.registered_at AND r.expires_at > o.registered_at \
-                   AND c.status='active' LIMIT 1",
+                   AND c.status='active' \
+                 ORDER BY r.captured_at ASC, r.id ASC LIMIT 1",
             )
             .bind(hash)
             .bind(user_id)
@@ -142,8 +146,10 @@ impl PgReferrals {
                     "INSERT INTO referral_attributions \
                      (program_type,subject_user_id,referrer_user_id,referral_code, \
                       source_capture_id,attribution_source,attributed_at,expires_at) \
-                     VALUES($1,$2,$3,$4,$5,$6,now(), \
-                      CASE WHEN $1='creator_income' THEN now()+INTERVAL '365 days' ELSE NULL END) \
+                     SELECT $1,$2,$3,$4,$5,$6,registered_at, \
+                      CASE WHEN $1='creator_income' \
+                           THEN registered_at + INTERVAL '365 days' ELSE NULL END \
+                     FROM account_registration_referral_outbox WHERE user_id=$2 \
                      ON CONFLICT(program_type,subject_user_id) DO NOTHING",
                 )
                 .bind(&program)
