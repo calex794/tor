@@ -33,13 +33,17 @@ def fixtures():
 
 
 class MockAPI:
-    def __init__(self, runs, jobs, main=SHA, total=None):
+    def __init__(self, runs, jobs, main=SHA, total=None, main_after=None):
         self.runs, self.jobs, self.main = runs, jobs, main
+        self.main_after = main_after
+        self.main_reads = 0
         self.total = len(runs) if total is None else total
 
     def get(self, path, params=None):
         if path.endswith("/git/ref/heads/main"):
-            return {"ref": "refs/heads/main", "object": {"sha": self.main}}
+            self.main_reads += 1
+            sha = self.main_after if self.main_reads > 1 and self.main_after else self.main
+            return {"ref": "refs/heads/main", "object": {"sha": sha}}
         if path.endswith("/actions/runs"):
             return {"workflow_runs": self.runs, "total_count": self.total}
         if path.endswith("/jobs"):
@@ -116,6 +120,13 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         _, runs, jobs = fixtures()
         with self.assertRaises(EvidenceError):
             collect(MockAPI(runs, jobs, main=OTHER), SHA, ROOT)
+
+    def test_main_moves_while_checking_jobs_fails_closed(self):
+        _, runs, jobs = fixtures()
+        api = MockAPI(runs, jobs, main=SHA, main_after=OTHER)
+        with self.assertRaises(EvidenceError):
+            collect(api, SHA, ROOT)
+        self.assertEqual(api.main_reads, 2)
 
     def test_incomplete_workflow_pagination_fails_closed(self):
         _, runs, jobs = fixtures()
