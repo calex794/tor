@@ -45,18 +45,21 @@ async fn account(accounts: &PgAccounts, role: &str) -> (i64, String) {
     (id, token)
 }
 
+type PurchaseRequestHeaders<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+);
+
 async fn post(
     app: &Router,
     path: &str,
     body: &str,
-    (session, csrf_cookie, csrf_header, origin, key): (
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-    ),
+    headers: PurchaseRequestHeaders<'_>,
 ) -> Response {
+    let (session, csrf_cookie, csrf_header, origin, key) = headers;
     let mut request = Request::builder()
         .method("POST")
         .uri(path)
