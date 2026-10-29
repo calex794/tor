@@ -50,6 +50,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
+#[path = "paid_grants_s3_pg/direct_fixtures.rs"]
+mod direct_fixtures;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -435,16 +437,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
     let purchase_id = purchase.purchase_id.get();
-    assert_eq!(
-        scalar(
-            &url,
-            &format!(
-                "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
-            ),
-        ),
-        0,
-        "checkout itself cannot record first protected issuance"
-    );
+    direct_fixtures::assert_not_issued(&url, purchase_id);
     // A second fully verified paid edition proves that the TOC contains
     // live links, not synthetic chapter IDs or a public TOC.
     let chapter_two = scalar(
@@ -585,27 +578,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(purchased.headers()["x-robots-tag"], "noindex");
     let first = decode(purchased).await;
     assert_eq!(first["version_id"], v1.to_string());
-    assert_eq!(
-        pg(
-            &url,
-            &format!(
-                "SELECT chapter_id || ':' || version_id || ':' || object_kind
-                 FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_id}"
-            ),
-        ),
-        format!("{chapter}:{v1}:chapter"),
-        "real paid MinIO response must mark the exact direct purchased V1"
-    );
-    assert_eq!(
-        scalar(
-            &url,
-            &format!(
-                "SELECT COUNT(*) FROM chapter_purchase_first_exposures WHERE purchase_id={purchase_two_id}"
-            ),
-        ),
-        0,
-        "opening one purchased chapter cannot mark a different purchase"
-    );
+    direct_fixtures::assert_first_issued(&url, purchase_id, chapter, v1, purchase_two_id);
     assert_eq!(first["schema"], "tor.paid_delivery.v1");
     assert!(!first.to_string().contains(MARKDOWN), "no plaintext in API");
 
