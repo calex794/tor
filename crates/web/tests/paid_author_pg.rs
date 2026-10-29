@@ -23,8 +23,7 @@ use tor_books::{
 };
 use tor_contracts::paid_delivery::{
     ChapterVersionPort, ChapterVersionRef, EncryptedObjectKind, ObjectRef, PositiveId,
-    PrivateObjectDeliveryPort,
-    SecretValue,
+    PrivateObjectDeliveryPort, SecretValue,
 };
 use tor_reading::repositories::PgReader;
 use tor_storage::{
@@ -186,7 +185,8 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let (owner, owner_session) = user(&accounts, "paid-author-v2-ci-owner@example.invalid").await;
-    let (other_id, other_session) = user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
+    let (other_id, other_session) =
+        user(&accounts, "paid-author-v2-ci-other@example.invalid").await;
     let book: i64 = pg(
         &url,
         &format!(
