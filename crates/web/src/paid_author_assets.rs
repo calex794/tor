@@ -58,8 +58,33 @@ impl<S: PrivateObjectStore> PgPaidAuthorAssets<S> {
         bytes: &[u8],
         mime: &str,
     ) -> Result<ObjectId, AuthorError> {
-        if !(1..=64).contains(&ordinal) {
+        if !(1..=64).contains(&ordinal)
+            || !matches!(mime, "image/png" | "image/jpeg" | "image/webp")
+            || bytes.is_empty()
+            || bytes.len() > 8 * 1024 * 1024
+        {
             return Err(AuthorError::Invalid);
+        }
+        // A retry of the library-only upload must preserve the original
+        // server-issued UUID. Never mint another ID for identical attached
+        // bytes, but still fence owner, command payload and publication.
+        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        if pending.published {
+            return Err(AuthorError::Conflict);
+        }
+        let pinned = ChapterVersionRef {
+            chapter_id: PositiveId::new(pending.chapter_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+            version_id: PositiveId::new(pending.version_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+        };
+        let digest = tor_storage::services::crypto::sha256_bytes(bytes);
+        if let Some(existing) = self
+            .assets
+            .existing_draft_upload(actor, pinned, ordinal, mime, &digest)
+            .await?
+        {
+            return Ok(existing);
         }
         let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
         self.upload_to_draft_with_id(actor, request, ordinal, bytes, mime, &object_id)
