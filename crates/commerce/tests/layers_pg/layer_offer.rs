@@ -422,3 +422,126 @@ async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_parallel_buy_keys_serialize_wallet_and_renewal_chain() {
+    let (pool, repo, owner, buyer, book) = setup("parallel-buys").await;
+    let (layer, version, published) = offer(&repo, owner, book, 250, false).await;
+    let first_command = cmd(buyer, layer, published, version, 250, 'T');
+    let (first, replay) = tokio::join!(repo.buy(&first_command), repo.buy(&first_command));
+    let (first, replay) = (first.unwrap(), replay.unwrap());
+    assert_eq!(first.term_id, replay.term_id);
+    assert_eq!(first.balance_after_minor, 1250);
+    assert_eq!(replay.balance_after_minor, 1250);
+    assert_ne!(first.replayed, replay.replayed);
+
+    // Two different commands are two voluntary purchases. Locking the buyer
+    // wallet must serialize the renewed 30-day terms rather than overlap them.
+    let second_command = cmd(buyer, layer, published, version, 250, 'U');
+    let third_command = cmd(buyer, layer, published, version, 250, 'V');
+    let (second, third) = tokio::join!(
+        repo.buy(&second_command),
+        repo.buy(&third_command),
+    );
+    let (second, third) = (second.unwrap(), third.unwrap());
+    assert_ne!(first.term_id, second.term_id);
+    assert_ne!(first.term_id, third.term_id);
+    assert_ne!(second.term_id, third.term_id);
+    assert!(!second.replayed && !third.replayed);
+
+    let (terms, debits, balance): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM commerce_layer_terms
+            WHERE user_id=$1 AND layer_id=$2),
+           (SELECT COUNT(*) FROM reader_wallet_entries
+            WHERE user_id=$1 AND kind='layer_purchase'),
+           (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1)",
+    )
+    .bind(buyer)
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((terms, debits, balance), (3, 3, 750));
+
+    let continuous: bool = sqlx::query_scalar(
+        "SELECT COUNT(*)=3 AND COUNT(DISTINCT access_origin_version_id)=1
+                AND MAX(expires_at)=MIN(expires_at)+INTERVAL '60 days'
+         FROM commerce_layer_terms WHERE user_id=$1 AND layer_id=$2",
+    )
+    .bind(buyer)
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(continuous, "parallel renewals must preserve all 90 paid days");
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_concurrent_reprice_and_checkout_never_charge_a_stale_offer() {
+    let (pool, repo, owner, buyer, book) = setup("reprice-race").await;
+    let layer = repo.create_layer(id(owner), "Race Layer").await.unwrap();
+    let version = repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
+    let old_offer = repo
+        .publish_offer_if_current(id(owner), id(layer), id(version), None, 250, false)
+        .await
+        .unwrap();
+    let old_command = cmd(buyer, layer, old_offer, version, 250, 'W');
+
+    // If checkout wins the Layer lock, the old offer may settle. If reprice
+    // wins, checkout must fail closed. Neither order may debit 550 without
+    // an explicit 550 quote or write to the previous paid term.
+    let (published, attempted) = tokio::join!(
+        repo.publish_offer_if_current(
+            id(owner),
+            id(layer),
+            id(version),
+            Some(id(old_offer)),
+            550,
+            false,
+        ),
+        repo.buy(&old_command),
+    );
+    let published = published.unwrap();
+    let quote = repo.offer_quote(id(layer)).await.unwrap();
+    assert_eq!(quote.offer_id, published);
+    assert_eq!(quote.price_minor, 550);
+    let accepted = match attempted {
+        Ok(receipt) => {
+            assert_eq!(receipt.balance_after_minor, 1250);
+            assert!(!receipt.replayed);
+            let frozen: (i64, i64) = sqlx::query_as(
+                "SELECT offer_id,amount_minor FROM commerce_layer_terms WHERE id=$1",
+            )
+            .bind(receipt.term_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(frozen, (old_offer, 250));
+            true
+        }
+        Err(LayerError::StaleOffer) => false,
+        other => panic!("unexpected concurrent checkout outcome: {other:?}"),
+    };
+    let (terms, debits, balance): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM commerce_layer_terms
+            WHERE user_id=$1 AND layer_id=$2),
+           (SELECT COUNT(*) FROM reader_wallet_entries
+            WHERE user_id=$1 AND kind='layer_purchase'),
+           (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1)",
+    )
+    .bind(buyer)
+    .bind(layer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (terms, debits, balance),
+        if accepted { (1, 1, 1250) } else { (0, 0, 1500) }
+    );
+    pool.close().await;
+}
