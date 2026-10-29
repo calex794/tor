@@ -387,6 +387,26 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
     assert!(!terms.contains("SECRET-DRAFT-LAYER"));
     let bought_page =
         html(get(&app, &format!("{path}?purchased=1"), Some(&buyer_token)).await).await;
-    assert!(bought_page.contains("Покупка подтверждена"));
+    assert!(bought_page.contains("Доступ к пакету сейчас действует"));
+    // Store only disposable CI renderings; they are never uploaded as artifacts.
+    // Browser screenshots are taken from these genuine PostgreSQL-backed Rust pages.
+    if let Ok(location) = std::env::var("TOR_LAYER_VISUAL_FIXTURE_PATH") {
+        let runner = std::env::var("RUNNER_TEMP").expect("CI temp directory");
+        let destination = std::path::Path::new(&location);
+        assert_eq!(
+            destination.parent(),
+            Some(std::path::Path::new(&runner)),
+            "Layer visual fixture must stay inside temporary CI directory"
+        );
+        let fixture = serde_json::json!({
+            "guest": public,
+            "buyer": page,
+            "library": terms,
+            "purchased": bought_page,
+            "layer_id": layer,
+            "book_id": book,
+        });
+        std::fs::write(destination, serde_json::to_vec(&fixture).unwrap()).unwrap();
+    }
     pool.close().await;
 }

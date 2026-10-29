@@ -85,7 +85,7 @@ pub fn offer_page(
              <input type=\"hidden\" name=\"expected_offer_id\" value=\"{}\">
              <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">
              <input type=\"hidden\" name=\"expected_price_minor\" value=\"{}\">
-             <label class=\"layer-purchase-confirm\"><input type=\"checkbox\" name=\"confirm\" value=\"1\">
+             <label class=\"layer-purchase-confirm\"><input type=\"checkbox\" name=\"confirm\" value=\"1\" required>
              <span>Подтверждаю разовую покупку за {price}. {kind}. Автосписаний нет.</span></label>
              <button type=\"submit\" class=\"layer-offer__box layer-offer__box--button\">{button}</button>
              </form>",
