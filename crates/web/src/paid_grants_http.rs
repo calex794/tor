@@ -333,7 +333,7 @@ async fn paid_reader(
         &cookies,
     );
     let csp = format!(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; \
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; \
          connect-src 'self' {s3_origin}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     );
     let Ok(value) = HeaderValue::from_str(&csp) else {

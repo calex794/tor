@@ -123,11 +123,13 @@ jobs:
           node --check crates/web/assets/newboo-layer-reader.mjs
           node --check tools/layer_reader_minio_chromium_e2e.cjs
           node --check tools/paid_reader_minio_chromium_e2e.cjs
+          node --check tools/paid_reader_private_media_browser.cjs
           cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/layer_reader_minio_chromium_e2e.cjs
           node tools/paid_reader_minio_chromium_e2e.cjs
+          node tools/paid_reader_private_media_browser.cjs
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
         if: always()
         uses: actions/upload-artifact@v4

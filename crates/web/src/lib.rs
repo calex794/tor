@@ -1,6 +1,6 @@
 //! Routing shell only: book business logic remains in tor-books.
 use axum::{
-    extract::{Path, Query, State},
+    extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -36,9 +36,13 @@ mod operator_overview;
 mod operator_traces;
 mod pages;
 #[cfg(feature = "s3-paid")]
+pub mod paid_author_assets;
+#[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
+#[cfg(feature = "s3-paid")]
+pub use paid_author_assets::PgPaidAuthorAssets;
 #[cfg(feature = "s3-paid")]
 pub use paid_author_publish::PgPaidAuthorPublisher;
 #[cfg(feature = "s3-paid")]
@@ -203,8 +207,15 @@ async fn book_error(state: &AppState, status: StatusCode) -> Response {
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
 ) -> Response {
+    // Require the canonical numeric spelling before consulting public book data.
+    if !tor_search::domain::seo_urls::BookUrl::from_id(id)
+        .is_some_and(|book_url| book_url.matches_path(uri.path()))
+    {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    }
     if let Some(reader) = state.reader.as_ref() {
         let limit = query.limit.unwrap_or(100);
         let book = match reader
@@ -500,6 +511,28 @@ mod tests {
         ] {
             assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
         }
+    }
+
+    #[tokio::test]
+    async fn seo_03_book_urls_have_one_public_spelling() {
+        for path in ["/books/1", "/books/1?limit=1"] {
+            assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
+        }
+        for path in ["/books/0", "/books/01", "/books/0001"] {
+            assert_eq!(get(path).await.0, StatusCode::NOT_FOUND, "{path}");
+        }
+        for path in [
+            "/books/+1",
+            "/books/%31",
+            "/books/1/",
+            "/books/18446744073709551616",
+            "/books/%D0%BA",
+        ] {
+            let (status, html) = get(path).await;
+            assert_ne!(status, StatusCode::OK, "{path}");
+            assert!(!html.contains("book-hero-card"), "{path}");
+        }
+        assert_eq!(get("/books/3").await.0, StatusCode::NOT_FOUND);
     }
     #[tokio::test]
     async fn hidden_book_never_reaches_public_pages() {
