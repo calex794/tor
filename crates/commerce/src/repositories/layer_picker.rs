@@ -2,11 +2,41 @@
 //! The picker is not a grant to write: add_book() takes the Book lock and
 //! rechecks every condition, including races with team membership changes.
 use super::layers::PgLayers;
-use crate::domain::layers::{LayerBookCandidate, LayerBookCandidatePage, LayerError};
+use crate::domain::layers::{LayerBookCandidate, LayerBookCandidatePage, LayerError, OwnedLayerSummary};
 use sqlx::Row;
 use tor_contracts::paid_delivery::PositiveId;
 
 impl PgLayers {
+    /// Private author navigation, not a public Layer catalogue.
+    /// Bounded results and actor ownership are enforced in SQL.
+    pub async fn owned_layers(
+        &self,
+        actor: PositiveId,
+        limit: u16,
+    ) -> Result<Vec<OwnedLayerSummary>, LayerError> {
+        if !(1..=100).contains(&limit) {
+            return Err(LayerError::Invalid);
+        }
+        let rows = sqlx::query(
+            "SELECT id,title FROM commerce_layers
+             WHERE owner_user_id=$1 AND status='active'
+             ORDER BY id DESC LIMIT $2",
+        )
+        .bind(actor.get())
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(OwnedLayerSummary {
+                    layer_id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
+                })
+            })
+            .collect()
+    }
+
     /// Keyset-paginated, bounded books that this actor may add to a Layer now.
     /// A collaborator with even a zero-percent share makes a Book ineligible.
     /// Historical (removed) memberships are not considered active team seats.
