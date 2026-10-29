@@ -326,7 +326,7 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
         let chapter = escape_html(&item.chapter_title);
         write!(
             cards,
-            "<article class=\"library-card paid-library__item\"><div><p class=\"eyebrow\">Купленная редакция {version_no}</p><h2>{book}</h2><p>Глава {chapter_no}. {chapter}</p></div><a class=\"button\" href=\"/read/paid/{chapter_id}?purchase_id={purchase_id}\">Читать купленную редакцию</a></article>",
+            "<article class=\"library-card paid-library__item\"><div><p class=\"eyebrow\">Купленная редакция {version_no}</p><h2>{book}</h2><p>Глава {chapter_no}. {chapter}</p></div><div class=\"paid-library__actions\"><a class=\"button\" href=\"/read/paid/{chapter_id}?purchase_id={purchase_id}\">Читать купленную редакцию</a><button class=\"button button--secondary\" type=\"button\" data-paid-upgrade data-chapter-id=\"{chapter_id}\" data-purchase-id=\"{purchase_id}\">Проверить обновление</button><span data-paid-upgrade-status role=\"status\" aria-live=\"polite\"></span></div></article>",
             version_no = item.version_no,
             chapter_no = item.chapter_no,
             chapter_id = item.chapter_id,
@@ -343,7 +343,7 @@ pub fn purchased_chapters_page(page: &ReadablePurchasesPage) -> Html<String> {
     layout(
         "Купленные главы",
         "Личный список доступных купленных редакций.",
-        &body,
+        &format!("{body}<script type=\\"module\\" src=\\"/assets/newboo-paid-library-upgrade.mjs\\"></script>"),
     )
 }
 
