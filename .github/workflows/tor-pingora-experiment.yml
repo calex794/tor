@@ -1,0 +1,150 @@
+name: TOR Pingora isolated experiment
+on:
+  pull_request:
+    paths:
+      - 'experiments/pingora/**'
+      - '.github/workflows/tor-pingora-experiment.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile-and-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Generate isolated dependency lock
+        run: cargo generate-lockfile --manifest-path experiments/pingora/Cargo.toml
+      - name: Check formatting
+        run: cargo fmt --manifest-path experiments/pingora/Cargo.toml -- --check
+      - name: Compile and test
+        run: cargo test --manifest-path experiments/pingora/Cargo.toml --locked --all-targets
+      - name: Clippy
+        run: cargo clippy --manifest-path experiments/pingora/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Loopback smoke
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd experiments/pingora
+          if PINGORA_EXPERIMENT=0 cargo run --locked --quiet; then exit 1; fi
+          if PINGORA_EXPERIMENT=1 PINGORA_EXPERIMENT_BIND=0.0.0.0:6193 cargo run --locked --quiet; then exit 1; fi
+          python3 -m http.server 6194 --bind 127.0.0.1 >/tmp/tor-pingora-upstream.log 2>&1 &
+          upstream_pid=$!
+          proxy_pid=''
+          trap 'kill "$upstream_pid" "$proxy_pid" 2>/dev/null || true' EXIT
+          PINGORA_EXPERIMENT=1 PINGORA_EXPERIMENT_UPSTREAM=127.0.0.1:6194 cargo run --locked --quiet >/tmp/tor-pingora.log 2>&1 &
+          proxy_pid=$!
+          ready=0
+          for _ in $(seq 1 40); do
+            if curl --fail --silent --max-time 1 http://127.0.0.1:6193/ -o /tmp/pingora-response; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1 || { cat /tmp/tor-pingora.log; exit 1; }
+          grep -q 'Directory listing' /tmp/pingora-response
+          test "$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:6193/not-a-file)" = 404
+          echo 'Pingora loopback smoke: PASS'
+  three-way-benchmark:
+    needs: compile-and-safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install benchmark prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev wrk
+      - name: Generate isolated dependency lock
+        run: cargo generate-lockfile --manifest-path experiments/pingora/Cargo.toml
+      - name: Build synthetic Axum fixture and Pingora
+        run: cargo build --manifest-path experiments/pingora/Cargo.toml --locked --release --bins --examples
+      - name: Three-way controlled benchmark (1 vCPU, 1 GiB)
+        run: bash experiments/pingora/benchmark.sh
+      - name: Preserve all benchmark measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-pingora-1cpu-1gib-comparison
+          path: experiments/pingora/results/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  fixed-rate-profile:
+    needs: compile-and-safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Install Rust and proxy requirements
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Build optimized test server and proxy
+        run: |
+          cargo generate-lockfile --manifest-path experiments/pingora/Cargo.toml
+          cargo build --manifest-path experiments/pingora/Cargo.toml --locked --release --bins --examples
+      - name: Fixed arrival rate and process counters
+        run: bash experiments/pingora/fixed-profile.sh
+      - name: Preserve process profiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-pingora-fixed-rate-profile
+          path: experiments/pingora/fixed-results/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  perf-hotspots:
+    needs: compile-and-safety
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Install build dependencies and optional perf
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+          sudo apt-get install -y linux-tools-common linux-tools-generic || echo PERF_PACKAGE_UNAVAILABLE
+      - name: Build debuggable release binaries
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: '1'
+        run: |
+          cargo generate-lockfile --manifest-path experiments/pingora/Cargo.toml
+          cargo build --manifest-path experiments/pingora/Cargo.toml --locked --release --bins --examples
+      - name: Isolated optional CPU instruction and symbol profile
+        shell: bash
+        run: bash experiments/pingora/perf-profile.sh
+      - name: Make privileged perf output readable
+        if: always()
+        shell: bash
+        run: |
+          if [ -d experiments/pingora/perf-results ]; then
+            sudo chown -R "$(id -u):$(id -g)" experiments/pingora/perf-results
+            chmod -R u+rwX experiments/pingora/perf-results
+          fi
+      - name: Preserve CPU profiling results and availability
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-pingora-perf-hotspots
+          path: experiments/pingora/perf-results/**
+          if-no-files-found: warn
+          retention-days: 14

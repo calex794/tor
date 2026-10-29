@@ -67,7 +67,18 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_no_unknown_automatic_suite_or_missing_harness_in_registry(self):
         known = {filename for filename, _ in SUITES.values()} | {"rules.yml", "ci-selection.yml"} | MANUAL_WORKFLOWS
-        self.assertEqual({p.name for p in (ROOT/".github/workflows").glob("*.yml")}, known)
+        # The isolated Pingora benchmark is not a production test suite:
+        # it runs only for its own paths and can never deploy.
+        experiment = "tor-pingora-experiment.yml"
+        self.assertEqual({p.name for p in (ROOT/".github/workflows").glob("*.yml")}, known | {experiment})
+        source = (ROOT/".github/workflows"/experiment).read_text()
+        self.assertIn("  pull_request:", source)
+        self.assertIn("      - 'experiments/pingora/**'", source)
+        self.assertNotIn("  push:", source)
+        self.assertNotIn("  workflow_run:", source)
+        self.assertNotIn("secrets.", source)
+        self.assertNotIn("sudo systemctl", source)
+        self.assertIn("cargo test --manifest-path experiments/pingora/Cargo.toml", source)
         for path, suites in TEST_SUITES.items():
             with self.subTest(path=path):
                 self.assertTrue((ROOT/path).is_file())
