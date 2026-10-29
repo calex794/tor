@@ -89,7 +89,9 @@ pub fn router_with_postgres_reading_auth_cover_uploads(
 ) -> Router {
     let auth_reader = reader.clone();
     let follows = super::book_follow_page::FollowBookControl::new(
-        accounts.clone(), secure, public_origin.clone(),
+        accounts.clone(),
+        secure,
+        public_origin.clone(),
     );
     let uploads = auth::router_with_cover_uploads(
         accounts,
