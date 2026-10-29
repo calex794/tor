@@ -1,8 +1,8 @@
 //! D-05: business-facing layer operations; SQL and money authority stay in D repository.
 use crate::{
     domain::layers::{
-        LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerError, LayerReceipt,
-        OwnedLayerSummary,
+        LayerBookCandidatePage, LayerCheckoutCommand, LayerCreateReceipt, LayerCurrentBookPage,
+        LayerError, LayerReceipt, OwnedLayerSummary,
     },
     repositories::layers::PgLayers,
 };
@@ -36,6 +36,17 @@ impl LayerService {
     ) -> Result<Vec<OwnedLayerSummary>, LayerError> {
         self.repository.owned_layers(actor, limit).await
     }
+    /// The owner's current composition with a version for CAS removal.
+    pub async fn current_books(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        limit: u16,
+    ) -> Result<LayerCurrentBookPage, LayerError> {
+        self.repository.current_books(actor, layer, after, limit).await
+    }
+
     /// UI list is advisory; the write performs a locked recheck.
     pub async fn addable_books(
         &self,
@@ -63,6 +74,18 @@ impl LayerService {
         book: PositiveId,
     ) -> Result<i64, LayerError> {
         self.repository.remove_book(actor, layer, book).await
+    }
+    /// Browser form removal rejects stale composition revisions.
+    pub async fn remove_book_if_current(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        book: PositiveId,
+        expected_version: PositiveId,
+    ) -> Result<i64, LayerError> {
+        self.repository
+            .remove_book_if_current(actor, layer, book, expected_version)
+            .await
     }
     pub async fn offer(
         &self,
