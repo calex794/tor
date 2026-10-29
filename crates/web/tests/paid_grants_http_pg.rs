@@ -217,7 +217,9 @@ async fn s065_alternate_reader_access_matrix(
             }
             let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
             assert!(
-                !bytes.windows(BODY.len()).any(|part| part == BODY.as_bytes()),
+                !bytes
+                    .windows(BODY.len())
+                    .any(|part| part == BODY.as_bytes()),
                 "paid plaintext leaked on {path}"
             );
             assert!(
