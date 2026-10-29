@@ -418,6 +418,10 @@ fn make_router(
             get(pages::paid_reader_script),
         )
         .route(
+            "/assets/newboo-paid-library-upgrade.mjs",
+            get(pages::paid_library_upgrade_script),
+        )
+        .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),
         )
