@@ -10,7 +10,15 @@ const ROUTES: [RouteRegistration; 80] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
-    RouteRegistration::new("/reader/{id}", "GET", "/reader/", Prefix, Page, Reading, Read), // 3
+    RouteRegistration::new(
+        "/reader/{id}",
+        "GET",
+        "/reader/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 3
     RouteRegistration::new(
         "/assets/site.css",
         "GET",
@@ -583,15 +591,7 @@ const ROUTES: [RouteRegistration; 80] = [
         Dashboard,
         Write,
     ), // 78
-    RouteRegistration::new(
-        "/api/v1/layers/{id}/purchase",
-        "POST",
-        "/api/v1/layers/",
-        Prefix,
-        Api,
-        ProductArea::Billing,
-        Write,
-    ), // 79
+    LAYER_CHECKOUT_ROUTE, // 79
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {

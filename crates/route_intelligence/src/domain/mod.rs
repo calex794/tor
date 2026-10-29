@@ -71,6 +71,17 @@ pub struct RouteRegistration {
     pub risk: RiskHint,
 }
 
+/// Checkout route counted in the static taxonomy audit of domain/mod.rs.
+pub(super) const LAYER_CHECKOUT_ROUTE: RouteRegistration = RouteRegistration::new(
+    "/api/v1/layers/{id}/purchase",
+    "POST",
+    "/api/v1/layers/",
+    RouteMatchKind::Prefix,
+    TrafficSurface::Api,
+    ProductArea::Billing,
+    CostClass::Write,
+);
+
 impl RouteRegistration {
     const fn new(
         template: &'static str,
