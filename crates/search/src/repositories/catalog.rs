@@ -281,29 +281,29 @@ pub struct TaxonomyOptions {
 }
 
 pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, SearchError> {
-    // Bounded output; skip rows with empty arrays before projecting each
-    // facet. Separate partial indexes make sparse categories cheap while
-    // leaving the planner free to use sequential scans on dense categories.
-    // No cache: revoking publication or access immediately changes the result.
+    // Bounded output; exclude empty arrays before unnesting each facet.
+    // The <> '{}' predicate lets PostgreSQL use array MCV statistics to
+    // distinguish sparse indexed scans from dense sequential scans.
+    // No cache: revoking publication or access changes the next read.
     const SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
             SELECT DISTINCT unnest(genres) AS name FROM books
             WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-              AND cardinality(genres) > 0
+              AND genres <> '{}'::text[]
             ORDER BY name LIMIT 100
         ) g
         UNION ALL
         SELECT 'tag' AS kind, name FROM (
             SELECT DISTINCT unnest(tags) AS name FROM books
             WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-              AND cardinality(tags) > 0
+              AND tags <> '{}'::text[]
             ORDER BY name LIMIT 100
         ) t
         UNION ALL
         SELECT 'fandom' AS kind, name FROM (
             SELECT DISTINCT unnest(fandoms) AS name FROM books
             WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
-              AND cardinality(fandoms) > 0
+              AND fandoms <> '{}'::text[]
             ORDER BY name LIMIT 100
         ) f";
     let rows = sqlx::query(SQL)
