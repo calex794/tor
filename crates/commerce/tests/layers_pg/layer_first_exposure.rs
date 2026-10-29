@@ -48,19 +48,41 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(initial, 0, "checkout and reader shell do not consume content");
     assert_eq!(
-        barrier.record(id(owner), id(chapter), id(published), LayerGrantKind::Chapter).await,
+        initial, 0,
+        "checkout and reader shell do not consume content"
+    );
+    assert_eq!(
+        barrier
+            .record(
+                id(owner),
+                id(chapter),
+                id(published),
+                LayerGrantKind::Chapter
+            )
+            .await,
         Err(DeliveryError::Denied),
         "a foreign actor must not synthesize an exposure"
     );
     assert_eq!(
-        barrier.record(id(buyer), id(chapter), id(i64::MAX), LayerGrantKind::Chapter).await,
+        barrier
+            .record(
+                id(buyer),
+                id(chapter),
+                id(i64::MAX),
+                LayerGrantKind::Chapter
+            )
+            .await,
         Err(DeliveryError::Denied),
         "a browser-chosen/unpublished edition must not pass"
     );
     let (a, b) = tokio::join!(
-        barrier.record(id(buyer), id(chapter), id(published), LayerGrantKind::Chapter),
+        barrier.record(
+            id(buyer),
+            id(chapter),
+            id(published),
+            LayerGrantKind::Chapter
+        ),
         barrier.record(id(buyer), id(chapter), id(published), LayerGrantKind::Asset)
     );
     assert_eq!(a, Ok(()));
@@ -84,7 +106,12 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
     .await
     .unwrap();
     barrier
-        .record(id(buyer), id(chapter), id(published), LayerGrantKind::Chapter)
+        .record(
+            id(buyer),
+            id(chapter),
+            id(published),
+            LayerGrantKind::Chapter,
+        )
         .await
         .unwrap();
     let after: (i64, String) = sqlx::query_as(
@@ -129,7 +156,14 @@ async fn d_06_pg_layer_first_grant_is_once_only_and_does_not_create_money() {
     .await
     .unwrap();
     assert_eq!(
-        barrier.record(id(buyer), id(chapter), id(published), LayerGrantKind::Chapter).await,
+        barrier
+            .record(
+                id(buyer),
+                id(chapter),
+                id(published),
+                LayerGrantKind::Chapter
+            )
+            .await,
         Err(DeliveryError::Denied)
     );
     pool.close().await;
@@ -141,12 +175,23 @@ async fn d_06_pg_future_renewal_is_not_marked_by_current_term_grant() {
     let (pool, repo, owner, buyer, book) = setup("first-exposure-future-term").await;
     let (layer, version, offered) = offer(&repo, owner, book, 200, false).await;
     let (chapter, published) = paid_version(&pool, book).await;
-    let current = repo.buy(&cmd(buyer, layer, offered, version, 200, 'Y')).await.unwrap();
-    let future = repo.buy(&cmd(buyer, layer, offered, version, 200, 'Z')).await.unwrap();
+    let current = repo
+        .buy(&cmd(buyer, layer, offered, version, 200, 'Y'))
+        .await
+        .unwrap();
+    let future = repo
+        .buy(&cmd(buyer, layer, offered, version, 200, 'Z'))
+        .await
+        .unwrap();
     assert_ne!(current.term_id, future.term_id);
     let barrier = PgLayerFirstExposure::new(pool.clone());
     barrier
-        .record(id(buyer), id(chapter), id(published), LayerGrantKind::Chapter)
+        .record(
+            id(buyer),
+            id(chapter),
+            id(published),
+            LayerGrantKind::Chapter,
+        )
         .await
         .unwrap();
     let first: i64 = sqlx::query_scalar(
@@ -165,6 +210,10 @@ async fn d_06_pg_future_renewal_is_not_marked_by_current_term_grant() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!((first, next), (1, 0), "future paid P2 must not inherit P1 exposure");
+    assert_eq!(
+        (first, next),
+        (1, 0),
+        "future paid P2 must not inherit P1 exposure"
+    );
     pool.close().await;
 }

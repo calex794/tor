@@ -280,9 +280,16 @@ async fn grant(
             let version_id = grant.version_id.clone();
             let mut response = private_response(Json(grant), &[]);
             if let Err(error) = record_layer_grant_if_needed(
-                &state, actor_id, chapter_id, purchase_id, body.source,
-                &version_id, LayerGrantKind::Chapter,
-            ).await {
+                &state,
+                actor_id,
+                chapter_id,
+                purchase_id,
+                body.source,
+                &version_id,
+                LayerGrantKind::Chapter,
+            )
+            .await
+            {
                 return deny(status(error));
             }
             response.headers_mut().insert(

@@ -75,9 +75,16 @@ pub(super) async fn grant_asset(
             let version_id = grant.version_id.clone();
             let mut response = private_response(Json(grant), &[]);
             if let Err(error) = record_layer_grant_if_needed(
-                &state, actor_id, chapter_id, purchase_id, body.source,
-                &version_id, LayerGrantKind::Asset,
-            ).await {
+                &state,
+                actor_id,
+                chapter_id,
+                purchase_id,
+                body.source,
+                &version_id,
+                LayerGrantKind::Asset,
+            )
+            .await
+            {
                 return deny(status(error));
             }
             response.headers_mut().insert(

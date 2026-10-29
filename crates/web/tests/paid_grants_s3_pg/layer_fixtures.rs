@@ -76,10 +76,13 @@ pub(super) async fn assert_layer_s3_grants(
     assert!(!paid.replayed);
     assert_eq!(paid.balance_after_minor, 210);
     assert_eq!(
-        scalar(url, &format!(
-            "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
-            paid.term_id
-        )),
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
         0,
         "checkout, metadata and a reader shell are not paid content grants"
     );
@@ -98,10 +101,13 @@ pub(super) async fn assert_layer_s3_grants(
     assert!(!body.contains("dek_b64u"));
     assert!(!body.contains("ciphertext_url"));
     assert_eq!(
-        scalar(url, &format!(
-            "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
-            paid.term_id
-        )),
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
         0,
         "rendering the Layer reader shell must not mark first paid exposure"
     );
@@ -117,10 +123,13 @@ pub(super) async fn assert_layer_s3_grants(
     .await;
     assert_eq!(mixed.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(
-        scalar(url, &format!(
-            "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
-            paid.term_id
-        )),
+        scalar(
+            url,
+            &format!(
+                "SELECT COUNT(*) FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
         0,
         "rejected grant requests must not count as content issuance"
     );
@@ -150,11 +159,14 @@ pub(super) async fn assert_layer_s3_grants(
     );
     assert!(!payload.to_string().contains(MARKDOWN));
     assert_eq!(
-        pg(url, &format!(
-            "SELECT chapter_id || ':' || version_id || ':' || object_kind
+        pg(
+            url,
+            &format!(
+                "SELECT chapter_id || ':' || version_id || ':' || object_kind
              FROM commerce_layer_term_first_exposures WHERE term_id={}",
-            paid.term_id
-        )),
+                paid.term_id
+            )
+        ),
         format!("{chapter}:{published}:chapter"),
         "only the successfully assembled protected grant may record first exposure"
     );
@@ -167,21 +179,16 @@ pub(super) async fn assert_layer_s3_grants(
     );
     // An omitted source can fall back to Layer after direct V1 is denied.
     // It must not bypass the exposure barrier or overwrite the first fact.
-    let fallback = post_grant(
-        app,
-        chapter,
-        Some(cookie),
-        Some(csrf),
-        ORIGIN,
-        "{}",
-    )
-    .await;
+    let fallback = post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, "{}").await;
     assert_eq!(fallback.status(), StatusCode::OK);
     assert_eq!(
-        pg(url, &format!(
-            "SELECT granted_at::text FROM commerce_layer_term_first_exposures WHERE term_id={}",
-            paid.term_id
-        )),
+        pg(
+            url,
+            &format!(
+                "SELECT granted_at::text FROM commerce_layer_term_first_exposures WHERE term_id={}",
+                paid.term_id
+            )
+        ),
         first_at
     );
 
