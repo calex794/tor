@@ -24,7 +24,7 @@ pub(super) fn routes() -> Router<AuthState> {
     Router::new().route("/me/layers/{layer_id}/books", get(page).post(add))
 }
 
-fn enabled() -> bool {
+pub(super) fn enabled() -> bool {
     std::env::var("TOR_LAYER_MANAGEMENT_ENABLED").as_deref() == Ok("1")
 }
 
