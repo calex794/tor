@@ -201,8 +201,7 @@ BEGIN
     END IF;
     -- Never downgrade: a concurrent editor could have published an older
     -- pointer, but this library must not move backwards.
-    IF (SELECT version_no FROM public.chapter_versions WHERE id = latest)
-       <= (SELECT version_no FROM public.chapter_versions WHERE id = selected) THEN
+    IF latest <= selected THEN
         RETURN selected;
     END IF;
     UPDATE public.library_purchased_chapters
