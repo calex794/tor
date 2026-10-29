@@ -27,24 +27,25 @@ SELECT 'fandom' AS kind, name FROM (
     ORDER BY name LIMIT 100
 ) f;
 
-\echo 'PERF233_TAXONOMY_NEW_ONE_SCAN'
+\echo 'PERF233_TAXONOMY_SPARSE_INDEXED'
 EXPLAIN (ANALYZE, BUFFERS)
-SELECT kind, name FROM (
-    SELECT kind, name,
-           ROW_NUMBER() OVER (PARTITION BY kind ORDER BY name) AS ordinal
-    FROM (
-        SELECT DISTINCT facet.kind, item.name
-        FROM books AS b
-        CROSS JOIN LATERAL (
-            VALUES ('genre'::text, b.genres),
-                   ('tag'::text, b.tags),
-                   ('fandom'::text, b.fandoms)
-        ) AS facet(kind, entries)
-        CROSS JOIN LATERAL unnest(facet.entries) AS item(name)
-        WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-          AND (cardinality(b.genres) > 0 OR cardinality(b.tags) > 0
-               OR cardinality(b.fandoms) > 0)
-    ) AS distinct_names
-) AS ordered_names
-WHERE ordinal <= 100
-ORDER BY kind, name;
+SELECT 'genre' AS kind, name FROM (
+    SELECT DISTINCT unnest(genres) AS name FROM books
+    WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+      AND cardinality(genres) > 0
+    ORDER BY name LIMIT 100
+) g
+UNION ALL
+SELECT 'tag' AS kind, name FROM (
+    SELECT DISTINCT unnest(tags) AS name FROM books
+    WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+      AND cardinality(tags) > 0
+    ORDER BY name LIMIT 100
+) t
+UNION ALL
+SELECT 'fandom' AS kind, name FROM (
+    SELECT DISTINCT unnest(fandoms) AS name FROM books
+    WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+      AND cardinality(fandoms) > 0
+    ORDER BY name LIMIT 100
+) f;
