@@ -131,7 +131,11 @@ async fn count(pool: &PgPool, actor: i64, table: &str) -> i64 {
         "shares" => "SELECT count(*) FROM chapter_purchase_share_snapshots s JOIN chapter_purchase_facts p ON p.id=s.purchase_id WHERE p.user_id=$1",
         _ => panic!("unexpected test-only table"),
     };
-    sqlx::query_scalar(sql).bind(actor).fetch_one(pool).await.unwrap()
+    sqlx::query_scalar(sql)
+        .bind(actor)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 async fn balance(pool: &PgPool, actor: i64) -> i64 {
@@ -144,7 +148,9 @@ async fn balance(pool: &PgPool, actor: i64) -> i64 {
 
 async fn no_partial(f: &Fixture, original: i64) {
     assert_eq!(balance(&f.pool, f.buyer).await, original);
-    for table in ["purchase", "journal", "rights", "commands", "items", "shares"] {
+    for table in [
+        "purchase", "journal", "rights", "commands", "items", "shares",
+    ] {
         assert_eq!(
             count(&f.pool, f.buyer, table).await,
             0,
