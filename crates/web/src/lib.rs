@@ -20,8 +20,8 @@ mod author_chapter_images;
 mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
-mod book_error_pages;
 mod book_detail_http;
+mod book_error_pages;
 mod book_follow_page;
 mod catalog_http;
 pub mod cover_delivery;
@@ -214,7 +214,14 @@ async fn book_detail(
     Query(query): Query<TocQuery>,
     headers: axum::http::HeaderMap,
 ) -> Response {
-    book_detail_http::page(State(state), Path(id), OriginalUri(uri), Query(query), headers).await
+    book_detail_http::page(
+        State(state),
+        Path(id),
+        OriginalUri(uri),
+        Query(query),
+        headers,
+    )
+    .await
 }
 
 /// Keep the security-reviewed public route identity stable while isolating
