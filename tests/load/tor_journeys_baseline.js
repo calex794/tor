@@ -26,7 +26,8 @@ export const options = {
     http_req_failed: ['rate<0.01'],
   },
 };
-const paths = ['/catalog', '/books/1', '/reader/101', '/books/1/comments'];
+// Public-only routes: comments are registered only with TOR_AUTH_ENABLED=1.
+const paths = ['/catalog', '/books/1', '/reader/101', '/api/v1/books/1/toc'];
 export default function () {
   const success = paths.every((path) => {
     const reply = http.get(BASE + path, {
