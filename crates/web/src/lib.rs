@@ -398,7 +398,11 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
-            Some(book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone())),
+            Some(book_follow_page::FollowBookControl::new(
+                accounts.clone(),
+                secure,
+                public_origin.clone(),
+            )),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
