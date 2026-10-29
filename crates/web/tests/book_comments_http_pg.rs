@@ -23,7 +23,10 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg_blocking(url: &str, statement: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let result = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=10000 -c lock_timeout=5000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=10000 -c lock_timeout=5000",
+        )
         .env("PGCONNECT_TIMEOUT", "5")
         .args([
             "-X",
