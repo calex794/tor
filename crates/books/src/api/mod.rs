@@ -3,7 +3,7 @@ use crate::{
     services::{CatalogError, ListPublicBooks, PublicBookRepository, DEFAULT_PAGE_SIZE},
 };
 use axum::{
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -88,7 +88,10 @@ async fn preview_chapter_import(
 pub fn router(repository: Arc<dyn PublicBookRepository>) -> Router {
     Router::new()
         .route("/api/v1/books", get(list_books))
-        .route("/api/v1/books/import-preview", post(preview_chapter_import))
+        .route(
+            "/api/v1/books/import-preview",
+            post(preview_chapter_import).layer(DefaultBodyLimit::max(2_000_000)),
+        )
         .with_state(ApiState { repository })
 }
 
