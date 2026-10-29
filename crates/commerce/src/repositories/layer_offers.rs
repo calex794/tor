@@ -36,8 +36,8 @@ impl PgLayers {
 
         // No partial/truncated composition can be presented as a sale.
         // The v1 bound fails closed rather than hiding paid Books behind UI.
-        let rows: Vec<(i64, String)> = sqlx::query_as(
-            "SELECT b.id,b.title FROM commerce_layer_version_books vb
+        let rows: Vec<(i64, String, bool, bool)> = sqlx::query_as(
+            "SELECT b.id,b.title,b.admin_hold,b.is_deleted FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
              WHERE vb.layer_version_id=$1
              ORDER BY vb.book_id LIMIT 101",
@@ -46,7 +46,10 @@ impl PgLayers {
         .fetch_all(&self.pool)
         .await
         .map_err(|_| LayerError::Unavailable)?;
-        if rows.is_empty() || rows.len() > 100 {
+        if rows.is_empty()
+            || rows.len() > 100
+            || rows.iter().any(|(_, _, held, deleted)| *held || *deleted)
+        {
             return Err(LayerError::Inaccessible);
         }
         Ok(LayerOfferQuote {
@@ -58,7 +61,7 @@ impl PgLayers {
             price_minor,
             books: rows
                 .into_iter()
-                .map(|(book_id, title)| LayerBookCandidate { book_id, title })
+                .map(|(book_id, title, _, _)| LayerBookCandidate { book_id, title })
                 .collect(),
         })
     }
