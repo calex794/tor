@@ -14,7 +14,7 @@ use tor_books::{
 };
 use tor_reading::{
     repositories::PgReader,
-    services::{PublicReadingRepository, ReadingError},
+    services::ReadingError,
 };
 mod auth;
 mod auth_cookies;
@@ -266,6 +266,12 @@ async fn book_detail(
     })
     .into_response()
 }
+/// Keep the security-reviewed public route identity stable while isolating
+/// the actual S005/C-10 reader logic in the C/H feature module.
+async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
+    public_reader_http::reader_page(State(state), Path(id)).await
+}
+
 /// S3 delivery is not connected: deny every alternative reader API request.
 /// Neither a published free chapter nor a paid ID can expose raw markdown.
 async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
@@ -405,7 +411,7 @@ fn make_router(
         .route("/books/{id}", get(book_detail))
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route("/api/v1/books/{id}/toc", get(book_toc))
-        .route("/reader/{id}", get(public_reader_http::reader_page))
+        .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))

@@ -1,5 +1,6 @@
 //! Public chapter reading and the S005 paid metadata paywall.
 use super::{auth_cookies, pages, AppState};
+use tor_reading::services::PublicReadingRepository;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -26,9 +27,7 @@ pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u6
                 return response;
             }
             Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-            Err(_) => {
-                return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
-            }
+            Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
         },
         Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
@@ -37,4 +36,3 @@ pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u6
     }
     auth_cookies::private_response(pages::reader(&chapter), &[])
 }
-
