@@ -237,7 +237,7 @@
       "method": "GET",
       "template": "/read/{id}",
       "source": "crates/web/src/auth.rs",
-      "handler": "private_reader",
+      "handler": "private_reader::page",
       "policy": "scoped"
     },
     {
@@ -534,10 +534,20 @@
       "handler": "book_comments::submit",
       "policy": "session"
     },
-    {"method": "GET", "template": "/me/books/{id}/chapters/illustrated",
-     "source": "crates/web/src/author_chapter_images.rs", "handler": "show", "policy": "owner"},
-    {"method": "POST", "template": "/me/books/{id}/chapters/illustrated",
-     "source": "crates/web/src/author_chapter_images.rs", "handler": "create", "policy": "owner"},
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/illustrated",
+      "source": "crates/web/src/author_chapter_images.rs",
+      "handler": "show",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/illustrated",
+      "source": "crates/web/src/author_chapter_images.rs",
+      "handler": "create",
+      "policy": "owner"
+    },
     {
       "method": "GET",
       "template": "/read/layer/{chapter_id}",
@@ -621,6 +631,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "batch_checkout_browser::submit",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/read/{id}/want-continuation",
+      "source": "crates/web/src/auth.rs",
+      "handler": "continuation_demand::submit",
+      "policy": "scoped"
     }
   ]
 }
