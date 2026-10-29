@@ -50,7 +50,7 @@ pub(super) fn assert_first_issued(
 /// Chromium test proves the browser sends it only after verifying text.
 pub(super) async fn assert_batch_first_render(
     app: &Router,
-    pool: &sqlx::PgPool,
+    url: &str,
     ids: (i64, i64, i64, i64, i64),
     auth: (&str, &str),
 ) {
@@ -59,7 +59,8 @@ pub(super) async fn assert_batch_first_render(
     };
     let (buyer, chapter, version, first, second) = ids;
     let (session, csrf) = auth;
-    let audit = PgRefundUseEvidence::new(pool.clone());
+    let catalog = PgCatalog::connect(url).await.unwrap();
+    let audit = PgRefundUseEvidence::new(catalog.pool().clone());
     let actor = PositiveId::new(buyer).unwrap();
     assert_eq!(
         audit

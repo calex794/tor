@@ -540,7 +540,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     direct_fixtures::assert_first_issued(&url, purchase_id, chapter, v1, purchase_two_id);
     direct_fixtures::assert_batch_first_render(
         &app,
-        &pool,
+        &url,
         (buyer, chapter, v1, purchase_id, purchase_two_id),
         (&buyer_cookie, &csrf),
     )
