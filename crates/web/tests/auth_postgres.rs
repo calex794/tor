@@ -960,7 +960,13 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     eprintln!("auth_pg checkpoint: start C06 paid journey");
     tokio::time::timeout(
         std::time::Duration::from_secs(90),
-        c06_cases::purchased_version_http_journey(&app, &session, &second_session),
+        c06_cases::purchased_version_http_journey(
+            &app,
+            &session,
+            &second_session,
+            &good_login,
+            &login_csrf_cookie,
+        ),
     )
     .await
     .expect("C06 paid HTTP journey exceeded 90 seconds");
