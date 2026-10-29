@@ -257,6 +257,8 @@ def comparison_blocker(before, after):
 
 
 def difference(before, after):
+    if issue := comparison_blocker(before, after):
+        raise MetricsError(f"Cannot compare CI performance: {issue}")
     keys = ("jobs_started", "queue_p50_seconds", "queue_p95_seconds", "run_p50_seconds",
             "run_p95_seconds", "runner_minutes")
     return {key: {"before": before[key], "after": after[key],
