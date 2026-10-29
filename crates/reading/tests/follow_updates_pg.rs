@@ -74,11 +74,11 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
             .unwrap();
         sqlx::query(
             "INSERT INTO chapter_first_release_events (chapter_id,version_id,created_at)
-             VALUES ($1,$2,now() + ($3 * interval '1 second'))",
+             VALUES ($1,$2,now() - ((34 - $3) * interval '1 second'))",
         )
         .bind(chapter)
         .bind(version)
-        .bind(number - 1)
+        .bind(number)
         .execute(&pool)
         .await
         .unwrap();
@@ -86,7 +86,7 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     }
     sqlx::query(
         "INSERT INTO reader_book_follows(user_id,book_id,created_at)
-         VALUES ($1,$2,now() + interval '1 second')",
+         VALUES ($1,$2,now() - interval '32 seconds')",
     )
     .bind(reader)
     .bind(book)
