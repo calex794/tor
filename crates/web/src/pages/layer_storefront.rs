@@ -94,6 +94,8 @@ pub fn offer_page(
             offer.price_minor
         )
         .expect("write purchase form");
+    } else {
+        action.push_str("<p class=\"layer-note\" role=\"status\">Покупка сейчас отключена. Уже оплаченный доступ сохраняется.</p>");
     }
     let notice = if purchased && offer.has_access {
         "<p class=\"ui-alert ui-alert--success\" role=\"status\">Покупка подтверждена. Доступ отражён в ваших пакетах.</p>"
