@@ -308,7 +308,14 @@ pub(super) async fn purchased_version_http_journey(
     let fresh_cookies = format!("{fresh_session}; {fresh_csrf_cookie}");
     let stale_replay = send(
         app,
-        json_request("PUT", SAVE, &final_save, &fresh_cookies, ORIGIN, &fresh_csrf),
+        json_request(
+            "PUT",
+            SAVE,
+            &final_save,
+            &fresh_cookies,
+            ORIGIN,
+            &fresh_csrf,
+        ),
     )
     .await;
     assert_eq!(stale_replay.status(), StatusCode::CONFLICT);
