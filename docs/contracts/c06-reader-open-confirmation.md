@@ -44,7 +44,7 @@ ledger provenance under the same purchase/term lock in one SERIALIZABLE
 reversal transaction. Defects, failed delivery, chargebacks and T&S actions
 are independent processes, not ordinary refund bypasses.
 
-Additive migration: `202610290006_paid_reader_render_confirmations.sql`, which also creates separate immutable `chapter_purchase_text_grants` and `commerce_layer_term_text_grants` to prevent image-first / other-chapter-first false confirmations.
+Additive migration: `202610290007_paid_reader_render_confirmations.sql` (I-14 integration-tree name; the original Draft #237 still uses `202610290006`), which also creates separate immutable `chapter_purchase_text_grants` and `commerce_layer_term_text_grants` to prevent image-first / other-chapter-first false confirmations.
 Stacked Draft on #231. No backfill, feature flag changes, checkout edits,
 wallet/refund/payout postings, main merge or production deployment.
 #235 separately coordinates collisions with other pending migrations.

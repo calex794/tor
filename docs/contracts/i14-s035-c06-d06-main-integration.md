@@ -2,23 +2,37 @@
 
 ## Integrated graph
 
-The Draft-only two-parent integration starts from `main@a877c2b7`, including
-already merged S035 #224 and public taxonomy migration
+The Draft-only two-parent integration starts from `main@d24d29c7`, including
+already merged S035 #224, C-15 continuation demand and public taxonomy migration
 `202610300001_public_nonempty_taxonomy.sql`. The second parent preserves
 all dependent Draft commits in #178 → #216 → #228 → #231 → #237 → #239.
 This is **not** a merge to `main` and is not a deployment.
 
 Twelve intersecting source/route/policy files were reconciled explicitly,
-and all main-only changes were preserved. The route registry now has 88 route
-pairs and 90 bound handlers, including S035 batch, Layer and C-06 ACK.
+and all main-only changes were preserved. The route registry now has 89 route
+pairs and 91 bound handlers, including S035 batch, Layer, C-06 ACK
+and C-15 continuation demand.
 
 ## SQLx migration integrity
 
 S035 already merged `202610290003_batch_chapter_purchases.sql` into main.
 The *unmerged* Draft D-06 Layer refund snapshot file had the same numeric
 version. I-14 **deletes only its Draft path** and recreates its unchanged SQL
-blob under `202610300017_layer_refund_policy_snapshot.sql`. Thus this test
-tree has one file per version and retains the S035 version/checksum.
+blob under `202610300017_layer_refund_policy_snapshot.sql`. A later
+merged main commit also took version `202610290004` for
+`reader_continuation_demand`, colliding with unmerged Layer grants in #228.
+The I-14 **Draft test tree only** renames the three C-06 migrations,
+preserving their SQL content and dependent order:
+
+| Original Draft migration | I-14 integration filename |
+| --- | --- |
+| `202610290004_layer_first_paid_grant_exposure.sql` | `202610290005_layer_first_paid_grant_exposure.sql` |
+| `202610290005_direct_paid_grant_exposure.sql` | `202610290006_direct_paid_grant_exposure.sql` |
+| `202610290006_paid_reader_render_confirmations.sql` | `202610290007_paid_reader_render_confirmations.sql` |
+
+The test tree has one SQLx migration per numeric version, preserving
+already-merged S035 and C-15 version ownership/checksums. All renames
+require applied-migration inventory prior to any real database upgrade.
 
 **Migration caution:** a successful clean PostgreSQL test cannot prove that
 `202610290003_layer_refund_policy_snapshot.sql` has never been applied in a
@@ -59,6 +73,7 @@ refund settlement, create provider payouts, enable flags, merge into main or
 deploy. Finance still needs purchase-time immutable policy plus a separate
 SERIALIZABLE refund approval/reversal transaction and FIN-B05…B11.
 Issues #235 and #236 remain authoritative release/integration gates.
+The newer main integration is pinned at `d24d29c73d99edf14e05e84622acf5374367f825`; moving main needs another diff and exact-head CI. The current integration has **no acceptance** until complete CI and real S035/PG/S3 tests pass.
 
 ## Test fixture ownership
 
