@@ -267,9 +267,7 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     // by the same actor session, Origin and CSRF as composition changes.
     let offer_path = format!("/me/layers/{layer}/offer");
     assert!(updated.contains("name=\"price_rub\""));
-    assert!(updated.contains(&format!(
-        "name=\"expected_offer_id\" value=\"0\""
-    )));
+    assert!(updated.contains(&format!("name=\"expected_offer_id\" value=\"0\"")));
     let price_form = format!(
         "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&csrf_token={csrf}"
     );
@@ -278,9 +276,16 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         "expected_version_id=1",
     );
     assert_eq!(
-        request(&app, "POST", &offer_path, &other_cookie, ORIGIN, &price_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &other_cookie,
+            ORIGIN,
+            &price_form
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
         "a reader may not publish the owner's price"
     );
@@ -337,15 +342,29 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
         StatusCode::CONFLICT
     );
     assert_eq!(
-        request(&app, "POST", &offer_path, &owner_cookie, ORIGIN, &price_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &price_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        request(&app, "POST", &offer_path, &owner_cookie, ORIGIN, &price_form)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &price_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "reposting the original price form must not mint an offer revision"
     );
