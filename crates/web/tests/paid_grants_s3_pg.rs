@@ -48,10 +48,10 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
-#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
-mod layer_fixtures;
 #[path = "paid_grants_s3_pg/direct_fixtures.rs"]
 mod direct_fixtures;
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 

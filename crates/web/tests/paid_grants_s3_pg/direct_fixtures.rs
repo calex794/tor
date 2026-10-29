@@ -14,7 +14,13 @@ pub(super) fn assert_not_issued(url: &str, purchase_id: i64) {
     );
 }
 
-pub(super) fn assert_first_issued(url: &str, purchase_id: i64, chapter: i64, v1: i64, purchase_two_id: i64) {
+pub(super) fn assert_first_issued(
+    url: &str,
+    purchase_id: i64,
+    chapter: i64,
+    v1: i64,
+    purchase_two_id: i64,
+) {
     assert_eq!(
         pg(
             url,

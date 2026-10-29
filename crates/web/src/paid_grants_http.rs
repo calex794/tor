@@ -26,8 +26,8 @@ use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
 use tor_commerce::repositories::{
-    entitlements::PgDirectEntitlements,
     direct_exposure::PgDirectFirstExposure,
+    entitlements::PgDirectEntitlements,
     layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements},
     layer_exposure::{LayerGrantKind, PgLayerFirstExposure},
 };

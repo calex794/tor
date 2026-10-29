@@ -1,12 +1,12 @@
 //! D-05: real PostgreSQL contract; isolated tor_ci database only.
+#[path = "layers_pg/direct_first_exposure.rs"]
+mod direct_first_exposure;
 #[path = "layers_pg/layer_allocation.rs"]
 mod layer_allocation;
 #[path = "layers_pg/layer_create.rs"]
 mod layer_create;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
-#[path = "layers_pg/direct_first_exposure.rs"]
-mod direct_first_exposure;
 #[path = "layers_pg/layer_first_exposure.rs"]
 mod layer_first_exposure;
 #[path = "layers_pg/layer_offer.rs"]

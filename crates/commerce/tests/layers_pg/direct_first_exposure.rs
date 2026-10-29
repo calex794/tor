@@ -62,20 +62,53 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .unwrap();
     assert_eq!(before, 0, "checkout alone does not read paid content");
     assert_eq!(
-        gate.record(id(owner), id(chapter), id(version), Some(id(purchase)), DirectGrantKind::Chapter).await,
+        gate.record(
+            id(owner),
+            id(chapter),
+            id(version),
+            Some(id(purchase)),
+            DirectGrantKind::Chapter
+        )
+        .await,
         Err(DeliveryError::Denied)
     );
     assert_eq!(
-        gate.record(id(buyer), id(chapter), id(i64::MAX), Some(id(purchase)), DirectGrantKind::Chapter).await,
+        gate.record(
+            id(buyer),
+            id(chapter),
+            id(i64::MAX),
+            Some(id(purchase)),
+            DirectGrantKind::Chapter
+        )
+        .await,
         Err(DeliveryError::Denied)
     );
     assert_eq!(
-        gate.record(id(buyer), id(chapter), id(version), Some(id(i64::MAX)), DirectGrantKind::Chapter).await,
+        gate.record(
+            id(buyer),
+            id(chapter),
+            id(version),
+            Some(id(i64::MAX)),
+            DirectGrantKind::Chapter
+        )
+        .await,
         Err(DeliveryError::Denied)
     );
     let (explicit, unsourced) = tokio::join!(
-        gate.record(id(buyer), id(chapter), id(version), Some(id(purchase)), DirectGrantKind::Chapter),
-        gate.record(id(buyer), id(chapter), id(version), None, DirectGrantKind::Asset)
+        gate.record(
+            id(buyer),
+            id(chapter),
+            id(version),
+            Some(id(purchase)),
+            DirectGrantKind::Chapter
+        ),
+        gate.record(
+            id(buyer),
+            id(chapter),
+            id(version),
+            None,
+            DirectGrantKind::Asset
+        )
     );
     assert_eq!(explicit, Ok(()));
     assert_eq!(unsourced, Ok(()));
@@ -87,11 +120,20 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!((first.0, first.1, first.2, first.3), (purchase, buyer, chapter, version));
+    assert_eq!(
+        (first.0, first.1, first.2, first.3),
+        (purchase, buyer, chapter, version)
+    );
     assert!(first.4 == "chapter" || first.4 == "asset");
-    gate.record(id(buyer), id(chapter), id(version), None, DirectGrantKind::Chapter)
-        .await
-        .unwrap();
+    gate.record(
+        id(buyer),
+        id(chapter),
+        id(version),
+        None,
+        DirectGrantKind::Chapter,
+    )
+    .await
+    .unwrap();
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM chapter_purchase_first_exposures WHERE purchase_id=$1",
     )
@@ -109,31 +151,31 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .await
     .unwrap();
     assert_eq!(unchanged, (first.4, first.5));
-    assert!(
-        sqlx::query(
-            "UPDATE chapter_purchase_first_exposures
+    assert!(sqlx::query(
+        "UPDATE chapter_purchase_first_exposures
              SET granted_at=clock_timestamp() WHERE purchase_id=$1",
-        )
-        .bind(purchase)
-        .execute(&pool)
-        .await
-        .is_err()
+    )
+    .bind(purchase)
+    .execute(&pool)
+    .await
+    .is_err());
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let debits: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (balance, debits),
+        (1425, 1),
+        "first grants do not move funds"
     );
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let debits: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!((balance, debits), (1425, 1), "first grants do not move funds");
     sqlx::query(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
          VALUES($1,'ci:direct-first-revoked','refund')",
@@ -143,7 +185,14 @@ async fn d_06_pg_direct_first_grant_cas_owner_pinned_v1_and_revocation() {
     .await
     .unwrap();
     assert_eq!(
-        gate.record(id(buyer), id(chapter), id(version), None, DirectGrantKind::Chapter).await,
+        gate.record(
+            id(buyer),
+            id(chapter),
+            id(version),
+            None,
+            DirectGrantKind::Chapter
+        )
+        .await,
         Err(DeliveryError::Denied)
     );
     pool.close().await;
