@@ -62,14 +62,14 @@ struct AppState {
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
-    covers: Option<cover_delivery::CoverDelivery>,
+    paid_batch_browser_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
+    covers: Option<cover_delivery::CoverDelivery>,
 }
 
 async fn health() -> &'static str {
     "ok"
 }
-/// Readiness uses the exact PG schema and database permissions, not only the process.
 async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
     if let Some(catalog) = state.postgres {
         if catalog.probe().await.is_err() {
@@ -171,6 +171,7 @@ async fn book_toc(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Query(query): Query<TocQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     let Some(reader) = state.reader else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
@@ -210,7 +211,6 @@ async fn book_detail(
     Path(id): Path<u64>,
     OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
-    headers: axum::http::HeaderMap,
 ) -> Response {
     // Require the canonical numeric spelling before consulting public book data.
     if !tor_search::domain::seo_urls::BookUrl::from_id(id)
@@ -247,7 +247,13 @@ async fn book_detail(
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
-            let html = pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars);
+            let html = if state.paid_batch_browser_enabled {
+                pages::book_detail_with_chapters_cover_stars_batch(
+                    &book, limit, has_cover, &stars, true,
+                )
+            } else {
+                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
+            };
             return book_follow_page::attach(&state.follow_control, &headers, id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
@@ -286,9 +292,6 @@ async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
 
-/// Optional, non-blocking persistence of anonymous technical RIL aggregates.
-/// Uses the already bounded PostgreSQL pool and never changes readiness/ACL.
-/// Internal aggregate diagnostics only; no user keys or route sequences.
 /// This is not an HTTP endpoint.
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
@@ -376,10 +379,10 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         Some(reader),
         false,
         None,
+        None,
     ))
 }
 
-/// Account forms are gated until their database, CSRF and rate-limit tests pass.
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -395,11 +398,7 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
-            Some(book_follow_page::FollowBookControl::new(
-                accounts.clone(),
-                secure,
-                public_origin.clone(),
-            )),
+            Some(book_follow_page::FollowBookControl::new(accounts.clone(), secure, public_origin.clone())),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -468,6 +467,8 @@ fn make_router(
         postgres,
         reader,
         search,
+        paid_batch_browser_enabled: active_auth
+            && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
         covers,
         follow_control,
     })

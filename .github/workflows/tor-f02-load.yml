@@ -66,11 +66,21 @@ jobs:
           set -o pipefail
           cargo test -p tor-search --test f02_load_pg -- --ignored --nocapture \
             2>&1 | tee "$RUNNER_TEMP/f02-pg100k-report.txt"
+      - name: A/B SQL plans on 100k mixed-visibility books
+        run: |
+          set -o pipefail
+          PGPASSWORD=tor-f02-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -c 'ANALYZE books'
+          PGPASSWORD=tor-f02-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
+            | tee "$RUNNER_TEMP/f02-taxonomy-100k-sql.txt"
       - name: Preserve query plans and timing evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tor-f02-pg100k-explain
-          path: ${{ runner.temp }}/f02-pg100k-report.txt
+          path: |
+            ${{ runner.temp }}/f02-pg100k-report.txt
+            ${{ runner.temp }}/f02-taxonomy-100k-sql.txt
           if-no-files-found: warn
           retention-days: 14

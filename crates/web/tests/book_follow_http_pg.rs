@@ -229,13 +229,7 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         "0",
         "following a book must not mark chapters read"
     );
-    pg(
-        &url,
-        &format!("DELETE FROM books WHERE id IN ({public},{hidden})"),
-    );
-    pg(
-        &url,
-        &format!("DELETE FROM users WHERE id IN ({first},{second})"),
-    );
+    // CI drops its isolated tor_ci database; deleting these owned books
+    // manually would bypass the ownership lifecycle and violate RESTRICT FKs.
     pool.close().await;
 }

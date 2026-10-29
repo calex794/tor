@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 79)  # Two reviewed owner-only illustrated-author methods.
-        self.assertEqual(report["route_pairs"], 77)  # 73 existing + GET/POST illustrated-author forms.
+        self.assertEqual(report["route_bindings"], 83)  # S035 adds GET/POST native batch checkout.
+        self.assertEqual(report["route_pairs"], 81)  # S035 adds two authenticated browser methods.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])

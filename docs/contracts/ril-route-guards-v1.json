@@ -193,6 +193,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}/buy-chapters",
+      "source": "crates/web/src/auth.rs",
+      "handler": "batch_checkout_browser::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/chapters/{chapter_id}/edit",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "edit_chapter",
@@ -300,7 +307,7 @@
       "method": "GET",
       "template": "/read/{id}",
       "source": "crates/web/src/auth.rs",
-      "handler": "private_reader",
+      "handler": "private_reader::page",
       "policy": "scoped"
     },
     {
@@ -375,6 +382,13 @@
     },
     {
       "method": "POST",
+      "template": "/api/v1/purchases/batch",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::buy_batch",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
       "template": "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "asset_grants::grant_asset",
@@ -421,6 +435,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "create_book",
       "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/buy-chapters",
+      "source": "crates/web/src/auth.rs",
+      "handler": "batch_checkout_browser::submit",
+      "policy": "session"
     },
     {
       "method": "POST",
@@ -532,6 +553,13 @@
       "template": "/read/{id}/place",
       "source": "crates/web/src/auth.rs",
       "handler": "save_place",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/read/{id}/want-continuation",
+      "source": "crates/web/src/auth.rs",
+      "handler": "continuation_demand::submit",
       "policy": "scoped"
     },
     {
