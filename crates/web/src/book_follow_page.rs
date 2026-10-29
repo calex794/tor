@@ -69,3 +69,25 @@ impl FollowBookControl {
         Ok((html, cookies))
     }
 }
+
+/// The public visibility gate runs before this function. Personal state is
+/// never embedded into a shared-cacheable public response.
+pub(super) async fn attach(
+    control: &Option<FollowBookControl>,
+    headers: &HeaderMap,
+    book_id: u64,
+    html: axum::response::Html<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Some(control) = control else {
+        return axum::response::Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", ""))
+            .into_response();
+    };
+    match control.render(headers, book_id).await {
+        Ok((action, cookies)) => crate::auth_cookies::private_response(
+            axum::response::Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", &action)),
+            &cookies,
+        ),
+        Err(status) => crate::auth_cookies::private_response(status, &[]),
+    }
+}
