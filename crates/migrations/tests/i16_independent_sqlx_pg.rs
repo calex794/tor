@@ -42,7 +42,11 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
     .await
     .expect("read installed SQLx entries");
     assert_eq!(installed.len(), MIGRATOR.migrations.len());
-    assert_eq!(MIGRATOR.migrations.len(), 52, "48 base + 4 independent Drafts");
+    assert_eq!(
+        MIGRATOR.migrations.len(),
+        52,
+        "48 base + 4 independent Drafts"
+    );
     for (version, description) in required {
         let compiled = MIGRATOR
             .migrations
@@ -55,7 +59,7 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
             .find(|(v, ..)| *v == version)
             .unwrap_or_else(|| panic!("missing applied SQLx migration {version}"));
         assert_eq!(applied.1, description);
-        assert_eq!(applied.2, compiled.checksum.as_ref());
+        assert_eq!(applied.2.as_slice(), compiled.checksum.as_ref());
         assert!(applied.3, "SQLx migration {version} failed");
     }
 
