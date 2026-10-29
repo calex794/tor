@@ -27,6 +27,19 @@ use crate::auth_cookies::{private_response, CookiePolicy};
 #[async_trait]
 pub(crate) trait PaidChapterPublisher: Send + Sync {
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+
+    /// The isolated illustrated-author route supplies a server-computed
+    /// immutable image identity. Non-S3 publishers fail closed by default.
+    async fn publish_with_image(
+        &self,
+        _actor: i64,
+        _request: &SaveChapter,
+        _object_id: &tor_contracts::paid_delivery::ObjectId,
+        _bytes: &[u8],
+        _mime: &str,
+    ) -> Result<(), AuthorError> {
+        Err(AuthorError::Unavailable)
+    }
 }
 
 #[derive(Clone)]
