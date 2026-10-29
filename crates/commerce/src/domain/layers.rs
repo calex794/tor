@@ -25,6 +25,13 @@ pub struct LayerCheckoutCommand {
     pub expected_price: MoneyMinor,
     pub key: IdempotencyKey,
 }
+/// A Layer owned by the authenticated author; never a purchase grant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedLayerSummary {
+    pub layer_id: i64,
+    pub title: String,
+}
+
 /// A read-only Layer picker entry. UI eligibility is advisory:
 /// add_book() always revalidates membership under the canonical Book lock.
 #[derive(Clone, Debug, PartialEq, Eq)]
