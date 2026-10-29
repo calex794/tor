@@ -1,13 +1,13 @@
 //! Required PostgreSQL schema gate for this binary. A catalog-only readiness
-//! check would miss the F-03 public author/genre search schema.
-pub(super) const REQUIRED_MIGRATION: i64 = 202610280012;
+//! check would miss the transactionally maintained public metadata projection.
+pub(super) const REQUIRED_MIGRATION: i64 = 202610300002;
 
 pub(super) fn require_latest_migration(version: Option<i64>) -> Result<(), sqlx::Error> {
     if version == Some(REQUIRED_MIGRATION) {
         Ok(())
     } else {
         Err(sqlx::Error::Protocol(
-            "TOR schema missing F-05 work and translation ratings migration 202610280005".into(),
+            "TOR schema missing exact public catalog projection migration 202610300002".into(),
         ))
     }
 }
@@ -33,6 +33,8 @@ mod tests {
         assert!(require_latest_migration(Some(202610280009)).is_err());
         assert!(require_latest_migration(Some(202610280010)).is_err());
         assert!(require_latest_migration(Some(202610280011)).is_err());
+        assert!(require_latest_migration(Some(202610280012)).is_err());
+        assert!(require_latest_migration(Some(202610300001)).is_err());
 
         assert!(require_latest_migration(Some(REQUIRED_MIGRATION)).is_ok());
     }
