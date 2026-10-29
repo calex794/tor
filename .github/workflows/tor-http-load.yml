@@ -94,10 +94,23 @@ jobs:
           VALUES (201,101,1,'The load test chapter body.');
           INSERT INTO chapter_publications(chapter_id,version_id)
           VALUES (101,201);
-          INSERT INTO books(id,source_identity,target_language,title,visibility)
-          SELECT n,'ci:load:book:' || n, 'ru','Load Test Book ' || n,'public'
+          -- Ten percent have real facets; empty-taxonomy rows dominate early TOR.
+          INSERT INTO books(id,source_identity,target_language,title,visibility,genres,tags,fandoms)
+          SELECT n,'ci:load:book:' || n, 'ru','Load Test Book ' || n,'public',
+                 CASE WHEN n % 10 = 0 THEN ARRAY['fantasy'] ELSE ARRAY[]::text[] END,
+                 CASE WHEN n % 10 = 0 THEN ARRAY['fiction'] ELSE ARRAY[]::text[] END,
+                 CASE WHEN n % 20 = 0 THEN ARRAY['world'] ELSE ARRAY[]::text[] END
           FROM generate_series(2,10000) n;
           SQL
+      - name: Measure exact count and taxonomy SQL A/B (10k books)
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load"
+          PGPASSWORD=tor-load-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -c 'ANALYZE books'
+          PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
+            | tee "$RUNNER_TEMP/tor-load/catalog-10k-sql.txt"
       - name: Build optimised TOR web
         run: cargo build --release -p tor-web
       - name: Run local server and benchmark
@@ -214,7 +227,8 @@ jobs:
             echo "::endgroup::"
           }
           for rate in 300 350 400; do run_diag mixed "$rate"; done
-          for profile in health cheap catalog catalog_cursor search search_rare; do
+          for rate in 100 250 500; do run_diag catalog "$rate"; done
+          for profile in health cheap catalog_cursor search search_rare; do
             run_diag "$profile" 500
           done
           {

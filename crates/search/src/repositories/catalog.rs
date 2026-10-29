@@ -281,9 +281,49 @@ pub struct TaxonomyOptions {
 }
 
 pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, SearchError> {
-    // Bounded output. Unlike search, this endpoint is intended for first-page
-    // UI discovery and is never invoked for every cursor request.
-    const SQL: &str = "
+    // Only a performance decision: the exact visibility predicate is applied
+    // in BOTH branches. Unknown/stale statistics safely fall back to the
+    // original dense-table path; they never select stale public metadata.
+    //
+    // reltuples comes from PostgreSQL ANALYZE, not from user input. The
+    // small pg_class lookup is deliberately done on each first-page request:
+    // no TTL-based cache or delayed book-visibility invalidation.
+    const CHOOSE_SPARSE: &str = "
+        SELECT COALESCE((
+            SELECT i.reltuples >= 0 AND b.reltuples > 0
+                   AND i.reltuples * 5 <= b.reltuples
+            FROM pg_catalog.pg_class AS i
+            CROSS JOIN pg_catalog.pg_class AS b
+            WHERE i.oid = to_regclass('public.books_public_nonempty_taxonomy_idx')
+              AND b.oid = to_regclass('public.books')
+        ), FALSE)";
+
+    // Sparse case: a single indexed pass through only books with categories.
+    // DISTINCT and row_number preserve the original 100-item limit PER kind.
+    const SPARSE_SQL: &str = "
+        SELECT kind, name FROM (
+            SELECT kind, name,
+                   ROW_NUMBER() OVER (PARTITION BY kind ORDER BY name) AS ordinal
+            FROM (
+                SELECT DISTINCT facet.kind, item.name
+                FROM books AS b
+                CROSS JOIN LATERAL (
+                    VALUES ('genre'::text, b.genres),
+                           ('tag'::text, b.tags),
+                           ('fandom'::text, b.fandoms)
+                ) AS facet(kind, entries)
+                CROSS JOIN LATERAL unnest(facet.entries) AS item(name)
+                WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND (b.genres <> '{}'::text[] OR b.tags <> '{}'::text[]
+                       OR b.fandoms <> '{}'::text[])
+            ) AS distinct_names
+        ) AS ordered_names
+        WHERE ordinal <= 100
+        ORDER BY kind, name";
+
+    // Dense case: three parallel scans beat a random heap-heavy index walk.
+    // These are the exact pre-optimization public predicates and limits.
+    const DENSE_SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
             SELECT DISTINCT unnest(genres) AS name FROM books
             WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
@@ -301,7 +341,12 @@ pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, S
             WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
             ORDER BY name LIMIT 100
         ) f";
-    let rows = sqlx::query(SQL)
+
+    let sparse: bool = sqlx::query_scalar(CHOOSE_SPARSE)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
+    let rows = sqlx::query(if sparse { SPARSE_SQL } else { DENSE_SQL })
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
