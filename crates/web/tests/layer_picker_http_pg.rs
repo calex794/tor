@@ -263,6 +263,110 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert!(updated.contains(&format!(
         "name=\"expected_version_id\" value=\"{current_version}\""
     )));
+    // Owner price publication is separate from wallet checkout, protected
+    // by the same actor session, Origin and CSRF as composition changes.
+    let offer_path = format!("/me/layers/{layer}/offer");
+    assert!(updated.contains("name=\"price_rub\""));
+    assert!(updated.contains(&format!(
+        "name=\"expected_offer_id\" value=\"0\""
+    )));
+    let price_form = format!(
+        "expected_version_id={current_version}&expected_offer_id=0&price_rub=149%2C50&term_kind=prepaid_30d&csrf_token={csrf}"
+    );
+    let old_version_form = price_form.replace(
+        &format!("expected_version_id={current_version}"),
+        "expected_version_id=1",
+    );
+    assert_eq!(
+        request(&app, "POST", &offer_path, &other_cookie, ORIGIN, &price_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "a reader may not publish the owner's price"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            "https://evil.invalid",
+            &price_form,
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &price_form.replace(&format!("csrf_token={csrf}"), "csrf_token=invalid"),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &price_form.replace("price_rub=149%2C50", "price_rub=149%2C555"),
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &offer_path,
+            &owner_cookie,
+            ORIGIN,
+            &old_version_form,
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        request(&app, "POST", &offer_path, &owner_cookie, ORIGIN, &price_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        request(&app, "POST", &offer_path, &owner_cookie, ORIGIN, &price_form)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "reposting the original price form must not mint an offer revision"
+    );
+    let offer_count: i64 = pg(
+        &url,
+        &format!("SELECT COUNT(*) FROM commerce_layer_offers WHERE layer_id={layer}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(offer_count, 1);
+    let current_offer: i64 = pg(
+        &url,
+        &format!("SELECT current_offer_id FROM commerce_layers WHERE id={layer}"),
+    )
+    .parse()
+    .unwrap();
+    let priced_page = body(request(&app, "GET", &page, &owner_cookie, ORIGIN, "").await).await;
+    assert!(priced_page.contains("value=\"149,50\""));
+    assert!(priced_page.contains(&format!(
+        "name=\"expected_offer_id\" value=\"{current_offer}\""
+    )));
     let original_version: i64 = pg(
         &url,
         &format!("SELECT id FROM commerce_layer_versions WHERE layer_id={layer} AND version_no=1"),
