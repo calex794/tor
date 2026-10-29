@@ -5,6 +5,7 @@ import importlib.util
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = (ROOT / ".github/workflows/tor-one-click-release.yml").read_text(encoding="utf-8")
@@ -19,6 +20,21 @@ assert spec and spec.loader
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 SHA = "a" * 40
+
+
+def protected_main(enabled=True, level="everyone", contexts=("rules",)):
+    return {
+        "name": "main",
+        "protected": enabled,
+        "protection": {
+            "enabled": enabled,
+            "required_status_checks": {
+                "enforcement_level": level,
+                "contexts": list(contexts),
+                "checks": [],
+            },
+        },
+    }
 
 
 def run(name, status="completed", conclusion="success", sha=SHA, run_id=10):
@@ -163,6 +179,57 @@ class OneClickReleaseTests(unittest.TestCase):
         earlier = run("Repository rules", conclusion="failure", run_id=1)
         later = run("Repository rules", conclusion="success", run_id=2)
         self.assertEqual(gate.evaluate([later, earlier], SHA)[0], "pass")
+
+
+    def test_i06_live_main_is_confirmed_unprotected_not_unknown(self):
+        # Exact negative metadata returned by GitHub for TOR on 29 Oct.
+        branch = protected_main(enabled=False, level="off", contexts=())
+        status, why = gate.evaluate_branch_policy(branch)
+        self.assertEqual(status, "fail")
+        self.assertIn("unprotected", why)
+
+    def test_i06_requires_actual_rules_job_and_admin_enforcement(self):
+        self.assertEqual(gate.evaluate_branch_policy(protected_main())[0], "pass")
+        for changes in ({"level": "off"}, {"level": "non_admins"},
+                        {"contexts": ()}, {"enabled": False}):
+            with self.subTest(changes=changes):
+                self.assertEqual(gate.evaluate_branch_policy(
+                    protected_main(**changes))[0], "fail")
+
+    def test_i06_rejects_missing_or_malformed_branch_response(self):
+        for bad in (None, {}, {"name": "other", "protected": True},
+                    {"name": "main", "protected": True, "protection": {}},
+                    {"name": "main", "protected": True,
+                     "protection": {"enabled": True, "required_status_checks":
+                                    {"enforcement_level": "everyone", "contexts": "rules"}}}):
+            with self.subTest(branch=bad):
+                self.assertEqual(gate.evaluate_branch_policy(bad)[0], "fail")
+
+    def test_i06_check_name_may_be_in_new_github_checks_array(self):
+        branch = protected_main(contexts=())
+        branch["protection"]["required_status_checks"]["checks"] = [
+            {"context": "rules", "app_id": 15368}]
+        self.assertEqual(gate.evaluate_branch_policy(branch)[0], "pass")
+
+    def test_one_click_refuses_unprotected_main_before_any_ci_fetch(self):
+        argv = ["gate", "--repo", "calex794/tor", "--sha", SHA, "--timeout-seconds", "0"]
+        with mock.patch.dict(gate.os.environ, {"GITHUB_TOKEN": "fake"}), \
+             mock.patch.object(gate.sys, "argv", argv), \
+             mock.patch.object(gate, "fetch_branch", return_value=protected_main(enabled=False)), \
+             mock.patch.object(gate, "fetch_runs") as runs:
+            self.assertEqual(gate.main(), 1)
+            runs.assert_not_called()
+
+    def test_one_click_rechecks_protection_after_green_ci(self):
+        argv = ["gate", "--repo", "calex794/tor", "--sha", SHA, "--timeout-seconds", "0"]
+        with mock.patch.dict(gate.os.environ, {"GITHUB_TOKEN": "fake"}), \
+             mock.patch.object(gate.sys, "argv", argv), \
+             mock.patch.object(gate, "fetch_branch",
+                               side_effect=[protected_main(), protected_main(enabled=False)]) as branch, \
+             mock.patch.object(gate, "fetch_runs", return_value=[run("Repository rules")]):
+            self.assertEqual(gate.main(), 1)
+            self.assertEqual(branch.call_count, 2)
+
 
 
 if __name__ == "__main__":
