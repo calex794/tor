@@ -272,7 +272,23 @@ async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Resp
     };
     let chapter = match reader.public_chapter(id).await {
         Ok(Some(chapter)) => chapter,
-        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        Ok(None) => match reader.public_paid_chapter_preview(id).await {
+            Ok(Some(preview)) => {
+                // Publicly visible paid metadata has a paywall, never plaintext.
+                // Hidden, held, deleted and unreleased chapters still yield 404.
+                let mut response =
+                    auth_cookies::private_response(pages::paid_chapter_paywall(&preview), &[]);
+                response.headers_mut().insert(
+                    "x-robots-tag",
+                    axum::http::HeaderValue::from_static("noindex, nofollow"),
+                );
+                return response;
+            }
+            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+            Err(_) => {
+                return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[])
+            }
+        },
         Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
