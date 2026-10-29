@@ -3,7 +3,8 @@
 //! rechecks every condition, including races with team membership changes.
 use super::layers::PgLayers;
 use crate::domain::layers::{
-    LayerBookCandidate, LayerBookCandidatePage, LayerError, OwnedLayerSummary,
+    LayerBookCandidate, LayerBookCandidatePage, LayerCurrentBookPage, LayerError,
+    OwnedLayerSummary,
 };
 use sqlx::Row;
 use tor_contracts::paid_delivery::PositiveId;
@@ -37,6 +38,59 @@ impl PgLayers {
                 })
             })
             .collect()
+    }
+
+    /// Read only the owner's immutable current version. This is advisory:
+    /// remove_book_if_current() revalidates the version under the Layer lock.
+    pub async fn current_books(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        after: Option<PositiveId>,
+        limit: u16,
+    ) -> Result<LayerCurrentBookPage, LayerError> {
+        if !(1..=50).contains(&limit) {
+            return Err(LayerError::Invalid);
+        }
+        let version: i64 = sqlx::query_scalar(
+            "SELECT current_version_id FROM commerce_layers
+             WHERE id=$1 AND owner_user_id=$2 AND status='active'",
+        )
+        .bind(layer.get())
+        .bind(actor.get())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?
+        .ok_or(LayerError::Inaccessible)?;
+        let records = sqlx::query(
+            "SELECT vb.book_id,b.title FROM commerce_layer_version_books vb
+             JOIN books b ON b.id=vb.book_id
+             WHERE vb.layer_version_id=$1 AND vb.book_id>$2
+             ORDER BY vb.book_id LIMIT $3",
+        )
+        .bind(version)
+        .bind(after.map_or(0, PositiveId::get))
+        .bind(i64::from(limit) + 1)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+        let has_more = records.len() > usize::from(limit);
+        let mut books = Vec::with_capacity(records.len().min(usize::from(limit)));
+        for record in records.into_iter().take(usize::from(limit)) {
+            books.push(LayerBookCandidate {
+                book_id: record.try_get("book_id").map_err(|_| LayerError::Unavailable)?,
+                title: record.try_get("title").map_err(|_| LayerError::Unavailable)?,
+            });
+        }
+        Ok(LayerCurrentBookPage {
+            current_version_id: version,
+            next_after: if has_more {
+                books.last().map(|book| book.book_id)
+            } else {
+                None
+            },
+            books,
+        })
     }
 
     /// Keyset-paginated, bounded books that this actor may add to a Layer now.
