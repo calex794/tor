@@ -991,20 +991,7 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     .expect("batch seed");
 
     let search = PgSearch::new(pool.clone());
-    let count_exact = |pool: &PgPool| async move {
-        // One MVCC snapshot: no false discrepancy from concurrent test writes.
-        let (stored, actual): (i64, i64) = sqlx::query_as(
-            "SELECT s.visible_book_count,
-                    (SELECT COUNT(*) FROM books
-                     WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted)
-             FROM public_catalog_statistics s WHERE singleton",
-        )
-        .fetch_one(pool)
-        .await
-        .unwrap();
-        assert_eq!(stored, actual, "transactional total must match source books");
-    };
-    count_exact(&pool).await;
+    assert_public_catalog_projection_count(&pool).await;
     let reference_count: i64 = sqlx::query_scalar(
         "SELECT reference_count FROM public_catalog_facets
          WHERE kind='genre' AND name='perf233-exact'",
@@ -1048,7 +1035,7 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     .await
     .unwrap();
     assert_eq!(n, 1);
-    count_exact(&pool).await;
+    assert_public_catalog_projection_count(&pool).await;
 
     let mut transaction = pool.begin().await.expect("transaction");
     sqlx::query(
@@ -1087,7 +1074,7 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
         !search.taxonomy_options().await.unwrap().genres.contains(&"perf233-exact".to_owned()),
         "revoked genre must disappear immediately"
     );
-    count_exact(&pool).await;
+    assert_public_catalog_projection_count(&pool).await;
 
     let total: u64 = search
         .count_catalog(tor_search::repositories::CatalogFacets {
@@ -1123,5 +1110,19 @@ async fn f_02_public_projection_exact_on_bulk_visibility_and_rollback() {
     .await
     .unwrap();
     assert_eq!(absent, None);
-    count_exact(&pool).await;
+    assert_public_catalog_projection_count(&pool).await;
+}
+
+async fn assert_public_catalog_projection_count(pool: &PgPool) {
+    // One MVCC snapshot: no false discrepancy from concurrent test writes.
+    let (stored, actual): (i64, i64) = sqlx::query_as(
+        "SELECT s.visible_book_count,
+                (SELECT COUNT(*) FROM books
+                 WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted)
+         FROM public_catalog_statistics s WHERE singleton",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, actual, "transactional total must match source books");
 }
