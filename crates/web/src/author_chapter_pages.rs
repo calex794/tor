@@ -16,6 +16,20 @@ pub fn detail_with_covers(
     uploads_enabled: bool,
     latest_job: Option<&str>,
 ) -> Html<String> {
+    detail_with_covers_with_demand(
+        book, published, chapters, csrf, uploads_enabled, latest_job, 0,
+    )
+}
+
+pub fn detail_with_covers_with_demand(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+    uploads_enabled: bool,
+    latest_job: Option<&str>,
+    demand_count: i64,
+) -> Html<String> {
     let mut items = String::new();
     if chapters.is_empty() {
         items.push_str("<p class=\"empty-state\">В этой книге пока нет глав.</p>");
@@ -101,11 +115,19 @@ pub fn detail_with_covers(
     } else {
         String::new()
     };
+    let demand_panel = if published {
+        format!(
+            "<section class=\"author-demand\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"account-profile__hint\">Только подтверждённые читатели текущей границы книги.</p></section>"
+        )
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
+        {demand_panel}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <h2>Главы</h2>{items}

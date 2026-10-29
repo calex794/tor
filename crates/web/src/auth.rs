@@ -29,7 +29,7 @@ use tor_books::{
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
-use tor_reading::repositories::{PgLibrary, PgReadingProgress, PgReadingSync};
+use tor_reading::repositories::{PgContinuationDemand, PgLibrary, PgReadingProgress, PgReadingSync};
 use tor_reading::{
     repositories::PgReader,
     services::{
@@ -45,6 +45,7 @@ mod book_description;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
+mod continuation_demand;
 mod library_actions;
 mod login_limiter;
 mod paid_completion;
@@ -129,6 +130,7 @@ fn router_inner(
     let progress = PgReadingProgress::new(accounts.pool().clone());
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
+    let demand = PgContinuationDemand::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -146,6 +148,7 @@ fn router_inner(
         progress,
         sync,
         bookmarks,
+        demand,
         reader,
         rankings,
         cookies,
@@ -215,6 +218,7 @@ fn router_inner(
         .route("/read/{id}", get(private_reader))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))
+        .route("/read/{id}/want-continuation", post(continuation_demand::submit))
         .route("/logout", post(logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
         .layer(DefaultBodyLimit::max(64 * 1024))
@@ -396,6 +400,10 @@ async fn author_book(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let demand_count = match state.demand.current_count(id).await {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let chapters = match state.authoring.list_owned_chapters(actor, id).await {
         Ok(chapters) => chapters,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -410,13 +418,14 @@ async fn author_book(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        author_chapter_pages::detail_with_covers(
+        author_chapter_pages::detail_with_covers_with_demand(
             &book,
             published,
             &chapters,
             &csrf,
             state.cover_upload_enabled,
             latest_cover.as_deref(),
+            demand_count,
         ),
         &cookies,
     )
@@ -514,9 +523,21 @@ async fn private_reader(
         Ok(event) => event.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let demand = if completed && chapter.next_chapter_id.is_none() {
+        let book_id = match i64::try_from(chapter.book_id) {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::NOT_FOUND),
+        };
+        match state.demand.state(actor, book_id, chapter_id).await {
+            Ok(status) => Some(status),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::private_reader(id, &chapter, &csrf, saved, revision, completed),
+        pages::private_reader_with_demand(id, &chapter, &csrf, saved, revision, completed, demand),
         &cookies,
     )
 }

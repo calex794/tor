@@ -11,6 +11,7 @@ pub(super) struct AuthState {
     pub(super) progress: PgReadingProgress,
     pub(super) sync: PgReadingSync,
     pub(super) bookmarks: PgLibrary,
+    pub(super) demand: PgContinuationDemand,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
     pub(super) cookies: CookiePolicy,
