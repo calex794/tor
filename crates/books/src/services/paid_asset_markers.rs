@@ -15,10 +15,7 @@ pub fn referenced_private_image_ids(body: &str) -> Result<Vec<String>, ()> {
             continue;
         };
         // Match H's [^]\\r\\n]{0,160} bound in UTF-16 code units.
-        if caption.encode_utf16().count() > 160
-            || caption.contains(']')
-            || caption.contains('\r')
-        {
+        if caption.encode_utf16().count() > 160 || caption.contains(']') || caption.contains('\r') {
             continue;
         }
         let Some(id) = target.strip_suffix(')') else {
@@ -72,7 +69,10 @@ mod tests {
             .join("\n");
         assert!(referenced_private_image_ids(&long).is_err());
         let repeat = format!("![x](asset:{A})\n").repeat(100);
-        assert_eq!(referenced_private_image_ids(&repeat), Ok(vec![A.to_owned()]));
+        assert_eq!(
+            referenced_private_image_ids(&repeat),
+            Ok(vec![A.to_owned()])
+        );
     }
 
     #[test]
