@@ -9,7 +9,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use crate::import_preview::{editable_plain_text, validate_editable_preview};
+use crate::import::preview::{editable_plain_text, validate_editable_preview};
 use std::sync::Arc;
 
 #[derive(Clone)]
