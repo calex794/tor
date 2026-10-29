@@ -12,7 +12,10 @@ use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use tor_accounts::services::security::generate_session_token;
 use tor_discussions::{
-    domain::comments::{CommentBody, CommentIntentKey},
+    domain::{
+        comments::{CommentBody, CommentIntentKey},
+        spoilers::{mask_mentions, parse, Segment},
+    },
     repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment},
 };
 
@@ -28,13 +31,29 @@ pub(super) struct CommentForm {
     csrf_token: Option<String>,
 }
 
+// Only our fixed markup is trusted; every user-controlled segment is escaped.
+fn render_comment(body: &str) -> String {
+    let mut html = String::new();
+    for segment in parse(body) {
+        match segment {
+            Segment::Text(text) => html.push_str(&pages::escape_html(&mask_mentions(text))),
+            Segment::Spoiler(text) => {
+                html.push_str("<details class=\"comment-spoiler\"><summary class=\"comment-spoiler__toggle\">Спойлер</summary><span class=\"comment-spoiler__content\">");
+                html.push_str(&pages::escape_html(&mask_mentions(text)));
+                html.push_str("</span></details>");
+            }
+        }
+    }
+    html
+}
+
 fn comments_list(book_id: i64, comments: &[PublicComment]) -> String {
     if comments.is_empty() {
         return "<p class=\"comments-block__empty\">Комментариев пока нет.</p>".to_owned();
     }
     let mut output = String::from("<div class=\"comments-list\">");
     for comment in comments {
-        let body = pages::escape_html(&comment.body).replace('\n', "<br>");
+        let body = render_comment(&comment.body);
         write!(
             output,
             "<article class=\"comment-card\" id=\"comment-{}\">
@@ -69,7 +88,8 @@ fn comments_page(
         Some(csrf) => format!(
             "<form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
              <label for=\"comment-body\">Ваш комментарий</label>
-             <textarea class=\"ui-textarea comments-form__input\" id=\"comment-body\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
+             <p id=\"spoiler-help\">Чтобы скрыть спойлер, заключите текст в ||двойные черты||.</p>
+             <textarea class=\"ui-textarea comments-form__input\" id=\"comment-body\" aria-describedby=\"spoiler-help\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
              <input type=\"hidden\" name=\"command_key\" value=\"{}\">
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
              <button class=\"ui-button ui-button--primary comments-form__submit\" type=\"submit\">Отправить</button>
@@ -189,6 +209,20 @@ pub(super) async fn submit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn e_04_spoiler_is_closed_escaped_and_mentions_are_masked() {
+        let html =
+            render_comment("до ||<img src=x onerror=alert(1)> @private_user @[user:42]|| после");
+        assert!(html.contains("<details class=\"comment-spoiler\">"));
+        assert!(!html.contains(" open"));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("@private_user"));
+        assert!(!html.contains("@[user:42]"));
+        assert_eq!(render_comment("|||| ||не закрыт"), "|||| ||не закрыт");
+        assert_eq!(render_comment("a\nб"), "a\nб");
+    }
+
     #[test]
     fn e_02_page_escapes_comment_markup_and_uses_a_fresh_command_key() {
         let comments = vec![PublicComment {

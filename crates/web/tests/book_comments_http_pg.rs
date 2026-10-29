@@ -137,7 +137,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         .next()
         .unwrap();
     assert_eq!(key.len(), 43);
-    let form = format!("body=Hello%20%3Cscript%3E&command_key={key}&csrf_token={csrf}");
+    let form = format!("body=Hello%20%3Cscript%3E%20%7C%7CSECRET%20%3Cimg%20src%3Dx%20onerror%3Dalert%281%29%3E%20%40private_user%7C%7C&command_key={key}&csrf_token={csrf}");
 
     assert_eq!(
         call(&app, "POST", &comments_path, "", ORIGIN, &form)
@@ -208,6 +208,11 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     let visible = html(call(&app, "GET", &comments_path, "", ORIGIN, "").await).await;
     assert!(visible.contains("Hello &lt;script&gt;"));
     assert!(!visible.contains("Hello <script>"));
+    assert!(visible.contains("<details class=\"comment-spoiler\">"));
+    assert!(!visible.contains("<details open"));
+    assert!(visible.contains("SECRET &lt;img src=x onerror=alert(1)&gt; @пользователь"));
+    assert!(!visible.contains("<img src=x"));
+    assert!(!visible.contains("@private_user"));
     let count: i64 = pg(
         &url,
         &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}"),
