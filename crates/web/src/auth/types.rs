@@ -45,6 +45,7 @@ pub(super) struct NewBookForm {
     pub(super) title: String,
     pub(super) target_language: String,
     pub(super) author_name: Option<String>,
+    pub(super) description: Option<String>,
     pub(super) genres: Option<String>,
     pub(super) tags: Option<String>,
     pub(super) fandoms: Option<String>,

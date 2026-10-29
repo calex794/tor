@@ -12,6 +12,7 @@ s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
 axum = { workspace = true, features = ["multipart"] }
 tokio = { workspace = true, features = ["time"] }
 tor-books = { path = "../books" }
+tor-discussions = { path = "../discussions" }
 tor-commerce = { path = "../commerce" }
 tor-contracts = { path = "../contracts" }
 tor-storage = { path = "../storage", features = ["pg", "s3"], optional = true }

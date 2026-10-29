@@ -5,6 +5,9 @@
 //! keys, signed URLs or permission decisions are cached or logged here.
 //! This service is NOT wired to an HTTP route until CSRF, Origin, rate
 //! limiting, private S3 and the protected browser are verified end-to-end.
+mod assets;
+pub use assets::issue_paid_asset_grant;
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use tor_contracts::paid_delivery::{
@@ -102,7 +105,7 @@ fn verify_granted_content(
     let expected_hash = hex::encode(encrypted.object.sha256_ciphertext);
     if signed.object_sha256 != expected_hash
         || signed.cipher != "AES-256-GCM"
-        || signed.codec != "gzip"
+        || signed.codec != encrypted.codec.wire()
         || signed.nonce_b64u != URL_SAFE_NO_PAD.encode(encrypted.nonce)
         || signed.aad_b64u != URL_SAFE_NO_PAD.encode(&encrypted.aad)
     {

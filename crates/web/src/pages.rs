@@ -45,7 +45,7 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None, None, false)
+    book_detail_body(book, None, None, false, None)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
@@ -58,8 +58,8 @@ pub fn book_detail_with_chapters_cover(
         id: book.id,
         title: book.title.clone(),
         language: book.language.clone(),
-        author_name: None,
-        genres: Vec::new(),
+        author_name: (!book.author_name.trim().is_empty()).then(|| book.author_name.clone()),
+        genres: book.genres.clone(),
     };
     let mut items = String::new();
     if book.chapters.is_empty() {
@@ -104,7 +104,13 @@ pub fn book_detail_with_chapters_cover(
         .iter()
         .find(|chapter| !chapter.is_paid)
         .map(|chapter| chapter.id);
-    book_detail_body(&card, Some(&section), first_free, has_cover)
+    book_detail_body(
+        &card,
+        Some(&section),
+        first_free,
+        has_cover,
+        Some(&book.description),
+    )
 }
 
 /// F-05: two independent public indicators, copied from NEwBOO's
@@ -153,13 +159,34 @@ fn book_detail_body(
     toc: Option<&str>,
     first_free: Option<u64>,
     has_cover: bool,
+    published_description: Option<&str>,
 ) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
-    let description = if toc.is_some() {
-        "Откройте оглавление, чтобы читать доступные главы бесплатно. Платные главы не открываются без проверки прав."
-    } else {
-        "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
+    let (description_html, meta_description) = match published_description {
+        Some(raw) if !raw.trim().is_empty() => {
+            let clean = raw.trim();
+            let short = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+            (
+                escape_html(clean).replace('\n', "<br>"),
+                short.chars().take(180).collect::<String>(),
+            )
+        }
+        Some(_) => (
+            "Аннотация пока не добавлена.".to_owned(),
+            format!("«{}» — опубликованная книга на Пандаолейт.", book.title),
+        ),
+        None => {
+            let text = if toc.is_some() {
+                "Откройте оглавление, чтобы читать доступные главы бесплатно. Платные главы не открываются без проверки прав."
+            } else {
+                "Карточка опубликованной книги. Оглавление и чтение глав появятся после подключения читалки."
+            };
+            (
+                text.to_owned(),
+                "Карточка книги в каталоге Пандаолейт.".to_owned(),
+            )
+        }
     };
     let action = if let Some(id) = first_free {
         format!("<a class=\"ui-button ui-button--primary\" href=\"/reader/{id}\">Читать доступную главу</a>")
@@ -209,20 +236,25 @@ fn book_detail_body(
         r#"<div class="book-cover-xl" aria-label="Обложка пока не загружена"><span>Нет обложки</span></div>"#
             .to_owned()
     };
+    let discussion = if toc.is_some() {
+        format!(
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a></section>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let content = include_str!("../templates/book_detail.html")
         .replace("<!--BOOK_COVER-->", &cover)
         .replace("<!--BOOK_TITLE-->", &title)
         .replace("<!--BOOK_LANGUAGE-->", &language)
-        .replace("<!--BOOK_DESCRIPTION-->", description)
+        .replace("<!--BOOK_DESCRIPTION-->", &description_html)
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
-        .replace("<!--CHAPTERS-->", toc.unwrap_or(""));
-    layout(
-        &book.title,
-        "Карточка книги в каталоге Пандаолейт.",
-        &content,
-    )
+        .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
+        .replace("<!--BOOK_DISCUSSION-->", &discussion);
+    layout(&book.title, &meta_description, &content)
 }
 
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
@@ -360,6 +392,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-home-carousel.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
