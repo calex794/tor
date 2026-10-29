@@ -213,6 +213,47 @@ fn s005_paywall_escapes_public_metadata_and_never_fakes_checkout() {
 }
 
 #[test]
+fn s034_checkout_link_requires_explicit_paid_browser_feature() {
+    let preview = tor_reading::services::PublicPaidChapterPreview {
+        book_id: 99,
+        book_title: "Книга".to_owned(),
+        chapter_no: 2,
+        chapter_title: "Название".to_owned(),
+        price_minor: 175,
+    };
+    let disabled = paid_chapter_paywall(&preview).0;
+    assert!(!disabled.contains("/me/chapters/"));
+    let enabled = paid_chapter_paywall_checkout(&preview, Some(103)).0;
+    assert!(enabled.contains("href=\"/me/chapters/103/buy\""));
+    assert!(enabled.contains("Купить главу"));
+    assert!(!enabled.contains("PRIVATE-PAID-MARKER"));
+}
+
+#[test]
+fn s034_purchase_form_escapes_metadata_and_has_exact_terms() {
+    let offer = tor_commerce::repositories::checkout::PublishedChapterOffer {
+        book_id: 1,
+        book_title: "<script>Книга</script>".to_owned(),
+        chapter_id: 103,
+        chapter_no: 3,
+        chapter_title: "<script>Глава</script>".to_owned(),
+        version_id: 602,
+        price_minor: 175,
+    };
+    let html = chapter_purchase_form(&offer, "csrf-abc", "command-key").0;
+    assert!(html.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+    assert!(html.contains("&lt;script&gt;Глава&lt;/script&gt;"));
+    assert!(!html.contains("<script>"));
+    assert!(html.contains("action=\"/me/chapters/103/buy\""));
+    assert!(html.contains("name=\"expected_version_id\" value=\"602\""));
+    assert!(html.contains("name=\"expected_price_minor\" value=\"175\""));
+    assert!(html.contains("name=\"csrf_token\" value=\"csrf-abc\""));
+    assert!(html.contains("name=\"command_key\" value=\"command-key\""));
+    assert!(html.contains("1,75 ₽"));
+    assert!(!html.contains("external-payment"));
+}
+
+#[test]
 fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
     let template = include_str!("../../templates/reader.html");
     assert!(template.contains("reader-topbar"));

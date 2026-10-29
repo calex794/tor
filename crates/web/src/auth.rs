@@ -38,8 +38,7 @@ use tor_reading::{
     },
 };
 
-mod account_form_http;
-mod behavior_consent;
+mod account_form_http;mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_stars;
@@ -181,6 +180,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .route("/me/chapters/{id}/buy", get(checkout::browser_offer).post(checkout::browser_buy))
         .route(
             "/api/v1/me/progress/free",
             get(sync_actions::get_free).put(sync_actions::put_free),
