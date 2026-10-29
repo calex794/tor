@@ -54,6 +54,7 @@ mod layer_checkout;
 mod layer_checkout_api;
 mod layer_create;
 mod layer_offer_manage;
+mod layer_storefront;
 mod library_actions;
 mod login_limiter;
 mod logout;
@@ -154,6 +155,7 @@ fn router_inner(
         checkout,
         paid_checkout_enabled,
         layer_checkout_enabled: paid_checkout_enabled && layer_checkout_api::configured(),
+        layer_pages_enabled: std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1"),
         paid_reader_available,
         authoring,
         progress,
@@ -180,6 +182,10 @@ fn router_inner(
         )
         .route("/me", get(me))
         .route("/me/library", get(my_library))
+        .route(
+            "/layers/{layer_id}/purchase",
+            post(layer_storefront::buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/me/rankings", get(rankings::page))
         .route(
             "/me/books/{id}/rate",
@@ -247,6 +253,7 @@ fn router_inner(
         .merge(layer_books::routes())
         .merge(layer_create::routes())
         .merge(layer_checkout::routes())
+        .merge(layer_storefront::router())
         .merge(layer_offer_manage::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
@@ -313,7 +320,9 @@ async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = if state.paid_reader_available {
+    let page = if state.layer_pages_enabled {
+        pages::my_library_with_options(&books, &saved, &csrf, state.paid_reader_available, true)
+    } else if state.paid_reader_available {
         pages::my_library_with_purchases(&books, &saved, &csrf, true)
     } else {
         pages::my_library(&books, &saved, &csrf)

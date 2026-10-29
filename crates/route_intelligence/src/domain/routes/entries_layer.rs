@@ -1,13 +1,13 @@
 //! D-05 Layer routes follow C-15 continuation at 79..=87.
 use super::super::*;
 use CostClass::{CheapRead as Read, Free, Write};
-use ProductArea::{Dashboard, Reading, System};
+use ProductArea::{Billing, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{PublicPage as Page, Static};
 const L: &str = "/layers/";
 
 #[rustfmt::skip]
-pub(super) const LAYER_ROUTES: [RouteRegistration; 10] = [
+pub(super) const LAYER_ROUTES: [RouteRegistration; 12] = [
     RouteRegistration::new(
         "/read/layer/{chapter_id}",
         "GET",
@@ -66,4 +66,22 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 10] = [
         ProductArea::Billing,
         Write,
     ), // 88
+    RouteRegistration::new(
+        "/layers/{layer_id}/purchase",
+        "POST",
+        L,
+        Prefix,
+        Page,
+        Billing,
+        Write,
+    ), // 89
+    RouteRegistration::new(
+        "/me/library/layers",
+        "GET",
+        "/me/library/",
+        Exact,
+        Page,
+        Reading,
+        Read,
+    ), // 90
 ];
