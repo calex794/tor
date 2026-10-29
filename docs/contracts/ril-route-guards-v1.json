@@ -621,6 +621,13 @@
       "source": "crates/web/src/auth/layer_offer_manage.rs",
       "handler": "publish",
       "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/layers/{id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_checkout_api::buy",
+      "policy": "session"
     }
   ]
 }
