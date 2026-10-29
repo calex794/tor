@@ -455,6 +455,24 @@ const ROUTES: [RouteRegistration; 73] = [
         System,
         Free,
     ), // 62
+    RouteRegistration::new(
+        "/assets/newboo-paid-library-upgrade.mjs",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // paid library runtime
+    RouteRegistration::new(
+        "/api/v1/me/purchases/{chapter_id}/upgrade",
+        "POST",
+        "/api/v1/me/purchases/",
+        Prefix,
+        Api,
+        Reading,
+        Write,
+    ), // owner-scoped edition upgrade
     // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
