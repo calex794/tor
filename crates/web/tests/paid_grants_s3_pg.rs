@@ -14,12 +14,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
-use std::{
-    env, fs::OpenOptions, io::Write, num::NonZeroU32, path::Path, process::Command, sync::Arc,
-    time::Duration,
-};
+use std::{env, num::NonZeroU32, process::Command, sync::Arc, time::Duration};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -53,6 +48,8 @@ mod s035_live_chromium;
 mod direct_fixtures;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
+#[path = "paid_grants_s3_pg/fixture_output.rs"]
+mod fixture_output;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -222,51 +219,6 @@ async fn html_body(response: Response) -> String {
             .to_vec(),
     )
     .unwrap()
-}
-
-fn save_ephemeral_fixture(
-    grant: Value,
-    version: i64,
-    purchase: i64,
-    readers: (String, String),
-    reader_csp: String,
-    expiry_probe_url: Value,
-    toc_target: (i64, i64, i64, i64, i64),
- ) {
-    let (reader_html, layer_reader_html) = readers;
-    let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
-    let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
-    assert!(
-        Path::new(&target).starts_with(&runner_temp),
-        "never store scoped secrets inside the source checkout"
-    );
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&target).expect("private fixture output");
-    let payload = json!({
-        "grant": grant,
-        "purchased_version_id": version.to_string(),
-        "purchase_id": purchase.to_string(),
-        "reader_html": reader_html,
-        "layer_reader_html": layer_reader_html,
-        "reader_csp": reader_csp,
-        "expiry_probe_url": expiry_probe_url,
-        "expected_markdown": MARKDOWN,
-        "expected_book_title": BOOK_TITLE,
-        "expected_chapter_title": CHAPTER_TITLE,
-        "expected_chapter_no": 1,
-        "expected_version_no": 1,
-        "toc_second_chapter_id": toc_target.0.to_string(),
-        "toc_second_purchase_id": toc_target.1.to_string(),
-        "toc_second_title": CHAPTER_TWO_TITLE,
-        "toc_free_chapter_id": toc_target.2.to_string(),
-        "toc_locked_chapter_id": toc_target.3.to_string(),
-        "toc_draft_chapter_id": toc_target.4.to_string(),
-    });
-    file.write_all(payload.to_string().as_bytes()).unwrap();
-    file.sync_all().unwrap();
 }
 
 #[tokio::test]
@@ -586,6 +538,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let first = decode(purchased).await;
     assert_eq!(first["version_id"], v1.to_string());
     direct_fixtures::assert_first_issued(&url, purchase_id, chapter, v1, purchase_two_id);
+    direct_fixtures::assert_batch_first_render(
+        &app,
+        &pool,
+        (buyer, chapter, v1, purchase_id, purchase_two_id),
+        (&buyer_cookie, &csrf),
+    )
+    .await;
     assert_eq!(first["schema"], "tor.paid_delivery.v1");
     assert!(!first.to_string().contains(MARKDOWN), "no plaintext in API");
 
@@ -901,7 +860,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .unwrap(),
     )
     .unwrap();
-    save_ephemeral_fixture(
+    fixture_output::save_ephemeral_fixture(
         still_v1,
         v1,
         purchase_id,
