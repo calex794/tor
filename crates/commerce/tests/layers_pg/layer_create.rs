@@ -75,11 +75,13 @@ async fn d_05_pg_layer_create_is_atomic_replay_safe_and_actor_scoped() {
         "changing the original command key is forbidden"
     );
     assert_eq!(
-        repo.create_layer_once(id(owner), "Changed Layer", &key).await,
+        repo.create_layer_once(id(owner), "Changed Layer", &key)
+            .await,
         Err(LayerError::ReplayConflict)
     );
     assert_eq!(
-        repo.create_layer_once(id(owner), " ", &create_key('D')).await,
+        repo.create_layer_once(id(owner), " ", &create_key('D'))
+            .await,
         Err(LayerError::Invalid)
     );
     assert_eq!(
