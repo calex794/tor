@@ -10,7 +10,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_commerce::domain::{
-    batch_checkout::{BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand, MAX_BATCH_CHAPTERS},
+    batch_checkout::{
+        BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand, MAX_BATCH_CHAPTERS,
+    },
     money::{IdempotencyKey, MoneyMinor, WalletId},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
