@@ -57,7 +57,9 @@ async fn d_06_pg_layer_refund_policy_missing_fails_closed_without_wallet_or_righ
     .await
     .expect_err("a policy version without its purchase deadline must fail");
     assert!(
-        only_version.to_string().contains("d06_term_refund_snapshot_complete"),
+        only_version
+            .to_string()
+            .contains("d06_term_refund_snapshot_complete"),
         "must reject due to the new snapshot CHECK: {only_version}"
     );
     let only_deadline = sqlx::query(
