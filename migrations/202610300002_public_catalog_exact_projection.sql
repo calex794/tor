@@ -4,6 +4,9 @@
 -- these counts in the same transaction as visibility and metadata writes.
 -- Statement-level transition tables make a 100k-book import a bounded batch.
 -- The tor_app role receives SELECT only; mutations run as migration owner.
+-- SQLx applies this migration transactionally: hold writes while backfilling,
+-- or a commit between the snapshot and trigger creation could lose a delta.
+LOCK TABLE books IN SHARE ROW EXCLUSIVE MODE;
 CREATE TABLE public_catalog_statistics (
     singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
     visible_book_count BIGINT NOT NULL CHECK (visible_book_count >= 0)
@@ -43,7 +46,7 @@ GRANT SELECT ON public_catalog_statistics,public_catalog_facets TO tor_app;
 
 CREATE FUNCTION public.perf233_adjust_count(change BIGINT)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public AS $$
+SET search_path = pg_catalog,public,pg_temp AS $
 BEGIN
     IF change = 0 THEN RETURN; END IF;
     UPDATE public.public_catalog_statistics
@@ -58,7 +61,7 @@ $$;
 
 CREATE FUNCTION public.perf233_adjust_facet(facet_kind TEXT,facet_name TEXT,change BIGINT)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public AS $$
+SET search_path = pg_catalog,public,pg_temp AS $
 BEGIN
     IF change = 0 THEN RETURN; END IF;
     IF change > 0 THEN
@@ -84,7 +87,7 @@ $$;
 
 CREATE FUNCTION public.perf233_after_book_insert()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public AS $$
+SET search_path = pg_catalog,public,pg_temp AS $
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT COUNT(*) INTO total FROM new_rows
@@ -112,7 +115,7 @@ $$;
 
 CREATE FUNCTION public.perf233_after_book_delete()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public AS $$
+SET search_path = pg_catalog,public,pg_temp AS $
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT COUNT(*) INTO total FROM old_rows
@@ -140,7 +143,7 @@ $$;
 
 CREATE FUNCTION public.perf233_after_book_update()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog,public AS $$
+SET search_path = pg_catalog,public,pg_temp AS $
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT
