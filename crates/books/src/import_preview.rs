@@ -117,9 +117,66 @@ pub fn preview_plain_text(input: &str) -> Result<Vec<ImportedChapter>, ImportErr
     Ok(result)
 }
 
+
+/// Build an editable preview from the same heading recognizer as the basic parser.
+/// Boundary edits retain the original lines, so merging a false heading is lossless.
+pub fn editable_plain_text(
+    input: &str,
+) -> Result<crate::import_corrections::ChapterPreview, ImportError> {
+    use crate::import_corrections::{Boundary, ChapterPreview};
+    if input.trim().is_empty() {
+        return Err(ImportError::Empty);
+    }
+    let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
+    let mut boundaries = Vec::new();
+    for (line_number, line) in normalized.lines().enumerate() {
+        if let Some((_, title)) = heading(line)? {
+            boundaries.push(Boundary { line: line_number, title });
+            if boundaries.len() > MAX_IMPORT_CHAPTERS {
+                return Err(ImportError::TooManyChapters);
+            }
+        }
+    }
+    if boundaries.is_empty() {
+        return Err(ImportError::NoChapters);
+    }
+    // Boundaries come directly from the source, so constructor validation is infallible.
+    ChapterPreview::new(&normalized, boundaries).map_err(|_| ImportError::NoChapters)
+}
+
+/// Validate the corrected preview before it can be used in an import plan.
+pub fn validate_editable_preview(
+    preview: &crate::import_corrections::ChapterPreview,
+) -> Result<Vec<crate::import_corrections::PreviewChapter>, ImportError> {
+    let chapters = preview.chapters();
+    if chapters.len() > MAX_IMPORT_CHAPTERS {
+        return Err(ImportError::TooManyChapters);
+    }
+    for (index, chapter) in chapters.iter().enumerate() {
+        if chapter.body.chars().count() > MAX_CHAPTER_CHARS {
+            return Err(ImportError::BodyTooLong((index + 1) as u32));
+        }
+    }
+    Ok(chapters)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editable_preview_can_merge_and_restore_detected_boundaries() {
+        let mut preview = editable_plain_text(
+            "Глава 1: Начало\nПервый текст\nГлава 2: Ошибочная\nПродолжение\nГлава 3: Финал\nКонец",
+        ).unwrap();
+        assert_eq!(preview.chapters().len(), 3);
+        preview.merge_false_boundary(2).unwrap();
+        let chapters = validate_editable_preview(&preview).unwrap();
+        assert_eq!(chapters.len(), 2);
+        assert!(chapters[0].body.contains("Глава 2: Ошибочная"));
+        assert!(preview.undo_merge());
+        assert_eq!(preview.chapters().len(), 3);
+    }
 
     #[test]
     fn parses_newboo_headings_and_deduplicates_leading_title() {
