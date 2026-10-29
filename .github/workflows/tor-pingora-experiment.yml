@@ -132,6 +132,14 @@ jobs:
       - name: Isolated optional CPU instruction and symbol profile
         shell: bash
         run: bash experiments/pingora/perf-profile.sh
+      - name: Make privileged perf output readable
+        if: always()
+        shell: bash
+        run: |
+          if [ -d experiments/pingora/perf-results ]; then
+            sudo chown -R "$(id -u):$(id -g)" experiments/pingora/perf-results
+            chmod -R u+rwX experiments/pingora/perf-results
+          fi
       - name: Preserve CPU profiling results and availability
         if: always()
         uses: actions/upload-artifact@v4
