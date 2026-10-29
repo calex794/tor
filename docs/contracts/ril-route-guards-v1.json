@@ -150,6 +150,13 @@
       "policy": "session"
     },
     {
+      "method": "POST",
+      "template": "/me/replies/{id}/read-state",
+      "source": "crates/web/src/auth.rs",
+      "handler": "reply_read_state",
+      "policy": "session"
+    },
+    {
       "method": "GET",
       "template": "/me/books",
       "source": "crates/web/src/auth.rs",
