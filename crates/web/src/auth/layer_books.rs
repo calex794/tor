@@ -174,12 +174,18 @@ pub(super) async fn page(
         Ok(after) => after,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    let current = match service.current_books(actor, layer, current_after, PAGE_SIZE).await {
+    let current = match service
+        .current_books(actor, layer, current_after, PAGE_SIZE)
+        .await
+    {
         Ok(current) => current,
         Err(error) => return deny(status(error)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(picker_html(layer.get(), &candidates, &current, &csrf), &cookies)
+    private_response(
+        picker_html(layer.get(), &candidates, &current, &csrf),
+        &cookies,
+    )
 }
 
 pub(super) async fn add(
