@@ -2,6 +2,7 @@
 use super::*;
 
 mod classifier;
+mod continuation;
 pub use classifier::classify;
 
 use CostClass::{CheapRead as Read, Free, Write};
@@ -295,9 +296,7 @@ const ROUTES: [RouteRegistration; 79] = [
         System,
         Free,
     ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
     RouteRegistration::new(
         "/ops/traces",
         "GET",
@@ -590,7 +589,7 @@ const ROUTES: [RouteRegistration; 79] = [
         ProductArea::Billing,
         Write,
     ), // 77
-    RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 78
+    continuation::REGISTRATION, // 78
 ];
 
 /// Read-only, finite route graph for subsequent governance checks.
