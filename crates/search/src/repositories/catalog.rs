@@ -107,6 +107,21 @@ pub(super) async fn count_filtered(
     tag: Option<&str>,
     fandom: Option<&str>,
 ) -> Result<u64, SearchError> {
+    // Exact, transactionally maintained public total for unfiltered pages.
+    // Filtered totals still use the original SQL predicates, never estimates.
+    if term.trim().is_empty()
+        && language.is_none()
+        && genre.is_none()
+        && tag.is_none()
+        && fandom.is_none()
+    {
+        let count: i64 =
+            sqlx::query_scalar("SELECT visible_book_count FROM public_catalog_statistics WHERE singleton")
+                .fetch_one(pool)
+                .await
+                .map_err(|_| SearchError::Unavailable)?;
+        return u64::try_from(count).map_err(|_| SearchError::Unavailable);
+    }
     let total: i64 = sqlx::query_scalar(FILTERED_TOTAL)
         .bind(term.trim())
         .bind(language)
@@ -281,72 +296,29 @@ pub struct TaxonomyOptions {
 }
 
 pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, SearchError> {
-    // Only a performance decision: the exact visibility predicate is applied
-    // in BOTH branches. Unknown/stale statistics safely fall back to the
-    // original dense-table path; they never select stale public metadata.
-    //
-    // reltuples comes from PostgreSQL ANALYZE, not from user input. The
-    // small pg_class lookup is deliberately done on each first-page request:
-    // no TTL-based cache or delayed book-visibility invalidation.
-    const CHOOSE_SPARSE: &str = "
-        SELECT COALESCE((
-            SELECT i.reltuples >= 0 AND b.reltuples > 0
-                   AND i.reltuples * 5 <= b.reltuples
-            FROM pg_catalog.pg_class AS i
-            CROSS JOIN pg_catalog.pg_class AS b
-            WHERE i.oid = to_regclass('public.books_public_nonempty_taxonomy_idx')
-              AND b.oid = to_regclass('public.books')
-        ), FALSE)";
-
-    // Sparse case: a single indexed pass through only books with categories.
-    // DISTINCT and row_number preserve the original 100-item limit PER kind.
-    const SPARSE_SQL: &str = "
-        SELECT kind, name FROM (
-            SELECT kind, name,
-                   ROW_NUMBER() OVER (PARTITION BY kind ORDER BY name) AS ordinal
-            FROM (
-                SELECT DISTINCT facet.kind, item.name
-                FROM books AS b
-                CROSS JOIN LATERAL (
-                    VALUES ('genre'::text, b.genres),
-                           ('tag'::text, b.tags),
-                           ('fandom'::text, b.fandoms)
-                ) AS facet(kind, entries)
-                CROSS JOIN LATERAL unnest(facet.entries) AS item(name)
-                WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-                  AND (b.genres <> '{}'::text[] OR b.tags <> '{}'::text[]
-                       OR b.fandoms <> '{}'::text[])
-            ) AS distinct_names
-        ) AS ordered_names
-        WHERE ordinal <= 100
-        ORDER BY kind, name";
-
-    // Dense case: three parallel scans beat a random heap-heavy index walk.
-    // These are the exact pre-optimization public predicates and limits.
-    const DENSE_SQL: &str = "
+    // The migration maintains exact distinct-public-book references in the
+    // SAME transaction as every publication, hold, deletion and facet change.
+    // No stale TTL, pg_class estimates, or per-request scans of all books.
+    const SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
-            SELECT DISTINCT unnest(genres) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='genre' AND reference_count>0
             ORDER BY name LIMIT 100
         ) g
         UNION ALL
         SELECT 'tag' AS kind, name FROM (
-            SELECT DISTINCT unnest(tags) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='tag' AND reference_count>0
             ORDER BY name LIMIT 100
         ) t
         UNION ALL
         SELECT 'fandom' AS kind, name FROM (
-            SELECT DISTINCT unnest(fandoms) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='fandom' AND reference_count>0
             ORDER BY name LIMIT 100
         ) f";
 
-    let sparse: bool = sqlx::query_scalar(CHOOSE_SPARSE)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| SearchError::Unavailable)?;
-    let rows = sqlx::query(if sparse { SPARSE_SQL } else { DENSE_SQL })
+    let rows = sqlx::query(SQL)
         .fetch_all(pool)
         .await
         .map_err(|_| SearchError::Unavailable)?;
