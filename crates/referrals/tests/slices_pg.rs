@@ -209,10 +209,37 @@ async fn f_09_pg_recovery_uses_signup_time_not_replay_time() {
     .execute(&pool)
     .await
     .unwrap();
+    // The guest visits a different code after the prior invitation expired.
+    // Recovery must still select the historical inviter valid at registration.
+    sqlx::query("UPDATE referral_captures SET status='expired' WHERE guest_hash=$1")
+        .bind(guest_hash.as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let later_owner = seed_user(&pool, "later-owner").await;
+    let later_code = seed_code(&pool, later_owner, "reader_spend").await;
+    assert_eq!(
+        repo.capture(&guest_hash, &later_code, "direct_ref_link", "/r/later")
+            .await
+            .unwrap(),
+        CaptureResult::Saved
+    );
 
     // This is the same public API called by the periodic recovery consumer.
     assert!(repo.finalize_pending(50).await.unwrap() >= 1);
     assert_eq!(attribution_count(&pool, invited).await, 1);
+    let row_correct: bool = sqlx::query_scalar(
+        "SELECT a.referrer_user_id = $2 AND a.attributed_at = o.registered_at \
+         FROM referral_attributions a \
+         JOIN account_registration_referral_outbox o ON o.user_id=a.subject_user_id \
+         WHERE a.subject_user_id=$1",
+    )
+    .bind(invited)
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(row_correct, "original inviter and signup timestamp must survive replay");
     assert!(!repo.finalize_one(invited).await.unwrap());
     let result: String = sqlx::query_scalar(
         "SELECT result FROM account_registration_referral_outbox WHERE user_id=$1",
