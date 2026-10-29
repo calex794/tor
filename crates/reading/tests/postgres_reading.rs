@@ -36,11 +36,16 @@ async fn public_chapters_hide_drafts_embargoes_admin_holds_paid_and_private_book
         .any(|c| c.id == 102 || c.id == 106 || c.id == 107));
     let first = reader.public_chapter(101).await.unwrap().unwrap();
     assert!(first.body_markdown.contains("Первая строка"));
-    assert_eq!(first.next_chapter_id, Some(108));
+    assert_eq!(first.next_chapter_id, Some(103));
+    assert!(
+        first.next_chapter_is_paid,
+        "nearest published chapter is paid, so it must lead to the paywall"
+    );
     assert_eq!(first.previous_chapter_id, None);
     let last = reader.public_chapter(108).await.unwrap().unwrap();
     assert_eq!(last.previous_chapter_id, Some(101));
     assert_eq!(last.next_chapter_id, None);
+    assert!(!last.next_chapter_is_paid);
     for hidden in [0, 102, 103, 104, 105, 106, 107, u64::MAX] {
         assert!(
             reader.public_chapter(hidden).await.unwrap().is_none(),
