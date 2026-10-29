@@ -72,6 +72,49 @@ class RoadmapTests(unittest.TestCase):
         self.mutate("scenarios.tsv", "17125ef758a791e9630505c14d24f7fe65aed228", "0000000000000000000000000000000000000000")
         self.assertTrue(any("source link is not pinned" in e for e in check(self.root)))
 
+    def test_undocumented_newboo_sha_change_fails_even_if_all_links_change(self):
+        old = "17125ef758a791e9630505c14d24f7fe65aed228"
+        fake = "f" * 40
+        self.mutate("sources.lock.toml", old, fake)
+        scenarios = self.root / "docs/roadmap/scenarios.tsv"
+        contents = scenarios.read_text(encoding="utf-8")
+        scenarios.write_text(contents.replace(old, fake), encoding="utf-8")
+        self.assertTrue(any("source-lock reference.newboo_main_sha" in e
+                            for e in check(self.root)))
+
+    def test_bokarust_revision_is_locked(self):
+        self.mutate("sources.lock.toml",
+                    "d11b27b43125b93e59809147e8e687203fa0753b", "a" * 40)
+        self.assertTrue(any("source-lock reference.bokarust_main_sha" in e
+                            for e in check(self.root)))
+
+    def test_upstream_repository_names_are_locked(self):
+        self.mutate("sources.lock.toml", 'newboo_repo = "HeisLuka/newboo"',
+                    'newboo_repo = "unknown/fork"')
+        self.assertTrue(any("source-lock reference.newboo_repo" in e
+                            for e in check(self.root)))
+
+    def test_bokarust_repository_name_is_locked(self):
+        self.mutate("sources.lock.toml", 'bokarust_repo = "calex794/bokarust"',
+                    'bokarust_repo = "unknown/fork"')
+        self.assertTrue(any("source-lock reference.bokarust_repo" in e
+                            for e in check(self.root)))
+
+    def test_target_repository_and_roadmap_version_are_locked(self):
+        self.mutate("sources.lock.toml", 'target_repo = "calex794/tor"',
+                    'target_repo = "unknown/tor"')
+        self.assertTrue(any("source-lock roadmap.target_repo" in e
+                            for e in check(self.root)))
+        self.mutate("sources.lock.toml", 'version = "2026-10-26-v2"',
+                    'version = "2026-10-99-v999"')
+        self.assertTrue(any("source-lock roadmap.version" in e
+                            for e in check(self.root)))
+
+    def test_malformed_source_sections_fail_closed(self):
+        self.mutate("sources.lock.toml", "[reference]", "reference = 1")
+        self.assertTrue(any("must contain reference and roadmap tables" in e
+                            for e in check(self.root)))
+
     def test_json_duplicate_idempotency_field_detected(self):
         self.mutate("api-v1.md", "{chapter_id,expected_version_id,expected_price_minor}",
                     "{chapter_id,expected_version_id,expected_price_minor,idempotency_key}")
