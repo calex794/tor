@@ -102,7 +102,7 @@ jobs:
           TOR_LISTEN_ADDR: 127.0.0.1:3089
           TOR_AUTH_ENABLED: '0'
           TOR_PAID_CHECKOUT_ENABLED: '0'
-          PEAK_RPS: ${{ inputs.peak_rps || '25' }}
+          MAX_RPS: ${{ github.event_name == 'pull_request' && '500' || inputs.peak_rps || '25' }}
           STAGE_SECONDS: ${{ inputs.stage_seconds || '15' }}
         run: |
           set -euo pipefail
@@ -120,15 +120,37 @@ jobs:
           for path in /catalog /api/v1/books /api/v1/search/books?q=Load /books/1 /reader/101 /api/v1/books/1/toc; do
             curl --fail --silent --show-error "http://127.0.0.1:3089$path" -o /dev/null
           done
-          k6 run --summary-export "$RUNNER_TEMP/tor-load/summary.json" tests/load/tor_http.js | tee "$RUNNER_TEMP/tor-load/k6.log"
+          baseline_failed=0
+          : > "$RUNNER_TEMP/tor-load/results.tsv"
+          for rate in 25 50 100 250 500; do
+            if (( rate > MAX_RPS )); then break; fi
+            echo "::group::k6 target $rate requests/s"
+            if TARGET_RPS="$rate" k6 run --summary-export "$RUNNER_TEMP/tor-load/summary-$rate.json" tests/load/tor_http.js 2>&1 | tee "$RUNNER_TEMP/tor-load/k6-$rate.log"; then
+              printf '%s\t%s\n' "$rate" 'PASS' >> "$RUNNER_TEMP/tor-load/results.tsv"
+            else
+              printf '%s\t%s\n' "$rate" 'THRESHOLD_OR_RUNTIME_FAIL' >> "$RUNNER_TEMP/tor-load/results.tsv"
+              if (( rate == 25 )); then baseline_failed=1; fi
+            fi
+            echo "::endgroup::"
+          done
+          {
+            echo '## TOR localhost-only HTTP load'
+            echo '| Target requests/s | Result |'
+            echo '|---:|---|'
+            awk -F '\t' '{printf "| %s | %s |\n", $1, $2}' "$RUNNER_TEMP/tor-load/results.tsv"
+            echo
+            echo 'Higher-rate failures are measured capacity signals, not automatic release gates. Results are on GitHub-hosted hardware.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/tor-load/results.tsv"
           PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -c 'SELECT datname, numbackends, xact_commit, blks_hit, blks_read FROM pg_stat_database WHERE datname = current_database();' > "$RUNNER_TEMP/tor-load/postgres.txt"
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
+          if (( baseline_failed != 0 )); then exit 1; fi
       - name: Preserve isolated benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tor-http-load-${{ inputs.peak_rps || '25' }}rps
+          name: tor-http-load-up-to-${{ github.event_name == 'pull_request' && '500' || inputs.peak_rps || '25' }}rps
           path: ${{ runner.temp }}/tor-load/
           if-no-files-found: warn
           retention-days: 14
