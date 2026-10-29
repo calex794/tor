@@ -1,16 +1,11 @@
 //! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
-
 mod classifier;
 pub use classifier::classify;
-
-// Indexes below are deliberately shared with classify(), and checked by unit tests.
-// These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
-
 const ROUTES: [RouteRegistration; 79] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
@@ -297,9 +292,7 @@ const ROUTES: [RouteRegistration; 79] = [
         System,
         Free,
     ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
     RouteRegistration::new(
         "/ops/traces",
         "GET",
@@ -318,7 +311,6 @@ const ROUTES: [RouteRegistration; 79] = [
         ProductArea::Admin,
         Read,
     ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
     RouteRegistration::new(
         "/covers/{id}/{variant}",
         "GET",
@@ -455,7 +447,6 @@ const ROUTES: [RouteRegistration; 79] = [
         System,
         Free,
     ), // 62
-    // Only an authenticated, entitled actor can enumerate owned purchases.
     RouteRegistration::new(
         "/me/purchases",
         "GET",
@@ -546,7 +537,6 @@ const ROUTES: [RouteRegistration; 79] = [
         Reading,
         Write,
     ), // 72
-    // The authorised Layer reader never embeds paid text in its HTML.
     RouteRegistration::new(
         "/read/layer/{chapter_id}",
         "GET",
@@ -565,7 +555,6 @@ const ROUTES: [RouteRegistration; 79] = [
         System,
         Free,
     ), // 74
-    // D-05: server-filtered owner-only picker and the locked add-book write.
     RouteRegistration::new(
         "/me/layers/{layer_id}/books",
         "GET",
@@ -584,11 +573,25 @@ const ROUTES: [RouteRegistration; 79] = [
         Dashboard,
         Write,
     ), // 76
-    // D-05: owner session creates an empty Layer with an atomic command key.
-    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 77
-    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 78
+    RouteRegistration::new(
+        "/me/layers/new",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 77
+    RouteRegistration::new(
+        "/me/layers/new",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 78
 ];
-
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
