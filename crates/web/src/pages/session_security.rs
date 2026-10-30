@@ -37,7 +37,11 @@ pub fn active_sessions(csrf: &str, sessions: &[ActiveSession]) -> Html<String> {
     if sessions.is_empty() {
         rows.push_str("<li>Действующих сеансов не найдено.</li>");
     }
-    let body = include_str!("../../templates/security_sessions.html")
-        .replace("<!--SESSIONS-->", &rows);
-    layout("Активные сеансы", "Завершение входа на других устройствах.", &body)
+    let body =
+        include_str!("../../templates/security_sessions.html").replace("<!--SESSIONS-->", &rows);
+    layout(
+        "Активные сеансы",
+        "Завершение входа на других устройствах.",
+        &body,
+    )
 }
