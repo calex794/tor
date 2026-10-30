@@ -87,6 +87,37 @@ async fn attribution_count(pool: &PgPool, subject: i64) -> i64 {
 
 #[tokio::test]
 #[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_manual_codes_must_be_active() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let inviter = seed_user(&pool, "invite-status").await;
+    let code = seed_code(&pool, inviter, "reader_spend").await;
+    assert!(repo.active_code(&code).await.unwrap());
+    assert!(!repo.active_code("missing_referral_2026").await.unwrap());
+
+    sqlx::query("UPDATE referral_codes SET status='disabled' WHERE code=$1")
+        .bind(&code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!repo.active_code(&code).await.unwrap());
+    assert_eq!(
+        repo.capture(&guest_hash(inviter), &code, "direct_ref_link", "/r/disabled")
+            .await
+            .unwrap(),
+        CaptureResult::Invalid,
+    );
+
+    sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
+        .bind(&code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!repo.active_code(&code).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
 async fn f_09_pg_first_capture_and_replay() {
     let pool = isolated_pool().await;
     let repo = PgReferrals::new(pool.clone());
