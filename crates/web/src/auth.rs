@@ -43,7 +43,6 @@ use tor_reading::{
 mod access_audit;
 mod account_form_http;
 mod author_book_page;
-mod book_stats_http;
 mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
