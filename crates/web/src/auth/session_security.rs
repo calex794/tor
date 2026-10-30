@@ -1,9 +1,6 @@
 //! A-03: browser-only session ownership and explicit revocation.
 use super::AuthState;
-use crate::{
-    auth_cookies::private_response,
-    pages,
-};
+use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, State},
     http::{HeaderMap, StatusCode},
@@ -65,10 +62,9 @@ pub(super) async fn revoke(
         .revoke_owned_session(user, &session_token_digest(&token), &form.session_id)
         .await
     {
-        Ok(Some(true)) => private_response(
-            Redirect::to("/login"),
-            &state.cookies.cleared_cookies(),
-        ),
+        Ok(Some(true)) => {
+            private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
+        }
         Ok(Some(false)) => private_response(Redirect::to("/me/security/sessions"), &[]),
         Ok(None) => private_response(StatusCode::NOT_FOUND, &[]),
         Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
