@@ -26,6 +26,11 @@ fn rate_limit_ip(peer: IpAddr, headers: &HeaderMap, trust_nginx: bool) -> Option
     Some(value)
 }
 
+pub(super) fn verified_client_ip(peer: IpAddr, headers: &HeaderMap) -> Option<IpAddr> {
+    let trust_nginx = std::env::var("TOR_AUTH_TRUST_NGINX_REAL_IP").as_deref() == Ok("1");
+    rate_limit_ip(peer, headers, trust_nginx)
+}
+
 /// Bound Argon2 work per account, and per verified client IP when available.
 /// The old implementation keyed all Nginx visitors to 127.0.0.1 and could
 /// lock everyone out after 60 unrelated login attempts in ten minutes.
@@ -37,8 +42,7 @@ pub(super) async fn limit(
     peer: ConnectInfo<SocketAddr>,
 ) -> Result<[u8; 32], StatusCode> {
     let identity_key = session_token_digest(&format!("auth:{action}:identity:{email}"));
-    let trust_nginx = std::env::var("TOR_AUTH_TRUST_NGINX_REAL_IP").as_deref() == Ok("1");
-    if let Some(ip) = rate_limit_ip(peer.0.ip(), headers, trust_nginx) {
+    if let Some(ip) = verified_client_ip(peer.0.ip(), headers) {
         let address_key = session_token_digest(&format!("auth:{action}:peer:{ip}"));
         let address_ok = state
             .accounts

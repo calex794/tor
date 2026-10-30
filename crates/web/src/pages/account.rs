@@ -1,6 +1,7 @@
 //! User account pages; preserves the original `pages` public entry points.
 use super::{escape_html, layout};
 use axum::response::Html;
+use tor_discussions::repositories::public_book_comments::ReceivedReply;
 
 pub fn registration_form(csrf: &str) -> Html<String> {
     registration_form_with_error(csrf, "", "", None)
@@ -44,6 +45,26 @@ pub fn login_form(csrf: &str) -> Html<String> {
     layout("Вход", "Войти в личный кабинет.", &content)
 }
 
+/// Private settings page: no password is returned in HTML or client-side scripts.
+pub fn password_change_form(csrf: &str, message: Option<&str>) -> Html<String> {
+    let banner = message
+        .map(|text| {
+            format!(
+                "<p class=\"auth-form__error\" role=\"alert\">{}</p>",
+                escape_html(text)
+            )
+        })
+        .unwrap_or_default();
+    let body = include_str!("../../templates/password_change.html")
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--FORM_ERROR-->", &banner);
+    layout(
+        "Смена пароля",
+        "Настройки безопасности учётной записи.",
+        &body,
+    )
+}
+
 /// Branded, standalone error page: only fixed site links, no account data or
 /// database diagnostics. The caller keeps the original HTTP error status.
 pub fn account_error_page(title: &str, message: &str, retry_registration: bool) -> Html<String> {
@@ -66,10 +87,39 @@ pub fn account_error_page(title: &str, message: &str, retry_registration: bool) 
     )
 }
 
-pub fn my_account(name: &str, csrf: &str) -> Html<String> {
+#[allow(dead_code)] // Legacy renderer retained for existing callers and snapshot tests.
+pub fn my_account(name: &str, csrf: &str, replies: &[ReceivedReply]) -> Html<String> {
+    my_account_with_follow_updates(name, csrf, replies, 0)
+}
+
+/// Show a bounded private alert only for new, unacknowledged releases.
+pub fn my_account_with_follow_updates(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+) -> Html<String> {
+    let count = if unread >= 100 {
+        "99+".to_owned()
+    } else {
+        unread.to_string()
+    };
+    let alert = if unread == 0 {
+        String::new()
+    } else {
+        format!(
+            "<a class=\"me-now-item me-now-item--reading\" href=\"/me/library#new-chapters\" \
+             aria-label=\"Новые главы подписок: {count}\"><span class=\"me-now-item__copy\">\
+             <strong class=\"me-now-item__title\">Новые главы подписок: {count}</strong>\
+             <span class=\"me-now-item__text\">Бесплатные и платные продолжения ваших книг.</span>\
+             </span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>"
+        )
+    };
     let content = include_str!("../../templates/me.html")
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
-        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf));
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
+        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf));
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
     Html(
@@ -85,9 +135,74 @@ pub fn my_account(name: &str, csrf: &str) -> Html<String> {
     )
 }
 
+fn received_replies(replies: &[ReceivedReply], csrf: &str) -> String {
+    if replies.is_empty() {
+        return "<p class=\"ui-section-header__text\">Ответов пока нет. Когда другой читатель ответит на ваш комментарий, здесь появится ссылка на обсуждение.</p>".to_owned();
+    }
+    let mut html = String::from("<div class=\"me-now-list\">");
+    for reply in replies.iter().take(10) {
+        // The existing descending cursor includes this exact reply on arrival.
+        let cursor = reply
+            .comment_id
+            .checked_add(1)
+            .map(|after| format!("?after={after}"))
+            .unwrap_or_default();
+        html.push_str(&format!(
+            "<a class=\"me-now-item me-now-item--reading\" href=\"/books/{}/comments{cursor}#comment-{}\">",
+            reply.book_id, reply.comment_id,
+        ));
+        html.push_str(&format!(
+            "<span class=\"me-now-item__copy\"><strong class=\"me-now-item__title\">Ответ в книге «{}»</strong><span class=\"me-now-item__text\">Открыть ответ на ваш комментарий</span></span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>",
+            escape_html(&reply.book_title),
+        ));
+        let (status, next_state, action) = if reply.is_read {
+            ("Прочитано", "unread", "Отметить непрочитанным")
+        } else {
+            ("Не прочитано", "read", "Отметить прочитанным")
+        };
+        html.push_str(&format!(
+            "<p class=\"ui-section-header__text\">{status}</p><form method=\"post\" action=\"/me/replies/{}/read-state\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"state\" value=\"{next_state}\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">{action}</button></form>",
+            reply.comment_id, escape_html(csrf),
+        ));
+    }
+    html.push_str("</div>");
+    html
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn e_03_received_reply_links_escape_titles_and_contain_no_message_copy() {
+        let replies = vec![ReceivedReply {
+            comment_id: 26,
+            book_id: 4,
+            book_title: "<img src=x onerror=alert(1)>".to_owned(),
+            is_read: false,
+        }];
+        let html = my_account("Reader", "csrf", &replies).0;
+        assert!(html.contains("/books/4/comments?after=27#comment-26"));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img src=x"));
+        assert!(!html.contains("<!--RECEIVED_REPLIES-->"));
+        assert!(my_account("Reader", "csrf", &[])
+            .0
+            .contains("Ответов пока нет"));
+    }
+
+    #[test]
+    fn c_16_dashboard_links_to_unread_free_and_paid_release_updates() {
+        let html = my_account_with_follow_updates("Reader", "csrf", &[], 2).0;
+        assert!(html.contains("href=\"/me/library#new-chapters\""));
+        assert!(html.contains("Новые главы подписок: 2"));
+        assert!(html.contains("Бесплатные и платные"));
+        let big = my_account_with_follow_updates("Reader", "csrf", &[], 100).0;
+        assert!(big.contains("Новые главы подписок: 99+"));
+        assert!(!my_account_with_follow_updates("Reader", "csrf", &[], 0)
+            .0
+            .contains("href=\"/me/library#new-chapters\""));
+    }
 
     #[test]
     fn restored_ne_wboo_auth_panda_is_present_without_client_script() {
@@ -124,7 +239,7 @@ mod tests {
 
     #[test]
     fn original_dashboard_sections_keep_only_implemented_routes() {
-        let html = my_account("<Читатель>", "csrf-token").0;
+        let html = my_account("<Читатель>", "csrf-token", &[]).0;
         assert!(html.contains("class=\"me-page\""));
         assert!(html.contains("class=\"me-overview\""));
         assert!(html.contains("class=\"me-block-grid\""));

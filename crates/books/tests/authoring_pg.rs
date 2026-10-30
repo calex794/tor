@@ -538,3 +538,100 @@ async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_ch
         Err(AuthorError::Conflict)
     );
 }
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_12_private_chapter_keyset_covers_501_chapters_without_leaks() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tor_books::services::authoring::OwnedChapterCursor;
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "never use production database");
+    let pool = PgPool::connect(&url).await.expect("PostgreSQL 18");
+    let owner = PgAuthoring::new(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    let user: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1, 'Long book owner', '$argon2id$test') RETURNING id",
+    )
+    .bind(format!("b12-{nonce}@tor-ci.example"))
+    .fetch_one(&pool)
+    .await
+    .expect("owner");
+    let outsider: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1, 'Other reader', '$argon2id$test') RETURNING id",
+    )
+    .bind(format!("b12-foreign-{nonce}@tor-ci.example"))
+    .fetch_one(&pool)
+    .await
+    .expect("outsider");
+    let book = new_book(
+        &format!("tor-ci:b12:{nonce}"),
+        "ru",
+        "501 глава",
+        &"z".repeat(43),
+    )
+    .expect("book identity");
+    let book_id = owner
+        .create_owned_book(user, &book)
+        .await
+        .expect("create book");
+    sqlx::query(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         SELECT $1, n, ('Глава ' || n::text), 'draft', 'free', 0
+         FROM generate_series(1,501) AS n",
+    )
+    .bind(book_id)
+    .execute(&pool)
+    .await
+    .expect("501 chapters");
+
+    let foreign = owner
+        .list_owned_chapters_page(outsider, book_id, None)
+        .await
+        .expect("private filter");
+    assert!(
+        foreign.chapters.is_empty(),
+        "foreign user must see no chapters"
+    );
+    assert_eq!(
+        owner
+            .list_owned_chapters(user, book_id)
+            .await
+            .unwrap()
+            .len(),
+        200,
+        "legacy callers retain their bounded response"
+    );
+    let mut next: Option<OwnedChapterCursor> = None;
+    let mut count = 0;
+    let mut last = 0;
+    let mut pages = 0;
+    loop {
+        let page = owner
+            .list_owned_chapters_page(user, book_id, next)
+            .await
+            .expect("owner page");
+        assert!(!page.chapters.is_empty());
+        assert!(page.chapters.len() <= 100);
+        for chapter in page.chapters {
+            assert!(chapter.number > last, "strict chapter order across pages");
+            last = chapter.number;
+            count += 1;
+        }
+        pages += 1;
+        next = page.next;
+        if next.is_none() {
+            break;
+        }
+        assert!(pages < 7, "cursor must advance");
+    }
+    assert_eq!(count, 501);
+    assert_eq!(last, 501);
+    assert_eq!(pages, 6);
+    pool.close().await;
+}

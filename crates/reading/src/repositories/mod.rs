@@ -11,3 +11,12 @@ pub use sync::PgReadingSync;
 
 pub mod demand;
 pub use demand::PgContinuationDemand;
+
+pub mod book_follows;
+pub use book_follows::{FollowError, PgBookFollows};
+
+pub mod follow_updates;
+pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};
+
+pub mod notification_preferences;
+pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
