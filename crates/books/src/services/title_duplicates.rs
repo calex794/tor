@@ -23,7 +23,7 @@ pub fn candidate_titles(
     alternative_titles: &str,
 ) -> Result<Vec<String>, AuthorError> {
     let alternatives: Vec<&str> = alternative_titles
-        .split(|c: char| matches!(c, ',' | ';' | '\n' | '|'))
+        .split([',', ';', '\n', '|'])
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .collect();
