@@ -13,7 +13,7 @@
     field.addEventListener("input", () => {
       clearTimeout(timer);
       const value = field.value.slice(0, field.selectionStart);
-      const match = value.match(/(?:^|\\s)@([\\p{L}\\p{N}_.-]{2,64})$/u);
+      const match = value.match(/(?:^|\s)@([\p{L}\p{N}_.-]{2,64})$/u);
       if (!match) { hide(); return; }
       const serial = ++current;
       timer = setTimeout(async () => {
