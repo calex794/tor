@@ -593,3 +593,48 @@ async fn d_05_pg_legacy_public_quote_does_not_reveal_draft_books() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_draft_only_layer_cannot_debit_wallet() {
+    let (pool, repo, owner, buyer, _book) = setup("draft-only-buy").await;
+    let draft: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','CI-DRAFT-ONLY','draft',$2) RETURNING id",
+    )
+    .bind(format!("ci:d05:draft-only-buy:{owner}"))
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let layer = repo.create_layer(id(owner), "Unpublished Layer").await.unwrap();
+    let version = repo.add_book(id(owner), id(layer), id(draft)).await.unwrap();
+    let offered = repo.publish_offer(id(owner), id(layer), 125, false).await.unwrap();
+
+    // The public UI suppresses its buy button when no Book is published.
+    // The same restriction must hold for a direct, authenticated JSON POST.
+    let card = tor_commerce::repositories::layer_storefront::storefront(
+        &pool, layer, Some(buyer),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(card.public_book_count, 0);
+    assert!(card.public_books.is_empty());
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offered, version, 125, 'Z')).await,
+        Err(LayerError::Inaccessible),
+    );
+    let (wallet, terms, commands): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1),
+           (SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id=$1),
+           (SELECT COUNT(*) FROM commerce_layer_commands WHERE user_id=$1)",
+    )
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((wallet, terms, commands), (1500, 0, 0));
+    pool.close().await;
+}
