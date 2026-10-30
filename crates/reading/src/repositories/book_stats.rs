@@ -149,7 +149,9 @@ impl PgBookStats {
         .bind(book_id)
         .fetch_optional(&self.pool)
         .await?;
-        let Some(title) = title else { return Ok(None); };
+        let Some(title) = title else {
+            return Ok(None);
+        };
         let totals = sqlx::query(
             "SELECT
                COALESCE((SELECT SUM(opens) FROM book_chapter_open_daily
@@ -216,7 +218,9 @@ impl PgBookStats {
             });
         }
         let next_after = if has_next {
-            chapters.last().map(|last| format!("{}:{}", last.number, last.id))
+            chapters
+                .last()
+                .map(|last| format!("{}:{}", last.number, last.id))
         } else {
             None
         };

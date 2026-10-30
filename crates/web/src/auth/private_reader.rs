@@ -61,9 +61,11 @@ pub(super) async fn page(
         None
     };
     // Statistics are best-effort; their failure must never deny reading.
-    if let Err(error) = tor_reading::repositories::book_stats::PgBookStats::new(
-        state.accounts.pool().clone(),
-    ).record_open(chapter_id, Some(actor)).await {
+    if let Err(error) =
+        tor_reading::repositories::book_stats::PgBookStats::new(state.accounts.pool().clone())
+            .record_open(chapter_id, Some(actor))
+            .await
+    {
         tracing::warn!(?error, "book statistics open not recorded");
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
