@@ -99,7 +99,12 @@ pub(super) async fn submit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     if !allowed {
-        return deny(StatusCode::TOO_MANY_REQUESTS);
+        let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
+        response.headers_mut().insert(
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderValue::from_static("60"),
+        );
+        return response;
     }
     let repo = PgChapterThanks::new(state.accounts.pool().clone());
     match repo.thank_visible_free(actor, id).await {
