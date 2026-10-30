@@ -83,10 +83,13 @@ def _classic_is_enforced(branch: dict) -> bool:
         return False
     status = policy.get("required_status_checks")
     return (
-        policy.get("enforce_admins", {}).get("enabled") is True
+        isinstance(policy.get("enforce_admins"), dict)
+        and policy["enforce_admins"].get("enabled") is True
         and isinstance(policy.get("required_pull_request_reviews"), dict)
-        and policy.get("allow_force_pushes", {}).get("enabled") is False
-        and policy.get("allow_deletions", {}).get("enabled") is False
+        and isinstance(policy.get("allow_force_pushes"), dict)
+        and policy["allow_force_pushes"].get("enabled") is False
+        and isinstance(policy.get("allow_deletions"), dict)
+        and policy["allow_deletions"].get("enabled") is False
         and isinstance(status, dict)
         and status.get("enforcement_level") == "everyone"
         and _actions_checks(status.get("checks"), "app_id")
