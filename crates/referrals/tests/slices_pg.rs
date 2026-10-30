@@ -588,7 +588,10 @@ async fn f_09_pg_alias_resolves_only_correct_prefix_and_active_code() {
         ("go", "me"),
         ("other", "novel-2026"),
     ] {
-        assert_eq!(repo.resolve_active_alias(prefix, alias).await.unwrap(), None);
+        assert_eq!(
+            repo.resolve_active_alias(prefix, alias).await.unwrap(),
+            None
+        );
     }
     sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
         .bind(&code)

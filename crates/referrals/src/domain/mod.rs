@@ -11,21 +11,17 @@ pub fn valid_code(raw: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-
 /// A public link alias is lowercase ASCII, bounded, and not a reserved route.
 pub fn valid_alias(alias: &str) -> bool {
     (3..=64).contains(&alias.len())
         && !["admin", "api", "auth", "books", "login", "mail", "me"].contains(&alias)
-        && alias
-            .bytes()
-            .enumerate()
-            .all(|(index, byte)| {
-                if index == 0 {
-                    byte.is_ascii_lowercase() || byte.is_ascii_digit()
-                } else {
-                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-                }
-            })
+        && alias.bytes().enumerate().all(|(index, byte)| {
+            if index == 0 {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit()
+            } else {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+            }
+        })
 }
 
 pub fn manual_code(raw: Option<&str>) -> Result<Option<&str>, &'static str> {
@@ -70,7 +66,16 @@ mod tests {
         assert_eq!(manual_code(Some(" ")).unwrap(), None);
         assert!(manual_code(Some("bad code")).is_err());
         assert!(valid_alias("sale-2026"));
-        for invalid in ["ab", "Admin", "me", "a/b", "%2f", "a..b", "реферал", "a".repeat(65).as_str()] {
+        for invalid in [
+            "ab",
+            "Admin",
+            "me",
+            "a/b",
+            "%2f",
+            "a..b",
+            "реферал",
+            "a".repeat(65).as_str(),
+        ] {
             assert!(!valid_alias(invalid), "invalid alias accepted: {invalid}");
         }
     }

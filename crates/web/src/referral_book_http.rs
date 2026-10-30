@@ -1,9 +1,6 @@
 //! Passive /books/{id}?ref= capture only *after* public visibility succeeds.
 #![forbid(unsafe_code)]
-use crate::{
-    auth_cookies::private_response,
-    book_follow_page::FollowBookControl,
-};
+use crate::{auth_cookies::private_response, book_follow_page::FollowBookControl};
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, StatusCode},
@@ -20,7 +17,9 @@ use tor_referrals::{
 /// duplicated ref parameters are ignored, preserving the ordinary book page.
 fn query_referral(query: Option<&str>) -> Option<&str> {
     let query = query.filter(|query| query.len() <= 2048)?;
-    let mut values = query.split('&').filter_map(|pair| pair.strip_prefix("ref="));
+    let mut values = query
+        .split('&')
+        .filter_map(|pair| pair.strip_prefix("ref="));
     let value = values.next()?;
     if values.next().is_some() || !valid_code(value) {
         return None;
@@ -49,7 +48,10 @@ pub(super) async fn capture(
     let (accounts, cookies) = control.browser_context();
     // Authenticated readers cannot claim a new signup invitation.
     if let Some(token) = cookies.session_token(&headers) {
-        match accounts.active_session_user(&session_token_digest(&token)).await {
+        match accounts
+            .active_session_user(&session_token_digest(&token))
+            .await
+        {
             Ok(Some(_)) | Err(_) => return private_response(response, &[]),
             Ok(None) => {}
         }
@@ -74,7 +76,10 @@ mod tests {
     #[test]
     fn f_09_ref_query_is_bounded_and_unambiguous() {
         assert_eq!(query_referral(Some("ref=r_valid-123")), Some("r_valid-123"));
-        assert_eq!(query_referral(Some("limit=1&ref=abc123&after=1")), Some("abc123"));
+        assert_eq!(
+            query_referral(Some("limit=1&ref=abc123&after=1")),
+            Some("abc123")
+        );
         for query in [
             "ref=bad",
             "ref=abc%2F123",

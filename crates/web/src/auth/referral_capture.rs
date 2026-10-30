@@ -60,16 +60,10 @@ async fn alias_redirect(state: &AuthState, prefix: &str, alias: &str) -> Respons
     }
 }
 
-pub(super) async fn go(
-    State(state): State<AuthState>,
-    Path(alias): Path<String>,
-) -> Response {
+pub(super) async fn go(State(state): State<AuthState>, Path(alias): Path<String>) -> Response {
     alias_redirect(&state, "go", &alias).await
 }
 
-pub(super) async fn promo(
-    State(state): State<AuthState>,
-    Path(alias): Path<String>,
-) -> Response {
+pub(super) async fn promo(State(state): State<AuthState>, Path(alias): Path<String>) -> Response {
     alias_redirect(&state, "promo", &alias).await
 }

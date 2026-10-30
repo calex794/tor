@@ -411,16 +411,18 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
         .await
         .unwrap();
     let alias = format!("novel-{stamp}");
-    sqlx::query(
-        "UPDATE referral_codes SET alias=$1,alias_path_prefix='go' WHERE code=$2",
-    )
-    .bind(&alias)
-    .bind(&owned.code)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE referral_codes SET alias=$1,alias_path_prefix='go' WHERE code=$2")
+        .bind(&alias)
+        .bind(&owned.code)
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    let alias_page = send(&app, request("GET", &format!("/go/{alias}"), "", "", ORIGIN)).await;
+    let alias_page = send(
+        &app,
+        request("GET", &format!("/go/{alias}"), "", "", ORIGIN),
+    )
+    .await;
     assert_eq!(alias_page.status(), StatusCode::SEE_OTHER);
     assert_eq!(
         alias_page.headers()[header::LOCATION],
@@ -549,7 +551,10 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(other_count, 0, "later book link must not overwrite first touch");
+    assert_eq!(
+        other_count, 0,
+        "later book link must not overwrite first touch"
+    );
 
     let register = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
     let csrf_cookie = cookie(&register, "tor-dev-csrf=");
@@ -594,7 +599,10 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
         .execute(&pool)
         .await
         .unwrap();
-    let blocked_alias =
-        send(&app, request("GET", &format!("/go/{alias}"), "", "", ORIGIN)).await;
+    let blocked_alias = send(
+        &app,
+        request("GET", &format!("/go/{alias}"), "", "", ORIGIN),
+    )
+    .await;
     assert_eq!(blocked_alias.headers()[header::LOCATION], "/");
 }

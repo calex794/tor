@@ -22,10 +22,10 @@ mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
 mod book_follow_page;
-mod referral_book_http;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
+mod referral_book_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,
