@@ -106,7 +106,7 @@ impl PgDirectRefundPreflight {
         if read_flag("expired") == Some(true) {
             return DirectRefundGate::WindowExpired;
         }
-        if row.try_get::<i64, _>("matching_debits") != Ok(1) {
+        if row.try_get::<i64, _>("matching_debits").ok() != Some(1) {
             return DirectRefundGate::SettlementUnverified;
         }
         if read_flag("already_requested") == Some(true) {
@@ -269,7 +269,7 @@ mod tests {
         );
         assert_eq!(
             checked_swap_delta(i64::MAX, 1, 0),
-            Ok(1-i64::MAX)
+            Ok(1 - i64::MAX)
         );
     }
 }
