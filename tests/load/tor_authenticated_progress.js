@@ -6,13 +6,64 @@ const base = 'http://127.0.0.1:3089';
 const failures = new Counter('journey_failures');
 const completed = new Counter('journeys_written');
 const savedComments = new Counter('comments_written');
+const publicJourneys = new Counter('public_journeys');
+const publicFailures = new Counter('public_journey_failures');
+// 25 full journeys/s: 15 write/comment and 10 anonymous catalog/reader journeys.
 export const options = {
-  scenarios: { writers: {
-    executor: 'constant-arrival-rate', rate: 25, timeUnit: '1s',
-    duration: '60s', preAllocatedVUs: 32, maxVUs: 32,
-  } },
-  thresholds: { checks: ['rate>0.99'], dropped_iterations: ['count==0'], journey_failures: ['count==0'], comments_written: ['count>0'] },
+  scenarios: {
+    writers: {
+      executor: 'constant-arrival-rate', exec: 'authenticatedWriter',
+      rate: 15, timeUnit: '1s', duration: '60s',
+      preAllocatedVUs: 24, maxVUs: 32,
+    },
+    readers: {
+      executor: 'constant-arrival-rate', exec: 'publicReader',
+      rate: 10, timeUnit: '1s', duration: '60s',
+      preAllocatedVUs: 16, maxVUs: 24,
+    },
+  },
+  thresholds: {
+    checks: ['rate>0.99'],
+    dropped_iterations: ['count==0'],
+    journey_failures: ['count==0'],
+    public_journey_failures: ['count==0'],
+    comments_written: ['count>0'],
+    journeys_written: ['count>0'],
+    public_journeys: ['count>0'],
+  },
 };
+function pageLink(html, rel) {
+  const match = html.match(new RegExp('rel="' + rel + '" href="([^"]+)"'));
+  if (!match) return null;
+  const path = match[1].replace(/&amp;/g, '&');
+  return path.startsWith('/catalog?') ? path : null;
+}
+function countCards(html) {
+  return (html.match(/class="book-mini-card book-mini-card--compact"/g) || []).length;
+}
+export function publicReader() {
+  const first = http.get(base + '/catalog?sort=oldest');
+  const next = pageLink(first.body || '', 'next');
+  if (!check(first, { 'first page is bounded': r =>
+    r.status === 200 && countCards(r.body) === 20,
+  }) || !next) { publicFailures.add(1); return; }
+  const second = http.get(base + next);
+  const back = pageLink(second.body || '', 'prev');
+  if (!check(second, { 'next page is bounded': r =>
+    r.status === 200 && countCards(r.body) === 20 && r.body.includes('Страница 2'),
+  }) || !back) { publicFailures.add(1); return; }
+  const previous = http.get(base + back);
+  if (!check(previous, { 'reverse navigation works': r =>
+    r.status === 200 && r.body.includes('Страница 1'),
+  })) { publicFailures.add(1); return; }
+  for (const path of ['/books/1', '/reader/101', '/api/v1/books/1/toc']) {
+    const response = http.get(base + path);
+    if (!check(response, { 'public chapter 200': r => r.status === 200 })) {
+      publicFailures.add(1); return;
+    }
+  }
+  publicJourneys.add(1);
+}
 function cookie(response, name) {
   const stored = response.cookies[name];
   if (stored && stored.length) return name + '=' + stored[0].value;
@@ -56,7 +107,7 @@ export function setup() {
   }
   return { users };
 }
-export default function (data) {
+export function authenticatedWriter(data) {
   const user = data.users[(__VU - 1) % data.users.length];
   const headers = {
     Cookie: user.session + '; ' + user.csrfCookie,
