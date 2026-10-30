@@ -14,12 +14,15 @@ pub(super) struct FollowBookControl {
 }
 
 impl FollowBookControl {
-    pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
+    pub(super) fn new(accounts: &PgAccounts, secure: bool, origin: &str) -> Self {
         let follows = PgBookFollows::new(accounts.pool().clone());
         Self {
-            accounts,
+            accounts: accounts.clone(),
             follows,
-            cookies: CookiePolicy { secure, origin },
+            cookies: CookiePolicy {
+                secure,
+                origin: origin.to_owned(),
+            },
         }
     }
 

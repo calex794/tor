@@ -397,11 +397,7 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
-            Some(book_follow_page::FollowBookControl::new(
-                accounts.clone(),
-                secure,
-                public_origin.clone(),
-            )),
+            Some(book_follow_page::FollowBookControl::new(&accounts, secure, &public_origin)),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -430,7 +426,10 @@ fn make_router(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
         )
-        .route("/assets/newboo-layer-reader.mjs", get(pages::layer_reader_script))
+        .route(
+            "/assets/newboo-layer-reader.mjs",
+            get(pages::layer_reader_script),
+        )
         .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),

@@ -36,8 +36,14 @@ fn registry_is_finite_and_classifies_each_declared_method() {
         classify(Some("/me/replies/{id}/read-state"), "POST").product_area,
         ProductArea::Dashboard
     );
-    assert_eq!(classify(Some("/me/books/{id}/follow"), "POST").cost_class, CostClass::Write);
-    assert_eq!(classify(Some("/me/books/{id}/unfollow"), "POST").cost_class, CostClass::Write);
+    assert_eq!(
+        classify(Some("/me/books/{id}/follow"), "POST").cost_class,
+        CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/books/{id}/unfollow"), "POST").cost_class,
+        CostClass::Write
+    );
 }
 
 #[test]
