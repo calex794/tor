@@ -57,6 +57,7 @@ mod paid_completion;
 mod private_reader;
 mod rankings;
 mod referral_capture;
+mod referral_dashboard;
 mod reply_read_state;
 mod sync_actions;
 mod types;
@@ -180,6 +181,14 @@ fn router_inner(
         )
         .route("/r/{code}", get(referral_capture::capture))
         .route("/me", get(me))
+        .route(
+            "/me/referrals",
+            get(referral_dashboard::page).post(referral_dashboard::create),
+        )
+        .route(
+            "/api/v1/me/referrals",
+            get(referral_dashboard::api_get).post(referral_dashboard::api_create),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(
