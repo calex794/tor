@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 116] = [
+const ROUTES: [RouteRegistration; 125] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -109,23 +109,32 @@ const ROUTES: [RouteRegistration; 116] = [
     RouteRegistration::new("/reset-password", "POST", "/reset-password/", Exact, Page, Auth, Write), // 96
     RouteRegistration::new("/api/v1/me/password", "POST", "/api/v1/me/password/", Exact, Api, Auth, Write), // 97
     RouteRegistration::new("/assets/account-reset.js", "GET", "/assets/", Exact, Static, System, Free), // 98
-    RouteRegistration::new("/me/security/sessions", "GET", "/me/", Exact, Page, Auth, Read), // 99
-    RouteRegistration::new("/me/security/sessions", "POST", "/me/", Exact, Page, Auth, Write), // 100
-    RouteRegistration::new("/mail", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 101
-    RouteRegistration::new("/mail/start/{recipient_user_id}", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 102
-    RouteRegistration::new("/mail/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 103
-    RouteRegistration::new("/mail/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 104
-    RouteRegistration::new("/mail/{id}/block", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 105
-    RouteRegistration::new("/api/v1/me/messages", "GET", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Read), // 106
-    RouteRegistration::new("/api/v1/me/messages", "POST", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Write), // 107
-    RouteRegistration::new("/assets/mail.js", "GET", "/assets/", Exact, Static, ProductArea::Mail, Free), // 108
-    RouteRegistration::new("/users/{display_name}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 109
-    RouteRegistration::new("/users/{target_user_id}/friend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 110
-    RouteRegistration::new("/users/{target_user_id}/unfriend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 111
-    RouteRegistration::new("/users/{target_user_id}/block", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 112
-    RouteRegistration::new("/notifications", "GET", "/notifications/", Exact, Page, Dashboard, Read), // 113
-    RouteRegistration::new("/notifications/{id}/read", "POST", "/notifications/", Prefix, Page, Dashboard, Write), // 114
-    RouteRegistration::new("/notifications/read-all", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 115
+    RouteRegistration::new("/r/{code}", "GET", "/r/", Prefix, Page, Auth, Write), // 99
+    RouteRegistration::new("/me/referrals", "GET", "/me/referrals/", Exact, Page, Dashboard, Read), // 100
+    RouteRegistration::new("/me/referrals", "POST", "/me/referrals/", Exact, Page, Dashboard, Write), // 101
+    RouteRegistration::new("/api/v1/me/referrals", "GET", "/api/v1/me/referrals/", Exact, Api, Dashboard, Read), // 102
+    RouteRegistration::new("/api/v1/me/referrals", "POST", "/api/v1/me/referrals/", Exact, Api, Dashboard, Write), // 103
+    RouteRegistration::new("/go/{alias}", "GET", "/go/", Prefix, Page, Auth, Read), // 104
+    RouteRegistration::new("/promo/{alias}", "GET", "/promo/", Prefix, Page, Auth, Read), // 105
+    RouteRegistration::new("/me/referrals/alias", "POST", "/me/referrals/alias/", Exact, Page, Dashboard, Write), // 106
+    RouteRegistration::new("/api/v1/me/referrals/alias", "POST", "/api/v1/me/referrals/alias/", Exact, Api, Dashboard, Write), // 107
+    RouteRegistration::new("/me/security/sessions", "GET", "/me/", Exact, Page, Auth, Read), // 108
+    RouteRegistration::new("/me/security/sessions", "POST", "/me/", Exact, Page, Auth, Write), // 109
+    RouteRegistration::new("/mail", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 110
+    RouteRegistration::new("/mail/start/{recipient_user_id}", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 111
+    RouteRegistration::new("/mail/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 112
+    RouteRegistration::new("/mail/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 113
+    RouteRegistration::new("/mail/{id}/block", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 114
+    RouteRegistration::new("/api/v1/me/messages", "GET", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Read), // 115
+    RouteRegistration::new("/api/v1/me/messages", "POST", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Write), // 116
+    RouteRegistration::new("/assets/mail.js", "GET", "/assets/", Exact, Static, ProductArea::Mail, Free), // 117
+    RouteRegistration::new("/users/{display_name}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 118
+    RouteRegistration::new("/users/{target_user_id}/friend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 119
+    RouteRegistration::new("/users/{target_user_id}/unfriend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 120
+    RouteRegistration::new("/users/{target_user_id}/block", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 121
+    RouteRegistration::new("/notifications", "GET", "/notifications/", Exact, Page, Dashboard, Read), // 122
+    RouteRegistration::new("/notifications/{id}/read", "POST", "/notifications/", Prefix, Page, Dashboard, Write), // 123
+    RouteRegistration::new("/notifications/read-all", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 124
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

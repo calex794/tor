@@ -88,6 +88,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::api_get",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/api/v1/me",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "profile_http::api_get",
@@ -189,6 +196,13 @@
       "template": "/forgot-password",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "password_reset::request_page",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/go/{alias}",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_capture::go",
       "policy": "public"
     },
     {
@@ -347,6 +361,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/me/security/sessions",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "session_security::page",
@@ -400,6 +421,20 @@
       "source": "crates/web/src/lib.rs",
       "handler": "operator_traces::page",
       "policy": "operator"
+    },
+    {
+      "method": "GET",
+      "template": "/promo/{alias}",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_capture::promo",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/r/{code}",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_capture::capture",
+      "policy": "public"
     },
     {
       "method": "GET",
@@ -504,6 +539,20 @@
       "template": "/api/v1/me/rankings/resume",
       "source": "crates/web/src/auth.rs",
       "handler": "rankings::api_resume",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/referrals/alias",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_alias::api_create",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::api_create",
       "policy": "session"
     },
     {
@@ -707,6 +756,20 @@
       "template": "/me/rankings/resume",
       "source": "crates/web/src/auth.rs",
       "handler": "rankings::browser_resume",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/referrals/alias",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_alias::browser_create",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::create",
       "policy": "session"
     },
     {

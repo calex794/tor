@@ -175,7 +175,9 @@ async fn run_case() {
     assert!(!html.contains(&first), "never render raw session cookies");
     let token = csrf(&html);
     let cookies = format!("{first}; {csrf_cookie}");
-    let foreign_form = format!("session_id={foreign_id}&csrf_token={token}");
+    let foreign_form = format!(
+        "session_id={foreign_id}&current_password=LongSecurePassword2026&csrf_token={token}"
+    );
 
     let forged = send(
         &app,
@@ -197,7 +199,9 @@ async fn run_case() {
         "another reader's session must survive"
     );
 
-    let revoke_other = format!("session_id={second_id}&csrf_token={token}");
+    let revoke_other = format!(
+        "session_id={second_id}&current_password=LongSecurePassword2026&csrf_token={token}"
+    );
     assert_eq!(
         send(
             &app,
@@ -228,6 +232,22 @@ async fn run_case() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    // A stolen cookie and CSRF token cannot revoke a live owner's session.
+    let stolen =
+        format!("session_id={second_id}&current_password=WrongPassword2026&csrf_token={token}");
+    let denied = send(
+        &app,
+        request("POST", "/me/security/sessions", &stolen, &cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        send(&app, request("GET", "/me", "", &second, ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+
     let success = send(
         &app,
         request(
@@ -256,7 +276,8 @@ async fn run_case() {
         "owner's current session remains valid"
     );
 
-    let revoke_self = format!("session_id={first_id}&csrf_token={token}");
+    let revoke_self =
+        format!("session_id={first_id}&current_password=LongSecurePassword2026&csrf_token={token}");
     let own = send(
         &app,
         request(
