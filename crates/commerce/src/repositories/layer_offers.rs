@@ -9,6 +9,8 @@ use tor_contracts::paid_delivery::PositiveId;
 /// Exact PostgreSQL projection for the authenticated owner's current offer.
 /// A named alias keeps the repository boundary readable under strict clippy.
 type OwnerOfferRecord = (i64, Option<i64>, Option<String>, Option<i64>);
+/// Unfiltered legacy quote record, including the Book publication gate.
+type PublicOfferBookRecord = (i64, String, bool, bool, Option<i64>, i64, bool);
 
 impl PgLayers {
     /// Existing trusted internal publisher remains available to code callers.
@@ -207,7 +209,7 @@ impl PgLayers {
 
         // No partial/truncated composition can be presented as a sale.
         // The v1 bound fails closed rather than hiding paid Books behind UI.
-        let rows: Vec<(i64, String, bool, bool, Option<i64>, i64, bool)> = sqlx::query_as(
+        let rows: Vec<PublicOfferBookRecord> = sqlx::query_as(
             "SELECT b.id,b.title,b.admin_hold,b.is_deleted,s.current_revision,
                     (SELECT COALESCE(SUM(a.share_percent),0)::BIGINT
                      FROM revenue_share_assignments a
