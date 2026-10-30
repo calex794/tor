@@ -52,7 +52,7 @@ async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str, emai
         );
         let html = body_of(response).await;
         assert!(html.contains(message));
-        assert!(html.contains(&format!("value=\"{email}\"")));
+        assert!(html.contains(format!("value=\"{email}\"").as_str()));
         assert!(html.contains("name=\"csrf_token\""));
         assert!(!html.contains("value=\"LongSecurePassword2026\""));
     }
