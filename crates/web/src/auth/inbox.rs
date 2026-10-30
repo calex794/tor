@@ -115,7 +115,11 @@ fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
         } else {
             "Отметить прочитанным"
         };
-        let heading = if item.is_mention { "Вас упомянули" } else { "Ответ в книге" };
+        let heading = if item.is_mention {
+            "Вас упомянули"
+        } else {
+            "Ответ в книге"
+        };
         cards.push_str(&format!(
             "<article class=\"me-now-card\"><a class=\"me-now-item\" href=\"{}\"><strong>{heading} «{}»</strong> — {label}</a><form method=\"post\" action=\"/me/replies/{}/read-state\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"state\" value=\"{next}\"><input type=\"hidden\" name=\"return_to\" value=\"inbox\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">{button}</button></form></article>",
             pages::escape_html(&url), pages::escape_html(&r.book_title),
