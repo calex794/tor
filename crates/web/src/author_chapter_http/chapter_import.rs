@@ -102,32 +102,6 @@ fn import_error(error: ImportError) -> Response {
     fail(code, message)
 }
 
-/// Only an authenticated owner of an unpublished book can use V1 file import.
-async fn draft_owner(state: &AuthorChapterState, headers: &HeaderMap, id: i64) -> Result<i64, Response> {
-    let actor = match session_actor(state, headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return Err(deny(StatusCode::UNAUTHORIZED)),
-        Err(status) => return Err(deny(status)),
-    };
-    if id <= 0 {
-        return Err(deny(StatusCode::NOT_FOUND));
-    }
-    match state.authoring.owned_book(actor, id).await {
-        Ok(Some(_)) => (),
-        Ok(None) => return Err(deny(StatusCode::NOT_FOUND)),
-        Err(_) => return Err(deny(StatusCode::SERVICE_UNAVAILABLE)),
-    }
-    match state.authoring.owned_book_is_public(actor, id).await {
-        Ok(false) => Ok(actor),
-        Ok(true) => Err(fail(
-            StatusCode::CONFLICT,
-            "Пакетный импорт пока доступен только для неопубликованной книги.",
-        )),
-        Err(AuthorError::Missing) => Err(deny(StatusCode::NOT_FOUND)),
-        Err(_) => Err(deny(StatusCode::SERVICE_UNAVAILABLE)),
-    }
-}
-
 pub(super) async fn page(
     State(state): State<AuthorChapterState>,
     Path(id): Path<i64>,
@@ -190,8 +164,16 @@ pub(super) async fn preview(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    if let Err(response) = draft_owner(&state, &headers, id).await {
-        return response;
+    match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(false) => (),
+        Ok(true) => {
+            return fail(
+                StatusCode::CONFLICT,
+                "Пакетный импорт пока доступен только для неопубликованной книги.",
+            );
+        }
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let chapters = match parse_text(&input.filename, &input.text) {
         Ok(chapters) => chapters,
@@ -238,8 +220,16 @@ pub(super) async fn confirm(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    if let Err(response) = draft_owner(&state, &headers, id).await {
-        return response;
+    match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(false) => (),
+        Ok(true) => {
+            return fail(
+                StatusCode::CONFLICT,
+                "Пакетный импорт пока доступен только для неопубликованной книги.",
+            );
+        }
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
         Ok(chapters) => chapters,
