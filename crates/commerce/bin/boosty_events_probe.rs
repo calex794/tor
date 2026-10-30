@@ -19,8 +19,8 @@ impl Options {
         let mut limit = 50;
         let mut max_pages = 3;
         let mut seen = HashSet::new();
-        let mut chunks = args.chunks_exact(2);
-        for pair in &mut chunks {
+        let (chunks, remainder) = args.as_chunks::<2>();
+        for pair in chunks {
             if !seen.insert(&pair[0]) {
                 return Err(ObserveError::InvalidConfig);
             }
@@ -33,7 +33,7 @@ impl Options {
                 _ => return Err(ObserveError::InvalidConfig),
             }
         }
-        if !chunks.remainder().is_empty()
+        if !remainder.is_empty()
             || !(1..=100).contains(&limit)
             || !(1..=5).contains(&max_pages)
         {
