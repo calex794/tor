@@ -12,5 +12,9 @@ CREATE TABLE chapter_thanks (
 CREATE INDEX chapter_thanks_book_chapter_idx
     ON chapter_thanks (book_id, chapter_id);
 
+-- Fast chapter-level counts; the (book_id, chapter_id) index cannot cover these.
+CREATE INDEX chapter_thanks_chapter_user_idx
+    ON chapter_thanks (chapter_id, user_id);
+
 COMMENT ON TABLE chapter_thanks IS
     'One confirmed thank-you per registered user and accessible published chapter. Repeats do not increment.';
