@@ -1,6 +1,9 @@
 //! Owner-only book management: keyset-paged chapters without giant pages.
 use super::{deny, session_user, AuthState};
-use crate::{auth_cookies::private_response, author_chapter_pages};
+use crate::{
+    auth_cookies::private_response,
+    author_chapter_pages::{self, OwnerChapterPageOptions},
+};
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -89,11 +92,13 @@ pub(super) async fn page(
             published,
             &page.chapters,
             &csrf,
-            state.cover_upload_enabled,
-            latest_cover.as_deref(),
-            demand_count,
-            page.next,
-            cursor.is_some(),
+            OwnerChapterPageOptions {
+                uploads_enabled: state.cover_upload_enabled,
+                latest_job: latest_cover.as_deref(),
+                demand_count,
+                next: page.next,
+                has_previous_page: cursor.is_some(),
+            },
         ),
         &cookies,
     )
