@@ -134,7 +134,6 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL /tor_ci"]
 async fn g_07_retry_preserves_successful_consumer_receipt() {
@@ -163,7 +162,9 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
         .unwrap());
 
     assert_eq!(
-        outbox.record_failure(&event_id, first.lease_epoch, true).await,
+        outbox
+            .record_failure(&event_id, first.lease_epoch, true)
+            .await,
         Ok(FailureDisposition::RetryScheduled)
     );
     let state: (i32, f64, bool, bool) = sqlx::query_as(
@@ -176,10 +177,18 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
     .await
     .unwrap();
     assert_eq!(state.0, 1);
-    assert!(state.1 > 3.0 && state.1 <= 10.0, "retry uses 5..9s plus elapsed time");
-    assert!(state.2 && state.3, "retry releases lease without dead-lettering");
+    assert!(
+        state.1 > 3.0 && state.1 <= 10.0,
+        "retry uses 5..9s plus elapsed time"
+    );
+    assert!(
+        state.2 && state.3,
+        "retry releases lease without dead-lettering"
+    );
     assert_eq!(
-        outbox.acknowledge(&event_id, first.lease_epoch, "g07-two").await,
+        outbox
+            .acknowledge(&event_id, first.lease_epoch, "g07-two")
+            .await,
         Err(OutboxError::LostLease)
     );
 
@@ -199,13 +208,12 @@ async fn g_07_retry_preserves_successful_consumer_receipt() {
         .acknowledge(&event_id, second.lease_epoch, "g07-two")
         .await
         .unwrap());
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM event_deliveries WHERE event_id=$1::uuid",
-    )
-    .bind(&event_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM event_deliveries WHERE event_id=$1::uuid")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 2, "completed consumer is not delivered again");
     pool.close().await;
 }
@@ -233,11 +241,15 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     let first = outbox.claim_next().await.unwrap().unwrap();
     assert_eq!(first.id, first_id);
     assert_eq!(
-        outbox.record_failure(&first_id, first.lease_epoch, false).await,
+        outbox
+            .record_failure(&first_id, first.lease_epoch, false)
+            .await,
         Ok(FailureDisposition::DeadLetter)
     );
     assert_eq!(
-        outbox.acknowledge(&first_id, first.lease_epoch, "g07-failed").await,
+        outbox
+            .acknowledge(&first_id, first.lease_epoch, "g07-failed")
+            .await,
         Err(OutboxError::LostLease)
     );
 
@@ -256,7 +268,9 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     let last = outbox.claim_next().await.unwrap().unwrap();
     assert_eq!(last.id, last_id);
     assert_eq!(
-        outbox.record_failure(&last_id, last.lease_epoch, true).await,
+        outbox
+            .record_failure(&last_id, last.lease_epoch, true)
+            .await,
         Ok(FailureDisposition::DeadLetter),
         "the twelfth failed claim cannot be scheduled forever"
     );
@@ -276,13 +290,12 @@ async fn g_07_dead_letters_irrecoverable_and_exhausted_claims() {
     .unwrap();
     assert!(outbox.reap_exhausted().await.unwrap() >= 1);
     for event_id in [&first_id, &last_id, &crashed_id] {
-        let dead: bool = sqlx::query_scalar(
-            "SELECT dead_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid",
-        )
-        .bind(event_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let dead: bool =
+            sqlx::query_scalar("SELECT dead_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid")
+                .bind(event_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert!(dead, "failed and crashed events must become dead letters");
     }
     pool.close().await;

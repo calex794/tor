@@ -216,5 +216,4 @@ impl PgOutbox {
             None => Err(OutboxError::LostLease),
         }
     }
-
 }
