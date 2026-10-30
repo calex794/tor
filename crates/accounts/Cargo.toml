@@ -12,3 +12,6 @@ hmac = "0.12"
 sqlx.workspace = true
 tokio = { workspace = true, features = ["time"] }
 tor-contracts = { path = "../contracts" }
+
+[dev-dependencies]
+tor-referrals = { path = "../referrals" }
