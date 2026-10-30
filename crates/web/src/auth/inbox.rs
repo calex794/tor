@@ -143,7 +143,11 @@ mod tests {
             },
             created_at: "2026-10-30T00:00:00Z".into(),
         };
-        let page = InboxPage { items: vec![item], next_after: Some(26), filter: InboxFilter::All };
+        let page = InboxPage {
+            items: vec![item],
+            next_after: Some(26),
+            filter: InboxFilter::All,
+        };
         let html = render(&page, "csrf").0;
         assert!(html.contains("&lt;script&gt;secret&lt;/script&gt;"));
         assert!(!html.contains("<script>secret</script>"));
