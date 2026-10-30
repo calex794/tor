@@ -71,5 +71,15 @@ export default function (data) {
   if (!check(saved, { 'progress saved': r => r.status === 200 })) { failures.add(1); return; }
   const receipt = saved.json();
   if (receipt.revision !== position) { failures.add(1); return; }
+  const verify = http.get(base + '/api/v1/me/progress/free?chapter_id=401', { headers });
+  if (!check(verify, { 'progress persisted': r => r.status === 200 })) {
+    failures.add(1);
+    return;
+  }
+  const persisted = verify.json();
+  if (persisted.revision !== receipt.revision || persisted.char_offset !== position) {
+    failures.add(1);
+    return;
+  }
   completed.add(1);
 }
