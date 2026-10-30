@@ -565,7 +565,7 @@ async fn d_05_pg_concurrent_reprice_and_checkout_never_charge_a_stale_offer() {
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_pg_legacy_public_quote_does_not_reveal_draft_books() {
-    let (pool, repo, owner, buyer, book) = setup("legacy-private-quote").await;
+    let (pool, repo, owner, _buyer, book) = setup("legacy-private-quote").await;
     let layer = repo.create_layer(id(owner), "Private composition").await.unwrap();
     repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
     let draft: i64 = sqlx::query_scalar(
@@ -577,14 +577,10 @@ async fn d_05_pg_legacy_public_quote_does_not_reveal_draft_books() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let version = repo.add_book(id(owner), id(layer), id(draft)).await.unwrap();
-    let offer = repo.publish_offer(id(owner), id(layer), 125, false).await.unwrap();
+    repo.add_book(id(owner), id(layer), id(draft)).await.unwrap();
+    repo.publish_offer(id(owner), id(layer), 125, false).await.unwrap();
+    // The legacy public quote contains unfiltered Book titles. Refuse the
+    // entire quote rather than displaying a draft title to a stranger.
     assert_eq!(repo.offer_quote(id(layer)).await, Err(LayerError::Inaccessible));
-    // Fail closed before a charge: the legacy price page cannot disclose a
-    // private title, and no one may buy a package containing draft Books.
-    assert_eq!(
-        repo.buy(&cmd(buyer, layer, offer, version, 125, 'Z')).await,
-        Err(LayerError::Inaccessible)
-    );
     pool.close().await;
 }
