@@ -116,13 +116,15 @@ impl PgMail {
         let dedupe = format!("tor-social:mail-message:{id}");
         notification_events::queue(
             &mut tx,
-            "social.mail.created",
-            "social_message",
-            id,
-            actor,
-            recipient,
-            conversation,
-            Some(&dedupe),
+            notification_events::NotificationEvent {
+                event_type: "social.mail.created",
+                aggregate_kind: "social_message",
+                aggregate_id: id,
+                actor,
+                recipient,
+                object_id: conversation,
+                dedupe_key: Some(&dedupe),
+            },
         )
         .await?;
         tx.commit().await.map_err(unavailable)?;
