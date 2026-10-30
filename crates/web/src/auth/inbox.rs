@@ -9,7 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_discussions::{
-    repositories::public_book_comments::ListCommentsError,
+    repositories::{inbox::PgInbox, public_book_comments::ListCommentsError},
     services::inbox::{comment_url, InboxFilter, InboxPage, InboxService},
 };
 
@@ -27,7 +27,7 @@ async fn load(
 ) -> Result<InboxPage, StatusCode> {
     let filter = InboxFilter::parse(query.filter.as_deref())
         .map_err(|_| StatusCode::BAD_REQUEST)?;
-    InboxService::new(state.accounts.pool().clone())
+    InboxService::new(PgInbox::new(state.accounts.pool().clone()))
         .list(actor, filter, query.after, query.limit.unwrap_or(25))
         .await
         .map_err(|err| match err {
