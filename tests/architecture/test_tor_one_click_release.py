@@ -234,7 +234,22 @@ class OneClickReleaseTests(unittest.TestCase):
 
     def test_i06_classic_protection_requires_both_app_scoped_checks(self):
         branch = protected_main()
-        self.assertEqual(gate.evaluate_branch_policy(branch, [], [])[0], "pass")
+        # Compact branch metadata is not a complete classic protection proof.
+        self.assertEqual(gate.evaluate_branch_policy(branch, [], [])[0], "fail")
+        full = copy.deepcopy(branch)
+        full["protection"].update({
+            "enforce_admins": {"enabled": True},
+            "required_pull_request_reviews": {"required_approving_review_count": 1},
+            "allow_force_pushes": {"enabled": False},
+            "allow_deletions": {"enabled": False},
+        })
+        self.assertEqual(gate.evaluate_branch_policy(full, [], [])[0], "pass")
+        for key in ("enforce_admins", "required_pull_request_reviews",
+                    "allow_force_pushes", "allow_deletions"):
+            incomplete = copy.deepcopy(full)
+            incomplete["protection"].pop(key)
+            self.assertEqual(gate.evaluate_branch_policy(incomplete, [], [])[0], "fail")
+        branch = full
         for change in ("level", "missing_check", "wrong_app", "disabled"):
             with self.subTest(change=change):
                 variant = copy.deepcopy(branch)
