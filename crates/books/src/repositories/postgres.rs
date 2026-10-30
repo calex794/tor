@@ -5,6 +5,7 @@ mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
 mod owned_book_hash;
+mod owned_chapter_pages;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
@@ -288,58 +289,16 @@ impl PgAuthoring {
         }
     }
 
-    /// Show only chapters of the authenticated owner's book, bounded to 200 rows.
+    /// Legacy internal callers retain the historical 200-row bound.
     pub async fn list_owned_chapters(
         &self,
         user_id: i64,
         book_id: i64,
     ) -> Result<Vec<crate::services::authoring::OwnedChapterSummary>, AuthorError> {
-        use crate::services::authoring::OwnedChapterSummary;
-        if user_id <= 0 || book_id <= 0 {
-            return Err(AuthorError::Missing);
-        }
-        let rows = sqlx::query(
-            "SELECT c.id,c.chapter_no,c.title,c.access_level,c.visibility FROM chapters c
-             JOIN books b ON b.id=c.book_id
-             WHERE c.book_id=$1 AND b.owner_user_id=$2
-               AND NOT c.is_deleted AND NOT b.is_deleted
-               AND NOT c.admin_hold AND NOT b.admin_hold
-             ORDER BY c.chapter_no,c.id LIMIT 200",
-        )
-        .bind(book_id)
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
-        rows.into_iter()
-            .map(|row| {
-                let access: String = row
-                    .try_get("access_level")
-                    .map_err(|_| AuthorError::Unavailable)?;
-                let access = match access.as_str() {
-                    "free" => ChapterAccess::Free,
-                    "paid" => ChapterAccess::Paid,
-                    _ => return Err(AuthorError::Unavailable),
-                };
-                let visibility: String = row
-                    .try_get("visibility")
-                    .map_err(|_| AuthorError::Unavailable)?;
-                let published = match visibility.as_str() {
-                    "public" => true,
-                    "draft" => false,
-                    _ => return Err(AuthorError::Unavailable),
-                };
-                Ok(OwnedChapterSummary {
-                    id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
-                    number: row
-                        .try_get("chapter_no")
-                        .map_err(|_| AuthorError::Unavailable)?,
-                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
-                    access,
-                    published,
-                })
-            })
-            .collect()
+        let page = self
+            .list_owned_chapters_page_with_limit(user_id, book_id, None, 200)
+            .await?;
+        Ok(page.chapters)
     }
 
     /// Never reveal an unpublished book, including its existence, to a non-owner.
