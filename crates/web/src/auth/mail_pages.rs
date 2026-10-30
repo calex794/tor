@@ -2,6 +2,7 @@ use crate::pages::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 use tor_social::domain::{Conversation, MessagePage};
+use tor_social::repositories::friendships::FriendState;
 
 fn shell(body: &str) -> Html<String> {
     layout("Личная почта","Личные диалоги и сообщения.",&format!("<section class=\"me-page mail-page\"><div class=\"container\"><nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item is-active\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item\" href=\"/me/inbox\">Обсуждения</a></nav>{body}</div></section>"))
@@ -54,6 +55,7 @@ pub(super) fn conversation(
     page: &MessagePage,
     peer_name: &str,
     csrf: &str,
+    friend_state: FriendState,
 ) -> Html<String> {
     let csrf = escape_html(csrf);
     let peer_name = escape_html(peer_name);
@@ -83,6 +85,18 @@ pub(super) fn conversation(
     } else {
         write!(body,"<form class=\"comments-form\" action=\"/mail/{id}/messages\" method=\"post\" data-mail-compose><label for=\"mail-body\">Ваше сообщение</label><textarea class=\"ui-textarea comments-form__input\" id=\"mail-body\" name=\"body\" data-mail-compose-textarea rows=\"3\" required></textarea><input type=\"hidden\" name=\"client_message_id\" value=\"\" data-mail-client-message-id><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--primary\" type=\"submit\" data-mail-compose-submit>Отправить сообщение</button><p id=\"mail-send-error\" role=\"alert\" hidden></p></form>").expect("mail form");
     }
+    let peer = page.peer_id;
+    let friend_action = match friend_state {
+        FriendState::None => Some(("friend", "Добавить в друзья")),
+        FriendState::Incoming => Some(("friend", "Принять в друзья")),
+        FriendState::Friends => Some(("unfriend", "Удалить из друзей")),
+        _ => None,
+    };
+    if let Some((suffix, label)) = friend_action {
+        write!(body, "<form method=\"post\" action=\"/users/{peer}/{suffix}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{label}</button></form>").expect("friendship action");
+    } else if friend_state == FriendState::Outgoing {
+        body.push_str("<p>Заявка уже отправлена.</p>");
+    }
     let (value, label) = if page.blocked_by_me {
         ("false", "Снять мою блокировку")
     } else {
@@ -110,7 +124,7 @@ mod tests {
             blocked_by_me: false,
             has_more: false,
         };
-        let html = conversation(1, 1, &page, "Peer <safe>", "csrf").0;
+        let html = conversation(1, 1, &page, "Peer <safe>", "csrf", FriendState::None).0;
         assert!(html.contains("&lt;img onerror=alert(1)&gt;"));
         assert!(!html.contains("<img onerror"));
         assert!(!html.contains("name=\"command_key\""));
