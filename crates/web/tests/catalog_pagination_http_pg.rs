@@ -80,13 +80,11 @@ async fn b_18_catalog_http_47_books_are_split_into_three_reversible_pages() {
     assert!(third.contains("Страница 3"));
     assert!(navigation_href(&third, "next").is_none());
 
-    let (status, back_two) =
-        get(app.clone(), &navigation_href(&third, "prev").unwrap()).await;
+    let (status, back_two) = get(app.clone(), &navigation_href(&third, "prev").unwrap()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(cards(&back_two), 20);
     assert!(back_two.contains("Страница 2"));
-    let (status, back_one) =
-        get(app.clone(), &navigation_href(&back_two, "prev").unwrap()).await;
+    let (status, back_one) = get(app.clone(), &navigation_href(&back_two, "prev").unwrap()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(cards(&back_one), 20);
     assert!(back_one.contains("Страница 1"));
@@ -100,7 +98,11 @@ async fn b_18_catalog_http_47_books_are_split_into_three_reversible_pages() {
         "/catalog?after=00&page=2",
         "/catalog?after=1&page=1",
     ] {
-        assert_eq!(get(app.clone(), invalid).await.0, StatusCode::BAD_REQUEST, "{invalid}");
+        assert_eq!(
+            get(app.clone(), invalid).await.0,
+            StatusCode::BAD_REQUEST,
+            "{invalid}"
+        );
     }
     pool.close().await;
 }

@@ -58,6 +58,8 @@ fn catalog_metadata_must_be_escaped_in_cards() {
             tag: None,
             fandom: None,
             cursor: None,
+            previous_cursor: None,
+            page_number: 1,
             sort: "oldest",
             total: Some(1),
             options: None,

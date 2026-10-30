@@ -95,7 +95,13 @@ async fn b_18_47_public_books_forward_backward_no_skip_or_duplicate() {
         assert_eq!(combined, expected, "{sort}: exactly 47 without gaps");
 
         let back2 = search
-            .browse_catalog_page(facets, None, third.previous_cursor.as_deref(), 20, Some(sort))
+            .browse_catalog_page(
+                facets,
+                None,
+                third.previous_cursor.as_deref(),
+                20,
+                Some(sort),
+            )
             .await
             .unwrap();
         assert_eq!(back2.items, second.items, "{sort}: page 3 -> 2");
@@ -107,7 +113,13 @@ async fn b_18_47_public_books_forward_backward_no_skip_or_duplicate() {
             .unwrap();
         assert_eq!(forward3.items, third.items, "{sort}: page 2 -> 3");
         let back1 = search
-            .browse_catalog_page(facets, None, back2.previous_cursor.as_deref(), 20, Some(sort))
+            .browse_catalog_page(
+                facets,
+                None,
+                back2.previous_cursor.as_deref(),
+                20,
+                Some(sort),
+            )
             .await
             .unwrap();
         assert_eq!(back1.items, first.items, "{sort}: page 2 -> 1");

@@ -55,7 +55,7 @@ pub(super) async fn catalog(
             fandom: query.fandom.as_deref(),
         };
         let page = search
-.browse_catalog_page(
+            .browse_catalog_page(
                 facets,
                 query.after.as_deref(),
                 query.before.as_deref(),

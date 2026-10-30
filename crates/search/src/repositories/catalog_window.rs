@@ -2,9 +2,7 @@
 //! Visibility and bound facets are identical to the public F-02 search.
 //! A "before" request runs the reverse indexed keyset, then restores display order.
 use super::{catalog, CatalogFacets, PgSearch};
-use crate::domain::{
-    normalize_genre, validate_browse, CatalogSort, SearchBook, SearchError,
-};
+use crate::domain::{normalize_genre, validate_browse, CatalogSort, SearchBook, SearchError};
 use sqlx::{PgPool, Row};
 
 pub struct CatalogWindow {
@@ -199,12 +197,18 @@ async fn read_previous_page(
                 author_name: row
                     .try_get("author_name")
                     .map_err(|_| SearchError::Unavailable)?,
-                genres: row.try_get("genres").map_err(|_| SearchError::Unavailable)?,
+                genres: row
+                    .try_get("genres")
+                    .map_err(|_| SearchError::Unavailable)?,
                 tags: row.try_get("tags").map_err(|_| SearchError::Unavailable)?,
-                fandoms: row.try_get("fandoms").map_err(|_| SearchError::Unavailable)?,
+                fandoms: row
+                    .try_get("fandoms")
+                    .map_err(|_| SearchError::Unavailable)?,
             };
             let cursor = if lexical {
-                let key: String = row.try_get("sort_key").map_err(|_| SearchError::Unavailable)?;
+                let key: String = row
+                    .try_get("sort_key")
+                    .map_err(|_| SearchError::Unavailable)?;
                 catalog::encode_lexical_cursor(sort, &key, book.id)
             } else {
                 book.id.to_string()
