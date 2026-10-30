@@ -15,9 +15,25 @@ use tower::ServiceExt;
 
 fn pg(url: &str, statement: &str) -> String {
     let result = std::process::Command::new("psql")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", statement])
-        .output().expect("psql");
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            statement,
+        ])
+        .output()
+        .expect("psql");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     String::from_utf8(result.stdout).unwrap().trim().to_owned()
 }
 
@@ -32,7 +48,13 @@ async fn get(app: &Router, path: &str, session: Option<&str>) -> axum::response:
         .unwrap()
 }
 async fn body(response: axum::response::Response) -> String {
-    String::from_utf8(to_bytes(response.into_body(), 128 * 1024).await.unwrap().to_vec()).unwrap()
+    String::from_utf8(
+        to_bytes(response.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -69,10 +91,15 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
         )
         .await
         .unwrap();
-    let book: i64 = pg(&url, &format!(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
          VALUES('ci:stats-owner:{unique}','ru','=2+3 Stats','public',{owner}) RETURNING id"
-    )).parse().unwrap();
+        ),
+    )
+    .parse()
+    .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -107,7 +134,9 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(data.contains("\"'=2+3 Stats\""), "formula must not execute");
     assert!(data.contains("book,0,"));
     assert_eq!(
-        get(&app, &format!("{page}?after=oops"), Some(&owner_token)).await.status(),
+        get(&app, &format!("{page}?after=oops"), Some(&owner_token))
+            .await
+            .status(),
         StatusCode::BAD_REQUEST
     );
     pool.close().await;

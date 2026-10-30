@@ -8,7 +8,11 @@ use axum::{
 use tor_reading::services::PublicReadingRepository;
 
 /// C-10: successful and denied reading both use no-store and strict CSP.
-pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>, headers: HeaderMap) -> Response {
+pub(super) async fn reader_page(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+    headers: HeaderMap,
+) -> Response {
     let Some(reader) = state.reader else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
