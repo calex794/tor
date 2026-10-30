@@ -46,14 +46,11 @@ pub fn candidates(body: &str) -> Vec<MentionToken> {
             continue;
         }
         if let Ok(user_id) = digits[..len].parse::<i64>() {
-            if user_id > 0 && !out.iter().any(|x: &MentionToken| x.user_id == user_id) {
+            if user_id > 0 {
                 out.push(MentionToken { start: i, end, user_id });
             }
         }
         i = end;
-        if out.len() >= 5 {
-            break;
-        }
     }
     out
 }
@@ -81,10 +78,11 @@ pub fn canonicalize(body: &str, allowed: &[i64]) -> String {
 mod tests {
     use super::*;
     #[test]
-    fn e_03_structured_tokens_are_deduplicated_and_bounded() {
-        assert_eq!(candidates("hey @[user:42] @[user:42] @[user:17]").iter().map(|x| x.user_id).collect::<Vec<_>>(), vec![42,17]);
+    fn e_03_structured_tokens_are_parsed_without_spoofing() {
+        assert_eq!(candidates("hey @[user:42] @[user:42] @[user:17]").iter().map(|x| x.user_id).collect::<Vec<_>>(), vec![42,42,17]);
         assert_eq!(candidates("a@[user:42] @[user:0] @[user:42]x"), Vec::new());
         assert_eq!(candidates("||@[user:42]|| @[user:17]").iter().map(|x| x.user_id).collect::<Vec<_>>(), vec![17]);
         assert_eq!(canonicalize("hello @[user:42] and @[user:17]", &[17]), "hello @пользователь and @[user:17]");
+        assert_eq!(canonicalize("@[user:42] @[user:42]", &[]), "@пользователь @пользователь");
     }
 }
