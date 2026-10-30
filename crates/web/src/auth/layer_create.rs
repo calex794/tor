@@ -1,6 +1,6 @@
 //! D-05: private owner-only Layer creation; no checkout or money posting.
 use super::{deny, layer_books, session_user, AuthState};
-use crate::{auth_cookies::private_response, pages};
+use crate::{auth_cookies::private_response, author_pages, pages};
 use axum::{
     extract::{Form, State},
     http::{HeaderMap, StatusCode},
@@ -24,7 +24,30 @@ pub(super) struct CreateForm {
 }
 
 pub(super) fn routes() -> Router<AuthState> {
-    Router::new().route("/me/layers/new", get(page).post(create))
+    Router::new()
+        .route("/me/layers", get(index))
+        .route("/me/layers/new", get(page).post(create))
+}
+
+/// Owner-only entry for S032; no payment, buyer data or public enumeration.
+pub(super) async fn index(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    if !layer_books::enabled() {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(error) => return deny(error),
+    };
+    let actor = match PositiveId::new(actor) {
+        Ok(actor) => actor,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service.owned_layers(actor, 100).await {
+        Ok(layers) => private_response(author_pages::layers_index(&layers), &[]),
+        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
 }
 
 fn new_layer_html(csrf: &str, key: &str) -> axum::response::Html<String> {
@@ -41,7 +64,7 @@ fn new_layer_html(csrf: &str, key: &str) -> axum::response::Html<String> {
         <input type="hidden" name="command_key" value="{}">
         <button class="button" type="submit">Создать Layer</button>
         </form>
-        <p><a href="/me/books">Вернуться к моим книгам</a></p>
+        <p><a href="/me/layers">Мои слои</a> · <a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
         pages::escape_html(csrf),
         pages::escape_html(key)

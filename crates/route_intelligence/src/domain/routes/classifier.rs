@@ -104,6 +104,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/follow"), "POST") => Some(91),
         (Some("/me/books/{id}/unfollow"), "POST") => Some(92),
         (Some("/me/replies/{id}/read-state"), "POST") => Some(93),
+        (Some("/me/layers"), "GET") => Some(94),
         _ => None,
     };
     index

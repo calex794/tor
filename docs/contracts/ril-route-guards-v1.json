@@ -663,6 +663,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "reply_read_state::submit",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers",
+      "source": "crates/web/src/auth/layer_create.rs",
+      "handler": "index",
+      "policy": "owner"
     }
   ]
 }

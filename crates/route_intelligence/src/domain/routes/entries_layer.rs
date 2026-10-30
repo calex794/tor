@@ -85,3 +85,14 @@ pub(super) const LAYER_ROUTES: [RouteRegistration; 12] = [
         Read,
     ), // 90
 ];
+
+/// D-05/S032 direct owner list; append after existing 93 without renumbering.
+pub(super) const LAYER_INDEX_ROUTES: [RouteRegistration; 1] = [RouteRegistration::new(
+    "/me/layers",
+    "GET",
+    "/me/",
+    Prefix,
+    Page,
+    Dashboard,
+    Read,
+)]; // 94

@@ -42,7 +42,7 @@ fn render_index(books: &[OwnedBook], layers: Option<&[OwnedLayerSummary]>) -> Ht
              <h2 id=\"my-layers-heading\">Мои Layer</h2>",
         );
         section.push_str(
-            "<p><a class=\"button\" href=\"/me/layers/new\">Создать Layer</a></p>",
+            "<p><a class=\"button\" href=\"/me/layers/new\">Создать слой</a> <a class=\"text-link\" href=\"/me/layers\">Все мои слои</a></p>",
         );
         if owned.is_empty() {
             section.push_str("<p class=\"empty-state\">Слоёв пока нет.</p>");
@@ -77,6 +77,38 @@ fn render_index(books: &[OwnedBook], layers: Option<&[OwnedLayerSummary]>) -> Ht
     layout("Мои книги", "Ваши книги из PostgreSQL.", &content)
 }
 
+pub fn layers_index(layers: &[OwnedLayerSummary]) -> Html<String> {
+    let mut list = String::new();
+    if layers.is_empty() {
+        list.push_str("<p class=\"empty-state\">Слоёв пока нет. Создайте первый.</p>");
+    } else {
+        list.push_str("<ul class=\"author-book-list\">");
+        for layer in layers {
+            write!(
+                list,
+                "<li><a class=\"author-book-link\" href=\"/me/layers/{}/books\">{}</a></li>",
+                layer.layer_id,
+                escape_html(&layer.title)
+            )
+            .expect("write String");
+        }
+        list.push_str("</ul>");
+        if layers.len() == 100 {
+            list.push_str("<p>Показаны последние 100 слоёв.</p>");
+        }
+    }
+    let content = format!(
+        r#"<section class="section auth-section"><div class="container"><div class="auth-card author-card">
+        <p class="eyebrow">Кабинет автора</p><h1>Мои слои</h1>
+        <p>Управляйте составом книг и условиями доступа.</p>
+        <p><a class="button" href="/me/layers/new">Создать слой</a></p>
+        {list}
+        <p><a href="/me/books">Мои книги</a> · <a href="/me">Вернуться в кабинет</a></p>
+        </div></div></section>"#
+    );
+    layout("Мои слои", "Ваши слои и их состав.", &content)
+}
+
 pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
     let content = include_str!("../templates/author_new_book.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -97,11 +129,30 @@ mod tests {
         let visible = index_with_layers(&[], &layers).0;
         assert!(visible.contains("/me/layers/91/books"));
         assert!(visible.contains("/me/layers/new"));
+        assert!(visible.contains("href=\"/me/layers\""));
         assert!(visible.contains("Layer &lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!visible.contains("<script>alert(1)</script>"));
         assert!(!visible.contains("user_id"));
         let disabled = index(&[]).0;
         assert!(!disabled.contains("my-layers-heading"));
         assert!(!disabled.contains("/me/layers/91/books"));
+    }
+
+    #[test]
+    fn d_05_owner_layer_index_escapes_titles_and_hides_buyer_data() {
+        let layers = vec![OwnedLayerSummary {
+            layer_id: 91,
+            title: "Слой <script>alert(1)</script>".to_owned(),
+        }];
+        let html = layers_index(&layers).0;
+        assert!(html.contains("Мои слои"));
+        assert!(html.contains("href=\"/me/layers/new\""));
+        assert!(html.contains("href=\"/me/layers/91/books\""));
+        assert!(html.contains("Слой &lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains("user_id"));
+        assert!(!html.contains("wallet"));
+        let empty = layers_index(&[]).0;
+        assert!(empty.contains("Слоёв пока нет"));
     }
 }
