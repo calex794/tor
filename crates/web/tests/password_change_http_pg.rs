@@ -165,7 +165,12 @@ async fn password_rotation_impl() {
     )
     .await;
     assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(send(&app, request("GET", "/me", "", &second_session, ORIGIN)).await.status(), StatusCode::OK);
+    assert_eq!(
+        send(&app, request("GET", "/me", "", &second_session, ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK
+    );
 
     let rotated = send(
         &app,
@@ -183,7 +188,12 @@ async fn password_rotation_impl() {
         assert_eq!(declined.status(), StatusCode::SEE_OTHER);
         assert_eq!(declined.headers()[header::LOCATION], "/login");
     }
-    assert_eq!(send(&app, request("GET", "/me", "", &fresh_session, ORIGIN)).await.status(), StatusCode::OK);
+    assert_eq!(
+        send(&app, request("GET", "/me", "", &fresh_session, ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK
+    );
 
     let replay = send(
         &app,
