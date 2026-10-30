@@ -82,6 +82,29 @@ async function referralStats(page) {
     const secondUrl = await invitationLink(second);
     assert(secondUrl !== firstUrl, 'different accounts received identical links');
 
+    // A visible book can collect a passive first-touch ref. A draft must not.
+    const bookContext = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+    });
+    const bookVisitor = await bookContext.newPage();
+    const ownerCode = firstUrl.slice((base + '/r/').length);
+    const otherCode = secondUrl.slice((base + '/r/').length);
+    const hidden = await bookVisitor.goto(base + '/books/2?ref=' + ownerCode);
+    assert(hidden && hidden.status() === 404, 'hidden book was exposed via ref');
+    assert(!(await bookContext.cookies(base)).some(c => c.name === 'tor-dev-guest'),
+      'hidden book must not capture a referral');
+    const visible = await bookVisitor.goto(base + '/books/1?ref=' + ownerCode);
+    assert(visible && visible.status() === 200, 'public book with ref unavailable');
+    const bookCookie = (await bookContext.cookies(base))
+      .find(c => c.name === 'tor-dev-guest');
+    assert(bookCookie && bookCookie.sameSite === 'Lax',
+      'book query referral did not preserve a bounded guest cookie');
+    await bookVisitor.goto(base + '/books/1?ref=' + otherCode);
+    const afterBookSecond = (await bookContext.cookies(base))
+      .find(c => c.name === 'tor-dev-guest');
+    assert(afterBookSecond && afterBookSecond.value === bookCookie.value,
+      'second book query referral overwrote first-touch cookie');
+
     await visitor.goto(firstUrl);
     assert(visitor.url() === base + '/register', 'first invitation did not reach signup');
     const firstCookie = (await visitorContext.cookies(base))
@@ -118,6 +141,27 @@ async function referralStats(page) {
     assert(counted, 'outbox consumer did not attribute the first inviter');
     assert((await referralStats(second)).active === 0,
       'later link took credit for another inviter');
+    // Complete a second registration originating from ?ref on the book.
+    await bookVisitor.goto(base + '/register');
+    await bookVisitor.getByLabel('Отображаемое имя').fill('Читатель книги');
+    await bookVisitor.getByLabel('Электронная почта')
+      .fill('referral.book.' + unique + '@example.invalid');
+    await bookVisitor.getByLabel('Пароль (12–128 символов)')
+      .fill('TestReferralPassword2026');
+    await bookVisitor.getByRole('button', { name: 'Создать учётную запись' }).click();
+    await bookVisitor.waitForURL(base + '/me');
+    let bookCounted = false;
+    for (let attempt = 0; attempt < 45; attempt++) {
+      if ((await referralStats(first)).active === 2) {
+        bookCounted = true;
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    assert(bookCounted, 'public-book query capture was not finalized after signup');
+    assert((await referralStats(second)).active === 0,
+      'later book query took first referral credit');
+
     const visitorReport = await referralStats(visitor);
     assert(visitorReport.invitation === null && visitorReport.active === 0,
       'invited reader can access inviter link or private statistics');
@@ -138,7 +182,7 @@ async function referralStats(page) {
     await first.screenshot({
       path: path.join(out, 'referrals-owner-mobile.png'), fullPage: true,
     });
-    console.log('F-09/S052 Chromium referral share, first touch and dashboard: PASS');
+    console.log('F-09/S052 Chromium direct, public-book ?ref, first-touch and dashboard: PASS');
   } finally {
     await browser.close();
   }
