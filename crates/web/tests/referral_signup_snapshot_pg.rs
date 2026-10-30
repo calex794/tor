@@ -187,6 +187,68 @@ async fn f_09_snapshot_guest_survives_blocked_code_and_capture() {
 
 #[tokio::test]
 #[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_snapshot_manual_precedence_and_inactive_fallback() {
+    let pool = test_pool().await;
+    let (guest_owner, guest_code) = inviter(&pool, "first-touch", "reader_spend").await;
+    let (manual_owner, manual_code) = inviter(&pool, "manual-override", "reader_spend").await;
+    let hash = session_token_digest(&generate_session_token());
+    let repo = PgReferrals::new(pool.clone());
+    assert_eq!(
+        repo.capture(&hash, &guest_code, "direct_ref_link", "/r/first")
+            .await
+            .unwrap(),
+        CaptureResult::Saved
+    );
+
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let priority = register(
+        &accounts,
+        "explicit-manual",
+        Some(&hash),
+        Some(&manual_code),
+    )
+    .await;
+    let selected: (String, String) = sqlx::query_as(
+        "SELECT decided_referral_code,decided_source
+         FROM account_registration_referral_outbox WHERE user_id=$1",
+    )
+    .bind(priority)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(selected, (manual_code.clone(), "manual_code_at_registration".into()));
+    assert!(repo.finalize_one(priority).await.unwrap());
+    assert_eq!(asserted_referrer(&pool, priority).await.0, manual_owner);
+
+    // If the manual code becomes inactive during slow password hashing,
+    // the same account transaction must retain its valid guest capture.
+    sqlx::query("UPDATE referral_codes SET status='disabled' WHERE code=$1")
+        .bind(&manual_code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let fallback = register(
+        &accounts,
+        "manual-became-inactive",
+        Some(&hash),
+        Some(&manual_code),
+    )
+    .await;
+    let saved: (String, String) = sqlx::query_as(
+        "SELECT decided_referral_code,decided_source
+         FROM account_registration_referral_outbox WHERE user_id=$1",
+    )
+    .bind(fallback)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(saved, (guest_code, "guest_capture".into()));
+    assert!(repo.finalize_one(fallback).await.unwrap());
+    assert_eq!(asserted_referrer(&pool, fallback).await.0, guest_owner);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
 async fn f_09_snapshot_rejects_click_after_account_creation() {
     let pool = test_pool().await;
     let (owner, code) = inviter(&pool, "late", "reader_spend").await;
