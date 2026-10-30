@@ -77,7 +77,11 @@ async fn read_state_post(
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(format!("csrf_token={csrf}&state={desired}")))
         .expect("read-state request");
-    app.clone().oneshot(request).await.expect("response").status()
+    app.clone()
+        .oneshot(request)
+        .await
+        .expect("response")
+        .status()
 }
 
 async fn followed_page(app: &Router, cookies: &str) -> String {
@@ -297,7 +301,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     assert!(first_feed.contains("Новая глава"));
     assert!(first_feed.contains(&format!("/me/updates/{chapter}/read-state")));
     assert!(first_feed.contains("Отметить прочитанной"));
-    assert!(followed_page(&app, &two).await.contains("Отметить прочитанной"));
+    assert!(followed_page(&app, &two)
+        .await
+        .contains("Отметить прочитанной"));
     assert!(dashboard_page(&app, &one)
         .await
         .contains("Новые главы подписок: 1"));
@@ -335,7 +341,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     assert!(dashboard_page(&app, &two)
         .await
         .contains("Новые главы подписок: 1"));
-    assert!(followed_page(&app, &two).await.contains("Отметить прочитанной"));
+    assert!(followed_page(&app, &two)
+        .await
+        .contains("Отметить прочитанной"));
     assert_eq!(
         pg(
             &url,
@@ -351,7 +359,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         read_state_post(&app, chapter, &one, ORIGIN, &csrf, "unread").await,
         StatusCode::SEE_OTHER
     );
-    assert!(followed_page(&app, &one).await.contains("Отметить прочитанной"));
+    assert!(followed_page(&app, &one)
+        .await
+        .contains("Отметить прочитанной"));
     assert!(dashboard_page(&app, &one)
         .await
         .contains("Новые главы подписок: 1"));
