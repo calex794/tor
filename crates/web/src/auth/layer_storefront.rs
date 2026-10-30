@@ -59,7 +59,7 @@ pub(super) async fn page(
         && actor.is_some()
         && actor != Some(offer.owner_id)
         && offer.public_book_count > 0
-        && !(offer.has_access && offer.term_kind == "lifetime");
+        && !offer.has_lifetime_access;
     let (csrf, cookies) = if should_offer {
         let (token, cookies) = state.cookies.csrf_for_page(&headers);
         (Some(token), cookies)
