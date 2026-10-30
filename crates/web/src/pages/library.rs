@@ -28,7 +28,14 @@ pub fn my_library_with_options(
     purchased_available: bool,
     layers_available: bool,
 ) -> Html<String> {
-    my_library_inner(items, saved, csrf, purchased_available, layers_available, "")
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        layers_available,
+        "",
+    )
 }
 
 pub fn my_library_with_updates(
@@ -42,7 +49,14 @@ pub fn my_library_with_updates(
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(items, saved, csrf, purchased_available, layers_available, &update_html)
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        layers_available,
+        &update_html,
+    )
 }
 
 fn my_library_inner(
