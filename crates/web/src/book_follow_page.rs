@@ -13,19 +13,19 @@ pub(super) struct FollowBookControl {
     cookies: CookiePolicy,
 }
 
-impl FollowBookControl {
-    pub(super) fn new(accounts: &PgAccounts, secure: bool, origin: &str) -> Self {
-        let follows = PgBookFollows::new(accounts.pool().clone());
-        Self {
-            accounts: accounts.clone(),
-            follows,
-            cookies: CookiePolicy {
-                secure,
-                origin: origin.to_owned(),
-            },
-        }
+pub(super) fn control(accounts: &PgAccounts, secure: bool, origin: &str) -> FollowBookControl {
+    let follows = PgBookFollows::new(accounts.pool().clone());
+    FollowBookControl {
+        accounts: accounts.clone(),
+        follows,
+        cookies: CookiePolicy {
+            secure,
+            origin: origin.to_owned(),
+        },
     }
+}
 
+impl FollowBookControl {
     /// Only called after the public book visibility check succeeded.
     /// Anonymous readers see a login link, not a CSRF-less mutation form.
     pub(super) async fn render(
