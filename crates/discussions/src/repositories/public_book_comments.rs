@@ -256,7 +256,7 @@ impl PgPublicBookComments {
             Ok(None) => {
                 let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String, Option<i64>, bool)>(
                     "SELECT id,book_id,command_hash,body,parent_id,
-                       (submitted_body_sha256=sha256(convert_to($3,'UTF8'))) AS same_submission
+                       COALESCE(submitted_body_sha256=sha256(convert_to($3,'UTF8')),false) AS same_submission
                      FROM discussion_comments
                      WHERE author_user_id=$1 AND command_key=$2 AND book_id IS NOT NULL",
                 )
