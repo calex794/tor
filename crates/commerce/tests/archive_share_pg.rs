@@ -204,10 +204,7 @@ async fn d_archive_chain_a_b_c_d_independent_purchases() {
     assert!(replay_disabled.replayed);
     assert_eq!(replay_disabled.purchase_id, d_receipt.purchase_id);
     assert_eq!(replay_disabled.balance_after, d_receipt.balance_after);
-    let replay_revoked_disabled = store
-        .checkout_archive_once(&a_offer, &b_cmd)
-        .await
-        .unwrap();
+    let replay_revoked_disabled = store.checkout_archive_once(&a_offer, &b_cmd).await.unwrap();
     assert!(replay_revoked_disabled.replayed);
     assert_eq!(replay_revoked_disabled.purchase_id, b_receipt.purchase_id);
     assert!(matches!(
