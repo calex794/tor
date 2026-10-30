@@ -33,10 +33,7 @@ impl Options {
                 _ => return Err(ObserveError::InvalidConfig),
             }
         }
-        if !remainder.is_empty()
-            || !(1..=100).contains(&limit)
-            || !(1..=5).contains(&max_pages)
-        {
+        if !remainder.is_empty() || !(1..=100).contains(&limit) || !(1..=5).contains(&max_pages) {
             return Err(ObserveError::InvalidConfig);
         }
         let blog: String = blog.ok_or(ObserveError::InvalidConfig)?;
