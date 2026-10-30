@@ -47,7 +47,37 @@ pub enum ReadStateResult {
     Unavailable,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct MentionCandidate {
+    pub user_id: i64,
+    pub display_name: String,
+}
+
 impl PgPublicBookComments {
+    /// Only active participants of this one visible book, never global user search.
+    pub async fn mention_candidates(
+        &self, actor_id: i64, book_id: i64, query: &str,
+    ) -> Result<Vec<MentionCandidate>, ListCommentsError> {
+        let q = query.trim();
+        if actor_id <= 0 || book_id <= 0 || q.chars().count() < 2
+            || q.chars().count() > 64 || q.contains('%') || q.contains('_') {
+            return Err(ListCommentsError::Invalid);
+        }
+        let rows = sqlx::query_as::<_, (i64, String)>(
+            "SELECT u.id, u.display_name FROM users u
+             JOIN discussion_comments c ON c.author_user_id=u.id
+             JOIN books b ON b.id=c.book_id
+             WHERE c.book_id=$1 AND c.visibility='visible'
+               AND c.chapter_id IS NULL AND c.version_id IS NULL
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND u.id<>$2 AND lower(u.display_name) LIKE lower($3) || '%'
+             GROUP BY u.id,u.display_name ORDER BY lower(u.display_name),u.id LIMIT 20",
+        )
+        .bind(book_id).bind(actor_id).bind(q)
+        .fetch_all(&self.pool).await.map_err(|_| ListCommentsError::Unavailable)?;
+        Ok(rows.into_iter().map(|(user_id,display_name)| MentionCandidate { user_id, display_name }).collect())
+    }
+
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
