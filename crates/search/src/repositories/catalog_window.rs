@@ -142,7 +142,7 @@ async fn read_previous_page(
     let tag = normalize_genre(filters.tag)?;
     let fandom = normalize_genre(filters.fandom)?;
     let size = i64::try_from(limit + 1).map_err(|_| SearchError::Invalid)?;
-    let rows = if lexical {
+    let rows = (if lexical {
         let (key, id) = catalog::decode_lexical_cursor(Some(before), sort)?;
         let key = key.ok_or(SearchError::Invalid)?;
         let sql = if sort == CatalogSort::Title {
@@ -184,7 +184,7 @@ async fn read_previous_page(
             .bind(fandom.as_deref())
             .fetch_all(pool)
             .await
-    }
+    })
     .map_err(|_| SearchError::Unavailable)?;
     let mut entries = rows
         .into_iter()
