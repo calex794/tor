@@ -14,7 +14,7 @@ pub fn index(books: &[OwnedBook]) -> Html<String> {
         for book in books {
             write!(
                 &mut list,
-                "<li><a class=\"author-book-link\" href=\"/me/books/{}\">{}</a></li>",
+                "<li><a class=\"author-book-link\" href=\"/me/books/{}\">{}</a> <a href=\"/me/books/{}/recommendations\">Рекомендации</a></li>",
                 book.id,
                 escape_html(&book.title)
             )

@@ -165,7 +165,9 @@ pub fn observation(
 
 pub fn valid_token(value: &str) -> bool {
     value.len() == 43
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 pub fn token_digest(value: &str) -> Result<[u8; 32], FeedbackError> {
     if !valid_token(value) {
@@ -194,12 +196,30 @@ mod tests {
     use super::*;
     #[test]
     fn absence_never_becomes_dislike() {
-        assert_eq!(observation(1, None, false, true, true), Observation::Censored);
-        assert_eq!(observation(100, Some(1), false, true, true), Observation::Pending);
-        assert_eq!(observation(400_000, Some(1), false, true, false), Observation::Censored);
-        assert_eq!(observation(400_000, Some(1), false, false, true), Observation::Censored);
-        assert_eq!(observation(400_000, Some(1), false, true, true), Observation::NoVerifiedStart);
-        assert_eq!(observation(400_000, Some(1), true, false, false), Observation::Positive);
+        assert_eq!(
+            observation(1, None, false, true, true),
+            Observation::Censored
+        );
+        assert_eq!(
+            observation(100, Some(1), false, true, true),
+            Observation::Pending
+        );
+        assert_eq!(
+            observation(400_000, Some(1), false, true, false),
+            Observation::Censored
+        );
+        assert_eq!(
+            observation(400_000, Some(1), false, false, true),
+            Observation::Censored
+        );
+        assert_eq!(
+            observation(400_000, Some(1), false, true, true),
+            Observation::NoVerifiedStart
+        );
+        assert_eq!(
+            observation(400_000, Some(1), true, false, false),
+            Observation::Positive
+        );
     }
     #[test]
     fn limits_and_canonical_ids() {
@@ -213,8 +233,10 @@ mod tests {
     #[test]
     fn view_is_a_bounded_client_claim() {
         let mut claim = ImpressionClaim {
-            ticket: "x".repeat(43), visible_fraction_per_mille: 500,
-            continuous_visible_ms: 1000, document_visible: true,
+            ticket: "x".repeat(43),
+            visible_fraction_per_mille: 500,
+            continuous_visible_ms: 1000,
+            document_visible: true,
         };
         assert!(claim.validate().is_ok() && claim.qualified());
         claim.document_visible = false;

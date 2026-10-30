@@ -80,6 +80,18 @@
       "default_enabled": false,
       "gate": "FILE-11...18,REL-04",
       "requires": []
+    },
+    "recommendations_enabled": {
+      "default_enabled": false,
+      "gate": "REC-13 exact SHA PG/HTTP/browser; env TOR_RECOMMENDATIONS_ENABLED",
+      "requires": []
+    },
+    "recommendation_attribution_enabled": {
+      "default_enabled": false,
+      "gate": "REC-13 consent and trusted C facts; env TOR_REC_ATTRIBUTION_ENABLED",
+      "requires": [
+        "recommendations_enabled"
+      ]
     }
   },
   "forbidden_runtime_features": [

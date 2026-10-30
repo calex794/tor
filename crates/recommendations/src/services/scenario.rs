@@ -24,28 +24,34 @@ pub fn weights(f: &ScenarioFacts) -> Weights {
     } else {
         (50, 40, 10)
     };
-    Weights { behavioral, content, popularity }
+    Weights {
+        behavioral,
+        content,
+        popularity,
+    }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn pinned_scenario_precedence_and_weight_sum() {
-        let mut f=ScenarioFacts::default();
-        let w=weights(&f);
-        assert_eq!((w.behavioral,w.content,w.popularity),(0,40,60));
-        f.recent_books=3; f.recent_signals=3;
-        let w=weights(&f);
-        assert_eq!((w.behavioral,w.content,w.popularity),(10,50,40));
-        f.behavioral_candidates=3; f.source_edges=3;
-        let w=weights(&f);
-        assert_eq!((w.behavioral,w.content,w.popularity),(60,30,10));
-        f.source_age_days=Some(14);
-        let w=weights(&f);
-        assert_eq!((w.behavioral,w.content,w.popularity),(10,60,30));
-        f.session_events=5;
-        let w=weights(&f);
-        assert_eq!((w.behavioral,w.content,w.popularity),(70,20,10));
-        assert_eq!(w.behavioral+w.content+w.popularity,100);
+        let mut f = ScenarioFacts::default();
+        let w = weights(&f);
+        assert_eq!((w.behavioral, w.content, w.popularity), (0, 40, 60));
+        f.recent_books = 3;
+        f.recent_signals = 3;
+        let w = weights(&f);
+        assert_eq!((w.behavioral, w.content, w.popularity), (10, 50, 40));
+        f.behavioral_candidates = 3;
+        f.source_edges = 3;
+        let w = weights(&f);
+        assert_eq!((w.behavioral, w.content, w.popularity), (60, 30, 10));
+        f.source_age_days = Some(14);
+        let w = weights(&f);
+        assert_eq!((w.behavioral, w.content, w.popularity), (10, 60, 30));
+        f.session_events = 5;
+        let w = weights(&f);
+        assert_eq!((w.behavioral, w.content, w.popularity), (70, 20, 10));
+        assert_eq!(w.behavioral + w.content + w.popularity, 100);
     }
 }

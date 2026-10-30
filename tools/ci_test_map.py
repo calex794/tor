@@ -64,6 +64,11 @@ KNOWN_PACKAGES = CRITICAL_PACKAGES | {
 # Standalone test/harness edits do not change the library consumed by other suites.
 # New/unclassified tests deliberately fall back to full, never to an empty pack.
 TEST_SUITES = {
+    "tools/rec13_browser_acceptance.sh": {"postgres"},
+    "tools/rec13_browser.cjs": {"postgres"},
+    "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
+    "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},

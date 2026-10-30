@@ -1,10 +1,15 @@
 //! Background-only source materialization. No graph scan is run by an HTTP handler.
 use super::*;
 
-pub(super) async fn global_sources(tx: &mut Transaction<'_,Postgres>, generation: &str) -> Result<(),FeedbackError> {
+pub(super) async fn global_sources(
+    tx: &mut Transaction<'_, Postgres>,
+    generation: &str,
+) -> Result<(), FeedbackError> {
     let signals:i64=sqlx::query_scalar("SELECT count(*) FROM rec_reader_signals s JOIN rec_generations g ON g.id=$1::uuid WHERE s.occurred_at<=g.source_window_end AND s.occurred_at>g.source_window_end-interval '30 days'")
         .bind(generation).fetch_one(&mut **tx).await?;
-    if signals>50_000 { return Err(FeedbackError::Limited); }
+    if signals > 50_000 {
+        return Err(FeedbackError::Limited);
+    }
     // Only consenting, independently C-verified completed books enter the graph.
     // NEwBOO transition confidence: <=30min full; <=6h 30%; otherwise none.
     sqlx::query(
@@ -50,7 +55,11 @@ pub(super) async fn global_sources(tx: &mut Transaction<'_,Postgres>, generation
     Ok(())
 }
 
-pub(super) async fn book_sources(tx: &mut Transaction<'_,Postgres>, generation: &str, seed: i64) -> Result<(),FeedbackError> {
+pub(super) async fn book_sources(
+    tx: &mut Transaction<'_, Postgres>,
+    generation: &str,
+    seed: i64,
+) -> Result<(), FeedbackError> {
     // Exact pinned content coefficients: genres 180 (max3), tags120 (max5),
     // same language10 only after overlap. There is no canonical author ID in
     // current B metadata: do not confuse owner/display name with author identity.
@@ -71,7 +80,11 @@ pub(super) async fn book_sources(tx: &mut Transaction<'_,Postgres>, generation: 
          SELECT $1::uuid,$2,r.related_book_id,'related_books','manually_related',1000
          FROM book_recommendation_relations r JOIN rec_public_books b ON b.id=r.related_book_id
          WHERE r.book_id=$2 AND EXISTS(SELECT 1 FROM rec_public_books WHERE id=$2)
-         ORDER BY r.related_book_id::text LIMIT 10 ON CONFLICT DO NOTHING")
-        .bind(generation).bind(seed).execute(&mut **tx).await?;
+         ORDER BY r.related_book_id::text LIMIT 10 ON CONFLICT DO NOTHING",
+    )
+    .bind(generation)
+    .bind(seed)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
