@@ -136,10 +136,8 @@ async fn d_archive_chain_a_b_c_d_independent_purchases() {
         .create_archive_offer(c, c_receipt.purchase_id.get(), None)
         .await
         .unwrap();
-    let d_receipt = store
-        .checkout_archive_once(&c_offer, &command(d, chapter, version, 100, 'D'))
-        .await
-        .unwrap();
+    let d_cmd = command(d, chapter, version, 100, 'D');
+    let d_receipt = store.checkout_archive_once(&c_offer, &d_cmd).await.unwrap();
     assert_ne!(a_receipt.purchase_id, b_receipt.purchase_id);
     assert_ne!(b_receipt.purchase_id, c_receipt.purchase_id);
     assert_ne!(c_receipt.purchase_id, d_receipt.purchase_id);
@@ -165,6 +163,32 @@ async fn d_archive_chain_a_b_c_d_independent_purchases() {
         .execute(&pool)
         .await
         .unwrap();
+    // A successful command replays its immutable receipt after revocation.
+    let replay_revoked = store.checkout_archive_once(&a_offer, &b_cmd).await.unwrap();
+    assert!(replay_revoked.replayed);
+    assert_eq!(replay_revoked.purchase_id, b_receipt.purchase_id);
+    assert_eq!(replay_revoked.balance_after, b_receipt.balance_after);
+    assert!(matches!(
+        store
+            .checkout_archive_once(&a_offer, &command(b, chapter, version, 100, 'H'))
+            .await,
+        Err(CheckoutError::Inaccessible)
+    ));
+    // Idempotency keys are shared by public and archival purchase paths.
+    assert!(matches!(
+        store.checkout_once(&b_cmd).await,
+        Err(CheckoutError::DuplicateKeyDifferentRequest)
+    ));
+    assert!(matches!(
+        store.checkout_archive_once(&c_offer, &b_cmd).await,
+        Err(CheckoutError::DuplicateKeyDifferentRequest)
+    ));
+    assert!(matches!(
+        store
+            .checkout_archive_once(&a_offer, &command(a, chapter, version, 100, 'A'))
+            .await,
+        Err(CheckoutError::DuplicateKeyDifferentRequest)
+    ));
     assert!(store
         .create_archive_offer(d, d_receipt.purchase_id.get(), None)
         .await
@@ -175,6 +199,17 @@ async fn d_archive_chain_a_b_c_d_independent_purchases() {
         .execute(&pool)
         .await
         .unwrap();
+    // Disabling further sales must not erase already-committed purchase receipts.
+    let replay_disabled = store.checkout_archive_once(&c_offer, &d_cmd).await.unwrap();
+    assert!(replay_disabled.replayed);
+    assert_eq!(replay_disabled.purchase_id, d_receipt.purchase_id);
+    assert_eq!(replay_disabled.balance_after, d_receipt.balance_after);
+    let replay_revoked_disabled = store
+        .checkout_archive_once(&a_offer, &b_cmd)
+        .await
+        .unwrap();
+    assert!(replay_revoked_disabled.replayed);
+    assert_eq!(replay_revoked_disabled.purchase_id, b_receipt.purchase_id);
     assert!(matches!(
         store
             .checkout_archive_once(&c_offer, &command(owner, chapter, version, 100, 'G'))
@@ -194,4 +229,23 @@ async fn d_archive_chain_a_b_c_d_independent_purchases() {
             .await
             .unwrap();
     assert_eq!(pinned, 4);
+    let wallet_debits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM reader_wallet_entries
+         WHERE kind='chapter_purchase' AND purchase_id IN
+           (SELECT id FROM chapter_purchase_facts WHERE chapter_id=$1)",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(wallet_debits, 4, "replays must never debit twice");
+    let snapshots: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_purchase_share_snapshots
+         WHERE purchase_id IN (SELECT id FROM chapter_purchase_facts WHERE chapter_id=$1)",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(snapshots, 4, "replays must never duplicate share snapshots");
 }

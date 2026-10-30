@@ -67,53 +67,8 @@ impl PgCheckout {
             .begin()
             .await
             .map_err(|_| CheckoutError::Unavailable)?;
-        let offer=sqlx::query(
-            "SELECT o.sender_user_id,o.sender_purchase_id,o.chapter_id,o.version_id,
-                    o.quoted_price_minor,b.id AS book_id,st.current_revision AS share_revision
-             FROM archive_share_offers o
-             JOIN chapter_purchase_facts src ON src.id=o.sender_purchase_id
-                AND src.user_id=o.sender_user_id AND src.chapter_id=o.chapter_id
-                AND src.version_id=o.version_id
-             JOIN library_purchased_chapters l ON l.purchase_id=src.id
-                AND l.user_id=src.user_id AND l.chapter_id=src.chapter_id
-                AND l.active_version_id=src.version_id
-             JOIN chapters c ON c.id=o.chapter_id
-             JOIN books b ON b.id=c.book_id
-             JOIN revenue_share_states st ON st.book_id=b.id
-             JOIN chapter_versions v ON v.chapter_id=o.chapter_id AND v.id=o.version_id
-             JOIN chapter_publications publication ON publication.chapter_id=c.id
-             WHERE o.token=$1::uuid AND o.revoked_at IS NULL AND o.expires_at>now()
-               AND (o.recipient_user_id IS NULL OR o.recipient_user_id=$2)
-               AND o.sender_user_id<>$2
-               AND o.chapter_id=$3 AND o.version_id=$4 AND o.quoted_price_minor=$5
-               AND b.archived_at IS NOT NULL AND b.archive_invite_sales_enabled
-               AND b.visibility='draft' AND NOT b.admin_hold AND NOT b.is_deleted
-               AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
-               AND c.access_level='paid' AND c.price_amount=$5
-               AND NOT c.admin_hold AND NOT c.is_deleted
-               AND NOT EXISTS (SELECT 1 FROM chapter_purchase_revocations r WHERE r.purchase_id=src.id)
-             FOR SHARE OF o,b,c",
-        ).bind(offer_token).bind(actor).bind(chapter).bind(version).bind(price)
-        .fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?
-        .ok_or(CheckoutError::Inaccessible)?;
-        let book: i64 = offer
-            .try_get("book_id")
-            .map_err(|_| CheckoutError::Unavailable)?;
-        let revision: i64 = offer
-            .try_get("share_revision")
-            .map_err(|_| CheckoutError::Unavailable)?;
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(share_percent),0)::BIGINT FROM revenue_share_assignments
-             WHERE book_id=$1 AND revision=$2",
-        )
-        .bind(book)
-        .bind(revision)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|_| CheckoutError::Unavailable)?;
-        if total != 100 {
-            return Err(CheckoutError::Unavailable);
-        }
+        // A committed command must replay its historical receipt even after
+        // the original invitation expires, is revoked, or sales are disabled.
         // The command key is global across BOTH purchase pathways.
         let claimed=sqlx::query_scalar::<_,i64>(
             "INSERT INTO chapter_purchase_commands
@@ -182,6 +137,54 @@ impl PgCheckout {
             )?;
             tx.commit().await.map_err(|_| CheckoutError::Unavailable)?;
             return Ok(answer);
+        }
+        // Only NEW purchases require the invitation to remain active.
+        let offer=sqlx::query(
+            "SELECT o.sender_user_id,o.sender_purchase_id,o.chapter_id,o.version_id,
+                    o.quoted_price_minor,b.id AS book_id,st.current_revision AS share_revision
+             FROM archive_share_offers o
+             JOIN chapter_purchase_facts src ON src.id=o.sender_purchase_id
+                AND src.user_id=o.sender_user_id AND src.chapter_id=o.chapter_id
+                AND src.version_id=o.version_id
+             JOIN library_purchased_chapters l ON l.purchase_id=src.id
+                AND l.user_id=src.user_id AND l.chapter_id=src.chapter_id
+                AND l.active_version_id=src.version_id
+             JOIN chapters c ON c.id=o.chapter_id
+             JOIN books b ON b.id=c.book_id
+             JOIN revenue_share_states st ON st.book_id=b.id
+             JOIN chapter_versions v ON v.chapter_id=o.chapter_id AND v.id=o.version_id
+             JOIN chapter_publications publication ON publication.chapter_id=c.id
+             WHERE o.token=$1::uuid AND o.revoked_at IS NULL AND o.expires_at>now()
+               AND (o.recipient_user_id IS NULL OR o.recipient_user_id=$2)
+               AND o.sender_user_id<>$2
+               AND o.chapter_id=$3 AND o.version_id=$4 AND o.quoted_price_minor=$5
+               AND b.archived_at IS NOT NULL AND b.archive_invite_sales_enabled
+               AND b.visibility='draft' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
+               AND c.access_level='paid' AND c.price_amount=$5
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND NOT EXISTS (SELECT 1 FROM chapter_purchase_revocations r WHERE r.purchase_id=src.id)
+             FOR SHARE OF o,b,c",
+        ).bind(offer_token).bind(actor).bind(chapter).bind(version).bind(price)
+        .fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?
+        .ok_or(CheckoutError::Inaccessible)?;
+        let book: i64 = offer
+            .try_get("book_id")
+            .map_err(|_| CheckoutError::Unavailable)?;
+        let revision: i64 = offer
+            .try_get("share_revision")
+            .map_err(|_| CheckoutError::Unavailable)?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(share_percent),0)::BIGINT FROM revenue_share_assignments
+             WHERE book_id=$1 AND revision=$2",
+        )
+        .bind(book)
+        .bind(revision)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?;
+        if total != 100 {
+            return Err(CheckoutError::Unavailable);
         }
         let balance=sqlx::query_scalar::<_,i64>(
             "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1 AND currency='RUB' FOR UPDATE",

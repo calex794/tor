@@ -66,7 +66,7 @@ impl CheckoutRepository for PgCheckout {
 
         let prior = sqlx::query(
             "SELECT chapter_id, expected_version_id, expected_price_minor, purchase_id,
-                    archive_offer_token
+                    archive_offer_token::text AS archive_offer_token
              FROM chapter_purchase_commands
              WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
         )
