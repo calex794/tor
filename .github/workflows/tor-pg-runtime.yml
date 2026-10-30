@@ -131,9 +131,15 @@ jobs:
           VALUES (101,201),(102,202),(103,203),(104,204),
                  (105,205),(106,206),(107,207),(108,208);
           SQL
-      - name: Advance explicit-ID book fixture sequence as schema owner
+      - name: Advance explicit-ID fixture sequences as schema owner
         run: |
-          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
+          # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
+          # Fix all seeded entities before running tests that INSERT default IDs.
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
+          SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
+          SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
+          SQL
       - name: Database and HTTP integration
         run: |
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
@@ -169,6 +175,7 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
@@ -182,6 +189,7 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored
