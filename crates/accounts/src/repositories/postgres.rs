@@ -245,13 +245,18 @@ impl PgAccounts {
                     // This write rolls back if the session or outbox fails.
                     // The selected sponsor is snapshotted below for recovery;
                     // finalization must not claim the guest a second time.
-                    sqlx::query(
+                    let spent = sqlx::query(
                         "UPDATE referral_captures SET status='consumed'
                          WHERE id=$1 AND status='active'",
                     )
                     .bind(capture_id)
                     .execute(&mut *transaction)
                     .await?;
+                    if spent.rows_affected() != 1 {
+                        // Never commit an outbox decision if the guest bearer
+                        // was not actually spent by the same transaction.
+                        return Err(AccountWriteError::Unavailable);
+                    }
                 }
             }
             let (code, owner, program, capture, source) = match candidate {
