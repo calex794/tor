@@ -1,5 +1,6 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
+mod archive;
 mod batch;
 pub use batch::SelectableBatchOffer;
 
@@ -64,7 +65,8 @@ impl CheckoutRepository for PgCheckout {
         .map_err(unavailable)?;
 
         let prior = sqlx::query(
-            "SELECT chapter_id, expected_version_id, expected_price_minor, purchase_id
+            "SELECT chapter_id, expected_version_id, expected_price_minor, purchase_id,
+                    archive_offer_token
              FROM chapter_purchase_commands
              WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
         )
@@ -73,7 +75,8 @@ impl CheckoutRepository for PgCheckout {
         .fetch_one(&mut *tx)
         .await
         .map_err(unavailable)?;
-        if prior.try_get::<i64, _>("chapter_id").map_err(unavailable)? != chapter
+        if prior.try_get::<Option<String>, _>("archive_offer_token").map_err(unavailable)?.is_some()
+            || prior.try_get::<i64, _>("chapter_id").map_err(unavailable)? != chapter
             || prior
                 .try_get::<i64, _>("expected_version_id")
                 .map_err(unavailable)?
