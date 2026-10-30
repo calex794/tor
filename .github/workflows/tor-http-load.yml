@@ -238,17 +238,17 @@ jobs:
           purchases="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
               SELECT count(*) FROM chapter_purchase_facts p
-              JOIN chapters c ON c.id=p.chapter_id WHERE c.book_id=20001")"
+              JOIN chapters c ON c.id=p.chapter_id WHERE c.book_id=200001")"
           paid_entries="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
               SELECT count(*) FROM reader_wallet_entries e
               JOIN chapter_purchase_facts p ON p.id=e.purchase_id
               JOIN chapters c ON c.id=p.chapter_id
-              WHERE c.book_id=20001 AND e.kind='chapter_purchase'")"
+              WHERE c.book_id=200001 AND e.kind='chapter_purchase'")"
           paid_rights="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
               SELECT count(*) FROM library_purchased_chapters l
-              JOIN chapters c ON c.id=l.chapter_id WHERE c.book_id=20001")"
+              JOIN chapters c ON c.id=l.chapter_id WHERE c.book_id=200001")"
           total_balances="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
             psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
               SELECT coalesce(sum(w.balance_minor),0)
