@@ -12,8 +12,9 @@ mod referrals;
 mod session_security;
 #[allow(unused_imports)] // The previous account renderer remains available to callers.
 pub use account::{
-    account_error_page, login_form, my_account, my_account_with_follow_updates,
-    password_change_form, registration_form, registration_form_with_error,
+    account_error_page, login_form, my_account, my_account_with_achievements,
+    my_account_with_follow_updates, password_change_form, registration_form,
+    registration_form_with_error,
 };
 pub use layer_storefront::{
     offer_page as layer_offer_page, purchase_error as layer_purchase_error,

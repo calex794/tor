@@ -1,9 +1,9 @@
 //! Fixed MatchedPath taxonomy: immutable route IDs, no per-request allocation.
 use super::*;
-use CostClass::{CheapRead as Read, Write};
-use ProductArea::{Auth, Reading};
+use CostClass::{CheapRead as Read, Free, Write};
+use ProductArea::{Auth, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
-use TrafficSurface::PublicPage as Page;
+use TrafficSurface::{PublicPage as Page, Static};
 
 mod classifier;
 mod continuation;
@@ -26,8 +26,8 @@ use entries_mentions::MENTION_ROUTES;
 use entries_referrals::REFERRAL_ROUTES;
 use entries_reply::REPLY_ROUTES;
 
-const ROUTES: [RouteRegistration; 126] = {
-    let mut result = [BASE_ROUTES[0]; 126];
+const ROUTES: [RouteRegistration; 130] = {
+    let mut result = [BASE_ROUTES[0]; 130];
     let mut i = 0;
     while i < 79 {
         result[i] = BASE_ROUTES[i];
@@ -87,6 +87,42 @@ const ROUTES: [RouteRegistration; 126] = {
     }
     result[124] = MENTION_ROUTES[0];
     result[125] = MENTION_ROUTES[1];
+    result[126] = RouteRegistration::new(
+        "/me/books/{id}/chapters/import",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    );
+    result[127] = RouteRegistration::new(
+        "/me/books/{id}/chapters/import-preview",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    );
+    result[128] = RouteRegistration::new(
+        "/me/books/{id}/chapters/import-confirm",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    );
+    result[129] = RouteRegistration::new(
+        "/assets/newboo-chapter-import.js",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    );
     result
 };
 
