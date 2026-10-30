@@ -31,27 +31,47 @@ async fn g_06_two_consumers_finish_only_after_both_receipts() {
     let claimed = outbox.claim_next().await.unwrap().unwrap();
     assert_eq!(claimed.id, event_id);
     assert_eq!(claimed.required_consumers, vec!["g06-one", "g06-two"]);
-    assert_eq!(outbox.acknowledge(&claimed.id, claimed.lease_epoch, "unknown").await, Err(OutboxError::Invalid));
-    assert!(!outbox.acknowledge(&claimed.id, claimed.lease_epoch, "g06-one").await.unwrap());
-    let delivered: Option<String> = sqlx::query_scalar(
-        "SELECT delivered_at::text FROM outbox_events WHERE id=$1::uuid",
-    )
-    .bind(&event_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(delivered.is_none(), "first consumer cannot finish all consumers");
-    assert!(!outbox.acknowledge(&claimed.id, claimed.lease_epoch, "g06-one").await.unwrap());
-    assert!(outbox.acknowledge(&claimed.id, claimed.lease_epoch, "g06-two").await.unwrap());
-    let receipts: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM event_deliveries WHERE event_id=$1::uuid",
-    )
-    .bind(&event_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    assert_eq!(
+        outbox
+            .acknowledge(&claimed.id, claimed.lease_epoch, "unknown")
+            .await,
+        Err(OutboxError::Invalid)
+    );
+    assert!(!outbox
+        .acknowledge(&claimed.id, claimed.lease_epoch, "g06-one")
+        .await
+        .unwrap());
+    let delivered: Option<String> =
+        sqlx::query_scalar("SELECT delivered_at::text FROM outbox_events WHERE id=$1::uuid")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        delivered.is_none(),
+        "first consumer cannot finish all consumers"
+    );
+    assert!(!outbox
+        .acknowledge(&claimed.id, claimed.lease_epoch, "g06-one")
+        .await
+        .unwrap());
+    assert!(outbox
+        .acknowledge(&claimed.id, claimed.lease_epoch, "g06-two")
+        .await
+        .unwrap());
+    let receipts: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM event_deliveries WHERE event_id=$1::uuid")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(receipts, 2, "replay did not duplicate delivery");
-    assert_eq!(outbox.acknowledge(&claimed.id, claimed.lease_epoch, "g06-two").await, Err(OutboxError::LostLease));
+    assert_eq!(
+        outbox
+            .acknowledge(&claimed.id, claimed.lease_epoch, "g06-two")
+            .await,
+        Err(OutboxError::LostLease)
+    );
     pool.close().await;
 }
 
@@ -94,15 +114,22 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     let second = outbox.claim_next().await.unwrap().unwrap();
     assert_eq!(second.id, event_id);
     assert_eq!(second.lease_epoch, first.lease_epoch + 1);
-    assert_eq!(outbox.acknowledge(&event_id, first.lease_epoch, "g07-target").await, Err(OutboxError::LostLease));
-    assert!(outbox.acknowledge(&event_id, second.lease_epoch, "g07-target").await.unwrap());
-    let receipt_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM event_deliveries WHERE event_id=$1::uuid",
-    )
-    .bind(&event_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    assert_eq!(
+        outbox
+            .acknowledge(&event_id, first.lease_epoch, "g07-target")
+            .await,
+        Err(OutboxError::LostLease)
+    );
+    assert!(outbox
+        .acknowledge(&event_id, second.lease_epoch, "g07-target")
+        .await
+        .unwrap());
+    let receipt_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM event_deliveries WHERE event_id=$1::uuid")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(receipt_count, 1);
     pool.close().await;
 }
