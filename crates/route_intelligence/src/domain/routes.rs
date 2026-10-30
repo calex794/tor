@@ -1,5 +1,9 @@
 //! Fixed MatchedPath taxonomy: immutable route IDs, no per-request allocation.
 use super::*;
+use CostClass::{CheapRead as Read, Write};
+use ProductArea::{Auth, Reading};
+use RouteMatchKind::{Exact, Prefix};
+use TrafficSurface::PublicPage as Page;
 
 mod classifier;
 mod continuation;
