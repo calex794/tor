@@ -56,7 +56,7 @@ pub fn valid_html_client_id(id: &str) -> bool {
 /// Match the NEwBOO HTML/header helper: strip disallowed characters, truncate to 128.
 pub fn clean_html_client_id(raw: &str) -> String {
     raw.trim().chars()
-        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | ':'))
         .take(128)
         .collect()
 }
