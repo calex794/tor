@@ -30,7 +30,8 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
+    PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -51,6 +52,7 @@ mod checkout;
 mod complete_chapter;
 mod continuation_demand;
 mod follow_read_state;
+mod notification_settings;
 mod followed_purchase_links;
 mod inbox;
 mod library_actions;
@@ -143,6 +145,7 @@ fn router_inner(
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
+    let notification_preferences = PgNotificationPreferences::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -163,6 +166,7 @@ fn router_inner(
         demand,
         book_follows,
         follow_updates,
+        notification_preferences,
         reader,
         rankings,
         cookies,
@@ -182,6 +186,10 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route(
+            "/me/notification-settings",
+            get(notification_settings::page).post(notification_settings::save),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(

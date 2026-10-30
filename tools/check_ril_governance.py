@@ -27,6 +27,7 @@ SCOPE_CALLS = {
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
+    "delivery_preference", "set_delivery_preference",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",

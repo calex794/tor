@@ -417,3 +417,147 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     // manually would bypass the ownership lifecycle and violate RESTRICT FKs.
     pool.close().await;
 }
+
+
+async fn c17_settings_page(app: &Router, cookies: &str) -> String {
+    let request = Request::builder()
+        .uri("/me/notification-settings")
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
+async fn c17_change_mode(
+    app: &Router,
+    cookies: &str,
+    origin: &str,
+    csrf: &str,
+    mode: &str,
+) -> StatusCode {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/me/notification-settings")
+        .header(header::COOKIE, cookies)
+        .header(header::ORIGIN, origin)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(format!("csrf_token={csrf}&delivery_mode={mode}")))
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap().status()
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 18 tor_ci"]
+async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
+    use tor_reading::repositories::{DeliveryMode, PgNotificationPreferences};
+    let url = std::env::var("TEST_DATABASE_URL").expect("test database");
+    assert!(url.ends_with("/tor_ci"), "production database forbidden");
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool().clone();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let password = hash_password("C17DeliveryPreferences2026").unwrap();
+    let first_token = generate_session_token();
+    let second_token = generate_session_token();
+    let csrf = generate_session_token();
+    let first = accounts
+        .register_with_session(
+            &format!("c17-preference-1-{nonce}@tor-ci.example"),
+            "Reader 1",
+            &password,
+            &session_token_digest(&first_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let second = accounts
+        .register_with_session(
+            &format!("c17-preference-2-{nonce}@tor-ci.example"),
+            "Reader 2",
+            &password,
+            &session_token_digest(&second_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool.clone()),
+        accounts,
+        false,
+        ORIGIN.to_owned(),
+    );
+    let one = format!("tor-dev-session={first_token}; tor-dev-csrf={csrf}");
+    let two = format!("tor-dev-session={second_token}; tor-dev-csrf={csrf}");
+    assert!(dashboard_page(&app, &one).await.contains("/me/notification-settings"));
+    let page = c17_settings_page(&app, &one).await;
+    assert!(page.contains("value=\"disabled\" checked"));
+    assert!(page.contains("пока не подключена"));
+    assert!(c17_settings_page(&app, &two)
+        .await
+        .contains("value=\"disabled\" checked"));
+    assert_eq!(
+        c17_change_mode(&app, &one, "https://wrong.invalid", &csrf, "daily_digest").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        c17_change_mode(&app, &one, ORIGIN, "wrong", "daily_digest").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        c17_change_mode(&app, "", ORIGIN, &csrf, "daily_digest").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        c17_change_mode(&app, &one, ORIGIN, &csrf, "invalid").await,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        c17_change_mode(&app, &one, ORIGIN, &csrf, "daily_digest").await,
+        StatusCode::SEE_OTHER
+    );
+    let prefs = PgNotificationPreferences::new(pool.clone());
+    assert_eq!(
+        prefs.delivery_preference(first).await.unwrap(),
+        DeliveryMode::DailyDigest
+    );
+    assert_eq!(
+        prefs.delivery_preference(second).await.unwrap(),
+        DeliveryMode::Disabled
+    );
+    assert!(c17_settings_page(&app, &one)
+        .await
+        .contains("value=\"daily_digest\" checked"));
+    assert!(c17_settings_page(&app, &two)
+        .await
+        .contains("value=\"disabled\" checked"));
+    assert_eq!(
+        c17_change_mode(&app, &one, ORIGIN, &csrf, "immediate").await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        prefs.delivery_preference(first).await.unwrap(),
+        DeliveryMode::Immediate
+    );
+    assert_eq!(
+        c17_change_mode(&app, &one, ORIGIN, &csrf, "disabled").await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        prefs.delivery_preference(first).await.unwrap(),
+        DeliveryMode::Disabled
+    );
+    pool.close().await;
+}

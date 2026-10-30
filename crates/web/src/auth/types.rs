@@ -29,6 +29,7 @@ pub(super) struct AuthState {
     pub(super) demand: PgContinuationDemand,
     pub(super) book_follows: tor_reading::repositories::PgBookFollows,
     pub(super) follow_updates: PgFollowUpdates,
+    pub(super) notification_preferences: PgNotificationPreferences,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
     pub(super) cookies: CookiePolicy,

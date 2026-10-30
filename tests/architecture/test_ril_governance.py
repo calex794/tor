@@ -250,5 +250,24 @@ class RilGovernanceTests(unittest.TestCase):
         self.assert_detected("missing Origin+CSRF rejection")
 
 
+    def test_delivery_preferences_save_is_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            ".set_delivery_preference(actor, mode)",
+            ".set_delivery_preference(mode)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_delivery_preferences_save_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+
 if __name__ == "__main__":
     unittest.main()
