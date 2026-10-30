@@ -174,13 +174,11 @@ mod tests {
 
     #[test]
     fn guest_and_non_owner_never_receive_authoring_links() {
-        for is_owner in [false] {
-            let html = personalize_book_detail(DETAIL, 77, "Следить", is_owner);
-            assert!(html.contains("Следить"));
-            assert!(!html.contains("/me/books/77"));
-            assert!(!html.contains("Редактировать"));
-            assert!(!html.contains("<!--BOOK_OWNER_"));
-        }
+        let html = personalize_book_detail(DETAIL, 77, "Следить", false);
+        assert!(html.contains("Следить"));
+        assert!(!html.contains("/me/books/77"));
+        assert!(!html.contains("Редактировать"));
+        assert!(!html.contains("<!--BOOK_OWNER_"));
     }
 
     #[test]
