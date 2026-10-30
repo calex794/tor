@@ -10,6 +10,7 @@ const publicJourneys = new Counter('public_journeys');
 const publicFailures = new Counter('public_journey_failures');
 // 25 full journeys/s: 15 write/comment and 10 anonymous catalog/reader journeys.
 export const options = {
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     writers: {
       executor: 'constant-arrival-rate', exec: 'authenticatedWriter',
@@ -42,22 +43,22 @@ function countCards(html) {
   return (html.match(/class="book-mini-card book-mini-card--compact"/g) || []).length;
 }
 export function publicReader() {
-  const first = http.get(base + '/catalog?sort=oldest');
+  const first = http.get(base + '/catalog?sort=oldest', { tags: { name: 'catalog_first' }, timeout: '10s' });
   const next = pageLink(first.body || '', 'next');
   if (!check(first, { 'first page is bounded': r =>
     r.status === 200 && countCards(r.body) === 20,
   }) || !next) { publicFailures.add(1); return; }
-  const second = http.get(base + next);
+  const second = http.get(base + next, { tags: { name: 'catalog_second' }, timeout: '10s' });
   const back = pageLink(second.body || '', 'prev');
   if (!check(second, { 'next page is bounded': r =>
     r.status === 200 && countCards(r.body) === 20 && r.body.includes('Страница 2'),
   }) || !back) { publicFailures.add(1); return; }
-  const previous = http.get(base + back);
+  const previous = http.get(base + back, { tags: { name: 'catalog_previous' }, timeout: '10s' });
   if (!check(previous, { 'reverse navigation works': r =>
     r.status === 200 && r.body.includes('Страница 1'),
   })) { publicFailures.add(1); return; }
   for (const path of ['/books/1', '/reader/101', '/api/v1/books/1/toc']) {
-    const response = http.get(base + path);
+    const response = http.get(base + path, { tags: { name: 'public_reading' }, timeout: '10s' });
     if (!check(response, { 'public chapter 200': r => r.status === 200 })) {
       publicFailures.add(1); return;
     }
@@ -113,18 +114,18 @@ export function authenticatedWriter(data) {
     Cookie: user.session + '; ' + user.csrfCookie,
     Origin: base,
   };
-  const lookup = http.get(base + '/api/v1/me/progress/free?chapter_id=401', { headers });
+  const lookup = http.get(base + '/api/v1/me/progress/free?chapter_id=401', { headers, tags: { name: 'progress_read' } });
   if (!check(lookup, { 'progress read': r => r.status === 200 })) { failures.add(1); return; }
   const prior = lookup.json();
   const position = Number(prior.revision) + 1;
   const saved = http.put(base + '/api/v1/me/progress/free', JSON.stringify({
     chapter_id: '401', version_id: '501', block_id: 1,
     char_offset: position, expected_revision: prior.revision,
-  }), { headers: Object.assign({}, headers, { 'x-csrf-token': user.csrfValue, 'Content-Type': 'application/json' }) });
+  }), { headers: Object.assign({}, headers, { 'x-csrf-token': user.csrfValue, 'Content-Type': 'application/json' }), tags: { name: 'progress_write' } });
   if (!check(saved, { 'progress saved': r => r.status === 200 })) { failures.add(1); return; }
   const receipt = saved.json();
   if (receipt.revision !== position) { failures.add(1); return; }
-  const verify = http.get(base + '/api/v1/me/progress/free?chapter_id=401', { headers });
+  const verify = http.get(base + '/api/v1/me/progress/free?chapter_id=401', { headers, tags: { name: 'progress_verify' } });
   if (!check(verify, { 'progress persisted': r => r.status === 200 })) {
     failures.add(1);
     return;
