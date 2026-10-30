@@ -38,8 +38,27 @@ pub fn detail_with_covers_with_demand(
     demand_count: i64,
 ) -> Html<String> {
     detail_with_covers_with_demand_page(
-        book, published, chapters, csrf, uploads_enabled, latest_job, demand_count, None, false,
+        book,
+        published,
+        chapters,
+        csrf,
+        OwnerChapterPageOptions {
+            uploads_enabled,
+            latest_job,
+            demand_count,
+            next: None,
+            has_previous_page: false,
+        },
     )
+}
+
+/// All presentation controls for a bounded, owner-only chapter list.
+pub struct OwnerChapterPageOptions<'a> {
+    pub uploads_enabled: bool,
+    pub latest_job: Option<&'a str>,
+    pub demand_count: i64,
+    pub next: Option<OwnedChapterCursor>,
+    pub has_previous_page: bool,
 }
 
 /// Owner-only, keyset-paged list. Public book pages retain their own TOC.
@@ -48,12 +67,15 @@ pub fn detail_with_covers_with_demand_page(
     published: bool,
     chapters: &[OwnedChapterSummary],
     csrf: &str,
-    uploads_enabled: bool,
-    latest_job: Option<&str>,
-    demand_count: i64,
-    next: Option<OwnedChapterCursor>,
-    has_previous_page: bool,
+    options: OwnerChapterPageOptions<'_>,
 ) -> Html<String> {
+    let OwnerChapterPageOptions {
+        uploads_enabled,
+        latest_job,
+        demand_count,
+        next,
+        has_previous_page,
+    } = options;
     let mut items = String::new();
     if chapters.is_empty() {
         items.push_str("<p class=\"empty-state\">В этой книге пока нет глав.</p>");
@@ -465,11 +487,13 @@ mod tests {
             true,
             &[chapter],
             "csrf",
-            false,
-            None,
-            0,
-            Some(OwnedChapterCursor { number: 501, id: 501 }),
-            true,
+            OwnerChapterPageOptions {
+                uploads_enabled: false,
+                latest_job: None,
+                demand_count: 0,
+                next: Some(OwnedChapterCursor { number: 501, id: 501 }),
+                has_previous_page: true,
+            },
         )
         .0;
         assert!(page.contains("/me/books/42?after=501:501"));
