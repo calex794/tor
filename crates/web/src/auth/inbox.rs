@@ -20,13 +20,9 @@ pub(super) struct InboxQuery {
     limit: Option<u16>,
 }
 
-async fn load(
-    state: &AuthState,
-    actor: i64,
-    query: InboxQuery,
-) -> Result<InboxPage, StatusCode> {
-    let filter = InboxFilter::parse(query.filter.as_deref())
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+async fn load(state: &AuthState, actor: i64, query: InboxQuery) -> Result<InboxPage, StatusCode> {
+    let filter =
+        InboxFilter::parse(query.filter.as_deref()).map_err(|_| StatusCode::BAD_REQUEST)?;
     InboxService::new(PgInbox::new(state.accounts.pool().clone()))
         .list(actor, filter, query.after, query.limit.unwrap_or(25))
         .await
@@ -108,9 +104,17 @@ fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
     for item in &page.items {
         let r = &item.reply;
         let url = comment_url(r.book_id, r.comment_id);
-        let label = if r.is_read { "Прочитано" } else { "Не прочитано" };
+        let label = if r.is_read {
+            "Прочитано"
+        } else {
+            "Не прочитано"
+        };
         let next = if r.is_read { "unread" } else { "read" };
-        let button = if r.is_read { "Отметить непрочитанным" } else { "Отметить прочитанным" };
+        let button = if r.is_read {
+            "Отметить непрочитанным"
+        } else {
+            "Отметить прочитанным"
+        };
         cards.push_str(&format!(
             "<article class=\"me-now-card\"><a class=\"me-now-item\" href=\"{}\"><strong>Ответ в книге «{}»</strong> — {label}</a><form method=\"post\" action=\"/me/replies/{}/read-state\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"state\" value=\"{next}\"><input type=\"hidden\" name=\"return_to\" value=\"inbox\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">{button}</button></form></article>",
             pages::escape_html(&url), pages::escape_html(&r.book_title),
@@ -126,7 +130,11 @@ fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
     let body = format!(
         "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item is-active\" href=\"/me/inbox\" aria-current=\"page\">Обсуждения</a><a class=\"dashboard-nav__item\" href=\"/me/library\">Библиотека</a></nav><header class=\"ui-page-header\"><div><p class=\"ui-page-header__kicker\">Личный кабинет</p><h1 class=\"ui-page-header__title\">Входящие обсуждения</h1><p class=\"ui-page-header__text\">Ответы на ваши комментарии в доступных книгах.</p></div></header><nav aria-label=\"Фильтр ответов\"><a href=\"/me/inbox?filter=all\">Все</a> · <a href=\"/me/inbox?filter=unread\">Непрочитанные</a> · <a href=\"/me/inbox?filter=read\">Прочитанные</a></nav><section class=\"me-section\">{cards}{next_link}</section></div></section>"
     );
-    pages::layout("Входящие обсуждения", "Полученные ответы на комментарии", &body)
+    pages::layout(
+        "Входящие обсуждения",
+        "Полученные ответы на комментарии",
+        &body,
+    )
 }
 
 #[cfg(test)]
