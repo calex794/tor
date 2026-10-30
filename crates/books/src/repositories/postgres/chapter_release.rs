@@ -322,7 +322,14 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        enqueue_chapter_published(&mut tx, book_id, chapter_id, expected_version_id, true).await?;
+        enqueue_chapter_published(
+            &mut tx,
+            book_id,
+            chapter_id,
+            expected_version_id,
+            true,
+        )
+        .await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(())
     }
