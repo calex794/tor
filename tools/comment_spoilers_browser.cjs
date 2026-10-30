@@ -81,6 +81,19 @@ module.exports = async function checkSpoilers(browser, base, out) {
         await replyPage.screenshot({ path: path.join(out, `reply-${name}.png`), fullPage: true });
         const sizes = await replyPage.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
         assert(sizes[0] <= sizes[1] + 1, 'reply page no horizontal overflow');
+        const replyId = (await reply.getAttribute('id')).replace('comment-', '');
+        await page.goto(base + '/me');
+        const inbox = page.locator('section[aria-labelledby="me-replies-title"]');
+        const link = inbox.locator(`a[href$="#comment-${replyId}"]`);
+        assert.equal(await link.count(), 1, 'only parent author receives reply');
+        assert(!(await inbox.innerText()).includes('скрытый ответ'), 'no spoiler copy in dashboard');
+        await page.screenshot({ path: path.join(out, `received-replies-${name}.png`), fullPage: true });
+        await link.click();
+        await page.waitForURL(`**#comment-${replyId}`);
+        assert.equal(await page.locator(`#comment-${replyId}`).count(), 1);
+        await replyPage.goto(base + '/me');
+        assert.equal(await replyPage.locator(`section[aria-labelledby="me-replies-title"] a[href$="#comment-${replyId}"]`).count(), 0, 'writer is not recipient');
+
       } finally {
         await responder.close();
       }

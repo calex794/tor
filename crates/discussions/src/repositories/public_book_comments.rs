@@ -24,9 +24,25 @@ pub struct PublicComment {
     pub parent_id: Option<i64>,
 }
 
+/// A private navigation reference, deliberately without either comment body.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ReceivedReply {
+    pub comment_id: i64,
+    pub book_id: i64,
+    pub book_title: String,
+    pub is_read: bool,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ListCommentsError {
     Invalid,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadStateResult {
+    Updated,
+    NotFound,
     Unavailable,
 }
 
@@ -160,6 +176,109 @@ impl PgPublicBookComments {
             return CreateResult::Unavailable;
         }
         result
+    }
+
+    /// Derive recipients from canonical parents, never from browser input or
+    /// copied notification text. Recheck both comments and the book in one query.
+    pub async fn received_replies(
+        &self,
+        actor_id: i64,
+        limit: u16,
+    ) -> Result<Vec<ReceivedReply>, ListCommentsError> {
+        if actor_id <= 0 || limit == 0 || limit > 100 {
+            return Err(ListCommentsError::Invalid);
+        }
+        let rows = sqlx::query_as::<_, (i64, i64, String, bool)>(
+            "SELECT reply.id, b.id, b.title, (seen.reply_comment_id IS NOT NULL)
+             FROM discussion_comments reply
+             JOIN discussion_comments parent ON parent.id=reply.parent_id
+             JOIN books b ON b.id=reply.book_id
+             LEFT JOIN discussion_reply_reads seen
+               ON seen.recipient_user_id=$1 AND seen.reply_comment_id=reply.id
+             WHERE parent.author_user_id=$1 AND reply.author_user_id<>$1
+               AND parent.book_id=reply.book_id
+               AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
+               AND parent.version_id IS NULL AND reply.version_id IS NULL
+               AND parent.visibility='visible' AND reply.visibility='visible'
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             ORDER BY reply.id DESC LIMIT $2",
+        )
+        .bind(actor_id)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| ListCommentsError::Unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|(comment_id, book_id, book_title, is_read)| ReceivedReply {
+                comment_id,
+                book_id,
+                book_title,
+                is_read,
+            })
+            .collect())
+    }
+
+    /// Update a single received reply, never an arbitrary comment or a client-supplied recipient.
+    /// The parent, reply, and public book remain visible and locked until commit.
+    pub async fn set_reply_read_state(
+        &self,
+        actor_id: i64,
+        reply_id: i64,
+        read: bool,
+    ) -> ReadStateResult {
+        if actor_id <= 0 || reply_id <= 0 {
+            return ReadStateResult::NotFound;
+        }
+        let mut tx = match self.pool.begin().await {
+            Ok(tx) => tx,
+            Err(_) => return ReadStateResult::Unavailable,
+        };
+        let allowed = sqlx::query_scalar::<_, i64>(
+            "SELECT reply.id
+             FROM discussion_comments reply
+             JOIN discussion_comments parent ON parent.id=reply.parent_id
+             JOIN books b ON b.id=reply.book_id
+             WHERE reply.id=$2 AND parent.author_user_id=$1
+               AND reply.author_user_id<>$1 AND parent.book_id=reply.book_id
+               AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
+               AND parent.version_id IS NULL AND reply.version_id IS NULL
+               AND parent.visibility='visible' AND reply.visibility='visible'
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+             FOR SHARE OF reply, parent, b",
+        )
+        .bind(actor_id)
+        .bind(reply_id)
+        .fetch_optional(&mut *tx)
+        .await;
+        match allowed {
+            Ok(Some(_)) => {}
+            Ok(None) => return ReadStateResult::NotFound,
+            Err(_) => return ReadStateResult::Unavailable,
+        }
+        let changed = if read {
+            sqlx::query(
+                "INSERT INTO discussion_reply_reads(recipient_user_id,reply_comment_id)
+                 VALUES($1,$2) ON CONFLICT (recipient_user_id,reply_comment_id) DO NOTHING",
+            )
+            .bind(actor_id)
+            .bind(reply_id)
+            .execute(&mut *tx)
+            .await
+        } else {
+            sqlx::query(
+                "DELETE FROM discussion_reply_reads
+                 WHERE recipient_user_id=$1 AND reply_comment_id=$2",
+            )
+            .bind(actor_id)
+            .bind(reply_id)
+            .execute(&mut *tx)
+            .await
+        };
+        if changed.is_err() || tx.commit().await.is_err() {
+            return ReadStateResult::Unavailable;
+        }
+        ReadStateResult::Updated
     }
 
     /// Only public/visible book comments; all rights are rechecked on every GET.

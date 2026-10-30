@@ -642,6 +642,27 @@
       "source": "crates/web/src/auth/layer_storefront.rs",
       "handler": "my_terms",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/follow",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_follow_actions::follow",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/unfollow",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_follow_actions::unfollow",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/replies/{id}/read-state",
+      "source": "crates/web/src/auth.rs",
+      "handler": "reply_read_state::submit",
+      "policy": "session"
     }
   ]
 }
