@@ -16,6 +16,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("TOR must bind to loopback behind HTTPS reverse proxy".into());
     }
     let demo = env::var("TOR_DEMO_MODE").as_deref() == Ok("1");
+    // Fail-closed development-only notification processing. No VPS or
+    // production database can activate this worker.
+    let notification_setting = match env::var("TOR_DEV_NOTIFICATION_WORKER_ENABLED") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let notification_worker_enabled = tor_web::notification_worker::worker_opt_in(
+        notification_setting.as_deref(),
+        demo,
+        env::var("DATABASE_URL").ok().as_deref(),
+    )
+    .map_err(|reason| -> Box<dyn Error> { reason.into() })?;
     // No paid bearer URL can be issued without an operator-enabled, compiled
     // private G adapter, PostgreSQL and cookie authentication.
     let paid_grants_enabled = match env::var("TOR_PAID_GRANTS_ENABLED") {
@@ -101,12 +114,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
+    let mut pending_notification_worker: Option<PgCatalog> = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
+            if notification_worker_enabled {
+                pending_notification_worker = Some(catalog.clone());
+            }
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
@@ -278,6 +295,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    // Development-only loop; starts only after the HTTP listener is bound.
+    let _notification_worker = pending_notification_worker
+        .map(tor_web::notification_worker::start_dev_notification_worker_background);
     // C completion events remain durable if the server restarts.
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =

@@ -802,6 +802,13 @@
     },
     {
       "method": "POST",
+      "template": "/me/revisions/{id}/read-state",
+      "source": "crates/web/src/auth.rs",
+      "handler": "revision_read_state::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/read/{id}/complete",
       "source": "crates/web/src/auth.rs",
       "handler": "complete_chapter::complete",
