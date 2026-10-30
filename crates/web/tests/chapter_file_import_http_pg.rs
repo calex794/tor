@@ -232,21 +232,12 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
     .await;
     assert_eq!(replay.0, StatusCode::OK);
 
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM chapters WHERE book_id=$1")
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(count, 2);
-    let events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events e
-         JOIN chapters c ON c.id=e.chapter_id WHERE c.book_id=$1",
-    )
-    .bind(id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(events, 0, "preview and import never release chapters");
+    let saved_chapters = author.list_owned_chapters(owner, id).await.unwrap();
+    assert_eq!(saved_chapters.len(), 2);
+    assert_eq!(saved_chapters[0].number, 1);
+    assert_eq!(saved_chapters[1].number, 2);
+    // The B-owned PostgreSQL test separately verifies no first-release event.
+    // This HTTP test also proves a guest still receives 404 on the book.
     assert_eq!(
         call(&app, &format!("/books/{id}"), "GET", "", ORIGIN, None)
             .await.0,
