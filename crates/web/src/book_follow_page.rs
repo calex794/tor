@@ -27,6 +27,12 @@ impl FollowBookControl {
         }
     }
 
+    /// Reuse the verified account session and cookie origin for public book capture.
+    /// Keep referral writes in F-owned repositories, never the public HTML renderer.
+    pub(super) fn browser_context(&self) -> (&PgAccounts, &CookiePolicy) {
+        (&self.accounts, &self.cookies)
+    }
+
     /// Only called after the public book visibility check succeeded.
     /// Anonymous readers see a login link, not a CSRF-less mutation form.
     pub(super) async fn render(
