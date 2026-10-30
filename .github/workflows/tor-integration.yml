@@ -242,10 +242,15 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
-          cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_08_ -- --ignored --test-threads=1
+          TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_checkout_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored
+          cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
@@ -1035,19 +1040,28 @@ jobs:
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
           TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
           TOR_PAID_READER_SHOTS: ${{ runner.temp }}/tor-paid-reader-visual
+          TOR_LAYER_SHOTS: ${{ runner.temp }}/tor-layer-storefront-visual
         run: |
           set -euo pipefail
           export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
-          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH"' EXIT
+          export TOR_LAYER_VISUAL_FIXTURE_PATH="$RUNNER_TEMP/layer-storefront-visual.json"
+          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH" "$TOR_LAYER_VISUAL_FIXTURE_PATH"' EXIT
           python3 tools/check_feature_layout.py
           cargo fmt -p tor-web -- --check
           node --check tools/paid_grant_webcrypto_e2e.mjs
+          node --check crates/web/assets/newboo-layer-reader.mjs
+          node --check tools/layer_reader_minio_chromium_e2e.cjs
+          node --check tools/layer_storefront_visual_smoke.cjs
           node --check tools/paid_reader_minio_chromium_e2e.cjs
           node --check tools/s035_contiguous_paid_browser.cjs
           node --check tools/paid_reader_private_media_browser.cjs
           TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          TOR_LAYER_CHECKOUT_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test layer_checkout_http_pg -- --ignored --test-threads=1
+          TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test layer_storefront_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
+          node tools/layer_reader_minio_chromium_e2e.cjs
+          node tools/layer_storefront_visual_smoke.cjs
           node tools/paid_reader_minio_chromium_e2e.cjs
           node tools/paid_reader_private_media_browser.cjs
       - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
@@ -1056,6 +1070,14 @@ jobs:
         with:
           name: tor-s034-real-rust-reader-newboo-1440-390
           path: ${{ runner.temp }}/tor-paid-reader-visual/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Save NEwBOO Layer storefront desktop/mobile light/dark screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-d05-real-rust-layer-storefront-1440-390
+          path: ${{ runner.temp }}/tor-layer-storefront-visual/*.png
           if-no-files-found: warn
           retention-days: 14
       - name: MinIO diagnostics without signed credentials
