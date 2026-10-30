@@ -23,7 +23,10 @@ fn b12_owner_pages_keep_navigation_for_long_books() {
             uploads_enabled: false,
             latest_job: None,
             demand_count: 0,
-            next: Some(OwnedChapterCursor { number: 501, id: 501 }),
+            next: Some(OwnedChapterCursor {
+                number: 501,
+                id: 501,
+            }),
             has_previous_page: true,
         },
     )
@@ -120,8 +123,7 @@ fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
         access: ChapterAccess::Free,
         published: true,
     };
-    let detail_page =
-        detail_with_covers(&published_book, true, &[summary], "csrf", false, None).0;
+    let detail_page = detail_with_covers(&published_book, true, &[summary], "csrf", false, None).0;
     assert!(detail_page.contains("/me/books/42/chapters/55/edit"));
     let chapter = OwnedChapter {
         number: 1,

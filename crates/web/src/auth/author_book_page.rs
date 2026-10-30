@@ -113,9 +113,24 @@ mod tests {
         assert_eq!(chapter_cursor(None), Ok(None));
         assert_eq!(
             chapter_cursor(Some("501:900")),
-            Ok(Some(OwnedChapterCursor { number: 501, id: 900 }))
+            Ok(Some(OwnedChapterCursor {
+                number: 501,
+                id: 900
+            }))
         );
-        for raw in ["", "0:10", "10:0", "-1:10", "1:-2", "1", "1:2:3", "1:abc", "+1:2", "1:2%22", "2147483648:1"] {
+        for raw in [
+            "",
+            "0:10",
+            "10:0",
+            "-1:10",
+            "1:-2",
+            "1",
+            "1:2:3",
+            "1:abc",
+            "+1:2",
+            "1:2%22",
+            "2147483648:1",
+        ] {
             assert_eq!(chapter_cursor(Some(raw)), Err(()), "{raw}");
         }
     }

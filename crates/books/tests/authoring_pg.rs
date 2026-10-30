@@ -539,7 +539,6 @@ async fn b_01_tags_fandoms_owner_writes_canonical_metadata_and_rejects_replay_ch
     );
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn b_12_private_chapter_keyset_covers_501_chapters_without_leaks() {
@@ -595,9 +594,16 @@ async fn b_12_private_chapter_keyset_covers_501_chapters_without_leaks() {
         .list_owned_chapters_page(outsider, book_id, None)
         .await
         .expect("private filter");
-    assert!(foreign.chapters.is_empty(), "foreign user must see no chapters");
+    assert!(
+        foreign.chapters.is_empty(),
+        "foreign user must see no chapters"
+    );
     assert_eq!(
-        owner.list_owned_chapters(user, book_id).await.unwrap().len(),
+        owner
+            .list_owned_chapters(user, book_id)
+            .await
+            .unwrap()
+            .len(),
         200,
         "legacy callers retain their bounded response"
     );

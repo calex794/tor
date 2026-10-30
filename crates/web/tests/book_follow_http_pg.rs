@@ -496,7 +496,10 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         }
     }
     assert_eq!(pages, 6);
-    assert_eq!(seen, 502, "502 chapters through stable private keyset pages");
+    assert_eq!(
+        seen, 502,
+        "502 chapters through stable private keyset pages"
+    );
     let guest = author_chapter_page(&app, public, "", None).await;
     assert_eq!(guest.0, StatusCode::SEE_OTHER);
 

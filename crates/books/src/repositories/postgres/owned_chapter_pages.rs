@@ -34,9 +34,7 @@ impl PgAuthoring {
         }
         let (after_number, after_id) = match after {
             None => (0_i32, 0_i64),
-            Some(cursor) if cursor.number > 0 && cursor.id > 0 => {
-                (cursor.number, cursor.id)
-            }
+            Some(cursor) if cursor.number > 0 && cursor.id > 0 => (cursor.number, cursor.id),
             Some(_) => return Err(AuthorError::Invalid),
         };
         let limit = i64::try_from(page_size + 1).map_err(|_| AuthorError::Invalid)?;
