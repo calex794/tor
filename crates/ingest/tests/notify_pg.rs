@@ -657,7 +657,12 @@ async fn g_08_paid_publication_requires_verified_encrypted_object() {
     let event_id = published_event(&pool, &label, book, chapter, version, 0, true).await;
     let recipients = PgNotificationRecipients::new(pool.clone());
     assert!(
-        recipients.next_page(&event_id, None).await.unwrap().user_ids.is_empty(),
+        recipients
+            .next_page(&event_id, None)
+            .await
+            .unwrap()
+            .user_ids
+            .is_empty(),
         "unverified paid chapter cannot be offered in notification delivery"
     );
     let object_id: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
@@ -703,7 +708,11 @@ async fn g_08_paid_publication_requires_verified_encrypted_object() {
     .await
     .unwrap();
     assert_eq!(
-        recipients.next_page(&event_id, None).await.unwrap().user_ids,
+        recipients
+            .next_page(&event_id, None)
+            .await
+            .unwrap()
+            .user_ids,
         vec![reader],
         "verified paid chapter is an eligible release, without granting access"
     );
