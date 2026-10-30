@@ -153,6 +153,30 @@ impl PgFollowUpdates {
         Ok(FollowedReleasePage { items, next_cursor })
     }
 
+    /// Bounded dashboard indicator, never a notification-delivery queue.
+    /// 100 means "99+"; avoids an unbounded count on every account visit.
+    pub async fn unread_count_capped(&self, actor: i64) -> Result<u16, FollowUpdatesError> {
+        if actor <= 0 {
+            return Err(FollowUpdatesError::Invalid);
+        }
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM (
+                 SELECT 1 FROM reader_followed_release_candidates AS release
+                 WHERE release.user_id=$1 AND NOT EXISTS (
+                     SELECT 1 FROM reader_follow_notification_reads AS reads
+                     WHERE reads.user_id=release.user_id
+                       AND reads.chapter_id=release.chapter_id
+                 )
+                 LIMIT 100
+             ) AS pending",
+        )
+        .bind(actor)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| FollowUpdatesError::Unavailable)?;
+        u16::try_from(count).map_err(|_| FollowUpdatesError::Unavailable)
+    }
+
     /// Mark one visible release read/unread without changing the follow,
     /// library, purchases or read progress. Returns false for an ineligible
     /// chapter (including deleted, held and unpublished chapters).
