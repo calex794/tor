@@ -122,3 +122,8 @@ fallback и сортировку/превью по активности. Browser
 ## P0: public book previews after 8499082f (CI pending)
 
 Source: NEwBOO mail_book_previews.py, 3 refs/message, 40 refs/page. Unscoped include_hidden=true fallback is forbidden. TOR resolves canonical numeric IDs only via B-owned GetPublicBook, requiring public visibility and rejecting moderation hold/deleted. Cover URL requires B-owned public cover slot. Unresolved links remain plaintext. HTML, AJAX receipt, JSON polling and older pagination use one projection. Tests cover parser/escaping, PG public/draft/held, AJAX and third actor. Slug/legacy aliases, per-actor private book ACL, group/admin mail, public profile identity and preferences remain unimplemented. Retained ledger check, CI on final SHA and independent review remain release gates. Draft must not merge.
+
+
+### E-08 P0 parser hardening (follow-up; CI pending)
+
+Bound preview parsing to at most three recognized book-link occurrences per message (including duplicates), cap each preceding-token scan to 256 Unicode characters, and preserve whitespace surrounding resolved links. Omit unsupported display_url aliases from the JSON DTO. Client-side book URL and cover URL must match the same canonical resolved book ID. Added parser regression tests. These changes require Rustfmt, Clippy, PostgreSQL/Chromium acceptance on the exact final commit; this note does not claim a completed run.

@@ -22,12 +22,14 @@
     article.append(sender, body);
     for (const preview of (Array.isArray(message.book_previews) ? message.book_previews : [])) {
       // Defense in depth: only canonical same-origin metadata is actionable.
-      if (!/^\/books\/[1-9]\d*$/.test(preview.url) || !/^[1-9]\d*$/.test(preview.book_ref)) continue;
+      if (typeof preview.book_ref !== 'string' ||
+          !/^[1-9]\d*$/.test(preview.book_ref) ||
+          preview.url !== '/books/' + preview.book_ref) continue;
       const link = document.createElement('a');
       link.className = 'mail-book-preview';
       link.dataset.mailBookPreview = preview.book_ref;
       link.href = preview.url;
-      if (/^\/covers\/[1-9]\d*\/card\.webp$/.test(preview.cover_url || '')) {
+      if (preview.cover_url === '/covers/' + preview.book_ref + '/card.webp') {
         const cover = document.createElement('img');
         cover.src = preview.cover_url;
         cover.alt = '';

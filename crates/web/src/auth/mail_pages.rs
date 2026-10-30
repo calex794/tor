@@ -164,7 +164,7 @@ mod tests {
             body_without_book_links: String::new(),
             book_previews: vec![super::super::mail_book_previews::MailBookPreview {
                 book_ref: "12".into(), title: "<img onerror=alert(1)>".into(),
-                url: "/books/12".into(), display_url: "/book/12".into(),
+                url: "/books/12".into(),
                 cover_url: String::new(),
             }],
         };

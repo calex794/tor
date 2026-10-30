@@ -17,7 +17,6 @@ pub(super) struct MailBookPreview {
     pub(super) book_ref: String,
     pub(super) title: String,
     pub(super) url: String,
-    pub(super) display_url: String,
     pub(super) cover_url: String,
 }
 
@@ -72,9 +71,11 @@ fn url_end(bytes: &[u8], after_id: usize) -> Option<usize> {
 fn extract_links(body: &str) -> Vec<BookLink> {
     let bytes = body.as_bytes();
     let mut links = Vec::new();
-    let mut unique = HashSet::new();
     let mut cursor = 0;
     while let Some(next) = body[cursor..].find("/book") {
+        if links.len() >= PER_MESSAGE {
+            break;
+        }
         let at = cursor + next;
         let path_len = if body[at..].starts_with("/books/") {
             7
@@ -84,11 +85,15 @@ fn extract_links(body: &str) -> Vec<BookLink> {
             cursor = at + 5;
             continue;
         };
-        let token_start = body[..at]
-            .char_indices()
-            .rev()
-            .find(|(_, c)| c.is_whitespace() || matches!(c, '(' | '[' | '<' | '"' | '\''))
-            .map_or(0, |(index, c)| index + c.len_utf8());
+        // Scan at most one host-length prefix; adversarial messages cannot cause
+        // quadratic rescans of all preceding text.
+        let mut token_start = at;
+        for (index, ch) in body[..at].char_indices().rev().take(256) {
+            if ch.is_whitespace() || matches!(ch, '(' | '[' | '<' | '"' | '\'') {
+                break;
+            }
+            token_start = index;
+        }
         let prefix = &body[token_start..at];
         let absolute_host = prefix
             .strip_prefix("https://")
@@ -128,10 +133,7 @@ fn extract_links(body: &str) -> Vec<BookLink> {
             cursor = at + 5;
             continue;
         };
-        if unique.contains(&id) || unique.len() < PER_MESSAGE {
-            unique.insert(id);
-            links.push(BookLink { start, end, id });
-        }
+        links.push(BookLink { start, end, id });
         cursor = end;
     }
     links
@@ -161,7 +163,6 @@ fn project(
                 book_ref: link.id.to_string(),
                 title: title.clone(),
                 url: format!("/books/{}", link.id),
-                display_url: format!("/book/{}", link.id),
                 cover_url: if covers.contains(&link.id) {
                     format!("/covers/{}/card.webp", link.id)
                 } else {
@@ -178,7 +179,7 @@ fn project(
     }
     plain.push_str(&body[from..]);
     PreviewedText {
-        body_without_book_links: plain.trim().to_owned(),
+        body_without_book_links: plain,
         book_previews: previews,
     }
 }
@@ -235,6 +236,25 @@ mod tests {
         assert_eq!(refs.iter().map(|x| x.id).collect::<Vec<_>>(), vec![12, 34, 77]);
         assert_eq!(&body[refs[1].start..refs[1].end], "https://tor.test/books/34?from=mail");
         assert!(extract_links("bad/books/3 /books/0 /books/-4 /books/1xyz").is_empty());
+    }
+
+    #[test]
+    fn e08_repeated_links_and_long_untrusted_prefix_are_bounded() {
+        let body = "/books/12 ".repeat(10_000);
+        let refs = extract_links(&body);
+        assert_eq!(refs.len(), PER_MESSAGE);
+        assert!(refs.iter().all(|link| link.id == 12));
+        let hostile = format!("{}{}", "x".repeat(300_000), "/books/12");
+        assert!(extract_links(&hostile).is_empty());
+    }
+
+    #[test]
+    fn e08_preview_removal_preserves_surrounding_whitespace() {
+        let body = "  Prefix /books/12 \n";
+        let mut titles = HashMap::new();
+        titles.insert(12, "Public".to_owned());
+        let projected = project(body, &extract_links(body), &titles, &HashSet::new());
+        assert_eq!(projected.body_without_book_links, "  Prefix  \n");
     }
 
     #[test]
