@@ -379,6 +379,38 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     assert!(account_html.contains("Книга &lt;script&gt;"));
     assert!(!account_html.contains("NEVER_COPY_THIS_SPOILER"));
     assert!(account_html.contains("Не прочитано"));
+    // The standalone Inbox is private and never includes the comment body.
+    assert_eq!(
+        call(&app, "GET", "/api/v1/me/inbox", "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let inbox_path = "/me/inbox?filter=unread";
+    let inbox = call(&app, "GET", inbox_path, &cookies, ORIGIN, "").await;
+    assert_eq!(inbox.status(), StatusCode::OK);
+    let inbox_html = html(inbox).await;
+    assert!(inbox_html.contains("Входящие обсуждения"));
+    assert!(inbox_html.contains(&link));
+    assert!(!inbox_html.contains("NEVER_COPY_THIS_SPOILER"));
+    let json = html(call(&app, "GET", "/api/v1/me/inbox", &cookies, ORIGIN, "").await).await;
+    let item: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(item["items"][0]["id"], incoming_id.to_string());
+    assert_eq!(item["items"][0]["kind"], "reply");
+    assert_eq!(item["items"][0]["is_read"], false);
+    assert!(!json.contains("NEVER_COPY_THIS_SPOILER"));
+    assert_eq!(
+        call(&app, "GET", "/api/v1/me/inbox?filter=unknown", &cookies, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(&app, "GET", "/api/v1/me/inbox?limit=51", &cookies, ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     let read_path = format!("/me/replies/{incoming_id}/read-state");
     let read_form = format!("csrf_token={csrf}&state=read");
     assert_eq!(
@@ -418,6 +450,16 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     assert!(html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await)
         .await
         .contains("Отметить непрочитанным"));
+    let read_inbox = html(
+        call(&app, "GET", "/api/v1/me/inbox?filter=read", &cookies, ORIGIN, "").await,
+    )
+    .await;
+    assert!(read_inbox.contains(&incoming_id.to_string()));
+    assert!(!html(
+        call(&app, "GET", "/api/v1/me/inbox?filter=unread", &cookies, ORIGIN, "").await,
+    )
+    .await
+    .contains(&format!("\"id\":\"{incoming_id}\"")));
     for _ in 0..2 {
         assert_eq!(
             call(
