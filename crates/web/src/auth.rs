@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    auth_cookies::{private_response, CookiePolicy},
+    auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
@@ -71,6 +71,10 @@ mod password_reset;
 mod private_reader;
 mod profile_http;
 mod rankings;
+mod referral_alias;
+mod referral_capture;
+mod referral_dashboard;
+mod referral_routes;
 mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
@@ -170,6 +174,7 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
         notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
             accounts.pool().clone(),
@@ -196,6 +201,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(referral_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -297,10 +303,6 @@ fn router_inner(
     } else {
         app
     }
-}
-
-fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
 }
 
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {

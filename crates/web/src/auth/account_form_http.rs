@@ -26,6 +26,7 @@ pub(super) struct RegisterForm {
     display_name: String,
     password: String,
     csrf_token: Option<String>,
+    manual_invite_code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -50,6 +51,22 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
         (
             status,
             pages::account_error_page(title, message, registration),
+        ),
+        &[],
+    )
+}
+
+fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
+    // A failed manual code never changes the existing guest referral capture.
+    private_response(
+        (
+            StatusCode::BAD_REQUEST,
+            pages::registration_form_with_error(
+                form.csrf_token.as_deref().unwrap_or(""),
+                &form.display_name,
+                &form.email,
+                Some(reason),
+            ),
         ),
         &[],
     )
@@ -158,6 +175,35 @@ pub(super) async fn register(
         return auth_limit_error(status, true);
     }
 
+    // Check the manual invitation before Argon2 and before account creation.
+    // Invalid or disabled codes must not silently result in a new account.
+    let manual_code = match tor_referrals::domain::manual_code(form.manual_invite_code.as_deref()) {
+        Ok(code) => code,
+        Err(_) => {
+            return invalid_invite(
+                &form,
+                "Некорректный код приглашения. Исправьте или удалите код.",
+            )
+        }
+    };
+    if let Some(code) = manual_code {
+        match state.referrals.active_code(code).await {
+            Ok(true) => {}
+            Ok(false) => return invalid_invite(
+                &form,
+                "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить.",
+            ),
+            Err(_) => {
+                return auth_problem(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Регистрация временно недоступна",
+                    "Не удалось проверить код приглашения. Попробуйте снова позже.",
+                    true,
+                )
+            }
+        }
+    }
+
     // Argon2 is deliberately moved off Tokio's request executor.
     let password = form.password;
     let hashed = match state
@@ -183,22 +229,54 @@ pub(super) async fn register(
             );
         }
     };
+    let guest_hash = state
+        .cookies
+        .guest_token(&headers)
+        .map(|token| session_token_digest(&token));
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     match state
         .accounts
-        .register_with_audited_session(
+        .register_with_audited_session_referral(
             &account.email,
             &account.display_name,
             &hashed,
             &digest,
             ttl,
-            audit,
+            tor_accounts::repositories::postgres::RegistrationContext {
+                referral: tor_accounts::repositories::postgres::RegistrationReferral {
+                    guest_hash: guest_hash.as_ref(),
+                    manual_code,
+                },
+                audit,
+            },
         )
         .await
     {
-        Ok(_) => private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)]),
+        Ok(user_id) => {
+            // The pending event is already committed with the account. A failure
+            // here must not lose attribution or turn a valid signup into an error.
+            let referrals = state.referrals.clone();
+            tokio::spawn(async move {
+                let _ = referrals.finalize_one(user_id).await;
+            });
+            private_response(
+                Redirect::to("/me"),
+                &[
+                    state.cookies.session_cookie(&token),
+                    state.cookies.cleared_guest_cookie(),
+                ],
+            )
+        }
+        Err(tor_accounts::repositories::postgres::AccountWriteError::InvalidReferral) => {
+            auth_problem(
+                StatusCode::BAD_REQUEST,
+                "Код приглашения больше не действует",
+                "Проверьте код приглашения и повторите регистрацию.",
+                true,
+            )
+        }
         Err(tor_accounts::repositories::postgres::AccountWriteError::Duplicate) => {
             // No account ID, email or database exception is disclosed.
             auth_problem(

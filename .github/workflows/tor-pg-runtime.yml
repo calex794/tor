@@ -187,6 +187,9 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
@@ -259,9 +262,9 @@ jobs:
           cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
-          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |
