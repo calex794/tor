@@ -1,0 +1,25 @@
+<section class="section auth-section">
+  <div class="container">
+    <div class="auth-card author-chapter-card" id="chapter-import" data-book-id="<!--BOOK_ID-->">
+      <p class="eyebrow">Кабинет автора · книга №<!--BOOK_ID--></p>
+      <h1>Импорт глав из файла</h1>
+      <p>Поддерживаются текстовые файлы TXT и Markdown в UTF-8, до 700 КБ и 500 глав. Файл должен содержать заголовки вида «Глава 1: Название».</p>
+      <p>Сначала посмотрите список и число глав. Только после подтверждения они будут <strong>атомарно записаны в черновик книги</strong>. Ничего не публикуется автоматически. Уже существующие главы не заменяются.</p>
+      <input id="chapter-import-csrf" type="hidden" value="<!--CSRF_TOKEN-->">
+      <input id="chapter-import-command" type="hidden" value="<!--COMMAND_KEY-->">
+      <label for="chapter-import-file">Выберите TXT или MD в кодировке UTF-8</label>
+      <input id="chapter-import-file" type="file" accept=".txt,.md,text/plain,text/markdown">
+      <details>
+        <summary>Исправить текст и ошибочные границы глав перед импортом</summary>
+        <label for="chapter-import-text">Текст выбранного файла</label>
+        <textarea id="chapter-import-text" rows="12" maxlength="700000" spellcheck="false"></textarea>
+      </details>
+      <p><button id="chapter-import-preview" class="button button--quiet" type="button" disabled>Проверить главы</button></p>
+      <p id="chapter-import-status" role="status" aria-live="polite">Выберите файл для предварительного просмотра.</p>
+      <ol id="chapter-import-results"></ol>
+      <p><button id="chapter-import-confirm" class="button" type="button" disabled>Подтвердить и создать главы</button></p>
+      <p><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+    </div>
+  </div>
+</section>
+<script src="/assets/newboo-chapter-import.js" defer></script>

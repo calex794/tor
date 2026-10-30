@@ -8,6 +8,8 @@ mod assignments;
 mod observations;
 mod conversions;
 mod maintenance;
+mod sources;
+mod generations;
 
 #[derive(Clone)]
 pub struct PgRecommendations {
