@@ -34,5 +34,14 @@ pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u6
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
+    if let Some(catalog) = state.postgres.as_ref() {
+        if let Ok(chapter_id) = i64::try_from(id) {
+            if let Err(error) = tor_reading::repositories::book_stats::PgBookStats::new(
+                catalog.pool(),
+            ).record_open(chapter_id, None).await {
+                tracing::warn!(?error, "anonymous book statistics open not recorded");
+            }
+        }
+    }
     auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[])
 }
