@@ -255,6 +255,10 @@ fn router_inner(
             get(book_stars::page).post(book_stars::submit),
         )
         .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
+        )
+        .route(
             "/books/{id}/comments",
             get(book_comments::page).post(book_comments::submit),
         )
@@ -307,10 +311,6 @@ fn router_inner(
             get(book_description::edit).post(book_description::save),
         )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
-        .route(
-            "/reader/{id}/thanks",
-            get(chapter_thanks::page).post(chapter_thanks::submit),
-        )
         .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))

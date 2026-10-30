@@ -459,6 +459,13 @@
     },
     {
       "method": "GET",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/reader/{id}",
       "source": "crates/web/src/lib.rs",
       "handler": "reader_page",
@@ -816,6 +823,13 @@
     },
     {
       "method": "POST",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/register",
       "source": "crates/web/src/auth.rs",
       "handler": "account_form_http::register",
@@ -862,20 +876,6 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::follow_creator",
       "policy": "session"
-    },
-    {
-      "method": "GET",
-      "template": "/reader/{id}/thanks",
-      "source": "crates/web/src/auth.rs",
-      "handler": "chapter_thanks::page",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/reader/{id}/thanks",
-      "source": "crates/web/src/auth.rs",
-      "handler": "chapter_thanks::submit",
-      "policy": "scoped"
     }
   ]
 }
