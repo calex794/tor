@@ -229,6 +229,9 @@ impl PgPublicBookComments {
             .collect::<Vec<_>>();
         let resolved = mentions::canonicalize(body, &verified, actor_id);
         let clean_body = resolved.canonical_body;
+        if clean_body.chars().count() > 2000 {
+            return CreateResult::Conflict;
+        }
         let eligible = resolved.recipients;
         // Serialize attempts with the same actor/key on the same PostgreSQL row.
         // A conflicting key must not silently return a different saved comment.
@@ -250,8 +253,8 @@ impl PgPublicBookComments {
         let result = match inserted {
             Ok(Some(id)) => CreateResult::Created(id),
             Ok(None) => {
-                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String, Option<i64>)>(
-                    "SELECT id,book_id,command_hash,body,parent_id FROM discussion_comments
+                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, Option<i64>)>(
+                    "SELECT id,book_id,command_hash,parent_id FROM discussion_comments
                      WHERE author_user_id=$1 AND command_key=$2 AND book_id IS NOT NULL",
                 )
                 .bind(actor_id)
@@ -259,10 +262,9 @@ impl PgPublicBookComments {
                 .fetch_optional(&mut *tx)
                 .await;
                 match original {
-                    Ok(Some((id, original_book, hash, old_body, old_parent)))
+                    Ok(Some((id, original_book, hash, old_parent)))
                         if original_book == book_id
                             && hash == payload_hash
-                            && old_body == clean_body
                             && old_parent == parent_id =>
                     {
                         CreateResult::Replayed(id)
@@ -273,7 +275,9 @@ impl PgPublicBookComments {
             }
             Err(_) => CreateResult::Unavailable,
         };
-        if let CreateResult::Created(id) | CreateResult::Replayed(id) = result {
+        // A replay may occur after moderation changed who is mentionable.
+        // Preserve the original notification set; never add new recipients.
+        if let CreateResult::Created(id) = result {
             for recipient in &eligible {
                 if sqlx::query(
                     "INSERT INTO discussion_comment_mentions(comment_id,recipient_user_id)
@@ -288,9 +292,11 @@ impl PgPublicBookComments {
                     return CreateResult::Unavailable;
                 }
             }
-            if tx.commit().await.is_err() {
-                return CreateResult::Unavailable;
-            }
+        }
+        if matches!(result, CreateResult::Created(_) | CreateResult::Replayed(_))
+            && tx.commit().await.is_err()
+        {
+            return CreateResult::Unavailable;
         }
         result
     }
