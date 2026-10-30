@@ -52,16 +52,6 @@ async fn text(response: Response) -> String {
     )
     .unwrap()
 }
-fn field(html: &str, name: &str) -> String {
-    html.split(&format!("name=\"{name}\" value=\""))
-        .nth(1)
-        .unwrap()
-        .split('"')
-        .next()
-        .unwrap()
-        .to_owned()
-}
-
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
 async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
