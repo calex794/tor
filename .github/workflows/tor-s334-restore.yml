@@ -1,10 +1,6 @@
 name: TOR S3-34 purchased edition disaster recovery
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
 concurrency:
