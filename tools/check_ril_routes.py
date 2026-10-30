@@ -18,6 +18,7 @@ CLASSIFIERS = (
     Path("crates/route_intelligence/src/domain/routes/entries_core.rs"),
     Path("crates/route_intelligence/src/domain/routes/entries_account.rs"),
     Path("crates/route_intelligence/src/domain/routes/entries_referrals.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_mentions.rs"),
     Path("crates/route_intelligence/src/domain/routes/continuation.rs"),
     Path("crates/route_intelligence/src/domain/routes/entries_layer.rs"),
     Path("crates/route_intelligence/src/domain/routes/entries_follow.rs"),
