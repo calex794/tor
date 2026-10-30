@@ -407,6 +407,80 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     assert_eq!(status, StatusCode::OK);
     assert!(new_reader.contains("Updated free text V2"));
     assert!(!new_reader.contains("Immediate free text"));
+    // New V2 exists only in the G-08 committed revision ledger, not the
+    // C-16 first-release feed. The worker stages it and the follower views it.
+    let v2_id = pg(
+        &url,
+        &format!(
+            "SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"
+        ),
+    );
+    assert_ne!(v2_id, version_id.to_string());
+    let v2_event = pg(
+        &url,
+        &format!(
+            "SELECT id::text FROM outbox_events
+             WHERE event_type='ChapterPublished' AND aggregate_id={chapter_id}
+             AND (payload->>'version_id')::bigint={v2_id}"
+        ),
+    );
+    assert_eq!(v2_event.len(), 36);
+    pg(
+        &url,
+        &format!(
+            "UPDATE outbox_events SET next_attempt_at=now()-interval '19 days'
+             WHERE id='{v2_event}'::uuid"
+        ),
+    );
+    assert_eq!(
+        notify.run_one().await.unwrap(),
+        NotificationRun::Staged {
+            recipients: 1,
+            pages: 1,
+        },
+    );
+    let (status, updated_library) = send(
+        &app,
+        "GET",
+        "/me/library",
+        "",
+        Some(&follower_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(updated_library.contains("Обновлённые редакции"));
+    assert!(updated_library.contains("Updated chapter"));
+    assert!(updated_library.contains("V2"));
+    assert!(!updated_library.contains("Updated free text V2"));
+    let (status, owner_library) = send(
+        &app,
+        "GET",
+        "/me/library",
+        "",
+        Some(&token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !owner_library.contains("Обновлённые редакции"),
+        "the author is not subscribed to this publication",
+    );
+    let (bad_cursor, _) = send(
+        &app,
+        "GET",
+        "/me/library?revisions_after=0.invalid",
+        "",
+        Some(&follower_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(bad_cursor, StatusCode::BAD_REQUEST);
+
     let immutable_v1 = pg(
         &url,
         &format!("SELECT body_markdown FROM chapter_versions WHERE id={version_id}"),
