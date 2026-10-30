@@ -53,7 +53,9 @@ impl PgOutbox {
         row.map(|row| {
             Ok(ClaimedEvent {
                 id: row.try_get("id").map_err(|_| OutboxError::Unavailable)?,
-                event_type: row.try_get("event_type").map_err(|_| OutboxError::Unavailable)?,
+                event_type: row
+                    .try_get("event_type")
+                    .map_err(|_| OutboxError::Unavailable)?,
                 required_consumers: row
                     .try_get("required_consumers")
                     .map_err(|_| OutboxError::Unavailable)?,
@@ -74,10 +76,14 @@ impl PgOutbox {
         epoch: i64,
         consumer: &str,
     ) -> Result<bool, OutboxError> {
-        if epoch <= 0 || event_id.len()!=36 || consumer.is_empty() || consumer.len()>100 {
+        if epoch <= 0 || event_id.len() != 36 || consumer.is_empty() || consumer.len() > 100 {
             return Err(OutboxError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| OutboxError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| OutboxError::Unavailable)?;
         let row = sqlx::query(
             "SELECT required_consumers FROM outbox_events
              WHERE id=$1::uuid AND lease_epoch=$2
@@ -128,7 +134,7 @@ impl PgOutbox {
             .execute(&mut *tx)
             .await
             .map_err(|_| OutboxError::Unavailable)?;
-            if affected.rows_affected()!=1 {
+            if affected.rows_affected() != 1 {
                 return Err(OutboxError::LostLease);
             }
         }
