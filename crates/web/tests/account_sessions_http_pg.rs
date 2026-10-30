@@ -10,10 +10,7 @@ use std::{
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -94,11 +91,7 @@ async fn login(app: &Router, email: &str) -> String {
         "email={email}&password=LongSecurePassword2026&csrf_token={}",
         csrf(&body)
     );
-    let login = send(
-        app,
-        request("POST", "/login", &form, &csrf_cookie, ORIGIN),
-    )
-    .await;
+    let login = send(app, request("POST", "/login", &form, &csrf_cookie, ORIGIN)).await;
     assert_eq!(login.status(), StatusCode::SEE_OTHER);
     cookie(&login, "tor-dev-session=")
 }
@@ -125,12 +118,9 @@ async fn session_id(accounts: &PgAccounts, cookie: &str) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "Requires isolated TEST_DATABASE_URL PostgreSQL tor_ci"]
 async fn a_03_owner_session_list_revocation_and_csrf_http_pg() {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(120),
-        run_case(),
-    )
-    .await
-    .expect("session security HTTP PostgreSQL test exceeded 120 seconds");
+    tokio::time::timeout(std::time::Duration::from_secs(120), run_case())
+        .await
+        .expect("session security HTTP PostgreSQL test exceeded 120 seconds");
 }
 
 async fn run_case() {
@@ -240,14 +230,17 @@ async fn run_case() {
     );
     let success = send(
         &app,
-        request("POST", "/me/security/sessions", &revoke_other, &cookies, ORIGIN),
+        request(
+            "POST",
+            "/me/security/sessions",
+            &revoke_other,
+            &cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(success.status(), StatusCode::SEE_OTHER);
-    assert_eq!(
-        success.headers()[header::LOCATION],
-        "/me/security/sessions"
-    );
+    assert_eq!(success.headers()[header::LOCATION], "/me/security/sessions");
     assert_eq!(
         send(&app, request("GET", "/me", "", &second, ORIGIN))
             .await
@@ -266,17 +259,22 @@ async fn run_case() {
     let revoke_self = format!("session_id={first_id}&csrf_token={token}");
     let own = send(
         &app,
-        request("POST", "/me/security/sessions", &revoke_self, &cookies, ORIGIN),
+        request(
+            "POST",
+            "/me/security/sessions",
+            &revoke_self,
+            &cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(own.status(), StatusCode::SEE_OTHER);
     assert_eq!(own.headers()[header::LOCATION], "/login");
-    assert!(
-        own.headers()
-            .get_all(header::SET_COOKIE)
-            .iter()
-            .any(|v| v.to_str().unwrap_or_default().contains("Max-Age=0"))
-    );
+    assert!(own
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|v| v.to_str().unwrap_or_default().contains("Max-Age=0")));
     assert_eq!(
         send(&app, request("GET", "/me", "", &first, ORIGIN))
             .await
