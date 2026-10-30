@@ -10,6 +10,22 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# I-01: reference revisions are a reviewed compatibility boundary. Changing
+# only the TOML and its URLs must not silently adopt an unreviewed source.
+REFERENCE_PINS = {
+    "newboo_repo": "HeisLuka/newboo",
+    "newboo_main_sha": "17125ef758a791e9630505c14d24f7fe65aed228",
+    "bokarust_repo": "calex794/bokarust",
+    "bokarust_main_sha": "d11b27b43125b93e59809147e8e687203fa0753b",
+}
+ROADMAP_PINS = {"target_repo": "calex794/tor", "version": "2026-10-26-v2"}
+# Historical PR-only sources intentionally differ from the accepted main revision.
+# Their exact frozen revisions and repository identity must still be verifiable.
+PR_SOURCE_REVISIONS = {
+    "S068": "25064d6cbd9a611fc4c74ef32ef78f67a6062e7c",
+    "S069": "b7be01f25b1714febad04c5c71a9559d654155d0",
+}
+
 EXCLUDED = {"S024": "заморожено", "S040": "не переносить", "S053": "заморожено", "S054": "заморожено",
             "S055": "заморожено", "S056": "заморожено", "S067": "не переносить",
             "S069": "не переносить"}
@@ -50,6 +66,18 @@ def check(root: Path = ROOT) -> list[str]:
         return [f"bad sources.lock.toml: {exc}"]
     if not scenario_file.exists() or not task_file.exists():
         return [f"roadmap missing: {scenario_file} or {task_file}"]
+    # Reject malformed sections and changes that kept all 69 links internally
+    # consistent but switched to an unreviewed upstream revision/repository.
+    reference, roadmap = lock.get("reference"), lock.get("roadmap")
+    if not isinstance(reference, dict) or not isinstance(roadmap, dict):
+        return ["sources.lock.toml must contain reference and roadmap tables"]
+    for key, pinned in REFERENCE_PINS.items():
+        if reference.get(key) != pinned:
+            errors.append(f"source-lock reference.{key} changed without compatibility review")
+    for key, pinned in ROADMAP_PINS.items():
+        if roadmap.get(key) != pinned:
+            errors.append(f"source-lock roadmap.{key} changed without compatibility review")
+
     try:
         scenarios, tasks = load(scenario_file), load(task_file)
     except (OSError, UnicodeError, csv.Error) as exc:
@@ -61,7 +89,7 @@ def check(root: Path = ROOT) -> list[str]:
         errors.append("scenarios.tsv must contain S001..S069 exactly once and in order")
     reference_sha = lock.get("reference", {}).get("newboo_main_sha", "")
     exceptions = set(lock.get("roadmap", {}).get("source_exceptions", []))
-    if len(reference_sha) != 40 or exceptions != {"S068", "S069"}:
+    if len(reference_sha) != 40 or exceptions != set(PR_SOURCE_REVISIONS):
         errors.append("unexpected source-lock SHA or PR-only exceptions")
     owners: dict[str, str] = {}
     for s in scenarios:
@@ -77,10 +105,15 @@ def check(root: Path = ROOT) -> list[str]:
             errors.append(f"{code}: missing title/priority/acceptance")
         if not s.get("notion_scenario_url", "").startswith("https://app.notion.com/"):
             errors.append(f"{code}: missing canonical source scenario link")
-        if not s.get("source_code_url", "").startswith("https://github.com/"):
-            errors.append(f"{code}: missing source-code link")
-        elif code not in exceptions and reference_sha not in s["source_code_url"]:
-            errors.append(f"{code}: source link is not pinned to newboo main lock")
+        source = s.get("source_code_url") or ""
+        origin = f"https://github.com/{REFERENCE_PINS['newboo_repo']}/blob/"
+        if not source.startswith(origin):
+            errors.append(f"{code}: source repository must remain pinned to newboo")
+        else:
+            revision, separator, source_path = source[len(origin):].partition("/")
+            pinned_revision = PR_SOURCE_REVISIONS.get(code, reference_sha)
+            if not separator or not source_path or revision != pinned_revision:
+                errors.append(f"{code}: source link is not pinned to the accepted source revision")
         if not s.get("target_contract"):
             errors.append(f"{code}: missing chosen TOR entrypoint")
         if INVALID.search(s.get("target_contract", "") + " " + s.get("acceptance", "")):

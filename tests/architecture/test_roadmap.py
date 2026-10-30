@@ -72,6 +72,75 @@ class RoadmapTests(unittest.TestCase):
         self.mutate("scenarios.tsv", "17125ef758a791e9630505c14d24f7fe65aed228", "0000000000000000000000000000000000000000")
         self.assertTrue(any("source link is not pinned" in e for e in check(self.root)))
 
+    def test_undocumented_newboo_sha_change_fails_even_if_all_links_change(self):
+        old = "17125ef758a791e9630505c14d24f7fe65aed228"
+        fake = "f" * 40
+        self.mutate("sources.lock.toml", old, fake)
+        scenarios = self.root / "docs/roadmap/scenarios.tsv"
+        contents = scenarios.read_text(encoding="utf-8")
+        scenarios.write_text(contents.replace(old, fake), encoding="utf-8")
+        self.assertTrue(any("source-lock reference.newboo_main_sha" in e
+                            for e in check(self.root)))
+
+    def test_bokarust_revision_is_locked(self):
+        self.mutate("sources.lock.toml",
+                    "d11b27b43125b93e59809147e8e687203fa0753b", "a" * 40)
+        self.assertTrue(any("source-lock reference.bokarust_main_sha" in e
+                            for e in check(self.root)))
+
+    def test_upstream_repository_names_are_locked(self):
+        self.mutate("sources.lock.toml", 'newboo_repo = "HeisLuka/newboo"',
+                    'newboo_repo = "unknown/fork"')
+        self.assertTrue(any("source-lock reference.newboo_repo" in e
+                            for e in check(self.root)))
+
+    def test_bokarust_repository_name_is_locked(self):
+        self.mutate("sources.lock.toml", 'bokarust_repo = "calex794/bokarust"',
+                    'bokarust_repo = "unknown/fork"')
+        self.assertTrue(any("source-lock reference.bokarust_repo" in e
+                            for e in check(self.root)))
+
+    def test_target_repository_and_roadmap_version_are_locked(self):
+        self.mutate("sources.lock.toml", 'target_repo = "calex794/tor"',
+                    'target_repo = "unknown/tor"')
+        self.assertTrue(any("source-lock roadmap.target_repo" in e
+                            for e in check(self.root)))
+        self.mutate("sources.lock.toml", 'version = "2026-10-26-v2"',
+                    'version = "2026-10-99-v999"')
+        self.assertTrue(any("source-lock roadmap.version" in e
+                            for e in check(self.root)))
+
+    def test_malformed_source_sections_fail_closed(self):
+        self.mutate("sources.lock.toml", "[reference]", "reference = 1")
+        self.assertTrue(any("must contain reference and roadmap tables" in e
+                            for e in check(self.root)))
+
+    def test_scenario_source_must_not_switch_to_fork_with_same_sha(self):
+        self.mutate("scenarios.tsv",
+                    "https://github.com/HeisLuka/newboo/blob/",
+                    "https://github.com/unknown/fork/blob/")
+        self.assertTrue(any("source repository must remain pinned" in e
+                            for e in check(self.root)))
+
+    def test_source_sha_in_filename_does_not_count_as_pinned_revision(self):
+        old_sha = "17125ef758a791e9630505c14d24f7fe65aed228"
+        old = f"/blob/{old_sha}/backend/app/web/routes/catalog.py"
+        fake = f"/blob/{'0' * 40}/backend/app/web/routes/{old_sha}/catalog.py"
+        self.mutate("scenarios.tsv", old, fake)
+        self.assertTrue(any("source link is not pinned" in e for e in check(self.root)))
+
+    def test_historical_pr_sources_have_exact_locked_revision(self):
+        for original, replacement in (
+            ("25064d6cbd9a611fc4c74ef32ef78f67a6062e7c", "a" * 40),
+            ("b7be01f25b1714febad04c5c71a9559d654155d0", "b" * 40),
+        ):
+            with self.subTest(original=original):
+                self.mutate("scenarios.tsv", original, replacement)
+                self.assertTrue(any("source link is not pinned" in e
+                                    for e in check(self.root)))
+                self.mutate("scenarios.tsv", replacement, original)
+                self.assertEqual(check(self.root), [])
+
     def test_json_duplicate_idempotency_field_detected(self):
         self.mutate("api-v1.md", "{chapter_id,expected_version_id,expected_price_minor}",
                     "{chapter_id,expected_version_id,expected_price_minor,idempotency_key}")
