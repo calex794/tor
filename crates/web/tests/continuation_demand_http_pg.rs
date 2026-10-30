@@ -247,11 +247,106 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(author.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
     assert!(!author.contains(&format!("c15-reader-{nonce}@tor-ci.example")));
 
+    // C-15/B-06: close the minimal on-site loop via the actual author Save,
+    // rather than only fixture SQL. External email/push is out of scope.
+    let follow_path = format!("/me/books/{book}/follow");
+    assert_eq!(
+        call(&app, "POST", &follow_path, &reader_cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let save_path = format!("/me/books/{book}/chapters");
+    let save_body = format!(
+        "number=2&title=Demand+fulfilled&body=C15%20reader%20return&access=free&price_amount=0&command_key={}&csrf_token={csrf}",
+        generate_session_token()
+    );
+    let denied = call(
+        &app,
+        "POST",
+        &save_path,
+        &reader_cookie,
+        ORIGIN,
+        &save_body,
+    )
+    .await
+    .status();
+    assert!(
+        matches!(denied, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
+        "a reader must not publish the requested continuation: {denied}"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM chapters WHERE book_id={book} AND chapter_no=2")
+        ),
+        "0"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", &save_path, &owner_cookie, ORIGIN, &save_body)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER,
+            "author Save must publish once and replay idempotently"
+        );
+    }
+    let released: i64 = pg(
+        &url,
+        &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=2"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={released}"
+            )
+        ),
+        "1",
+        "one author Save must create exactly one reader-visible first release"
+    );
+    let follower_updates = html(
+        call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await
+    )
+    .await;
+    assert!(follower_updates.contains("Demand fulfilled"));
+    assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
+    let returned = html(
+        call(
+            &app,
+            "GET",
+            &format!("/reader/{released}"),
+            &reader_cookie,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(returned.contains("C15 reader return"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions \
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "opening a new chapter is not itself a meaningful completion"
+    );
+    let owner_fulfilled =
+        html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(owner_fulfilled.contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+    // A separate synthetic paid release remains as the old non-leak regression.
+
     let next: i64 = pg(
         &url,
         &format!(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-             VALUES({book},2,'Продолжение','public','paid',150) RETURNING id"
+             VALUES({book},3,'Продолжение','public','paid',150) RETURNING id"
         ),
     )
     .parse()
