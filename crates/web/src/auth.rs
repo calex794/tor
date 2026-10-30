@@ -50,6 +50,7 @@ mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod follow_read_state;
 mod followed_purchase_links;
 mod inbox;
 mod library_actions;
@@ -188,6 +189,10 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .route(
+            "/me/updates/{id}/read-state",
+            post(follow_read_state::submit),
+        )
         .route("/me/rankings", get(rankings::page))
         .route(
             "/me/books/{id}/rate",
