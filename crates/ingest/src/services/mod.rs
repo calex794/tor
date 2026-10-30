@@ -4,3 +4,4 @@ pub mod image_pipeline;
 pub mod cover_jobs;
 pub mod cover_worker;
 pub mod notify;
+pub mod notify_worker;

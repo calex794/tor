@@ -262,6 +262,18 @@ impl PgNotificationRecipients {
             .execute(&mut *tx)
             .await
             .map_err(|_| RecipientError::Unavailable)?;
+            // If search has not acknowledged yet, release the finished G08
+            // lease so the independent consumer need not wait 60 seconds.
+            sqlx::query(
+                "UPDATE outbox_events SET lease_until=NULL
+                 WHERE id=$1::uuid AND lease_epoch=$2 AND lease_until>now()
+                   AND delivered_at IS NULL AND dead_at IS NULL",
+            )
+            .bind(event_id)
+            .bind(lease_epoch)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| RecipientError::Unavailable)?;
         } else {
             // Renew the same fenced lease without incrementing attempts:
             // one large event may require many hundred-recipient batches.

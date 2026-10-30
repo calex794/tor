@@ -384,6 +384,21 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     .await
     .unwrap();
     assert_eq!(event, 1);
+    let (first_release, event_metadata): (bool, String) = sqlx::query_as(
+        "SELECT (payload->>'first_release')::boolean,payload::text
+         FROM outbox_events WHERE dedupe_key=$1 AND event_type='ChapterPublished'
+           AND aggregate_id=$2",
+    )
+    .bind(format!("chapter-published:{chapter}:{v2}"))
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!first_release, "V2 must not pretend to be a new chapter");
+    assert!(
+        !event_metadata.contains(v2_body),
+        "paid text cannot leak to outbox"
+    );
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -397,6 +412,19 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
         .await,
         Ok(()),
         "exact V2 replay cannot duplicate B release events"
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM outbox_events
+         WHERE aggregate_kind='chapter' AND aggregate_id=$1
+           AND event_type='ChapterPublished'",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 1,
+        "exact V2 replay cannot duplicate the outbox event"
     );
     assert_eq!(
         b.attach_verified_and_publish(
@@ -655,5 +683,44 @@ async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_v
             .await
             .unwrap();
     assert_eq!(current, prepared.version_id);
+    let (first_release, event_metadata): (bool, String) = sqlx::query_as(
+        "SELECT (payload->>'first_release')::boolean,payload::text
+         FROM outbox_events WHERE dedupe_key=$1 AND event_type='ChapterPublished'
+           AND aggregate_id=$2",
+    )
+    .bind(format!(
+        "chapter-published:{}:{}",
+        prepared.chapter_id, prepared.version_id
+    ))
+    .bind(prepared.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(first_release, "paid V1 is a first publication");
+    assert!(
+        !event_metadata.contains(body),
+        "no paid text in event metadata"
+    );
+    publisher
+        .attach_verified_and_publish(
+            owner,
+            book,
+            pinned(prepared.chapter_id, prepared.version_id),
+            &object,
+            PaidPublication::Publish {
+                expected_current: None,
+            },
+        )
+        .await
+        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(prepared.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1, "replayed paid publication cannot enqueue twice");
     pool.close().await;
 }
