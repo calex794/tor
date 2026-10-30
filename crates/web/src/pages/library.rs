@@ -12,7 +12,7 @@ pub fn my_library_with_updates(
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
-    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned);
+    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     my_library_inner(items, saved, csrf, purchased_available, &update_html)
 }
 
@@ -85,6 +85,7 @@ fn update_cards(
     checkout_enabled: bool,
     paid_reader_available: bool,
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+    csrf: &str,
 ) -> String {
     let mut body = String::new();
     if updates.items.is_empty() {
@@ -138,10 +139,25 @@ fn update_cards(
             } else {
                 format!("<a class=\"button button--small\" href=\"{link}\">{button}</a>")
             };
+            let (read_state, read_label, read_hint) = if item.is_read {
+                ("unread", "Отметить непрочитанной", "Просмотрено")
+            } else {
+                ("read", "Отметить прочитанной", "Новое")
+            };
+            let read_control = format!(
+                "<form method=\"post\" action=\"/me/updates/{}/read-state\">\
+                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+                 <input type=\"hidden\" name=\"state\" value=\"{read_state}\">\
+                 <button class=\"button button--small\" type=\"submit\">{read_label}</button>\
+                 </form>",
+                item.chapter_id,
+                escape_html(csrf),
+            );
             write!(
                 body,
-                "<article class=\"library-card\"><div><p class=\"eyebrow\">{state}</p>\\
-                 <h3>{book}</h3><p>Глава {}. {chapter}</p></div>{action}</article>",
+                "<article class=\"library-card\"><div><p class=\"eyebrow\">{state} · {read_hint}</p>\\
+                 <h3>{book}</h3><p>Глава {}. {chapter}</p></div>\\
+                 <div class=\"library-card__actions\">{action}{read_control}</div></article>",
                 item.chapter_number,
             )
             .expect("writing safe HTML");
@@ -183,6 +199,7 @@ mod update_tests {
                 chapter_number: 2,
                 is_paid: true,
                 price_minor: 19900,
+                is_read: false,
                 released_micros: 123,
             }],
             next_cursor: Some(UpdatesCursor {
@@ -190,14 +207,18 @@ mod update_tests {
                 chapter_id: 12,
             }),
         };
-        let enabled = update_cards(&page, true, true, &[]);
+        let enabled = update_cards(&page, true, true, &[], "csrf-token");
         assert!(enabled.contains("/me/books/9/buy-chapters"));
         assert!(enabled.contains("199,00 ₽"));
         assert!(enabled.contains("&lt;script&gt;title"));
         assert!(enabled.contains("A &amp; B"));
         assert!(!enabled.contains("<script>"));
         assert!(enabled.contains("updates_after=123-12"));
-        let disabled = update_cards(&page, false, true, &[]);
+        assert!(enabled.contains("action=\"/me/updates/12/read-state\""));
+        assert!(enabled.contains("value=\"csrf-token\""));
+        assert!(enabled.contains("value=\"read\""));
+        assert!(enabled.contains("Новое"));
+        let disabled = update_cards(&page, false, true, &[], "csrf-token");
         assert!(!disabled.contains("/me/books/9/buy-chapters"));
         assert!(disabled.contains("/reader/12"));
         let owned = [
@@ -206,12 +227,18 @@ mod update_tests {
                 purchase_id: 77,
             },
         ];
-        let purchased = update_cards(&page, true, true, &owned);
+        let purchased = update_cards(&page, true, true, &owned, "csrf-token");
         assert!(purchased.contains("/read/paid/12?purchase_id=77"));
         assert!(!purchased.contains("/me/books/9/buy-chapters"));
-        let unavailable = update_cards(&page, true, false, &owned);
+        let unavailable = update_cards(&page, true, false, &owned, "csrf-token");
         assert!(unavailable.contains("Чтение временно недоступно"));
         assert!(!unavailable.contains("/read/paid/12"));
         assert!(!unavailable.contains("/me/books/9/buy-chapters"));
+        let mut acknowledged = page.clone();
+        acknowledged.items[0].is_read = true;
+        let seen = update_cards(&acknowledged, true, true, &owned, "csrf-token");
+        assert!(seen.contains("value=\"unread\""));
+        assert!(seen.contains("Просмотрено"));
+        assert!(seen.contains("Отметить непрочитанной"));
     }
 }
