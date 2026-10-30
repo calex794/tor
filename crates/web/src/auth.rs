@@ -43,6 +43,7 @@ use tor_reading::{
 mod access_audit;
 mod account_form_http;
 mod author_book_page;
+mod book_stats_http;
 mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
@@ -265,6 +266,8 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route("/books/{id}/stats", get(book_stats_http::page))
+        .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
