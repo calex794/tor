@@ -19,7 +19,9 @@ async fn isolated_pool() -> PgPool {
         url.ends_with("/tor_ci"),
         "F-09 integration may only use disposable tor_ci"
     );
-    PgPool::connect(&url).await.expect("connect to migrated PG18")
+    PgPool::connect(&url)
+        .await
+        .expect("connect to migrated PG18")
 }
 
 async fn seed_user(pool: &PgPool, role: &str) -> i64 {
@@ -47,24 +49,17 @@ fn guest_hash(seed: i64) -> [u8; 32] {
 
 async fn seed_code(pool: &PgPool, owner: i64, program: &str) -> String {
     let code = format!("f09_{owner}");
-    sqlx::query(
-        "INSERT INTO referral_codes(code,owner_user_id,program_type) VALUES($1,$2,$3)",
-    )
-    .bind(&code)
-    .bind(owner)
-    .bind(program)
-    .execute(pool)
-    .await
-    .expect("seed F-09 code");
+    sqlx::query("INSERT INTO referral_codes(code,owner_user_id,program_type) VALUES($1,$2,$3)")
+        .bind(&code)
+        .bind(owner)
+        .bind(program)
+        .execute(pool)
+        .await
+        .expect("seed F-09 code");
     code
 }
 
-async fn enqueue(
-    pool: &PgPool,
-    user: i64,
-    guest: Option<&[u8; 32]>,
-    manual: Option<&str>,
-) {
+async fn enqueue(pool: &PgPool, user: i64, guest: Option<&[u8; 32]>, manual: Option<&str>) {
     sqlx::query(
         "INSERT INTO account_registration_referral_outbox(user_id,guest_hash,manual_code) \
          VALUES($1,$2,$3)",
@@ -102,9 +97,14 @@ async fn f_09_pg_manual_codes_must_be_active() {
         .unwrap();
     assert!(!repo.active_code(&code).await.unwrap());
     assert_eq!(
-        repo.capture(&guest_hash(inviter), &code, "direct_ref_link", "/r/disabled")
-            .await
-            .unwrap(),
+        repo.capture(
+            &guest_hash(inviter),
+            &code,
+            "direct_ref_link",
+            "/r/disabled"
+        )
+        .await
+        .unwrap(),
         CaptureResult::Invalid,
     );
 
@@ -212,7 +212,10 @@ async fn f_09_pg_decided_guest_keeps_owner_but_blocks_fraud() {
     .await
     .unwrap();
     assert_eq!(actual, inviter);
-    assert_eq!(status, "blocked", "fraud block must not create active rights");
+    assert_eq!(
+        status, "blocked",
+        "fraud block must not create active rights"
+    );
     assert_eq!(source, "guest_capture");
     assert!(!repo.finalize_one(subject).await.unwrap());
 }
@@ -336,7 +339,10 @@ async fn f_09_pg_manual_precedence_invalid_fallback_and_self_invite() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(fallback_referrer, first, "unknown manual code retains guest capture");
+    assert_eq!(
+        fallback_referrer, first,
+        "unknown manual code retains guest capture"
+    );
 
     enqueue(&pool, first, None, Some(&first_code)).await;
     assert!(!repo.finalize_one(first).await.unwrap());
@@ -407,7 +413,10 @@ async fn f_09_pg_recovery_uses_signup_time_not_replay_time() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(row_correct, "original inviter and signup timestamp must survive replay");
+    assert!(
+        row_correct,
+        "original inviter and signup timestamp must survive replay"
+    );
     assert!(!repo.finalize_one(invited).await.unwrap());
     let result: String = sqlx::query_scalar(
         "SELECT result FROM account_registration_referral_outbox WHERE user_id=$1",
