@@ -53,6 +53,14 @@ pub fn valid_html_client_id(id: &str) -> bool {
         && id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
 }
 
+/// Match the NEwBOO HTML/header helper: strip disallowed characters, truncate to 128.
+pub fn clean_html_client_id(raw: &str) -> String {
+    raw.trim().chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+        .take(128)
+        .collect()
+}
+
 /// NEwBOO mail_service accepts nonempty stripped text without a 2000-character cap.
 pub fn clean_body(body: &str) -> Result<String, MailError> {
     // HTML textarea submissions use CRLF; JSON/FormData retries may use LF.
@@ -82,5 +90,10 @@ mod tests {
         assert!(clean_body(&"🐼".repeat(2000)).is_ok());
         assert!(valid_key(&"A".repeat(43)));
         assert!(!valid_key(&"/".repeat(43)));
+        assert_eq!(clean_html_client_id("  id:abc/123!?  "), "id:abc123");
+        assert_eq!(clean_html_client_id(&"a".repeat(140)).len(), 128);
+        assert_eq!(clean_html_client_id("только Unicode"), "Unicode");
+        assert!(valid_html_client_id("id:a-b.3"));
+        assert!(!valid_html_client_id("unsafe/path"));
     }
 }
