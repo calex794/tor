@@ -147,9 +147,14 @@ pub(super) async fn conversation(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let friends = tor_social::repositories::friendships::PgFriendships::new(state.accounts.pool().clone());
+    let friend_state = match friends.state(actor, page.peer_id).await {
+        Ok(value) => value,
+        Err(e) => return deny(status(e)),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        super::mail_pages::conversation(actor, id, &page, &peer_name, &csrf),
+        super::mail_pages::conversation(actor, id, &page, &peer_name, &csrf, friend_state),
         &cookies,
     );
     response.headers_mut().insert("content-security-policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"));
