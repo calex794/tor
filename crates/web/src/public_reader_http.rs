@@ -2,13 +2,13 @@
 use super::{auth_cookies, pages, AppState};
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Response,
 };
 use tor_reading::services::PublicReadingRepository;
 
 /// C-10: successful and denied reading both use no-store and strict CSP.
-pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
+pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>, headers: HeaderMap) -> Response {
     let Some(reader) = state.reader else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
@@ -35,10 +35,20 @@ pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u6
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
     if let Some(catalog) = state.postgres.as_ref() {
+        // If verification is unavailable, omit optional analytics. Never
+        // misclassify an authenticated reader as an anonymous visitor.
+        let actor = match state.follow_control.as_ref() {
+            Some(control) => match control.verified_reader(&headers).await {
+                Ok(actor) => actor,
+                Err(_) => return auth_cookies::private_response(
+                    pages::reader_with_login_link(&chapter, Some(id)), &[]),
+            },
+            None => None,
+        };
         if let Ok(chapter_id) = i64::try_from(id) {
             if let Err(error) = tor_reading::repositories::book_stats::PgBookStats::new(
                 catalog.pool(),
-            ).record_open(chapter_id, None).await {
+            ).record_open(chapter_id, actor).await {
                 tracing::warn!(?error, "anonymous book statistics open not recorded");
             }
         }
