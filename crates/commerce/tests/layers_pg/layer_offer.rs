@@ -561,12 +561,14 @@ async fn d_05_pg_concurrent_reprice_and_checkout_never_charge_a_stale_offer() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_05_pg_legacy_public_quote_does_not_reveal_draft_books() {
     let (pool, repo, owner, _buyer, book) = setup("legacy-private-quote").await;
-    let layer = repo.create_layer(id(owner), "Private composition").await.unwrap();
+    let layer = repo
+        .create_layer(id(owner), "Private composition")
+        .await
+        .unwrap();
     repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
     let draft: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
@@ -577,10 +579,17 @@ async fn d_05_pg_legacy_public_quote_does_not_reveal_draft_books() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    repo.add_book(id(owner), id(layer), id(draft)).await.unwrap();
-    repo.publish_offer(id(owner), id(layer), 125, false).await.unwrap();
+    repo.add_book(id(owner), id(layer), id(draft))
+        .await
+        .unwrap();
+    repo.publish_offer(id(owner), id(layer), 125, false)
+        .await
+        .unwrap();
     // The legacy public quote contains unfiltered Book titles. Refuse the
     // entire quote rather than displaying a draft title to a stranger.
-    assert_eq!(repo.offer_quote(id(layer)).await, Err(LayerError::Inaccessible));
+    assert_eq!(
+        repo.offer_quote(id(layer)).await,
+        Err(LayerError::Inaccessible)
+    );
     pool.close().await;
 }
