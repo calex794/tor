@@ -670,6 +670,20 @@
       "source": "crates/web/src/auth/layer_create.rs",
       "handler": "index",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/inbox",
+      "source": "crates/web/src/auth.rs",
+      "handler": "inbox::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/inbox",
+      "source": "crates/web/src/auth.rs",
+      "handler": "inbox::api",
+      "policy": "session"
     }
   ]
 }
