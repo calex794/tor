@@ -209,10 +209,7 @@ fn router_inner(
             "/me/referrals",
             get(referral_dashboard::page).post(referral_dashboard::create),
         )
-        .route(
-            "/api/v1/me/referrals",
-            get(referral_dashboard::api_get).post(referral_dashboard::api_create),
-        )
+        .route("/api/v1/me/referrals", get(referral_dashboard::api_get).post(referral_dashboard::api_create))
         .route("/me/referrals/alias", post(referral_alias::browser_create))
         .route("/api/v1/me/referrals/alias", post(referral_alias::api_create))
         .route(
