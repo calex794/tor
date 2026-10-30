@@ -3,23 +3,6 @@ use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
 
-pub fn my_library(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-) -> Html<String> {
-    my_library_with_purchases(items, saved, csrf, false)
-}
-
-pub fn my_library_with_purchases(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    purchased_available: bool,
-) -> Html<String> {
-    my_library_inner(items, saved, csrf, purchased_available, "")
-}
-
 pub fn my_library_with_updates(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
