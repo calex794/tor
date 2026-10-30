@@ -658,14 +658,14 @@
       "template": "/me/notification-settings",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "notification_settings::page",
-      "policy": "session"
+      "policy": "scoped"
     },
     {
       "method": "POST",
       "template": "/me/notification-settings",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "notification_settings::save",
-      "policy": "session"
+      "policy": "scoped"
     },
     {
       "method": "GET",
