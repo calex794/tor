@@ -79,14 +79,23 @@ mod tests {
         assert!(AuthObservationSigner::from_hex("short").is_none());
         assert!(AuthObservationSigner::from_hex(&"00".repeat(32)).is_none());
         let signer = AuthObservationSigner::from_hex(&"a1".repeat(32)).unwrap();
-        assert_eq!(signer.target("a@example.invalid"), signer.target("a@example.invalid"));
-        assert_ne!(signer.target("a@example.invalid"), signer.target("b@example.invalid"));
+        assert_eq!(
+            signer.target("a@example.invalid"),
+            signer.target("a@example.invalid")
+        );
+        assert_ne!(
+            signer.target("a@example.invalid"),
+            signer.target("b@example.invalid")
+        );
         assert_ne!(
             signer.target("1.2.3.4"),
             signer.source("1.2.3.4".parse().unwrap()).0
         );
         let other = AuthObservationSigner::from_hex(&"b2".repeat(32)).unwrap();
-        assert_ne!(signer.target("a@example.invalid"), other.target("a@example.invalid"));
+        assert_ne!(
+            signer.target("a@example.invalid"),
+            other.target("a@example.invalid")
+        );
     }
 
     #[test]
@@ -101,9 +110,6 @@ mod tests {
         let b = key.source("2001:db8:42:7::2".parse().unwrap());
         assert_ne!(a.0, b.0);
         assert_eq!(a.1, b.1);
-        assert_eq!(
-            key.source("::ffff:198.51.100.1".parse().unwrap()).0,
-            ip_a
-        );
+        assert_eq!(key.source("::ffff:198.51.100.1".parse().unwrap()).0, ip_a);
     }
 }

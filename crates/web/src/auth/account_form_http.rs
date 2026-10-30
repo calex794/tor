@@ -283,7 +283,10 @@ pub(super) async fn login(
     {
         Ok(valid) => valid,
         Err(StatusCode::TOO_MANY_REQUESTS) => {
-            observed.report(auth_observation::Outcome::WorkerBusy, stored.as_ref().map(|u| u.id));
+            observed.report(
+                auth_observation::Outcome::WorkerBusy,
+                stored.as_ref().map(|u| u.id),
+            );
             observability::record_login_outcome(LoginOutcome::PasswordPoolBusy);
             let mut response = auth_problem(
                 StatusCode::TOO_MANY_REQUESTS,

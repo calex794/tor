@@ -19,13 +19,16 @@ impl PgAccounts {
             DELETE FROM password_reset_tokens t USING batch b WHERE t.token_hash=b.token_hash")
             .execute(self.pool()).await?;
         // Separate failed-login observations have a shorter, bounded lifetime.
-        sqlx::query("WITH batch AS (
+        sqlx::query(
+            "WITH batch AS (
             SELECT id FROM auth_login_observations
             WHERE observed_at < now()-INTERVAL '7 days'
             ORDER BY observed_at, id LIMIT 1000 FOR UPDATE SKIP LOCKED
         )
-        DELETE FROM auth_login_observations o USING batch b WHERE o.id=b.id")
-            .execute(self.pool()).await?;
+        DELETE FROM auth_login_observations o USING batch b WHERE o.id=b.id",
+        )
+        .execute(self.pool())
+        .await?;
         sqlx::query("WITH batch AS (SELECT key_hash FROM auth_attempts
             WHERE period_started<now()-INTERVAL '1 day' ORDER BY period_started LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM auth_attempts t USING batch b WHERE t.key_hash=b.key_hash")
