@@ -47,8 +47,11 @@ pub fn valid_key(key: &str) -> bool {
 }
 
 /// Technical TOR limit, not a claim that the donor used this exact bound.
-pub fn clean_body(body: &str) -> Result<&str, MailError> {
-    let body = body.trim();
+pub fn clean_body(body: &str) -> Result<String, MailError> {
+    // HTML textarea submissions use CRLF; JSON/FormData retries may use LF.
+    // Canonicalize transport line endings before bounds and replay comparison.
+    let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
+    let body = normalized.trim();
     if body.is_empty()
         || body.chars().count() > 2000
         || body
@@ -57,7 +60,7 @@ pub fn clean_body(body: &str) -> Result<&str, MailError> {
     {
         return Err(MailError::Invalid);
     }
-    Ok(body)
+    Ok(body.to_owned())
 }
 
 #[cfg(test)]
@@ -65,7 +68,8 @@ mod tests {
     use super::*;
     #[test]
     fn e_08_bounds_unicode_and_command_identity() {
-        assert_eq!(clean_body("  Привет 🐼\n  "), Ok("Привет 🐼"));
+        assert_eq!(clean_body("  Привет 🐼\n  "), Ok("Привет 🐼".to_owned()));
+        assert_eq!(clean_body("a\r\nb\rc"), clean_body("a\nb\nc"));
         assert!(clean_body("\0").is_err());
         assert!(clean_body("  ").is_err());
         assert!(clean_body(&"я".repeat(2001)).is_err());

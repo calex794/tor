@@ -91,7 +91,7 @@ impl<R: MailRepository> MailService<R> {
             return Err(MailError::Invalid);
         }
         self.repo
-            .send(actor, conversation, clean_body(body)?, key)
+            .send(actor, conversation, &clean_body(body)?, key)
             .await
     }
 
@@ -108,7 +108,7 @@ impl<R: MailRepository> MailService<R> {
             return Err(MailError::Invalid);
         }
         let conversation = self.start(actor, peer).await?;
-        self.send(actor, conversation, body, key).await
+        self.send(actor, conversation, &body, key).await
     }
 
     pub async fn mark_read(

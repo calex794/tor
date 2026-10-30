@@ -152,7 +152,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let key = field(&page, "command_key");
     let send_path = format!("{path}/messages");
     let form = format!(
-        "body=PRIVATE%20%3Cscript%3E%20%2Fbooks%2F2&command_key={key}&csrf_token={}",
+        "body=PRIVATE%0D%0A%3Cscript%3E%20%2Fbooks%2F2&command_key={key}&csrf_token={}",
         csrf[0]
     );
     for _ in 0..2 {
@@ -224,7 +224,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .contains("no-store"));
     let json: serde_json::Value = serde_json::from_str(&text(result).await).unwrap();
     assert_eq!(json["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(json["messages"][0]["text"], "PRIVATE <script> /books/2");
+    assert_eq!(json["messages"][0]["text"], "PRIVATE\n<script> /books/2");
     let message = json["messages"][0]["id"].as_str().unwrap();
     let api_headers = [
         ("content-type", "application/json"),
@@ -232,7 +232,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         ("idempotency-key", key.as_str()),
     ];
     let payload =
-        serde_json::json!({"peer_id":users[1].to_string(),"text":"PRIVATE <script> /books/2"})
+        serde_json::json!({"peer_id":users[1].to_string(),"text":"PRIVATE\n<script> /books/2"})
             .to_string();
     let receipt = call(
         &app,
@@ -245,7 +245,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     .await;
     assert_eq!(receipt.status(), StatusCode::OK);
     assert!(text(receipt).await.contains("\"replayed\":true"));
-    let forged=serde_json::json!({"peer_id":users[1].to_string(),"text":"PRIVATE <script> /books/2","actor_id":users[2].to_string()}).to_string();
+    let forged=serde_json::json!({"peer_id":users[1].to_string(),"text":"PRIVATE\n<script> /books/2","actor_id":users[2].to_string()}).to_string();
     assert_eq!(
         call(
             &app,
@@ -276,7 +276,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         StatusCode::UNPROCESSABLE_ENTITY
     );
     let rendered = text(call(&app, "GET", &path, &cookies[1], "", &[]).await).await;
-    assert!(rendered.contains("PRIVATE &lt;script&gt; /books/2"));
+    assert!(rendered.contains("PRIVATE\n&lt;script&gt; /books/2"));
     assert!(!rendered.contains("PRIVATE <script>"));
     assert!(!rendered.contains("href=\"/books/2"));
     assert_eq!(
@@ -367,7 +367,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert!(
         text(call(&reopened, "GET", &path, &cookies[1], "", &[]).await)
             .await
-            .contains("PRIVATE &lt;script&gt;")
+            .contains("PRIVATE\n&lt;script&gt;")
     );
     pg(
         &url,
