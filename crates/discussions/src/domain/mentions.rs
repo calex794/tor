@@ -52,9 +52,7 @@ pub fn tokens(body: &str) -> Vec<MentionToken> {
                 .map_or(begin, |j| j + 1);
             if bytes.get(end_digits) == Some(&b']') {
                 let digits = body.get(begin..end_digits).unwrap_or("");
-                let key = if (1..=19).contains(&digits.len())
-                    && !digits.starts_with('0')
-                {
+                let key = if (1..=19).contains(&digits.len()) && !digits.starts_with('0') {
                     digits
                         .parse::<i64>()
                         .ok()
@@ -175,6 +173,8 @@ mod tests {
             .collect::<Vec<_>>();
         let result = canonicalize(&body, &verified, 99);
         assert_eq!(result.recipients.len(), 5);
-        assert!(result.canonical_body.contains("@пользователь @пользователь"));
+        assert!(result
+            .canonical_body
+            .contains("@пользователь @пользователь"));
     }
 }
