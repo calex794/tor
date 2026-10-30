@@ -22,6 +22,8 @@ use tor_books::{
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 
+mod chapter_import;
+
 /// Only the S3-paid constructor provides this port. Ordinary author routes
 /// remain entirely unable to write private paid content.
 #[async_trait]
@@ -100,6 +102,9 @@ pub(crate) fn router(
     };
     let app = Router::new()
         .route("/me/books/{id}/chapters/new", get(new_chapter))
+        .route("/me/books/{id}/chapters/import", get(chapter_import::page))
+        .route("/me/books/{id}/chapters/import-preview", post(chapter_import::preview))
+        .route("/me/books/{id}/chapters/import-confirm", post(chapter_import::confirm))
         .route("/me/books/{id}/chapters", post(create_chapter))
         .route(
             "/me/books/{id}/chapters/{chapter_id}/edit",
