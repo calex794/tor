@@ -93,6 +93,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert_eq!(report.chapters[0].thanks, 2);
     assert_eq!(report.chapters[1].thanks, 1);
     assert_eq!(report.top_by_thanks.first().map(|row| row.count), Some(2));
+    assert_eq!(report.daily.iter().map(|day| day.thanks).sum::<i64>(), 3);
     assert_eq!(report.unique_registered, 1);
     assert_eq!(report.anonymous_opens, 1);
     assert_eq!(report.repeat_authenticated, 1);

@@ -32,6 +32,7 @@ pub struct DailyStats {
     pub unique_first: i64,
     pub purchases: i64,
     pub purchase_minor: i64,
+    pub thanks: i64,
 }
 
 #[derive(Debug)]
@@ -257,14 +258,24 @@ impl PgBookStats {
                WHERE c.book_id=$1
                  AND p.acquired_at >= (now() AT TIME ZONE 'UTC')::date - INTERVAL '29 days'
                GROUP BY 1
+             ), thanks AS (
+               SELECT (t.first_thanked_at AT TIME ZONE 'UTC')::date AS day,
+                      COUNT(*)::BIGINT AS thanks
+               FROM chapter_thanks t
+               WHERE t.book_id=$1
+                 AND (t.first_thanked_at AT TIME ZONE 'UTC')
+                     >= (now() AT TIME ZONE 'UTC')::date - 29
+               GROUP BY 1
              )
-             SELECT TO_CHAR(COALESCE(o.day,p.day),'YYYY-MM-DD') AS day,
+             SELECT TO_CHAR(COALESCE(o.day,p.day,t.day),'YYYY-MM-DD') AS day,
                     COALESCE(o.opens,0)::BIGINT AS opens,
                     COALESCE(o.firsts,0)::BIGINT AS firsts,
                     COALESCE(p.purchases,0)::BIGINT AS purchases,
-                    COALESCE(p.gross,0)::BIGINT AS gross
+                    COALESCE(p.gross,0)::BIGINT AS gross,
+                    COALESCE(t.thanks,0)::BIGINT AS thanks
              FROM opens o FULL JOIN purchases p ON p.day=o.day
-             ORDER BY COALESCE(o.day,p.day) DESC LIMIT 30",
+             FULL JOIN thanks t ON t.day=COALESCE(o.day,p.day)
+             ORDER BY COALESCE(o.day,p.day,t.day) DESC LIMIT 30",
         )
         .bind(book_id)
         .fetch_all(&self.pool)
@@ -278,6 +289,7 @@ impl PgBookStats {
                     unique_first: r.try_get("firsts")?,
                     purchases: r.try_get("purchases")?,
                     purchase_minor: r.try_get("gross")?,
+                    thanks: r.try_get("thanks")?,
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;

@@ -119,18 +119,19 @@ pub(super) async fn page(
     body.push_str(
         "<h2>Динамика за 30 дней</h2><table><thead><tr><th>День (UTC)</th>\
         <th>Открытия</th><th>Первые открытия глав</th><th>Покупки</th>\
-        <th>Оборот, ₽</th></tr></thead><tbody>",
+        <th>Оборот, ₽</th><th>Спасибо</th></tr></thead><tbody>",
     );
     for row in &data.daily {
         let _ = write!(
             body,
             "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td>\
-            <td>{}</td></tr>",
+            <td>{}</td><td>{}</td></tr>",
             row.day,
             row.opens,
             row.unique_first,
             row.purchases,
-            money(row.purchase_minor)
+            money(row.purchase_minor),
+            row.thanks
         );
     }
     body.push_str("</tbody></table><h2>Топ 5 глав по открытиям</h2><ol>");
@@ -228,12 +229,13 @@ pub(super) async fn export(
     for day in &data.daily {
         let _ = writeln!(
             csv,
-            "daily,0,{},{},0,{},0,{},{},0,0",
+            "daily,0,{},{},0,{},0,{},{},0,{}",
             csv_cell(&day.day),
             day.opens,
             day.unique_first,
             day.purchases,
-            day.purchase_minor
+            day.purchase_minor,
+            day.thanks
         );
     }
     let mut response = private_response(Html(csv), &[]);
