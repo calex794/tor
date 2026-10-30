@@ -211,23 +211,46 @@ impl PgAccounts {
             } else {
                 None
             };
-            if candidate.is_none() {
-                if let Some(hash) = referral.guest_hash {
-                    candidate = sqlx::query(
-                        "SELECT c.code,c.owner_user_id,c.program_type,
-                                r.id AS capture_id,'guest_capture'::text AS source
-                         FROM referral_captures r
-                         JOIN referral_codes c ON c.code=r.referral_code
-                         WHERE r.guest_hash=$1
-                           AND r.status IN ('active','expired','consumed')
-                           AND r.captured_at<=now() AND r.expires_at>now()
-                           AND c.status='active' AND c.owner_user_id<>$2
-                         ORDER BY r.captured_at ASC,r.id ASC
-                         LIMIT 1 FOR SHARE OF r,c",
+            // A guest capture belongs to at most one committed registration.
+            // Claim it under a row lock *inside* the account/session transaction:
+            // a concurrent signup with a copied guest cookie cannot claim it.
+            // Manual codes retain precedence, but successful signup still
+            // consumes its guest token's capture (even when manual wins).
+            if let Some(hash) = referral.guest_hash {
+                let claimed: Option<(i64, String)> = sqlx::query_as(
+                    "SELECT id,referral_code FROM referral_captures
+                     WHERE guest_hash=$1 AND status='active'
+                       AND captured_at<=now() AND expires_at>now()
+                     FOR UPDATE",
+                )
+                .bind(hash.as_slice())
+                .fetch_optional(&mut *transaction)
+                .await?;
+                if let Some((capture_id, guest_code)) = claimed {
+                    if candidate.is_none() {
+                        candidate = sqlx::query(
+                            "SELECT code,owner_user_id,program_type,
+                                    $2::bigint AS capture_id,
+                                    'guest_capture'::text AS source
+                             FROM referral_codes
+                             WHERE code=$1 AND status='active'
+                               AND owner_user_id<>$3 FOR SHARE",
+                        )
+                        .bind(&guest_code)
+                        .bind(capture_id)
+                        .bind(user_id)
+                        .fetch_optional(&mut *transaction)
+                        .await?;
+                    }
+                    // This write rolls back if the session or outbox fails.
+                    // The selected sponsor is snapshotted below for recovery;
+                    // finalization must not claim the guest a second time.
+                    sqlx::query(
+                        "UPDATE referral_captures SET status='consumed'
+                         WHERE id=$1 AND status='active'",
                     )
-                    .bind(hash.as_slice())
-                    .bind(user_id)
-                    .fetch_optional(&mut *transaction)
+                    .bind(capture_id)
+                    .execute(&mut *transaction)
                     .await?;
                 }
             }

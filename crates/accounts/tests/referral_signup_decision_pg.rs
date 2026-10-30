@@ -133,6 +133,14 @@ async fn f_09_pg_signup_guest_owner_survives_later_fraud_block() {
     let hash = session_token_digest(&generate_session_token());
     let capture_id = seed_capture(&db, &hash, &code).await;
     let subject = register(&db, Some(&hash), None).await;
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM referral_captures WHERE id=$1",
+    )
+    .bind(capture_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(status, "consumed", "signup consumes its capture atomically");
     let decided = snapshot(&db, subject).await;
     assert_eq!(
         decided,
@@ -172,16 +180,28 @@ async fn f_09_pg_signup_manual_priority_and_expired_code_fallback() {
     assert_eq!(decided.2, Some(second_owner));
     assert_eq!(decided.4, None);
     assert_eq!(decided.5, Some("manual_code_at_registration".into()));
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM referral_captures WHERE id=$1",
+    )
+    .bind(capture_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(status, "consumed", "manual override must spend the old guest capture");
 
     sqlx::query("UPDATE referral_codes SET status='disabled' WHERE code=$1")
         .bind(&second_code)
         .execute(&db)
         .await
         .unwrap();
-    let fallback = register(&db, Some(&hash), Some(&second_code)).await;
+    // A fresh guest capture exercises the legacy invalid-manual fallback.
+    // The already-consumed hash must not be reusable for this second signup.
+    let fresh_hash = session_token_digest(&generate_session_token());
+    let fresh_capture_id = seed_capture(&db, &fresh_hash, &first_code).await;
+    let fallback = register(&db, Some(&fresh_hash), Some(&second_code)).await;
     let decided = snapshot(&db, fallback).await;
     assert_eq!(decided.2, Some(first_owner));
-    assert_eq!(decided.4, Some(capture_id));
+    assert_eq!(decided.4, Some(fresh_capture_id));
     assert_eq!(decided.5, Some("guest_capture".into()));
 }
 
@@ -201,4 +221,84 @@ async fn f_09_pg_signup_cannot_claim_later_click() {
         snapshot(&db, subject).await,
         (true, None, None, None, None, None)
     );
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_one_guest_capture_cannot_register_two_invitees() {
+    let db = pool().await;
+    let (owner, code) = seed_code(&db, "reader_spend").await;
+    let hash = session_token_digest(&generate_session_token());
+    let capture = seed_capture(&db, &hash, &code).await;
+
+    let first = register(&db, Some(&hash), None).await;
+    assert_eq!(snapshot(&db, first).await.2, Some(owner));
+    assert_eq!(snapshot(&db, first).await.4, Some(capture));
+
+    let second = register(&db, Some(&hash), None).await;
+    assert_eq!(snapshot(&db, second).await, (true, None, None, None, None, None));
+
+    let repo = tor_referrals::repositories::PgReferrals::new(db.clone());
+    assert_eq!(
+        repo.capture(&hash, &code, "direct_ref_link", "/r/replay")
+            .await
+            .unwrap(),
+        tor_referrals::repositories::postgres::CaptureResult::Existing,
+        "replayed guest cookie must not create a new active capture"
+    );
+    let (count, status): (i64, String) = sqlx::query_as(
+        "SELECT count(*) OVER(), status
+         FROM referral_captures WHERE guest_hash=$1",
+    )
+    .bind(hash.as_slice())
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(status, "consumed");
+    assert!(repo.finalize_one(first).await.unwrap());
+    assert!(!repo.finalize_one(second).await.unwrap());
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM referral_attributions
+         WHERE source_capture_id=$1",
+    )
+    .bind(capture)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_concurrent_signup_serializes_guest_claim() {
+    let db = pool().await;
+    let (owner, code) = seed_code(&db, "reader_spend").await;
+    let hash = session_token_digest(&generate_session_token());
+    let capture = seed_capture(&db, &hash, &code).await;
+
+    let (first, second) = tokio::join!(
+        register(&db, Some(&hash), None),
+        register(&db, Some(&hash), None),
+    );
+    let snapshots = [snapshot(&db, first).await, snapshot(&db, second).await];
+    let attributed: Vec<_> = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.2 == Some(owner))
+        .collect();
+    assert_eq!(attributed.len(), 1, "only one signup may claim the guest");
+    assert_eq!(attributed[0].4, Some(capture));
+    assert_eq!(
+        snapshots.iter().filter(|snapshot| snapshot.1.is_none()).count(),
+        1,
+        "losing signup has an immutable no-referral decision"
+    );
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM referral_captures WHERE id=$1",
+    )
+    .bind(capture)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(status, "consumed");
 }
