@@ -7,7 +7,7 @@ use crate::{
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{DefaultBodyLimit, Form, Path, Query, State},
+    extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Redirect, Response},
@@ -52,6 +52,7 @@ mod complete_chapter;
 mod continuation_demand;
 mod followed_purchase_links;
 mod library_actions;
+mod library_page;
 mod login_limiter;
 mod paid_completion;
 mod private_reader;
@@ -178,7 +179,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/me/library", get(my_library))
+        .route("/me/library", get(library_page::my_library))
         .route("/me/rankings", get(rankings::page))
         .route(
             "/me/books/{id}/rate",
@@ -287,63 +288,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf, &replies), &cookies)
-}
-
-async fn my_library(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Query(query): Query<LibraryQuery>,
-) -> Response {
-    let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
-    };
-    let digest = session_token_digest(&token);
-    let user_id = match state.accounts.active_session_user(&digest).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let books = match state.progress.continue_reading(user_id).await {
-        Ok(books) => books,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let saved = match state
-        .bookmarks
-        .list_books(user_id, query.limit.unwrap_or(30), query.after)
-        .await
-    {
-        Ok(saved) => saved,
-        Err(tor_reading::services::library::LibraryError::Invalid) => {
-            return deny(StatusCode::BAD_REQUEST);
-        }
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let cursor = match query.updates_after.as_deref() {
-        Some(raw) => match tor_reading::repositories::UpdatesCursor::parse(raw) {
-            Some(cursor) => Some(cursor),
-            None => return deny(StatusCode::BAD_REQUEST),
-        },
-        None => None,
-    };
-    let updates = match state.follow_updates.latest(user_id, cursor).await {
-        Ok(updates) => updates,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let owned = match followed_purchase_links::for_reader(&state, user_id, &updates).await {
-        Ok(owned) => owned,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = pages::my_library_with_updates(
-        &books,
-        &saved,
-        &csrf,
-        state.paid_reader_available,
-        state.paid_checkout_enabled,
-        &updates,
-        &owned,
-    );
-    private_response(page, &cookies)
 }
 
 /// Browser author workspace backed by the current PostgreSQL user session.
