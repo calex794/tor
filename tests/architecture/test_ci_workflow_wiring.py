@@ -33,6 +33,18 @@ class WorkflowWiringTests(unittest.TestCase):
                 text = (ROOT/".github/workflows"/filename).read_text()
                 self.assertEqual(problems(text, suite), [])
 
+    def test_pr_only_concurrency_preserves_main_and_manual_runs(self):
+        expected = (
+            "concurrency:\n"
+            "  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}\n"
+            "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
+        )
+        for filename in {name for name, _ in SUITES.values()} | {"rules.yml"}:
+            with self.subTest(workflow=filename):
+                text = (ROOT/".github/workflows"/filename).read_text()
+                self.assertIn(expected, text)
+                self.assertEqual(text.count("\nconcurrency:\n"), 1)
+
     def test_removed_failure_fallback_is_rejected(self):
         text = (ROOT/".github/workflows/storage-crypto.yml").read_text()
         changed = text.replace("needs.select.result != 'success' || ", "")
