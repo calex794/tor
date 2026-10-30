@@ -180,6 +180,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/users/{display_name}", get(public_user_profile))
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))
@@ -305,6 +306,52 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(pages::my_account(&name, &csrf, &replies), &cookies)
+}
+
+/// Original NEwBOO public profile entry: POST mail start from the recipient's profile.
+/// Display names are not currently unique in TOR; ambiguous names fail closed.
+async fn public_user_profile(
+    State(state): State<AuthState>,
+    Path(display_name): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    use sqlx::Row;
+    if display_name.is_empty() || display_name.chars().count() > 80 {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let rows = match sqlx::query("SELECT id, display_name FROM users WHERE display_name = $1 LIMIT 2")
+        .bind(&display_name)
+        .fetch_all(state.accounts.pool()).await {
+        Ok(rows) => rows,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if rows.len() != 1 { return deny(StatusCode::NOT_FOUND); }
+    let recipient: i64 = rows[0].get("id");
+    let name: String = rows[0].get("display_name");
+    let visitor = match session_user(&state, &headers).await {
+        Ok(value) => value,
+        Err(status) => return deny(status),
+    };
+    let mut action = String::new();
+    let mut cookies = Vec::new();
+    if let Some(actor) = visitor.filter(|id| *id != recipient) {
+        let blocked: bool = match sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM social_user_blocks WHERE (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1))"
+        ).bind(actor).bind(recipient).fetch_one(state.accounts.pool()).await {
+            Ok(value) => value,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+        if !blocked {
+            let (token, issued_cookies) = state.cookies.csrf_for_page(&headers);
+            cookies = issued_cookies;
+            action = format!("<form method=\\"post\\" action=\\"/mail/start/{recipient}\\"><input type=\\"hidden\\" name=\\"csrf_token\\" value=\\"{}\\"><button type=\\"submit\\" class=\\"ui-button ui-button--ghost\\">Почта</button></form>", pages::escape_html(&token));
+        }
+    }
+    let html = pages::layout("Публичный профиль", "Профиль участника.", &format!(
+        "<section class=\\"me-page\\"><div class=\\"container\\"><h1>{}</h1>{action}</div></section>",
+        pages::escape_html(&name)
+    ));
+    private_response(html, &cookies)
 }
 
 async fn my_library(
