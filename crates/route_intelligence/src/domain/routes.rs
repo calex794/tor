@@ -7,6 +7,7 @@ use TrafficSurface::PublicPage as Page;
 
 mod classifier;
 mod continuation;
+mod entries_account;
 mod entries_core;
 mod entries_follow;
 mod entries_inbox;
@@ -14,14 +15,15 @@ mod entries_layer;
 mod entries_reply;
 pub use classifier::classify;
 
+use entries_account::ACCOUNT_ROUTES;
 use entries_core::BASE_ROUTES;
 use entries_follow::FOLLOW_ROUTES;
 use entries_inbox::INBOX_ROUTES;
 use entries_layer::{LAYER_INDEX_ROUTES, LAYER_METADATA_ROUTES, LAYER_ROUTES};
 use entries_reply::REPLY_ROUTES;
 
-const ROUTES: [RouteRegistration; 101] = {
-    let mut result = [BASE_ROUTES[0]; 101];
+const ROUTES: [RouteRegistration; 115] = {
+    let mut result = [BASE_ROUTES[0]; 115];
     let mut i = 0;
     while i < 79 {
         result[i] = BASE_ROUTES[i];
@@ -69,6 +71,11 @@ const ROUTES: [RouteRegistration; 101] = {
         Auth,
         Write,
     );
+    let mut n = 0;
+    while n < 14 {
+        result[101 + n] = ACCOUNT_ROUTES[n];
+        n += 1;
+    }
     result
 };
 
