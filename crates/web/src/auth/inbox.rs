@@ -112,7 +112,7 @@ fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
         let next = if r.is_read { "unread" } else { "read" };
         let button = if r.is_read { "Отметить непрочитанным" } else { "Отметить прочитанным" };
         cards.push_str(&format!(
-            "<article class=\"me-now-card\"><a class=\"me-now-item\" href=\"{}\"><strong>Ответ в книге «{}»</strong> — {label}</a><form method=\"post\" action=\"/me/replies/{}/read-state\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"state\" value=\"{next}\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">{button}</button></form></article>",
+            "<article class=\"me-now-card\"><a class=\"me-now-item\" href=\"{}\"><strong>Ответ в книге «{}»</strong> — {label}</a><form method=\"post\" action=\"/me/replies/{}/read-state\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"state\" value=\"{next}\"><input type=\"hidden\" name=\"return_to\" value=\"inbox\"><button class=\"ui-button ui-button--ghost ui-button--small\" type=\"submit\">{button}</button></form></article>",
             pages::escape_html(&url), pages::escape_html(&r.book_title),
             r.comment_id, pages::escape_html(csrf),
         ));
