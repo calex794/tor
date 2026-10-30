@@ -104,7 +104,7 @@ def _golden_score(case: dict, errors: list[str]):
     for (book_id, _), value in winning.items():
         totals[book_id] = totals.get(book_id, 0) + value
     for book_id, quality in case.get("quality_score_by_book_id", {}).items():
-        totals[book_id] = totals.get(book_id, 0) + min(50, quality)
+        totals[book_id] = totals.get(book_id, 0) + min(50, max(0, min(1000, quality)) // 20)
     got = [
         {"book_id": book_id, "final_score": min(1000, score)}
         for book_id, score in sorted(totals.items(), key=lambda x: (-x[1], x[0]))
