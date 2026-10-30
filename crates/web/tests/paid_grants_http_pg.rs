@@ -671,6 +671,17 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert_eq!(body["content"]["object_sha256"], sha);
     assert!(!body.to_string().contains(BODY));
     assert_eq!(fake.signed.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures
+                 WHERE purchase_id={purchase_id} AND user_id={buyer}"
+            ),
+        ),
+        1,
+        "a successful bearer grant must leave durable first-open evidence"
+    );
 
     let v2 = scalar(
         &url,

@@ -282,8 +282,9 @@ impl PgCheckout {
             let version = offer.edition.version_id.get();
             let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO chapter_purchase_facts
-                   (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
-                 VALUES($1,$2,$3,$4,$5,'RUB') RETURNING id",
+                   (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency,
+                    first_grant_tracking_version)
+                 VALUES($1,$2,$3,$4,$5,'RUB','c06-first-issue-v1') RETURNING id",
             )
             .bind(actor)
             .bind(chapter)

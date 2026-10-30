@@ -747,3 +747,115 @@ async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
     assert_eq!(purchases, 0);
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_direct_refund_legacy_purchase_is_fail_closed_and_immutable() {
+    use tor_commerce::repositories::refund_preflight::{DirectRefundGate, PgDirectRefundPreflight};
+    let (pool, actor, _, chapter, version) = fixture("d06_refund_gate", 1000, 300).await;
+    let checkout = PgCheckout::new(pool.clone());
+    let receipt = checkout
+        .checkout_once(&command(actor, chapter, version, 300, 'Q'))
+        .await
+        .unwrap();
+    let purchase = receipt.purchase_id.get();
+    let gate = PgDirectRefundPreflight::new(pool.clone())
+        .refund_gate(actor, purchase)
+        .await;
+    assert_eq!(gate, DirectRefundGate::PolicyUnavailable);
+    assert_eq!(
+        PgDirectRefundPreflight::new(pool.clone())
+            .refund_gate(actor + 1, purchase)
+            .await,
+        DirectRefundGate::NotFound
+    );
+
+    // No legacy refund policy may be inferred or written after purchase:
+    // the original purchase row is immutable, even for a trusted DB role.
+    let err = sqlx::query(
+        "UPDATE chapter_purchase_facts
+         SET refund_policy_version='newboo-legacy-seven-days',
+             refund_deadline_at=now()+interval '7 days'
+         WHERE id=$1",
+    )
+    .bind(purchase)
+    .execute(&pool)
+    .await
+    .expect_err("post-purchase refund-policy backfill must be rejected");
+    assert_eq!(
+        err.as_database_error().and_then(|db| db.code()).as_deref(),
+        Some("23514")
+    );
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, 700);
+    assert_eq!(count(&pool, "ledger", actor).await, 1);
+    assert_eq!(count(&pool, "rights", actor).await, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_quote_same_owner_other_book_and_no_money_changes() {
+    use tor_commerce::repositories::refund_preflight::{
+        DirectRefundGate, PgDirectRefundPreflight, SwapQuoteError,
+    };
+    let (pool, actor, first_book, chapter, version) = fixture("d06_swap_quote", 1000, 300).await;
+    let purchase_id = PgCheckout::new(pool.clone())
+        .checkout_once(&command(actor, chapter, version, 300, 'R'))
+        .await
+        .unwrap()
+        .purchase_id
+        .get();
+    let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(first_book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let second_book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','Swap target','public',$2) RETURNING id",
+    )
+    .bind("ci:d06:swap_other_book")
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (target, target_version) = chapter_with_offer(&pool, second_book, 1, 400).await;
+    let preflight = PgDirectRefundPreflight::new(pool.clone());
+    let quote = preflight
+        .swap_quote(actor, purchase_id, target)
+        .await
+        .unwrap();
+    assert_eq!(quote.source_price_minor, 300);
+    assert_eq!(quote.target_price_minor, 400);
+    assert_eq!(quote.target_version_id, target_version);
+    assert_eq!(quote.delta_minor, 100);
+    assert_eq!(quote.gate, DirectRefundGate::PolicyUnavailable);
+
+    assert_eq!(
+        preflight.swap_quote(actor, purchase_id, chapter).await,
+        Err(SwapQuoteError::TargetNotAllowed)
+    );
+    assert_eq!(
+        preflight.swap_quote(actor + 1, purchase_id, target).await,
+        Err(SwapQuoteError::NotFound)
+    );
+    // No new purchase, ledger posting, exchange, or changed balance from a quote.
+    assert_eq!(count(&pool, "facts", actor).await, 1);
+    assert_eq!(count(&pool, "ledger", actor).await, 1);
+    assert_eq!(count(&pool, "rights", actor).await, 1);
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(balance, 700);
+}
+
+mod d06_direct_exposure;
+mod d06_refund_requests;
