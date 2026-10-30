@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod catalog_window;
 pub mod showcases;
 
 use crate::domain::{normalize_genre, validate_browse, CatalogSort, SearchError, SearchPage};

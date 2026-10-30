@@ -157,7 +157,7 @@ fn hex_nibble(byte: u8) -> Result<u8, SearchError> {
 
 /// The key is taken from PostgreSQL lower(...), not Rust Unicode lowercasing.
 /// This keeps the cursor's collation consistent with ORDER BY in PostgreSQL.
-fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
+pub(super) fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
     let mut encoded = String::with_capacity(key.len() * 2 + 40);
     encoded.push_str(sort.as_str());
     encoded.push('.');
@@ -170,7 +170,7 @@ fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
     encoded
 }
 
-fn decode_lexical_cursor(
+pub(super) fn decode_lexical_cursor(
     raw: Option<&str>,
     sort: CatalogSort,
 ) -> Result<(Option<String>, i64), SearchError> {
