@@ -20,6 +20,24 @@ pub(super) struct CatalogQuery {
     page: Option<u32>,
     sort: Option<String>,
 }
+/// Guard page-number presentation from impossible navigation states.
+fn requested_page(query: &CatalogQuery) -> Result<u32, StatusCode> {
+    // Compatibility: old /catalog?after=... URLs were always the next page.
+    let page = query
+        .page
+        .unwrap_or(if query.after.is_some() { 2 } else { 1 });
+    if (query.after.is_some() && query.before.is_some())
+        || page == 0
+        || page > 1_000_000
+        || (query.after.is_some() && page < 2)
+        || (query.before.is_some() && query.page.is_none())
+        || (page > 1 && query.after.is_none() && query.before.is_none())
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(page)
+}
+
 pub(super) async fn catalog(
     State(state): State<AppState>,
     Query(query): Query<CatalogQuery>,
@@ -28,19 +46,7 @@ pub(super) async fn catalog(
         // Always page the real PG catalog, even without a text filter.
         // Demo mode remains a separate legacy-compatible path.
         let sort = query.sort.as_deref().unwrap_or("oldest");
-        // Keep old /catalog?after=... links working as page 2.
-        let page_number = query
-            .page
-            .unwrap_or(if query.after.is_some() { 2 } else { 1 });
-        if (query.after.is_some() && query.before.is_some())
-            || page_number == 0
-            || page_number > 1_000_000
-            || (query.after.is_some() && page_number < 2)
-            || (query.before.is_some() && query.page.is_none())
-            || (page_number > 1 && query.after.is_none() && query.before.is_none())
-        {
-            return Err(StatusCode::BAD_REQUEST);
-        }
+        let page_number = requested_page(&query)?;
         let facets = tor_search::repositories::CatalogFacets {
             term: query.q.as_deref().unwrap_or(""),
             language: query.language.as_deref(),
@@ -135,4 +141,37 @@ pub(super) async fn catalog(
     Ok(pages::catalog(
         &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn b_18_exactly_twenty_books_and_page_query_is_validated() {
+        assert_eq!(DEFAULT_PAGE_SIZE, 20);
+        let mut request = CatalogQuery::default();
+        assert_eq!(requested_page(&request), Ok(1));
+        request.page = Some(3);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.page = None;
+        request.after = Some("20".to_owned());
+        assert_eq!(requested_page(&request), Ok(2));
+        request.page = Some(1);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.page = Some(2);
+        assert_eq!(requested_page(&request), Ok(2));
+        request.before = Some("21".to_owned());
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.after = None;
+        request.page = None;
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.page = Some(1);
+        assert_eq!(requested_page(&request), Ok(1));
+        request.page = Some(1_000_001);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+        request.before = None;
+        request.page = Some(0);
+        assert_eq!(requested_page(&request), Err(StatusCode::BAD_REQUEST));
+    }
 }
