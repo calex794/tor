@@ -177,18 +177,30 @@ pub(super) async fn register(
     // Invalid or disabled codes must not silently result in a new account.
     let manual_code = match tor_referrals::domain::manual_code(form.manual_invite_code.as_deref()) {
         Ok(code) => code,
-        Err(_) => return invalid_invite(&form, "Некорректный код приглашения. Исправьте или удалите код."),
+        Err(_) => {
+            return invalid_invite(
+                &form,
+                "Некорректный код приглашения. Исправьте или удалите код.",
+            )
+        }
     };
     if let Some(code) = manual_code {
         match state.referrals.active_code(code).await {
             Ok(true) => {}
-            Ok(false) => return invalid_invite(&form, "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить."),
-            Err(_) => return auth_problem(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Регистрация временно недоступна",
-                "Не удалось проверить код приглашения. Попробуйте снова позже.",
-                true,
-            ),
+            Ok(false) => {
+                return invalid_invite(
+                    &form,
+                    "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить.",
+                )
+            }
+            Err(_) => {
+                return auth_problem(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Регистрация временно недоступна",
+                    "Не удалось проверить код приглашения. Попробуйте снова позже.",
+                    true,
+                )
+            }
         }
     }
 
@@ -246,7 +258,13 @@ pub(super) async fn register(
             tokio::spawn(async move {
                 let _ = referrals.finalize_one(user_id).await;
             });
-            private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
+            private_response(
+                Redirect::to("/me"),
+                &[
+                    state.cookies.session_cookie(&token),
+                    state.cookies.cleared_guest_cookie(),
+                ],
+            )
         }
         Err(tor_accounts::repositories::postgres::AccountWriteError::Duplicate) => {
             // No account ID, email or database exception is disclosed.
