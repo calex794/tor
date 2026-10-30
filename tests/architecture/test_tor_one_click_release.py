@@ -232,6 +232,18 @@ class OneClickReleaseTests(unittest.TestCase):
         self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
                          "pass")
 
+    def test_i06_rejection_explains_evidence_without_disclosing_bypass_actors(self):
+        branch, rules, effective = active_main_policy()
+        rules[0]["current_user_can_bypass"] = "always"
+        rules[0]["bypass_actors"] = [{"actor_id": 77, "bypass_mode": "always"}]
+        result, detail = gate.evaluate_branch_policy(branch, rules, effective)
+        self.assertEqual(result, "fail")
+        self.assertIn("viewer_no_bypass=False", detail)
+        self.assertIn("bypass_field=present", detail)
+        self.assertIn("effective_rules=4", detail)
+        self.assertNotIn("77", detail)
+        self.assertNotIn("actor_id", detail)
+
     def test_i06_classic_protection_requires_both_app_scoped_checks(self):
         branch = protected_main()
         self.assertEqual(gate.evaluate_branch_policy(branch, [], [])[0], "pass")
