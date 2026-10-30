@@ -652,6 +652,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::unfollow",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/replies/{id}/read-state",
+      "source": "crates/web/src/auth.rs",
+      "handler": "reply_read_state::submit",
+      "policy": "session"
     }
   ]
 }

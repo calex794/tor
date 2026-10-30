@@ -1,5 +1,5 @@
 //! I-16: four *unchanged* source SQL blobs with provisional unique numbers.
-//! This test only observes a disposable tor_test DB AFTER the exact #243->I16
+//! This test only observes a disposable tor_test DB AFTER the exact main->I16
 //! SQLx migration upgrade and never applies migrations or writes money.
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -31,6 +31,7 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
     let required = [
         (202610280014_i64, "layer create idempotency"),
         (202610290001_i64, "reader book follows"),
+        (202610300002_i64, "e03 reply read state"),
         (202610300018_i64, "account login events"),
         (202610300019_i64, "referral signup"),
         (202610300020_i64, "direct purchase edition upgrade"),
@@ -45,8 +46,8 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
     assert_eq!(installed.len(), MIGRATOR.migrations.len());
     assert_eq!(
         MIGRATOR.migrations.len(),
-        52,
-        "42 merged-main + 10 Draft-only migrations"
+        53,
+        "43 merged-main + 10 Draft-only migrations"
     );
     for (version, description) in required {
         let compiled = MIGRATOR
@@ -82,6 +83,8 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
          "SELECT to_regprocedure('public.tor_select_latest_purchased_edition(bigint,bigint,bigint)') IS NOT NULL"),
         ("C-15 book follows",
          "SELECT to_regclass('public.reader_book_follows') IS NOT NULL"),
+        ("E-03 reply read markers",
+         "SELECT to_regclass('public.discussion_reply_reads') IS NOT NULL"),
     ] {
         let exists: bool = sqlx::query_scalar(sql)
             .fetch_one(&pool)

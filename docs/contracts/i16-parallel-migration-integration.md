@@ -1,13 +1,15 @@
 # I-16 — current-main integration of I-14 paid access and Draft SQLx (test only)
 
 **Status: Draft / unapproved versions.** Latest integrated main in this tree is
-`2f95223f4eb4a4d88a4c0669368d671e49e6d311`, which has **42**
-migrations. The experimental combined tree contains **52** migrations.
+`b13e1e71acb2881d062e4f8434c43744151600a0`, which has **43**
+migrations. The experimental combined tree contains **53** migrations.
 No source Draft was modified and no database outside isolated CI was accessed.
 
 ## Exact migration identities
 
-The merged main now owns `202610290001_reader_book_follows.sql` from
+The merged main now owns `202610300002_e03_reply_read_state.sql` from
+#254, kept at its exact committed name and Git blob SHA. It also owns
+`202610290001_reader_book_follows.sql` from
 #227. Its original Git blob `349f0d66bb813015688276909bd732dfd007cf8f`
 is used **once**, at the original main version. The duplicate I-16 copy
 `202610300021_reader_book_follows.sql` was removed.
@@ -34,19 +36,20 @@ are otherwise unchanged. This is not final version reservation.
 
 ## Route identity, controls and CI
 
-Merged main's route registry entries 0–80 are kept **at their original
-indexes**, including C-15 book follow/unfollow at 79/80. Layer occupies
-81–89 and paid browser first-opening acknowledgment occupies 90.
+Merged main's route registry entries 0–81 are kept **at their original
+indexes**, including C-15 book follow/unfollow at 79/80 and E-03 reply
+read-state at 81. Layer occupies 82–90 and paid browser first-opening
+acknowledgment occupies 91.
 The read-only route and CSRF/ownership governance is revalidated with
-the merged main's book-follow handlers and real HTTP tests.
+the merged main's book-follow and E-03 handlers and real HTTP tests.
 
 For this PR's **main base**, existing PostgreSQL 18 upgrade CI must
-install all 42 main migrations to isolated `tor_test`, upgrade that
-same DB to 52 in dependency order, repeat the migrator idempotently
+install all 43 main migrations to isolated `tor_test`, upgrade that
+same DB to 53 in dependency order, repeat the migrator idempotently
 and retain every base version, description and SHA-384 checksum.
-The I-16 read-only schema probe checks 5 version identities and
-the added login, referral, edition, and follows table/trigger/function
-surfaces. All other DB/HTTP/S3/Chromium workflows must pass on **exact
+The I-16 read-only schema probe checks 6 version identities and
+the added login, referral, edition, follows, and E-03 reply-read
+table/trigger/function surfaces. All other DB/HTTP/S3/Chromium workflows must pass on **exact
 current HEAD**, not an inherited green.
 
 The I-15 read-only SQLx inventory tooling from #251 is included with
