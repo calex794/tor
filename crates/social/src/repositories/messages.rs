@@ -1,4 +1,7 @@
-use super::{mail::{blocked, pair_lock, unavailable, PgMail}, notification_events};
+use super::{
+    mail::{blocked, pair_lock, unavailable, PgMail},
+    notification_events,
+};
 use crate::domain::{MailError, Message, MessagePage, SentMessage};
 
 impl PgMail {
@@ -112,9 +115,16 @@ impl PgMail {
         let recipient = if actor == low { high } else { low };
         let dedupe = format!("tor-social:mail-message:{id}");
         notification_events::queue(
-            &mut tx, "social.mail.created", "social_message",
-            id, actor, recipient, conversation, Some(&dedupe),
-        ).await?;
+            &mut tx,
+            "social.mail.created",
+            "social_message",
+            id,
+            actor,
+            recipient,
+            conversation,
+            Some(&dedupe),
+        )
+        .await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(SentMessage {
             id,

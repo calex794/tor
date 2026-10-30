@@ -56,7 +56,11 @@ pub(super) async fn page(
     let csrf_token = pages::escape_html(&csrf_token);
     let mut cards = String::new();
     for row in &rows {
-        let status = if row.is_read { "Прочитано" } else { "Не прочитано" };
+        let status = if row.is_read {
+            "Прочитано"
+        } else {
+            "Не прочитано"
+        };
         write!(
             cards,
             "<article class=\"me-now-card\" data-notification-id=\"{}\" data-notification-kind=\"{}\"><a href=\"{}\"><strong>{}</strong></a><p>{}</p><time>{}</time><p>{status}</p>",
@@ -81,7 +85,10 @@ pub(super) async fn page(
     }
     let older = if rows.len() == 50 {
         rows.last().map_or_else(String::new, |row| {
-            format!("<a href=\"/notifications?before={}\">Следующие уведомления</a>", row.id)
+            format!(
+                "<a href=\"/notifications?before={}\">Следующие уведомления</a>",
+                row.id
+            )
         })
     } else {
         String::new()
@@ -89,7 +96,10 @@ pub(super) async fn page(
     let body = format!(
         "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item is-active\" href=\"/notifications\">Уведомления</a></nav><header class=\"ui-page-header\"><h1>Уведомления</h1></header><form method=\"post\" action=\"/notifications/read-all\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf_token}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить все прочитанными</button></form><section class=\"me-section\" aria-label=\"Уведомления\">{cards}{older}</section></div></section>"
     );
-    private_response(pages::layout("Уведомления", "Ваши уведомления", &body), &cookies)
+    private_response(
+        pages::layout("Уведомления", "Ваши уведомления", &body),
+        &cookies,
+    )
 }
 
 pub(super) async fn mark_one(
@@ -106,7 +116,10 @@ pub(super) async fn mark_one(
     if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
         return deny(status);
     }
-    match PgNotifications::new(state.accounts.pool().clone()).mark_read(actor, id).await {
+    match PgNotifications::new(state.accounts.pool().clone())
+        .mark_read(actor, id)
+        .await
+    {
         Ok(true) => private_response(Redirect::to("/notifications"), &[]),
         Ok(false) => deny(StatusCode::NOT_FOUND),
         Err(e) => deny(super::mail::status(e)),
@@ -126,7 +139,10 @@ pub(super) async fn mark_all(
     if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
         return deny(status);
     }
-    match PgNotifications::new(state.accounts.pool().clone()).mark_all_read(actor).await {
+    match PgNotifications::new(state.accounts.pool().clone())
+        .mark_all_read(actor)
+        .await
+    {
         Ok(_) => private_response(Redirect::to("/notifications"), &[]),
         Err(e) => deny(super::mail::status(e)),
     }

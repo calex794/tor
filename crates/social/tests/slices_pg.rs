@@ -367,28 +367,48 @@ async fn e_08_notifications_outbox_once_on_replay_and_block() {
     let (a, b, c) = (u[0], u[1], u[2]);
     for (id, name) in [(a, "Alice"), (b, "Bob"), (c, "Carol")] {
         sqlx::query("UPDATE users SET display_name=$2 WHERE id=$1")
-            .bind(id).bind(name).execute(&pool).await.unwrap();
+            .bind(id)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .unwrap();
     }
     let mail = MailService::new(PgMail::new(pool.clone()));
     let friends = PgFriendships::new(pool.clone());
     let notifications = PgNotifications::new(pool.clone());
     let conversation = mail.start(a, b).await.unwrap();
-    let sent = mail.send(a, conversation, "CANONICAL-SECRET", &key(71)).await.unwrap();
+    let sent = mail
+        .send(a, conversation, "CANONICAL-SECRET", &key(71))
+        .await
+        .unwrap();
     assert!(!sent.replayed);
-    assert!(mail.send(a, conversation, "CANONICAL-SECRET", &key(71))
-        .await.unwrap().replayed);
+    assert!(
+        mail.send(a, conversation, "CANONICAL-SECRET", &key(71))
+            .await
+            .unwrap()
+            .replayed
+    );
     let queued: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events
          WHERE event_type='social.mail.created'
            AND (payload->>'actor_user_id')::bigint=$1
            AND (payload->>'recipient_user_id')::bigint=$2",
     )
-    .bind(a).bind(b).fetch_one(&pool).await.unwrap();
-    assert_eq!(queued, 1, "a transport replay must not emit a second source fact");
+    .bind(a)
+    .bind(b)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        queued, 1,
+        "a transport replay must not emit a second source fact"
+    );
     // Drain other fixture events too. Those belong to deleted test users and
     // are acknowledged without materializing orphan notifications.
     for _ in 0..12 {
-        if notifications.deliver_pending(100).await.unwrap() < 100 { break; }
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
     }
     let inbox = notifications.list(b, None, 50).await.unwrap();
     let mail_rows: Vec<_> = inbox.iter().filter(|n| n.kind == "mail").collect();
@@ -400,18 +420,25 @@ async fn e_08_notifications_outbox_once_on_replay_and_block() {
     assert!(notifications.list(a, None, 50).await.unwrap().is_empty());
     assert!(notifications.list(c, None, 50).await.unwrap().is_empty());
     assert_eq!(notifications.deliver_pending(1).await.unwrap(), 0);
-    assert_eq!(notifications.mark_read(c, mail_rows[0].id).await.unwrap(), false);
+    assert_eq!(
+        notifications.mark_read(c, mail_rows[0].id).await.unwrap(),
+        false
+    );
     assert!(notifications.mark_read(b, mail_rows[0].id).await.unwrap());
     assert!(notifications.mark_read(b, mail_rows[0].id).await.unwrap());
 
     // The sender cannot send after block; a committed earlier message's
     // queued notification also cannot cross a subsequently committed block.
-    mail.send(a, conversation, "AFTER FIRST", &key(72)).await.unwrap();
+    mail.send(a, conversation, "AFTER FIRST", &key(72))
+        .await
+        .unwrap();
     mail.set_block(b, a, true).await.unwrap();
     notifications.deliver_pending(100).await.unwrap();
     assert_eq!(notifications.list(b, None, 50).await.unwrap().len(), 1);
-    assert_eq!(mail.send(a, conversation, "blocked", &key(73)).await,
-        Err(MailError::Blocked));
+    assert_eq!(
+        mail.send(a, conversation, "blocked", &key(73)).await,
+        Err(MailError::Blocked)
+    );
     mail.set_block(b, a, false).await.unwrap();
 
     // Friendship source events are transition-based, never per HTTP retry.
@@ -435,6 +462,11 @@ async fn e_08_notifications_outbox_once_on_replay_and_block() {
     assert_eq!(removed.len(), 2);
     assert_eq!(removed[0].title, "Удаление из друзей");
     assert_eq!(notifications.mark_all_read(c).await.unwrap(), 2);
-    assert!(notifications.list(c, None, 50).await.unwrap().iter().all(|n| n.is_read));
+    assert!(notifications
+        .list(c, None, 50)
+        .await
+        .unwrap()
+        .iter()
+        .all(|n| n.is_read));
     cleanup(&pool, &u).await;
 }

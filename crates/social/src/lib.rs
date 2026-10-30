@@ -5,8 +5,8 @@ pub mod domain;
 pub mod repositories {
     pub mod friendships;
     pub mod mail;
-    pub mod notifications;
-    pub(super) mod notification_events;
     mod messages;
+    pub(super) mod notification_events;
+    pub mod notifications;
 }
 pub mod services;

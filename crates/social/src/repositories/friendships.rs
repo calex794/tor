@@ -1,5 +1,8 @@
 //! E-06 friendship mechanics from NEwBOO; shares the E-08 pair-lock with mail.
-use super::{mail::{blocked, foreign_or_unavailable, pair_lock, unavailable}, notification_events};
+use super::{
+    mail::{blocked, foreign_or_unavailable, pair_lock, unavailable},
+    notification_events,
+};
 use crate::domain::MailError;
 use sqlx::PgPool;
 
@@ -111,9 +114,16 @@ impl PgFriendships {
         };
         if let Some((kind, recipient)) = event {
             notification_events::queue(
-                &mut tx, kind, "social_friendship", low,
-                actor, recipient, actor, None,
-            ).await?;
+                &mut tx,
+                kind,
+                "social_friendship",
+                low,
+                actor,
+                recipient,
+                actor,
+                None,
+            )
+            .await?;
         }
         tx.commit().await.map_err(unavailable)?;
         Ok(result)
@@ -144,9 +154,16 @@ impl PgFriendships {
             .map_err(unavailable)?;
         if was_friends {
             notification_events::queue(
-                &mut tx, "social.friendship.removed", "social_friendship",
-                actor.min(peer), actor, peer, actor, None,
-            ).await?;
+                &mut tx,
+                "social.friendship.removed",
+                "social_friendship",
+                actor.min(peer),
+                actor,
+                peer,
+                actor,
+                None,
+            )
+            .await?;
         }
         tx.commit().await.map_err(unavailable)
     }

@@ -97,31 +97,40 @@ impl PgNotifications {
             } else {
                 object_id == actor
             };
-            if user_exists && !is_blocked && actor > 0 && recipient > 0 && actor != recipient && member {
-                let name: String = sqlx::query_scalar(
-                    "SELECT display_name FROM users WHERE id=$1",
-                )
-                .bind(actor)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(unavailable)?;
+            if user_exists
+                && !is_blocked
+                && actor > 0
+                && recipient > 0
+                && actor != recipient
+                && member
+            {
+                let name: String = sqlx::query_scalar("SELECT display_name FROM users WHERE id=$1")
+                    .bind(actor)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(unavailable)?;
                 let (category, title, body, url) = match kind.as_str() {
                     "social.mail.created" => (
-                        "mail", "Новое сообщение",
-                        format!("{name} написал вам"), format!("/mail/{object_id}"),
+                        "mail",
+                        "Новое сообщение",
+                        format!("{name} написал вам"),
+                        format!("/mail/{object_id}"),
                     ),
                     "social.friendship.requested" => (
-                        "friendship", "Новая заявка в друзья",
+                        "friendship",
+                        "Новая заявка в друзья",
                         format!("{name} хочет добавить вас в друзья."),
                         format!("/users/{}", encode_segment(&name)),
                     ),
                     "social.friendship.accepted" => (
-                        "friendship", "Заявка в друзья принята",
+                        "friendship",
+                        "Заявка в друзья принята",
                         format!("{name} теперь у вас в друзьях."),
                         format!("/users/{}", encode_segment(&name)),
                     ),
                     "social.friendship.removed" => (
-                        "friendship", "Удаление из друзей",
+                        "friendship",
+                        "Удаление из друзей",
                         format!("{name} удалил вас из друзей."),
                         format!("/users/{}", encode_segment(&name)),
                     ),
@@ -195,10 +204,18 @@ impl PgNotifications {
         .fetch_all(&self.pool)
         .await
         .map_err(unavailable)?;
-        Ok(rows.into_iter().map(|r| UserNotification {
-            id: r.0, kind: r.1, title: r.2, body: r.3,
-            url: r.4, created_at: r.5, is_read: r.6,
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| UserNotification {
+                id: r.0,
+                kind: r.1,
+                title: r.2,
+                body: r.3,
+                url: r.4,
+                created_at: r.5,
+                is_read: r.6,
+            })
+            .collect())
     }
 
     pub async fn mark_read(&self, actor: i64, id: i64) -> Result<bool, MailError> {
@@ -253,7 +270,10 @@ mod tests {
 
     #[test]
     fn profile_notification_link_is_one_encoded_path_segment() {
-        assert_eq!(encode_segment("Алиса / Боб"), "%D0%90%D0%BB%D0%B8%D1%81%D0%B0%20%2F%20%D0%91%D0%BE%D0%B1");
+        assert_eq!(
+            encode_segment("Алиса / Боб"),
+            "%D0%90%D0%BB%D0%B8%D1%81%D0%B0%20%2F%20%D0%91%D0%BE%D0%B1"
+        );
         assert_eq!(encode_segment("//evil.example"), "%2F%2Fevil.example");
     }
 }
