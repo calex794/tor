@@ -30,7 +30,7 @@ fn redirect_to_source(state: &AuthState, headers: &HeaderMap) -> Response {
     // A forged Referer must never turn a successful POST into an open redirect.
     let destination = headers.get(header::REFERER)
         .and_then(|h| h.to_str().ok())
-        .and_then(|value| value.strip_prefix(&state.cookies.origin))
+        .and_then(|value| value.strip_prefix(state.cookies.origin.as_str()))
         .filter(|path| path.starts_with("/users/") || path.starts_with("/mail/"))
         .unwrap_or("/mail");
     private_response(Redirect::to(destination), &[])
