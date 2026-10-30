@@ -73,6 +73,23 @@ module.exports = async (browser, base, out) => {
       await b.page.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
       await b.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
       await a.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
+      // A transcript longer than the initial 50-message page: older AJAX prepends
+      // into the current transcript without losing recent messages or duplicating IDs.
+      for (let n = 0; n < 53; n++) {
+        const reply = await a.context.request.post(base + conversation + '/messages', {
+          form: { body: 'История ' + n, client_message_id: 'history-' + name + '-' + n,
+            csrf_token: submitted.csrf_token }, headers: {Origin: base}, maxRedirects: 0,
+        });
+        assert.equal(reply.status(), 303);
+      }
+      await a.page.reload();
+      assert.equal(await a.page.locator('[data-message-id]').count(), 50);
+      await a.page.getByRole('link', {name: 'Предыдущие сообщения', exact: true}).click();
+      await a.page.waitForFunction(() => document.querySelectorAll('[data-message-id]').length === 55);
+      assert.equal(await a.page.locator('[data-message-id]').count(), 55);
+      assert.equal(await a.page.locator('.mail-message-body').filter({hasText: marker}).count(), 2);
+      const messageIds = await a.page.locator('[data-message-id]').evaluateAll(els => els.map(e => e.dataset.messageId));
+      assert.equal(new Set(messageIds).size, 55);
       await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
       await a.page.waitForURL(base + conversation);
       await b.page.reload();
@@ -96,7 +113,7 @@ module.exports = async (browser, base, out) => {
         form: submitted, headers: { Origin: base }, maxRedirects: 0,
       })).status(), 403, 'only blocker can remove their block');
       await a.page.reload();
-      assert.equal(await a.page.locator('[data-message-id]').count(), 2, 'blocked participants retain the old history');
+      assert.equal(await a.page.locator('[data-message-id]').count(), 50, 'blocked participants retain the latest history page');
       await a.page.screenshot({ path: path.join(out, `mail-blocked-${name}.png`), fullPage: true });
       await b.page.getByRole('button', { name: 'Снять мою блокировку', exact: true }).click();
       await b.page.waitForURL(base + conversation);
@@ -111,7 +128,8 @@ module.exports = async (browser, base, out) => {
         const plain = await noJs.newPage();
         await plain.goto(base + conversation);
         await plain.getByLabel('Ваше сообщение', { exact: true }).fill('Без JavaScript ' + name);
-        await plain.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
+        // Native keyboard submit avoids smooth-scroll animation on a long transcript.
+        await plain.getByRole('button', { name: 'Отправить сообщение', exact: true }).press('Enter');
         await plain.waitForURL(base + conversation);
         assert((await plain.locator('#mail-messages').innerText()).includes('Без JavaScript ' + name));
       } finally { await noJs.close(); }
