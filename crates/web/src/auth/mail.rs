@@ -148,9 +148,8 @@ pub(super) async fn conversation(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let key = generate_session_token();
     let mut response = private_response(
-        super::mail_pages::conversation(actor, id, &page, &peer_name, &csrf, &key),
+        super::mail_pages::conversation(actor, id, &page, &peer_name, &csrf),
         &cookies,
     );
     response.headers_mut().insert("content-security-policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"));
