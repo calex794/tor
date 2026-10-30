@@ -51,6 +51,7 @@ mod checkout;
 mod complete_chapter;
 mod continuation_demand;
 mod library_actions;
+mod inbox;
 mod login_limiter;
 mod paid_completion;
 mod private_reader;
@@ -176,6 +177,8 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/me/inbox", get(inbox::page))
+        .route("/api/v1/me/inbox", get(inbox::api))
         .route(
             "/me/replies/{id}/read-state",
             post(reply_read_state::submit),
