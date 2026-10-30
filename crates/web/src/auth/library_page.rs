@@ -63,4 +63,3 @@ pub(super) async fn my_library(
     );
     private_response(page, &cookies)
 }
-
