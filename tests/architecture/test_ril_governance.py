@@ -48,24 +48,6 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
-    def test_mail_block_cannot_lose_the_authenticated_actor(self):
-        self.mutate(
-            "crates/web/src/auth/mail.rs",
-            ".set_block(actor, page.peer_id, form.blocked)",
-            ".set_block(page.peer_id, form.blocked)",
-            start="pub(super) async fn block(",
-        )
-        self.assert_detected("missing actor-bound scoped repository call")
-
-    def test_mail_csrf_guard_removal_is_detected(self):
-        self.mutate(
-            "crates/web/src/auth/mail.rs",
-            "state.cookies.valid_csrf(headers, t)",
-            "state.cookies.valid_csrf_skip(headers, t)",
-            start="fn csrf(",
-        )
-        self.assert_detected("missing Origin+CSRF rejection")
-
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",
@@ -246,6 +228,77 @@ class RilGovernanceTests(unittest.TestCase):
             "state.cookies.same_origin(headers)",
             "state.cookies.same_origin_bypass(headers)",
             start="async fn write(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_release_read_state_requires_actor_bound_repository_call(self):
+        self.mutate(
+            "crates/web/src/auth/follow_read_state.rs",
+            "state.follow_updates.set_read_state(actor, id, read)",
+            "state.follow_updates.set_read_state(id, read)",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_release_read_state_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/follow_read_state.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+
+    def test_reset_request_cannot_lose_csrf_guard(self):
+        self.mutate("crates/web/src/auth/password_reset.rs", ".valid_csrf(", ".ignored_csrf(", start="pub(super) async fn request(")
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_reset_confirmation_cannot_lose_rate_limit(self):
+        self.mutate("crates/web/src/auth/password_reset.rs", "login_limiter::limit(", "removed_limiter(", start="pub(super) async fn confirm(")
+        self.assert_detected("missing distributed recovery rate limit")
+
+    def test_recovery_exception_is_restricted_to_two_reviewed_routes(self):
+        target = self.root / INVENTORY
+        data = json.loads(target.read_text())
+        row = next(r for r in data["routes"] if r["template"] == "/api/v1/me" and r["method"] == "PATCH")
+        row["policy"] = "recovery"
+        target.write_text(json.dumps(data))
+        self.assert_detected("recovery exception is not allowed here")
+    def test_delivery_preferences_save_is_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            ".set_delivery_preference(actor, mode)",
+            ".set_delivery_preference(mode)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_delivery_preferences_save_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+
+    def test_mail_block_cannot_lose_the_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            ".set_block(actor, page.peer_id, form.blocked)",
+            ".set_block(page.peer_id, form.blocked)",
+            start="pub(super) async fn block(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_mail_csrf_guard_removal_is_detected(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            "state.cookies.valid_csrf(headers, t)",
+            "state.cookies.valid_csrf_skip(headers, t)",
+            start="fn csrf(",
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
