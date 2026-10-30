@@ -397,6 +397,22 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         CreateResult::Created(id) => id,
         other => panic!("{other:?}"),
     };
+    // E-03: Inbox uses the exact same canonical replies, read markers and actor guard.
+    let inbox = tor_discussions::services::inbox::InboxService::new(pool.clone());
+    use tor_discussions::services::inbox::InboxFilter;
+    let all = inbox.list(users[0], InboxFilter::All, None, 1).await.unwrap();
+    assert_eq!(all.items.len(), 1);
+    assert_eq!(all.items[0].reply.comment_id, second);
+    assert!(all.items[0].created_at.ends_with("Z"));
+    assert_eq!(inbox.list(users[1], InboxFilter::All, None, 25).await.unwrap().items.len(), 0);
+    assert_eq!(inbox.list(users[0], InboxFilter::Unread, None, 25).await.unwrap().items.len(), 2);
+    assert_eq!(inbox.list(users[0], InboxFilter::Read, None, 25).await.unwrap().items.len(), 0);
+    assert_eq!(inbox.list(users[0], InboxFilter::All, Some(second), 25).await.unwrap().items[0].reply.comment_id, reply);
+    assert_eq!(repo.set_reply_read_state(users[0], second, true).await, ReadStateResult::Updated);
+    assert_eq!(inbox.list(users[0], InboxFilter::Read, None, 25).await.unwrap().items.len(), 1);
+    assert_eq!(inbox.list(users[0], InboxFilter::Unread, None, 25).await.unwrap().items.len(), 1);
+    assert!(inbox.list(users[0], InboxFilter::All, Some(-1), 25).await.is_err());
+    assert!(inbox.list(users[0], InboxFilter::All, None, 51).await.is_err());
     let bounded = repo.received_replies(users[0], 1).await.unwrap();
     assert_eq!(bounded.len(), 1);
     assert_eq!(bounded[0].comment_id, second);
