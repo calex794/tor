@@ -97,8 +97,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
-    let mut pending_achievements_consumer: Option<tor_recommendations::repositories::PgAchievements> =
-        None;
+    let mut pending_achievements_consumer: Option<
+        tor_recommendations::repositories::PgAchievements,
+    > = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -109,8 +110,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
-                pending_achievements_consumer =
-                    Some(tor_recommendations::repositories::PgAchievements::new(pool.clone()));
+                pending_achievements_consumer = Some(
+                    tor_recommendations::repositories::PgAchievements::new(pool.clone()),
+                );
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.

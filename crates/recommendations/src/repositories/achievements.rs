@@ -85,9 +85,7 @@ impl PgAchievements {
     }
 
     /// Bounded polling: no second queue, and never claim other consumers' work.
-    pub async fn pending_completion_event_ids(
-        &self,
-    ) -> Result<Vec<String>, AchievementStoreError> {
+    pub async fn pending_completion_event_ids(&self) -> Result<Vec<String>, AchievementStoreError> {
         Ok(sqlx::query_scalar(
             "SELECT e.id::text
              FROM outbox_events AS e

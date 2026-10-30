@@ -1,9 +1,7 @@
 //! F-12 / S046: real PostgreSQL achievements from trusted C completion facts.
 //! Only a disposable tor_ci DB; no server, wallet or production migrations.
 use sqlx::PgPool;
-use tor_recommendations::repositories::{
-    AchievementStoreError, PgAchievements,
-};
+use tor_recommendations::repositories::{AchievementStoreError, PgAchievements};
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in tor_ci"]
@@ -87,7 +85,9 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
     assert_eq!(view.badges[0].definition.key, "reader_chapters_1");
     assert!(view.badges[0].unlocked_on.is_some());
     assert!(view.badges[1].unlocked_on.is_none());
-    assert!(repo.snapshot(99702).await.unwrap().badges[0].unlocked_on.is_none());
+    assert!(repo.snapshot(99702).await.unwrap().badges[0]
+        .unlocked_on
+        .is_none());
     let actual_grants: i64 =
         sqlx::query_scalar("SELECT count(*) FROM user_achievement_grants WHERE user_id=99701")
             .fetch_one(&pool)
@@ -103,13 +103,12 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
     .await
     .unwrap();
     assert_eq!(receipts, 1);
-    let delivered: bool = sqlx::query_scalar(
-        "SELECT delivered_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid",
-    )
-    .bind(&event_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let delivered: bool =
+        sqlx::query_scalar("SELECT delivered_at IS NOT NULL FROM outbox_events WHERE id=$1::uuid")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert!(delivered, "the sole required consumer was acknowledged");
 
     // Without C's independent canonical completion, an outbox JSON object

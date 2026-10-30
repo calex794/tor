@@ -141,7 +141,10 @@ fn render_my_account(
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
         .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf))
-        .replace("<!--READER_ACHIEVEMENTS-->", &reader_achievements(achievements));
+        .replace(
+            "<!--READER_ACHIEVEMENTS-->",
+            &reader_achievements(achievements),
+        );
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
     Html(
@@ -157,7 +160,6 @@ fn render_my_account(
     )
 }
 
-
 fn reader_achievements(snapshot: Option<&ReaderAchievements>) -> String {
     let Some(snapshot) = snapshot else {
         return "<p class=\"ui-section-header__text\">Достижения появятся после подтверждённого чтения.</p>"
@@ -167,7 +169,11 @@ fn reader_achievements(snapshot: Option<&ReaderAchievements>) -> String {
     for badge in &snapshot.badges {
         let definition = badge.definition;
         let done = badge.unlocked_on.is_some();
-        let status = if done { "Получено" } else { "Пока не получено" };
+        let status = if done {
+            "Получено"
+        } else {
+            "Пока не получено"
+        };
         let progress = snapshot.completed_chapters.min(definition.threshold);
         cards.push_str(&format!(
             "<article class=\"dashboard-tile dashboard-tile--reader\">\
@@ -317,7 +323,9 @@ mod tests {
         assert!(page.contains("Дата получения: 2026-10-31"));
         assert!(!page.contains("<!--READER_ACHIEVEMENTS-->"));
         assert!(!page.contains("source_event_id"));
-        assert!(!my_account("Reader", "csrf", &[]).0.contains("Получено: 1/1 глав"));
+        assert!(!my_account("Reader", "csrf", &[])
+            .0
+            .contains("Получено: 1/1 глав"));
     }
 
     #[test]
