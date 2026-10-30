@@ -727,6 +727,21 @@ export async function startPaidReader(root) {
       resume.textContent = "Не удалось сохранить место. Обновите страницу и повторите.";
     }
   }, showPrivateImage);
+  // A server-issued S3 URL is NOT a verified reader opening. Report only
+  // after S3, AES-GCM and plaintext checks and actual DOM text rendering.
+  // Lost ACKs remain UNKNOWN; never claim a user failed to read on that basis.
+  let openConfirmed = false;
+  try {
+    const receipt = await api(
+      "/api/v1/reader/chapters/" + chapter + "/open-confirmations",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ purchase_id: purchase, version_id: versionId }),
+      }
+    );
+    openConfirmed = receipt.status === "recorded";
+  } catch { /* retain displayed content; don't infer absence of use */ }
   // A BFCache return must ask D again, not resurrect decrypted text and Blob
   // URLs from a previously authorized purchase that may have been refunded.
   window.addEventListener("pagehide", () => {
@@ -791,7 +806,9 @@ export async function startPaidReader(root) {
     });
     completion.replaceChildren(button, message);
   }
-  status.textContent = "Оплаченная версия " + versionId + " · Защищённая загрузка завершена";
+  status.textContent = openConfirmed
+    ? "Оплаченная версия " + versionId + " · Глава открыта"
+    : "Глава открыта, но подтверждение открытия не записано. Проверьте соединение.";
 }
 
 if (typeof document !== "undefined") {

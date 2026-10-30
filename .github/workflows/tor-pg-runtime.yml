@@ -76,6 +76,32 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: I-14 upgrade exact PR base migration history into integrated schema
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TOR_BASE_MIGRATIONS_DIR: ${{ runner.temp }}/tor-pr-base/migrations
+          TOR_UPGRADE_DATABASE_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_test
+        run: |
+          set -euo pipefail
+          test "${#PR_BASE_SHA}" -eq 40
+          # Only the exact GitHub PR base snapshot: never a moving origin/main.
+          git fetch --quiet --no-tags --depth=1 origin "$PR_BASE_SHA"
+          git cat-file -e "$PR_BASE_SHA^{commit}"
+          mkdir -p "$RUNNER_TEMP/tor-pr-base"
+          git archive "$PR_BASE_SHA" migrations | tar -x -C "$RUNNER_TEMP/tor-pr-base"
+          test -f "$TOR_BASE_MIGRATIONS_DIR/SOURCES.tsv"
+          psql -X -v ON_ERROR_STOP=1 -d postgres \
+            -c 'CREATE DATABASE tor_test OWNER tor_migrator'
+          cargo test -p tor-migrations --test upgrade_from_pr_base_pg \
+            -- --ignored --test-threads=1
+      - name: I-16 verify independent Draft SQLx migrations on upgraded tor_test
+        if: github.event_name == 'pull_request'
+        env:
+          TOR_UPGRADE_DATABASE_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_test
+        run: |
+          cargo test -p tor-migrations --test i16_independent_sqlx_pg \
+            -- --ignored --test-threads=1
       - name: Reject app role as migrator and DDL writer
         run: |
           if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
@@ -182,6 +208,11 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_06_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_08_ -- --ignored --test-threads=1
+          TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_checkout_http_pg d_05_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored

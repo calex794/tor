@@ -21,7 +21,42 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 84);
+    assert_eq!(unique.len(), 94);
+}
+
+#[test]
+fn i16_merged_main_route_indexes_are_preserved() {
+    // Existing merged-main 75-83 routes never get new numeric identities.
+    // Layer is appended at 84-92, with paid ACK at 93.
+    for (index, template, method) in [
+        (75, "/api/v1/purchases/batch", "POST"),
+        (76, "/me/books/{id}/buy-chapters", "GET"),
+        (77, "/me/books/{id}/buy-chapters", "POST"),
+        (78, "/read/{id}/want-continuation", "POST"),
+        (79, "/me/books/{id}/follow", "POST"),
+        (80, "/me/books/{id}/unfollow", "POST"),
+        (81, "/me/replies/{id}/read-state", "POST"),
+        (82, "/me/inbox", "GET"),
+        (83, "/api/v1/me/inbox", "GET"),
+        (84, "/read/layer/{chapter_id}", "GET"),
+        (92, "/me/layers/{layer_id}/offer", "POST"),
+        (
+            93,
+            "/api/v1/reader/chapters/{chapter_id}/open-confirmations",
+            "POST",
+        ),
+    ] {
+        let registration = &registry()[index];
+        assert_eq!(
+            (registration.template, registration.method),
+            (template, method)
+        );
+        let classified = classify(Some(template), method);
+        assert!(classified.route_known);
+        assert_eq!(classified.route_family, registration.family);
+        assert_eq!(classified.product_area, registration.area);
+        assert_eq!(classified.cost_class, registration.cost);
+    }
 }
 
 #[test]
