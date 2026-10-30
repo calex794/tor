@@ -66,6 +66,7 @@ TEST_SUITES = {
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
+    "crates/ingest/tests/release_recipient_batches_pg.rs": {"rust", "postgres"},
     "crates/storage/tests/crypto_webcrypto.mjs": {"crypto"},
     "crates/storage/tests/private_objects.rs": {"rust", "crypto"},
     "crates/storage/tests/s3_private_provider.rs": {"rust", "storage_s3"},

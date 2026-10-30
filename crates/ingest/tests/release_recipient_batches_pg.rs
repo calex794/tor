@@ -92,9 +92,18 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
 
     let selector = PgReleaseRecipients::new(pool.clone());
     assert_eq!(RECIPIENT_BATCH_SIZE, 100);
-    assert_eq!(selector.next_batch(0, None).await, Err(RecipientError::Invalid));
-    assert_eq!(selector.next_batch(chapter, Some(-1)).await, Err(RecipientError::Invalid));
-    assert_eq!(selector.still_candidate(chapter, 0).await, Err(RecipientError::Invalid));
+    assert_eq!(
+        selector.next_batch(0, None).await,
+        Err(RecipientError::Invalid)
+    );
+    assert_eq!(
+        selector.next_batch(chapter, Some(-1)).await,
+        Err(RecipientError::Invalid)
+    );
+    assert_eq!(
+        selector.still_candidate(chapter, 0).await,
+        Err(RecipientError::Invalid)
+    );
     let mut seen = Vec::new();
     let mut sizes = Vec::new();
     let mut cursor = None;
@@ -119,7 +128,8 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
     assert_eq!(sizes, vec![100, 100, 1]);
     assert_eq!(seen, followers, "the 101st and 201st are never omitted");
     assert_eq!(seen.iter().copied().collect::<HashSet<_>>().len(), 201);
-    assert!(selector.next_batch(chapter, Some(followers[200]))
+    assert!(selector
+        .next_batch(chapter, Some(followers[200]))
         .await
         .unwrap()
         .items
@@ -130,15 +140,16 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
     );
 
     // A read marker is not an unsubscribe or a delivery receipt.
-    sqlx::query(
-        "INSERT INTO reader_follow_notification_reads(user_id,chapter_id) VALUES($1,$2)",
-    )
-    .bind(followers[0])
-    .bind(chapter)
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert!(selector.still_candidate(chapter, followers[0]).await.unwrap());
+    sqlx::query("INSERT INTO reader_follow_notification_reads(user_id,chapter_id) VALUES($1,$2)")
+        .bind(followers[0])
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(selector
+        .still_candidate(chapter, followers[0])
+        .await
+        .unwrap());
     let late: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'Late Reader','$argon2id$fixture') RETURNING id",
@@ -160,9 +171,18 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!selector.still_candidate(chapter, followers[100]).await.unwrap());
-    assert!(selector.still_candidate(chapter, followers[200]).await.unwrap());
-    let suffix = selector.next_batch(chapter, Some(followers[99])).await.unwrap();
+    assert!(!selector
+        .still_candidate(chapter, followers[100])
+        .await
+        .unwrap());
+    assert!(selector
+        .still_candidate(chapter, followers[200])
+        .await
+        .unwrap());
+    let suffix = selector
+        .next_batch(chapter, Some(followers[99]))
+        .await
+        .unwrap();
     assert_eq!(suffix.items.len(), 100);
     assert_eq!(suffix.items.last().unwrap().user_id, followers[200]);
 
@@ -171,7 +191,12 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(selector.next_batch(chapter, None).await.unwrap().items.is_empty());
+    assert!(selector
+        .next_batch(chapter, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -182,7 +207,10 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!selector.still_candidate(chapter, followers[0]).await.unwrap());
+    assert!(!selector
+        .still_candidate(chapter, followers[0])
+        .await
+        .unwrap());
     sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
         .bind(chapter)
         .execute(&pool)
@@ -193,15 +221,22 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
         .execute(&pool)
         .await
         .unwrap();
-    let release_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let release_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(release_count, 1);
-    assert_eq!(selector.next_batch(chapter, None).await.unwrap().items.len(), 100);
+    assert_eq!(
+        selector
+            .next_batch(chapter, None)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        100
+    );
 
     // Paid chapter is invisible before verified encrypted storage is attached.
     let paid: i64 = sqlx::query_scalar(
@@ -226,15 +261,18 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_first_release_events(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(paid)
-    .bind(paid_version)
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert!(selector.next_batch(paid, None).await.unwrap().items.is_empty());
+    sqlx::query("INSERT INTO chapter_first_release_events(chapter_id,version_id) VALUES($1,$2)")
+        .bind(paid)
+        .bind(paid_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(selector
+        .next_batch(paid, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     let object_id: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
         .fetch_one(&pool)
         .await
@@ -278,8 +316,14 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
     .unwrap();
     let paid_page = selector.next_batch(paid, None).await.unwrap();
     assert_eq!(paid_page.items.len(), 100);
-    assert!(paid_page.items.iter().all(|r| r.is_paid && r.price_minor == 19900));
-    assert!(selector.still_candidate(paid, followers[200]).await.unwrap());
+    assert!(paid_page
+        .items
+        .iter()
+        .all(|r| r.is_paid && r.price_minor == 19900));
+    assert!(selector
+        .still_candidate(paid, followers[200])
+        .await
+        .unwrap());
     assert!(!selector.still_candidate(paid, late).await.unwrap());
 
     // CI destroys its disposable database. Never delete permanent book records.

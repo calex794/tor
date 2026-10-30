@@ -62,14 +62,22 @@ impl PgReleaseRecipients {
             .into_iter()
             .map(|row| {
                 Ok(ReleaseRecipient {
-                    user_id: row.try_get("user_id").map_err(|_| RecipientError::Unavailable)?,
-                    book_id: row.try_get("book_id").map_err(|_| RecipientError::Unavailable)?,
-                    chapter_id: row.try_get("chapter_id").map_err(|_| RecipientError::Unavailable)?,
+                    user_id: row
+                        .try_get("user_id")
+                        .map_err(|_| RecipientError::Unavailable)?,
+                    book_id: row
+                        .try_get("book_id")
+                        .map_err(|_| RecipientError::Unavailable)?,
+                    chapter_id: row
+                        .try_get("chapter_id")
+                        .map_err(|_| RecipientError::Unavailable)?,
                     is_paid: row
                         .try_get::<String, _>("access_level")
                         .map_err(|_| RecipientError::Unavailable)?
                         == "paid",
-                    price_minor: row.try_get("price_minor").map_err(|_| RecipientError::Unavailable)?,
+                    price_minor: row
+                        .try_get("price_minor")
+                        .map_err(|_| RecipientError::Unavailable)?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -80,7 +88,10 @@ impl PgReleaseRecipients {
         } else {
             None
         };
-        Ok(RecipientBatch { items, next_after_user })
+        Ok(RecipientBatch {
+            items,
+            next_after_user,
+        })
     }
 
     /// Recheck the current follow and release visibility before any future effect.
