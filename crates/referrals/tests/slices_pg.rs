@@ -32,7 +32,7 @@ async fn seed_user(pool: &PgPool, role: &str) -> i64 {
     let email = format!("f09-{role}-{stamp}@example.invalid");
     sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash) \
-         VALUES($1,'F09 fixture','not-a-real-password') RETURNING id",
+         VALUES($1,'F09 fixture','$argon2id$test') RETURNING id",
     )
     .bind(email)
     .fetch_one(pool)
