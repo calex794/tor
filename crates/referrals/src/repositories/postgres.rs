@@ -1,5 +1,5 @@
 //! PostgreSQL-owned referral persistence. No financial posting is allowed here.
-use sqlx::{PgPool, Row};
+use sqlx::{postgres::PgRow, PgPool, Row};
 
 #[derive(Clone)]
 pub struct PgReferrals {
@@ -11,6 +11,28 @@ pub enum CaptureResult {
     Saved,
     Existing,
     Invalid,
+}
+
+/// The payout owner and program are copied from signup-time evidence;
+/// replay must never select a different sponsor from mutable code status.
+struct ReferralCandidate {
+    code: String,
+    referrer: i64,
+    program: String,
+    capture: Option<i64>,
+    source: String,
+}
+
+impl ReferralCandidate {
+    fn from_row(row: PgRow, source: &str) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            code: row.try_get("code")?,
+            referrer: row.try_get("owner_user_id")?,
+            program: row.try_get("program_type")?,
+            capture: row.try_get("capture_id")?,
+            source: source.to_owned(),
+        })
+    }
 }
 
 impl PgReferrals {
@@ -77,13 +99,16 @@ impl PgReferrals {
         })
     }
 
-    /// Durable A-owned outbox is always committed by account registration.
-    /// F consumes the row with transaction and row lock: a replay cannot
-    /// change the selected inviter or create duplicate attributions.
+    /// Account registration commits the selected inviter with its outbox.
+    /// A delayed consumer MUST replay that decision, not mutable code status.
+    /// Old/test outbox rows without a snapshot use the historical resolver.
     pub async fn finalize_one(&self, user_id: i64) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let pending = sqlx::query(
-            "SELECT guest_hash,manual_code FROM account_registration_referral_outbox \
+            "SELECT guest_hash,manual_code,decided_at_registration,
+                    decided_referral_code,decided_referrer_user_id,
+                    decided_program_type,decided_capture_id,decided_source
+             FROM account_registration_referral_outbox
              WHERE user_id=$1 AND processed_at IS NULL FOR UPDATE",
         )
         .bind(user_id)
@@ -93,86 +118,108 @@ impl PgReferrals {
             tx.commit().await?;
             return Ok(false);
         };
-        let guest_hash: Option<Vec<u8>> = pending.try_get("guest_hash")?;
-        let manual: Option<String> = pending.try_get("manual_code")?;
-        let candidate = if let Some(ref code) = manual {
-            let manual_candidate = sqlx::query(
-                "SELECT c.code,c.owner_user_id,c.program_type,NULL::bigint AS capture_id \
-                 FROM referral_codes c \
-                 JOIN account_registration_referral_outbox o ON o.user_id=$2 \
-                 WHERE c.code=$1 AND c.status='active' \
-                   AND c.created_at <= o.registered_at",
-            )
-            .bind(code)
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if manual_candidate.is_some() {
-                manual_candidate.map(|row| (row, "manual_code_at_registration"))
+
+        let candidate = if pending.try_get::<bool, _>("decided_at_registration")? {
+            let code: Option<String> = pending.try_get("decided_referral_code")?;
+            if let Some(code) = code {
+                // CHECK constraints guarantee an all-or-nothing decision.
+                let missing = || sqlx::Error::Protocol(
+                    "incomplete committed referral decision".to_owned(),
+                );
+                Some(ReferralCandidate {
+                    code,
+                    referrer: pending
+                        .try_get::<Option<i64>, _>("decided_referrer_user_id")?
+                        .ok_or_else(missing)?,
+                    program: pending
+                        .try_get::<Option<String>, _>("decided_program_type")?
+                        .ok_or_else(missing)?,
+                    capture: pending.try_get("decided_capture_id")?,
+                    source: pending
+                        .try_get::<Option<String>, _>("decided_source")?
+                        .ok_or_else(missing)?,
+                })
             } else {
+                // No eligible invitation existed when the account committed.
+                // Later clicks or codes must not retroactively claim the user.
                 None
             }
         } else {
-            None
-        };
-        let candidate = if candidate.is_some() {
+            let manual: Option<String> = pending.try_get("manual_code")?;
+            let guest_hash: Option<Vec<u8>> = pending.try_get("guest_hash")?;
+            let mut candidate = None;
+            if let Some(code) = manual {
+                candidate = sqlx::query(
+                    "SELECT c.code,c.owner_user_id,c.program_type,
+                            NULL::bigint AS capture_id
+                     FROM referral_codes c
+                     JOIN account_registration_referral_outbox o ON o.user_id=$2
+                     WHERE c.code=$1 AND c.status='active'
+                       AND c.created_at <= o.registered_at",
+                )
+                .bind(code)
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .map(|row| ReferralCandidate::from_row(row, "manual_code_at_registration"))
+                .transpose()?;
+            }
+            if candidate.is_none() {
+                if let Some(hash) = guest_hash {
+                    candidate = sqlx::query(
+                        "SELECT c.code,c.owner_user_id,c.program_type,
+                                r.id AS capture_id
+                         FROM referral_captures r
+                         JOIN referral_codes c ON c.code=r.referral_code
+                         JOIN account_registration_referral_outbox o ON o.user_id=$2
+                         WHERE r.guest_hash=$1
+                           AND r.status IN ('active','expired','consumed')
+                           AND r.captured_at <= o.registered_at
+                           AND r.expires_at > o.registered_at
+                           AND c.status='active'
+                         ORDER BY r.captured_at ASC,r.id ASC LIMIT 1",
+                    )
+                    .bind(hash)
+                    .bind(user_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .map(|row| ReferralCandidate::from_row(row, "guest_capture"))
+                    .transpose()?;
+                }
+            }
             candidate
-        } else if let Some(ref hash) = guest_hash {
-            sqlx::query(
-                "SELECT c.code,c.owner_user_id,c.program_type,r.id AS capture_id \
-                 FROM referral_captures r JOIN referral_codes c ON c.code=r.referral_code \
-                 JOIN account_registration_referral_outbox o ON o.user_id=$2 \
-                 WHERE r.guest_hash=$1 AND r.status IN ('active','expired','consumed') \
-                   AND r.captured_at <= o.registered_at AND r.expires_at > o.registered_at \
-                   AND c.status='active' \
-                 ORDER BY r.captured_at ASC, r.id ASC LIMIT 1",
-            )
-            .bind(hash)
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .map(|row| (row, "guest_capture"))
-        } else {
-            None
         };
+
         let mut attributed = false;
-        if let Some((row, source)) = candidate {
-            let referrer: i64 = row.try_get("owner_user_id")?;
-            if referrer != user_id {
-                let code: String = row.try_get("code")?;
-                let program: String = row.try_get("program_type")?;
-                let capture: Option<i64> = row.try_get("capture_id")?;
+        if let Some(candidate) = candidate {
+            if candidate.referrer != user_id {
                 let affected = sqlx::query(
-                    "INSERT INTO referral_attributions \
-                     (program_type,subject_user_id,referrer_user_id,referral_code, \
-                      source_capture_id,attribution_source,attributed_at,expires_at) \
-                     SELECT $1,$2,$3,$4,$5,$6,registered_at, \
-                      CASE WHEN $1='creator_income' \
-                           THEN registered_at + INTERVAL '365 days' ELSE NULL END \
-                     FROM account_registration_referral_outbox WHERE user_id=$2 \
+                    "INSERT INTO referral_attributions
+                     (program_type,subject_user_id,referrer_user_id,referral_code,
+                      source_capture_id,attribution_source,attributed_at,expires_at)
+                     SELECT $1,$2,$3,$4,$5,$6,registered_at,
+                       CASE WHEN $1='creator_income'
+                         THEN registered_at + INTERVAL '365 days' ELSE NULL END
+                     FROM account_registration_referral_outbox WHERE user_id=$2
                      ON CONFLICT(program_type,subject_user_id) DO NOTHING",
                 )
-                .bind(&program)
+                .bind(&candidate.program)
                 .bind(user_id)
-                .bind(referrer)
-                .bind(code)
-                .bind(capture)
-                .bind(source)
+                .bind(candidate.referrer)
+                .bind(&candidate.code)
+                .bind(candidate.capture)
+                .bind(&candidate.source)
                 .execute(&mut *tx)
                 .await?;
                 attributed = affected.rows_affected() == 1;
             }
         }
         sqlx::query(
-            "UPDATE account_registration_referral_outbox \
+            "UPDATE account_registration_referral_outbox
              SET processed_at=now(),result=$2 WHERE user_id=$1",
         )
         .bind(user_id)
-        .bind(if attributed {
-            "attributed"
-        } else {
-            "unattributed"
-        })
+        .bind(if attributed { "attributed" } else { "unattributed" })
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
