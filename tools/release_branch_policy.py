@@ -23,7 +23,7 @@ REVIEWED_RULESET_UPDATED = "2026-10-31T00:28:58.370+05:00"
 
 # GitHub can serialize the same ruleset updated_at in Z or an explicit
 # timezone offset. Pin the exact instant, not one textual representation.
-_RFC3339 = re.compile(r"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})\\Z")
+_RFC3339 = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})\Z")
 
 
 def _revision_instant(value: object) -> datetime | None:
@@ -42,8 +42,6 @@ def same_ruleset_revision(first: object, second: object) -> bool:
     second_instant = _revision_instant(second)
     return (first_instant is not None and second_instant is not None
             and first_instant == second_instant)
-
-
 
 def _ref_matches(ref: str) -> bool:
     return ref in {"~DEFAULT_BRANCH", "~ALL", "refs/heads/main"}
