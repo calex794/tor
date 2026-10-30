@@ -27,7 +27,9 @@ impl Options {
             match pair[0].as_str() {
                 "--blog" => blog = Some(pair[1].clone()),
                 "--limit" => limit = pair[1].parse().map_err(|_| ObserveError::InvalidConfig)?,
-                "--max-pages" => max_pages = pair[1].parse().map_err(|_| ObserveError::InvalidConfig)?,
+                "--max-pages" => {
+                    max_pages = pair[1].parse().map_err(|_| ObserveError::InvalidConfig)?
+                }
                 _ => return Err(ObserveError::InvalidConfig),
             }
         }
@@ -41,7 +43,11 @@ impl Options {
         if !valid_blog(&blog) {
             return Err(ObserveError::InvalidConfig);
         }
-        Ok(Self { blog, limit, max_pages })
+        Ok(Self {
+            blog,
+            limit,
+            max_pages,
+        })
     }
 }
 
@@ -66,8 +72,7 @@ async fn main() {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let options = Options::parse()?;
-    let token = env::var("TOR_BOOSTY_PROBE_TOKEN")
-        .map_err(|_| ObserveError::InvalidConfig)?;
+    let token = env::var("TOR_BOOSTY_PROBE_TOKEN").map_err(|_| ObserveError::InvalidConfig)?;
     let feed = BoostyEventFeed::new(&token)?;
     let mut cursor: Option<String> = None;
     let mut seen = HashSet::new();
@@ -76,7 +81,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut pages_read = 0;
     let mut complete = false;
     for _ in 0..options.max_pages {
-        let bytes = feed.fetch(&options.blog, options.limit, cursor.as_deref()).await?;
+        let bytes = feed
+            .fetch(&options.blog, options.limit, cursor.as_deref())
+            .await?;
         let page = parse_events(&bytes)?;
         pages_read += 1;
         rows_examined += page.rows_examined;

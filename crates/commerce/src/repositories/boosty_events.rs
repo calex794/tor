@@ -21,7 +21,10 @@ impl BoostyEventFeed {
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, authorization);
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        headers.insert(USER_AGENT, HeaderValue::from_static("TOR-Boosty-Observer/0.1"));
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("TOR-Boosty-Observer/0.1"),
+        );
         headers.insert("x-app", HeaderValue::from_static("web"));
         headers.insert("x-currency", HeaderValue::from_static("RUB"));
         headers.insert("x-locale", HeaderValue::from_static("ru_RU"));
@@ -36,10 +39,14 @@ impl BoostyEventFeed {
         Ok(Self { client })
     }
 
-    pub async fn fetch(&self, blog: &str, limit: usize, offset: Option<&str>)
-        -> Result<Vec<u8>, ObserveError>
-    {
-        if !valid_blog(blog) || !(1..=MAX_PAGE_ROWS).contains(&limit)
+    pub async fn fetch(
+        &self,
+        blog: &str,
+        limit: usize,
+        offset: Option<&str>,
+    ) -> Result<Vec<u8>, ObserveError> {
+        if !valid_blog(blog)
+            || !(1..=MAX_PAGE_ROWS).contains(&limit)
             || offset.is_some_and(|s| !valid_cursor(s))
         {
             return Err(ObserveError::InvalidConfig);
@@ -56,7 +63,10 @@ impl BoostyEventFeed {
         if !response.status().is_success() {
             return Err(ObserveError::HttpStatus(response.status().as_u16()));
         }
-        if response.content_length().is_some_and(|n| n > MAX_RESPONSE_BYTES as u64) {
+        if response
+            .content_length()
+            .is_some_and(|n| n > MAX_RESPONSE_BYTES as u64)
+        {
             return Err(ObserveError::ResponseTooLarge);
         }
         let mut body = Vec::new();

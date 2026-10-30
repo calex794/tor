@@ -69,18 +69,33 @@ fn fingerprint(bytes: &[u8]) -> String {
 
 fn candidate_fields(value: &Value) -> Vec<CandidateField> {
     const FIELDS: [&str; 12] = [
-        "id", "eventId", "event_id", "operationId", "operation_id",
-        "paymentId", "payment_id", "transactionId", "transaction_id",
-        "saleId", "sale_id", "chargeId",
+        "id",
+        "eventId",
+        "event_id",
+        "operationId",
+        "operation_id",
+        "paymentId",
+        "payment_id",
+        "transactionId",
+        "transaction_id",
+        "saleId",
+        "sale_id",
+        "chargeId",
     ];
-    FIELDS.into_iter().filter_map(|field| {
-        let raw = match value.get(field)? {
-            Value::String(s) if !s.is_empty() && s.len() <= 120 => s.clone(),
-            Value::Number(n) => n.to_string(),
-            _ => return None,
-        };
-        Some(CandidateField { field, sha256_prefix: fingerprint(raw.as_bytes()) })
-    }).collect()
+    FIELDS
+        .into_iter()
+        .filter_map(|field| {
+            let raw = match value.get(field)? {
+                Value::String(s) if !s.is_empty() && s.len() <= 120 => s.clone(),
+                Value::Number(n) => n.to_string(),
+                _ => return None,
+            };
+            Some(CandidateField {
+                field,
+                sha256_prefix: fingerprint(raw.as_bytes()),
+            })
+        })
+        .collect()
 }
 
 fn observe(value: &Value) -> Option<ObservedEvent> {
@@ -95,7 +110,9 @@ fn observe(value: &Value) -> Option<ObservedEvent> {
         Some(Value::String(text)) if text.len() <= 32 => Some(text.clone()),
         _ => None,
     };
-    let currency = value.get("currency").and_then(Value::as_str)
+    let currency = value
+        .get("currency")
+        .and_then(Value::as_str)
         .filter(|s| s.len() <= 5 && s.bytes().all(|b| b.is_ascii_uppercase()));
     Some(ObservedEvent {
         event_type: kind,
@@ -104,8 +121,11 @@ fn observe(value: &Value) -> Option<ObservedEvent> {
         amount_field_present: amount.is_some(),
         currency_raw: currency.map(str::to_owned),
         fee_paid_flag: value.get("isFeePaid").and_then(Value::as_bool),
-        has_payer_id: value.get("user").and_then(|u| u.get("id"))
-            .and_then(Value::as_i64).is_some_and(|id| id > 0),
+        has_payer_id: value
+            .get("user")
+            .and_then(|u| u.get("id"))
+            .and_then(Value::as_i64)
+            .is_some_and(|id| id > 0),
         candidate_identity_fields: candidate_fields(value),
         snapshot_sha256_prefix: fingerprint(value.to_string().as_bytes()),
     })
@@ -116,21 +136,26 @@ pub fn parse_events(body: &[u8]) -> Result<EventPage, ObserveError> {
     if body.len() > MAX_RESPONSE_BYTES {
         return Err(ObserveError::ResponseTooLarge);
     }
-    let payload: Value = serde_json::from_slice(body)
-        .map_err(|_| ObserveError::InvalidResponse)?;
-    let data = payload.get("data").and_then(Value::as_array)
+    let payload: Value = serde_json::from_slice(body).map_err(|_| ObserveError::InvalidResponse)?;
+    let data = payload
+        .get("data")
+        .and_then(Value::as_array)
         .ok_or(ObserveError::InvalidResponse)?;
     if data.len() > MAX_PAGE_ROWS || data.iter().any(|row| !row.is_object()) {
         return Err(ObserveError::InvalidResponse);
     }
     let extra = payload.get("extra").and_then(Value::as_object);
-    let is_last = extra.and_then(|m| m.get("isLast"))
-        .and_then(Value::as_bool).unwrap_or(false);
-    let next_offset = extra.and_then(|m| m.get("offset")).and_then(|cursor| match cursor {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    });
+    let is_last = extra
+        .and_then(|m| m.get("isLast"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let next_offset = extra
+        .and_then(|m| m.get("offset"))
+        .and_then(|cursor| match cursor {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        });
     if next_offset.as_deref().is_some_and(|s| !valid_cursor(s)) {
         return Err(ObserveError::Pagination);
     }
@@ -147,8 +172,10 @@ pub fn valid_cursor(s: &str) -> bool {
 }
 
 pub fn valid_blog(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 80 && s.bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    !s.is_empty()
+        && s.len() <= 80
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 #[cfg(test)]
@@ -186,19 +213,28 @@ mod tests {
         assert!(!valid_blog("blog?limit=300"));
         assert!(valid_blog("my_blog-1"));
         assert!(!valid_cursor("1&event_types=payout"));
-        assert_eq!(parse_events(br#"{"data":[],"extra":{"offset":"a?b"}}"#).unwrap_err(),
-                   ObserveError::Pagination);
-        assert_eq!(parse_events(br#"{"data":{}}"#).unwrap_err(),
-                   ObserveError::InvalidResponse);
-        assert_eq!(parse_events(&vec![b'x'; MAX_RESPONSE_BYTES + 1]).unwrap_err(),
-                   ObserveError::ResponseTooLarge);
+        assert_eq!(
+            parse_events(br#"{"data":[],"extra":{"offset":"a?b"}}"#).unwrap_err(),
+            ObserveError::Pagination
+        );
+        assert_eq!(
+            parse_events(br#"{"data":{}}"#).unwrap_err(),
+            ObserveError::InvalidResponse
+        );
+        assert_eq!(
+            parse_events(&vec![b'x'; MAX_RESPONSE_BYTES + 1]).unwrap_err(),
+            ObserveError::ResponseTooLarge
+        );
     }
 
     #[test]
     fn d_10_probe_does_not_treat_arbitrary_amount_as_rub_kopecks() {
-        let page = parse_events(br#"{"data":[
+        let page = parse_events(
+            br#"{"data":[
           {"eventType":"recurrent","amount":"unknown","user":{"id":1}}
-        ],"extra":{"isLast":true}}"#).unwrap();
+        ],"extra":{"isLast":true}}"#,
+        )
+        .unwrap();
         assert_eq!(page.events[0].amount_raw.as_deref(), Some("unknown"));
         assert!(page.events[0].candidate_identity_fields.is_empty());
         assert!(page.is_last);
