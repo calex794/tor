@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    CI_WORKFLOW, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
+    CI_REQUIRED_JOB, CI_WORKFLOW, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -57,7 +57,7 @@ class WorkflowWiringTests(unittest.TestCase):
             self.assertIn(f"  {event}", events)
         self.assertNotRegex(events, r"(?m)^\s+(paths|paths-ignore):")
         sections = job_sections(text)
-        self.assertEqual(set(sections), {"select"} | set(SUITE_JOB_IDS.values()))
+        self.assertEqual(set(sections), {"select", CI_REQUIRED_JOB} | set(SUITE_JOB_IDS.values()))
         self.assertEqual(text.count("    uses: ./.github/workflows/ci-selection.yml\n"), 1)
         self.assertIn("      caller: all\n", sections["select"])
         self.assertNotIn("pull_request_target:", text)
@@ -70,6 +70,20 @@ class WorkflowWiringTests(unittest.TestCase):
                               sections[job_id])
                 # Mirror every command, service, artifact and safety gate.
                 self.assertEqual(sections[job_id], job_sections(old)[job_id])
+
+    def test_stable_required_ci_waits_for_all_suites(self):
+        text = (WORKFLOWS / CI_WORKFLOW).read_text()
+        section = job_sections(text)[CI_REQUIRED_JOB]
+        deps = re.search(r"    needs:\n((?:      - [a-z0-9_-]+\n)+)", section)
+        self.assertIsNotNone(deps)
+        names = re.findall(r"^      - ([a-z0-9_-]+)$", deps.group(1), re.M)
+        expected = {"select"} | set(SUITE_JOB_IDS.values())
+        self.assertEqual(set(names), expected)
+        self.assertEqual(len(names), len(expected))
+        self.assertIn("    if: ${{ always() }}\n", section)
+        self.assertIn("TOR_CI_NEEDS_JSON: ${{ toJSON(needs) }}", section)
+        self.assertIn("run: python3 tools/verify_ci_gate.py", section)
+        self.assertIn("persist-credentials: false", section)
 
     def test_pr_only_concurrency_preserves_main_and_manual_runs(self):
         expected = (
