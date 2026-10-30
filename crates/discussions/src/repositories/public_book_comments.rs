@@ -1,6 +1,7 @@
 //! E-02 first database slice: public book comments only.
 //! This repository never grants reading rights and never exposes chapter comments.
 use sqlx::PgPool;
+use crate::domain::mentions;
 
 #[derive(Clone)]
 pub struct PgPublicBookComments {
@@ -127,7 +128,33 @@ impl PgPublicBookComments {
                 Err(_) => return CreateResult::Unavailable,
             }
         }
-        // Serialize attempts with the same actor/key on the same PostgreSQL row.
+        // Resolve structured IDs solely against visible participants of this book.
+        // This prevents arbitrary user-id tokens from creating notifications.
+        let tokens = mentions::candidates(body);
+        let ids: Vec<i64> = tokens.iter().map(|token| token.user_id).collect();
+        let eligible = if ids.is_empty() {
+            Vec::new()
+        } else {
+            match sqlx::query_scalar::<_, i64>(
+                "SELECT DISTINCT c.author_user_id FROM discussion_comments c
+                 JOIN users u ON u.id=c.author_user_id
+                 WHERE c.book_id=$1 AND c.visibility='visible'
+                   AND c.chapter_id IS NULL AND c.version_id IS NULL
+                   AND c.author_user_id=ANY($2) AND c.author_user_id<>$3
+                 ORDER BY c.author_user_id LIMIT 5",
+            )
+            .bind(book_id)
+            .bind(&ids)
+            .bind(actor_id)
+            .fetch_all(&mut *tx)
+            .await {
+                Ok(ids) => ids,
+                Err(_) => return CreateResult::Unavailable,
+            }
+        };
+        let eligible = eligible.into_iter().take(5).collect::<Vec<_>>();
+        let clean_body = mentions::canonicalize(body, &eligible);
+                // Serialize attempts with the same actor/key on the same PostgreSQL row.
         // A conflicting key must not silently return a different saved comment.
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO discussion_comments
@@ -138,7 +165,7 @@ impl PgPublicBookComments {
         )
         .bind(actor_id)
         .bind(book_id)
-        .bind(body)
+        .bind(&clean_body)
         .bind(command_key)
         .bind(payload_hash)
         .bind(parent_id)
@@ -159,7 +186,7 @@ impl PgPublicBookComments {
                     Ok(Some((id, original_book, hash, old_body, old_parent)))
                         if original_book == book_id
                             && hash == payload_hash
-                            && old_body == body
+                            && old_body == clean_body
                             && old_parent == parent_id =>
                     {
                         CreateResult::Replayed(id)
@@ -170,10 +197,23 @@ impl PgPublicBookComments {
             }
             Err(_) => CreateResult::Unavailable,
         };
-        if matches!(result, CreateResult::Created(_) | CreateResult::Replayed(_))
-            && tx.commit().await.is_err()
-        {
-            return CreateResult::Unavailable;
+        if let CreateResult::Created(id) | CreateResult::Replayed(id) = result {
+            for recipient in &eligible {
+                if sqlx::query(
+                    "INSERT INTO discussion_comment_mentions(comment_id,recipient_user_id)
+                     VALUES ($1,$2) ON CONFLICT DO NOTHING",
+                )
+                .bind(id)
+                .bind(recipient)
+                .execute(&mut *tx)
+                .await
+                .is_err() {
+                    return CreateResult::Unavailable;
+                }
+            }
+            if tx.commit().await.is_err() {
+                return CreateResult::Unavailable;
+            }
         }
         result
     }
