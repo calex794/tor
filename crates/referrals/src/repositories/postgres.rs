@@ -13,6 +13,23 @@ pub enum CaptureResult {
     Invalid,
 }
 
+/// A single, immutable default invite per reader and program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnedReferralCode {
+    pub code: String,
+    pub status: String,
+}
+
+/// Only aggregate counters, never invited identities, emails, or money.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferralOverview {
+    pub default_code: Option<OwnedReferralCode>,
+    pub active: i64,
+    pub under_review: i64,
+    pub blocked: i64,
+    pub expired: i64,
+}
+
 /// The payout owner and program are copied from signup-time evidence;
 /// replay must never select a different sponsor from mutable code status.
 struct ReferralCandidate {
@@ -38,6 +55,72 @@ impl ReferralCandidate {
 impl PgReferrals {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// This read is actor-scoped; callers must supply a verified session ID.
+    pub async fn default_reader_code(
+        &self,
+        owner_user_id: i64,
+    ) -> Result<Option<OwnedReferralCode>, sqlx::Error> {
+        let row = sqlx::query_as::<_, (String, String)>(
+            "SELECT code,status FROM referral_codes
+             WHERE owner_user_id=$1 AND program_type='reader_spend' AND is_default=TRUE",
+        )
+        .bind(owner_user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(code, status)| OwnedReferralCode { code, status }))
+    }
+
+    /// A form retry or two simultaneous tabs must return the very same code.
+    /// A disabled/blocked default cannot be replaced to bypass moderation.
+    pub async fn create_default_reader_code(
+        &self,
+        owner_user_id: i64,
+        proposed_code: &str,
+    ) -> Result<OwnedReferralCode, sqlx::Error> {
+        if !crate::domain::valid_code(proposed_code) {
+            return Err(sqlx::Error::Protocol("invalid generated invite code".into()));
+        }
+        sqlx::query(
+            "INSERT INTO referral_codes(code,owner_user_id,program_type,is_default)
+             VALUES($1,$2,'reader_spend',TRUE) ON CONFLICT DO NOTHING",
+        )
+        .bind(proposed_code)
+        .bind(owner_user_id)
+        .execute(&self.pool)
+        .await?;
+        self.default_reader_code(owner_user_id)
+            .await?
+            .ok_or_else(|| sqlx::Error::Protocol("could not reserve referral code".into()))
+    }
+
+    /// Registration attribution is independent of any payout/reading event.
+    /// Never return subject IDs or emails from this personal dashboard query.
+    pub async fn reader_overview(
+        &self,
+        owner_user_id: i64,
+    ) -> Result<ReferralOverview, sqlx::Error> {
+        let default_code = self.default_reader_code(owner_user_id).await?;
+        let (active, under_review, blocked, expired) =
+            sqlx::query_as::<_, (i64, i64, i64, i64)>(
+                "SELECT count(*) FILTER (WHERE status='active'),
+                        count(*) FILTER (WHERE status='under_review'),
+                        count(*) FILTER (WHERE status='blocked'),
+                        count(*) FILTER (WHERE status='expired')
+                 FROM referral_attributions
+                 WHERE referrer_user_id=$1 AND program_type='reader_spend'",
+            )
+            .bind(owner_user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(ReferralOverview {
+            default_code,
+            active,
+            under_review,
+            blocked,
+            expired,
+        })
     }
 
     pub async fn active_code(&self, code: &str) -> Result<bool, sqlx::Error> {

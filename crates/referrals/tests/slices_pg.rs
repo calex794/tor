@@ -476,3 +476,77 @@ async fn f_09_pg_concurrent_replay_single_attribution() {
     .unwrap();
     assert_eq!(pending, 0);
 }
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_self_service_code_is_idempotent_and_moderation_safe() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let owner = seed_user(&pool, "self-service").await;
+    let initial = format!("r_{}_first", owner);
+    let competing = format!("r_{}_other", owner);
+    assert!(repo.default_reader_code(owner).await.unwrap().is_none());
+    let (first, second) = tokio::join!(
+        repo.create_default_reader_code(owner, &initial),
+        repo.create_default_reader_code(owner, &competing),
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!(first, second, "simultaneous requests must return one code");
+    assert_eq!(first.status, "active");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM referral_codes
+         WHERE owner_user_id=$1 AND program_type='reader_spend'",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(
+        repo.create_default_reader_code(owner, "r_different").await.unwrap(),
+        first
+    );
+    sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
+        .bind(&first.code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let blocked = repo
+        .create_default_reader_code(owner, "r_attempt_to_bypass")
+        .await
+        .unwrap();
+    assert_eq!(blocked.code, first.code);
+    assert_eq!(blocked.status, "blocked");
+    assert!(!repo.active_code(&blocked.code).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_private_overview_exposes_only_owned_aggregates() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let inviter = seed_user(&pool, "overview-inviter").await;
+    let another = seed_user(&pool, "overview-another").await;
+    let invited = seed_user(&pool, "overview-invited").await;
+    let code = repo
+        .create_default_reader_code(inviter, &format!("r_owner_{inviter}"))
+        .await
+        .unwrap();
+    let other_code = repo
+        .create_default_reader_code(another, &format!("r_other_{another}"))
+        .await
+        .unwrap();
+    enqueue(&pool, invited, None, Some(&code.code)).await;
+    assert!(repo.finalize_one(invited).await.unwrap());
+
+    let own = repo.reader_overview(inviter).await.unwrap();
+    assert_eq!(own.default_code, Some(code));
+    assert_eq!((own.active, own.under_review, own.blocked, own.expired), (1, 0, 0, 0));
+    let other = repo.reader_overview(another).await.unwrap();
+    assert_eq!(other.default_code, Some(other_code));
+    assert_eq!((other.active, other.under_review, other.blocked, other.expired), (0, 0, 0, 0));
+    let subject = repo.reader_overview(invited).await.unwrap();
+    assert!(subject.default_code.is_none());
+    assert_eq!(subject.active, 0);
+}
