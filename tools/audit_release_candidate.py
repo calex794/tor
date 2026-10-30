@@ -16,7 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from ci_test_map import CI_WORKFLOW, SUITES, SUITE_JOB_IDS
+from ci_test_map import CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -134,7 +134,7 @@ def evaluate_ci(
                 blockers.append(f"{title}: exactly one successful selector is required")
                 checks[title] = dict(details, state="invalid_selector")
                 continue
-            required = set(SUITE_JOB_IDS.values()) | selectors
+            required = set(SUITE_JOB_IDS.values()) | selectors | {CI_REQUIRED_JOB}
             for suite, job_id in SUITE_JOB_IDS.items():
                 job = by_name.get(job_id)
                 if job is not None:
