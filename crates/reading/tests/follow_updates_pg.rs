@@ -135,16 +135,17 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .unwrap());
     assert!(releases.set_read_state(reader, free, false).await.unwrap());
     assert!(releases.set_read_state(reader, free, false).await.unwrap());
-    assert!(!releases
-        .latest(reader, first.next_cursor)
-        .await
-        .unwrap()
-        .items
-        .iter()
-        .find(|item| item.chapter_id == free)
-        .unwrap()
-        .is_read);
-
+    assert!(
+        !releases
+            .latest(reader, first.next_cursor)
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .find(|item| item.chapter_id == free)
+            .unwrap()
+            .is_read
+    );
 
     // A paid chapter is visible as a purchase opportunity only after B/G
     // record a verified encrypted release. Unverified paid publication alone
