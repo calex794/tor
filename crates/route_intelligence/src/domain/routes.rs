@@ -10,7 +10,7 @@ const L: &str = "/layers/";
 // Explicit route table is independently checked by RIL parity and guard CI.
 // Keep its reviewed compact entries under the repository's 600-line limit.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 92] = [
+const ROUTES: [RouteRegistration; 94] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -553,17 +553,20 @@ const ROUTES: [RouteRegistration; 92] = [
     RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 80
     // Preserve the merged main E-03 route identity before unmerged Layer routes.
     RouteRegistration::new("/me/replies/{id}/read-state", "POST", "/me/replies/", Prefix, Page, Dashboard, Write), // 81
+    // Preserve already-merged E-03 Inbox identities (82 and 83).
+    RouteRegistration::new("/me/inbox", "GET", "/me/inbox/", Exact, Page, Dashboard, Read), // 82
+    RouteRegistration::new("/api/v1/me/inbox", "GET", "/api/v1/me/inbox/", Exact, Api, Dashboard, Read), // 83
     // Shift unmerged Layer routes without reclassifying main traffic history.
-    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 82
-    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 83
-    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 84
-    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 85
-    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 86
-    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 87
-    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read), // 88
-    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 89
-    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 90
-    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 91
+    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 84
+    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 85
+    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 86
+    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 87
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 88
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 89
+    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read), // 90
+    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 91
+    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 92
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 93
 ];
 /// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {

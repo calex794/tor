@@ -17,7 +17,7 @@ use std::{
     num::NonZeroU32,
     process::Command,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -102,6 +102,8 @@ async fn account(accounts: &PgAccounts, email: &str) -> (i64, String) {
 #[derive(Default)]
 struct FakeG {
     signed: AtomicUsize,
+    // Test-only one-shot signing failure for C-06 evidence regression.
+    fail_next_sign: AtomicBool,
     // Test-only barrier allows a refund to commit after G begins signing.
     pause_next: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
 }
@@ -114,6 +116,9 @@ impl PrivateObjectDeliveryPort for FakeG {
         ttl: Duration,
     ) -> Result<GrantedContent, DeliveryError> {
         assert_eq!(ttl, Duration::from_secs(90));
+        if self.fail_next_sign.swap(false, Ordering::SeqCst) {
+            return Err(DeliveryError::Unavailable);
+        }
         self.signed.fetch_add(1, Ordering::SeqCst);
         let barrier = { self.pause_next.lock().unwrap().take() };
         if let Some((entered, release)) = barrier {
@@ -681,6 +686,35 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
             StatusCode::UNPROCESSABLE_ENTITY,
         );
     }
+    // A signer outage after D authorization must not create append-only
+    // first-grant, text-grant, or browser-render evidence.
+    fake.fail_next_sign.store(true, Ordering::SeqCst);
+    let signer_failed = send(
+        &app,
+        &path,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(signer_failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    for table in [
+        "chapter_purchase_first_exposures",
+        "chapter_purchase_text_grants",
+        "chapter_purchase_render_confirmations",
+    ] {
+        assert_eq!(
+            scalar(
+                &url,
+                &format!("SELECT count(*) FROM {table} WHERE purchase_id={purchase_id}"),
+            ),
+            0,
+            "signer failure must not persist an opening event in {table}"
+        );
+    }
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 0);
+
     let success = send(
         &app,
         &path,

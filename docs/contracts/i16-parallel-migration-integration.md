@@ -1,7 +1,7 @@
 # I-16 — current-main integration of I-14 paid access and Draft SQLx (test only)
 
 **Status: Draft / unapproved versions.** Latest integrated main in this tree is
-`b13e1e71acb2881d062e4f8434c43744151600a0`, which has **43**
+`6958bb1809f14850463e6c3cfc0c99662af4fe2f`, which has **43**
 migrations. The experimental combined tree contains **53** migrations.
 No source Draft was modified and no database outside isolated CI was accessed.
 
@@ -36,12 +36,12 @@ are otherwise unchanged. This is not final version reservation.
 
 ## Route identity, controls and CI
 
-Merged main's route registry entries 0–81 are kept **at their original
-indexes**, including C-15 book follow/unfollow at 79/80 and E-03 reply
-read-state at 81. Layer occupies 82–90 and paid browser first-opening
-acknowledgment occupies 91.
+Merged main's route registry entries 0–83 are kept **at their original
+indexes**, including C-15 book follow/unfollow at 79/80, E-03 reply
+read-state at 81 and E-03 Inbox page/API at 82/83. Layer occupies 84–92
+and paid browser first-opening acknowledgment occupies 93.
 The read-only route and CSRF/ownership governance is revalidated with
-the merged main's book-follow and E-03 handlers and real HTTP tests.
+the merged main's book-follow and E-03 reply/Inbox handlers and real HTTP tests.
 
 For this PR's **main base**, existing PostgreSQL 18 upgrade CI must
 install all 43 main migrations to isolated `tor_test`, upgrade that
@@ -53,7 +53,9 @@ table/trigger/function surfaces. All other DB/HTTP/S3/Chromium workflows must pa
 current HEAD**, not an inherited green.
 
 The I-15 read-only SQLx inventory tooling from #251 is included with
-unchanged Git blobs. It never writes migration metadata or finances.
+I-16 fail-closed main/open-PR snapshot drift detection and regression
+tests; source Draft #251 is unchanged. It never writes migration metadata
+or finances.
 
 ## What this DOES NOT prove
 

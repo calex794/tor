@@ -21,13 +21,13 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 92);
+    assert_eq!(unique.len(), 94);
 }
 
 #[test]
 fn i16_merged_main_route_indexes_are_preserved() {
-    // Existing merged-main 75-81 routes never get new numeric identities.
-    // Layer is appended at 82-90, with paid ACK at 91.
+    // Existing merged-main 75-83 routes never get new numeric identities.
+    // Layer is appended at 84-92, with paid ACK at 93.
     for (index, template, method) in [
         (75, "/api/v1/purchases/batch", "POST"),
         (76, "/me/books/{id}/buy-chapters", "GET"),
@@ -36,10 +36,12 @@ fn i16_merged_main_route_indexes_are_preserved() {
         (79, "/me/books/{id}/follow", "POST"),
         (80, "/me/books/{id}/unfollow", "POST"),
         (81, "/me/replies/{id}/read-state", "POST"),
-        (82, "/read/layer/{chapter_id}", "GET"),
-        (90, "/me/layers/{layer_id}/offer", "POST"),
+        (82, "/me/inbox", "GET"),
+        (83, "/api/v1/me/inbox", "GET"),
+        (84, "/read/layer/{chapter_id}", "GET"),
+        (92, "/me/layers/{layer_id}/offer", "POST"),
         (
-            91,
+            93,
             "/api/v1/reader/chapters/{chapter_id}/open-confirmations",
             "POST",
         ),
