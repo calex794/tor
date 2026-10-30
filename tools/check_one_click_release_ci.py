@@ -21,7 +21,7 @@ from audit_release_candidate import (
     EvidenceError, GitHub, collect, latest_push_runs, require_current_main,
     workflow_names,
 )
-from release_branch_policy import evaluate_branch_policy
+from release_branch_policy import evaluate_branch_policy, same_ruleset_revision
 
 SHA = re.compile(r"^[a-f0-9]{40}$")
 REPO = "calex794/tor"
@@ -71,8 +71,9 @@ def fetch_rulesets(repo: str, token: str) -> list[dict]:
                            {"includes_parents": "true"})
         if (not isinstance(item, dict) or item.get("id") != rid
                 or any(item.get(key) != row.get(key)
-                       for key in ("target", "source_type", "source",
-                                   "enforcement", "updated_at"))):
+                       for key in ("target", "source_type", "source", "enforcement"))
+                or not same_ruleset_revision(item.get("updated_at"),
+                                             row.get("updated_at"))):
             raise ValueError("Inconsistent or changing ruleset settings")
         details.append(item)
     return details

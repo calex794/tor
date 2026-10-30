@@ -37,6 +37,20 @@ impl FollowBookControl {
         (&self.accounts, &self.cookies)
     }
 
+    /// Resolve a reader from the verified active account session only.
+    pub(super) async fn verified_reader(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<Option<i64>, StatusCode> {
+        let Some(token) = self.cookies.session_token(headers) else {
+            return Ok(None);
+        };
+        self.accounts
+            .active_session_user(&session_token_digest(&token))
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+    }
+
     /// Only called after the public book visibility check succeeded.
     /// Anonymous readers see a login link, not a CSRF-less mutation form.
     pub(super) async fn render(

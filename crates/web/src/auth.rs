@@ -55,6 +55,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
+mod book_stats_http;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
@@ -298,6 +299,8 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route("/books/{id}/stats", get(book_stats_http::page))
+        .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
