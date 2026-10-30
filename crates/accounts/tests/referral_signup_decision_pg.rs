@@ -191,7 +191,7 @@ async fn f_09_pg_signup_guest_owner_survives_later_fraud_block() {
 
 #[tokio::test]
 #[ignore = "requires migrated PostgreSQL 18 tor_ci"]
-async fn f_09_pg_signup_manual_priority_and_expired_code_fallback() {
+async fn f_09_pg_signup_manual_priority_rejects_disabled_code_then_guest_capture() {
     let db = pool().await;
     let (first_owner, first_code) = seed_code(&db, "reader_spend").await;
     let (second_owner, second_code) = seed_code(&db, "reader_spend").await;
@@ -218,12 +218,47 @@ async fn f_09_pg_signup_manual_priority_and_expired_code_fallback() {
         .execute(&db)
         .await
         .unwrap();
-    // A fresh guest capture exercises the legacy invalid-manual fallback.
-    // The already-consumed hash must not be reusable for this second signup.
+    // An invalid manual code never silently falls back to a valid guest capture.
+    // It must fail atomically, leaving that guest capture usable on a corrected form.
     let fresh_hash = session_token_digest(&generate_session_token());
     let fresh_capture_id = seed_capture(&db, &fresh_hash, &first_code).await;
-    let fallback = register(&db, Some(&fresh_hash), Some(&second_code)).await;
-    let decided = snapshot(&db, fallback).await;
+    let email = unique_email("invalid-manual");
+    let digest = session_token_digest(&generate_session_token());
+    let rejected = PgAccounts::from_pool(db.clone())
+        .register_with_audited_session_referral(
+            &email,
+            "Rejected manual signup",
+            "$argon2id$test",
+            &digest,
+            NonZeroU32::new(3600).unwrap(),
+            RegistrationContext {
+                referral: RegistrationReferral {
+                    guest_hash: Some(&fresh_hash),
+                    manual_code: Some(&second_code),
+                },
+                audit: LoginAuditContext {
+                    verified_ip: None,
+                    agent_family: UserAgentFamily::Unknown,
+                    event_kind: LoginEventKind::Registration,
+                },
+            },
+        )
+        .await;
+    assert!(matches!(rejected, Err(AccountWriteError::InvalidReferral)));
+    let status: String = sqlx::query_scalar("SELECT status FROM referral_captures WHERE id=$1")
+        .bind(fresh_capture_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(status, "active", "rejected form must keep guest capture");
+    let no_user: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE email_normalized=$1")
+        .bind(&email)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(no_user, 0);
+    let corrected = register(&db, Some(&fresh_hash), None).await;
+    let decided = snapshot(&db, corrected).await;
     assert_eq!(decided.2, Some(first_owner));
     assert_eq!(decided.4, Some(fresh_capture_id));
     assert_eq!(decided.5, Some("guest_capture".into()));
