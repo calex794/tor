@@ -3,7 +3,6 @@ use crate::repositories::{
     inbox::{InboxEntry, PgInbox},
     public_book_comments::ListCommentsError,
 };
-use sqlx::PgPool;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InboxFilter {
@@ -50,10 +49,8 @@ pub struct InboxService {
 }
 
 impl InboxService {
-    pub fn new(pool: PgPool) -> Self {
-        Self {
-            repo: PgInbox::new(pool),
-        }
+    pub fn new(repo: PgInbox) -> Self {
+        Self { repo }
     }
 
     pub async fn list(
