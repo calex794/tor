@@ -53,7 +53,9 @@
       message('Выберите файл.');
       return;
     }
-    if (!/^[^/\\]+\\.(txt|md)$/i.test(selected.name)) {
+    const lowName = selected.name.toLowerCase();
+    if (selected.name.includes('/') || selected.name.includes('\\')
+      || !(lowName.endsWith('.txt') || lowName.endsWith('.md'))) {
       previewButton.disabled = true;
       message('Разрешены только TXT и MD.');
       return;
