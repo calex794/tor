@@ -1,0 +1,275 @@
+//! Owner-only chapter TXT/Markdown import. Preview has no writes.
+//! Confirm makes one all-or-nothing draft-book transaction via the B repository.
+use super::{deny, session_actor, AuthorChapterState};
+use crate::{auth_cookies::private_response, author_chapter_pages};
+use axum::{
+    extract::{Json, Path, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::{Redirect, Response},
+};
+use serde::{Deserialize, Serialize};
+use tor_accounts::services::security::generate_session_token;
+use tor_books::services::{
+    authoring::AuthorError,
+    chapter_file_import::{fingerprint, parse_text, ImportError, ImportedChapter},
+};
+
+#[derive(Deserialize)]
+pub(super) struct ImportInput {
+    filename: String,
+    text: String,
+    csrf_token: String,
+    #[serde(default)]
+    command_key: Option<String>,
+    #[serde(default)]
+    fingerprint: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ChapterPreview {
+    number: i32,
+    title: String,
+    characters: usize,
+    excerpt: String,
+}
+
+#[derive(Serialize)]
+struct PreviewResponse {
+    fingerprint: String,
+    count: usize,
+    chapters: Vec<ChapterPreview>,
+}
+
+#[derive(Serialize)]
+struct ConfirmResponse {
+    saved: usize,
+    book_url: String,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: &'static str,
+}
+
+fn fail(status: StatusCode, message: &'static str) -> Response {
+    private_response((status, Json(ErrorResponse { error: message })), &[])
+}
+
+fn import_error(error: ImportError) -> Response {
+    let (code, message) = match error {
+        ImportError::InvalidFilename => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Поддерживаются только безопасные файлы TXT и MD.",
+        ),
+        ImportError::InvalidEncoding => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Ошибка кодировки: требуется UTF-8 без повреждённых символов.",
+        ),
+        ImportError::TooLarge | ImportError::TooManyChapters => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Файл, глава или количество глав превышают допустимый размер.",
+        ),
+        ImportError::DuplicateNumber => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Повторяется номер главы. Исправьте файл и загрузите ещё раз.",
+        ),
+        ImportError::MissingTitle => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "У главы отсутствует название после номера.",
+        ),
+        ImportError::EmptyBody => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Обнаружена глава без текста.",
+        ),
+        ImportError::UnexpectedPreamble => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "До первой главы найден текст, который нельзя терять при импорте.",
+        ),
+        _ => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Не удалось найти корректные главы с номерами и названиями.",
+        ),
+    };
+    fail(code, message)
+}
+
+/// Only an authenticated owner of an unpublished book can use V1 file import.
+async fn draft_owner(state: &AuthorChapterState, headers: &HeaderMap, id: i64) -> Result<i64, Response> {
+    let actor = match session_actor(state, headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return Err(deny(StatusCode::UNAUTHORIZED)),
+        Err(status) => return Err(deny(status)),
+    };
+    if id <= 0 {
+        return Err(deny(StatusCode::NOT_FOUND));
+    }
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return Err(deny(StatusCode::NOT_FOUND)),
+        Err(_) => return Err(deny(StatusCode::SERVICE_UNAVAILABLE)),
+    }
+    match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(false) => Ok(actor),
+        Ok(true) => Err(fail(
+            StatusCode::CONFLICT,
+            "Пакетный импорт пока доступен только для неопубликованной книги.",
+        )),
+        Err(AuthorError::Missing) => Err(deny(StatusCode::NOT_FOUND)),
+        Err(_) => Err(deny(StatusCode::SERVICE_UNAVAILABLE)),
+    }
+}
+
+pub(super) async fn page(
+    State(state): State<AuthorChapterState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    // The handler explicitly repeats both guards for static RIL governance.
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let published = match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(value) => value,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if published {
+        return private_response(
+            (StatusCode::CONFLICT, "Импорт пока доступен только для черновика книги."),
+            &[],
+        );
+    }
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let key = generate_session_token();
+    let mut response =
+        private_response(author_chapter_pages::import_chapters(id, &csrf, &key), &cookies);
+    // Script is an external, static, same-origin file; no inline JavaScript.
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
+}
+
+pub(super) async fn preview(
+    State(state): State<AuthorChapterState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Json(input): Json<ImportInput>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, &input.csrf_token)
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    // The ownership proof is actor-bound and rechecked on each request.
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if let Err(response) = draft_owner(&state, &headers, id).await {
+        return response;
+    }
+    let chapters = match parse_text(&input.filename, &input.text) {
+        Ok(chapters) => chapters,
+        Err(error) => return import_error(error),
+    };
+    let preview = chapters
+        .iter()
+        .map(|chapter| ChapterPreview {
+            number: chapter.number,
+            title: chapter.title.clone(),
+            characters: chapter.body.chars().count(),
+            excerpt: chapter.body.chars().take(160).collect(),
+        })
+        .collect();
+    private_response(
+        Json(PreviewResponse {
+            fingerprint: format!("{:x}", fingerprint(id, &chapters)),
+            count: chapters.len(),
+            chapters: preview,
+        }),
+        &[],
+    )
+}
+
+pub(super) async fn confirm(
+    State(state): State<AuthorChapterState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Json(input): Json<ImportInput>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, &input.csrf_token)
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    // A confirmation cannot be forged for another book or another user.
+    let actor = match session_actor(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    match state.authoring.owned_book(actor, id).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if let Err(response) = draft_owner(&state, &headers, id).await {
+        return response;
+    }
+    let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
+        Ok(chapters) => chapters,
+        Err(error) => return import_error(error),
+    };
+    let actual = format!("{:x}", fingerprint(id, &chapters));
+    if input.fingerprint.as_deref() != Some(actual.as_str()) {
+        return fail(
+            StatusCode::CONFLICT,
+            "Файл изменился после предпросмотра. Проверьте главы заново.",
+        );
+    }
+    let Some(key) = input.command_key.as_deref() else {
+        return fail(StatusCode::BAD_REQUEST, "Отсутствует ключ подтверждения.");
+    };
+    match state
+        .authoring
+        .import_draft_chapter_batch(actor, id, key, &chapters)
+        .await
+    {
+        Ok(saved) => private_response(
+            Json(ConfirmResponse {
+                saved,
+                book_url: format!("/me/books/{id}"),
+            }),
+            &[],
+        ),
+        Err(AuthorError::Conflict) => fail(
+            StatusCode::CONFLICT,
+            "Номер главы уже занят, книга опубликована или файл изменён. Ничего не сохранено.",
+        ),
+        Err(AuthorError::Invalid) => fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Файл содержит недопустимые номера, названия или текст.",
+        ),
+        Err(AuthorError::Missing) | Err(AuthorError::Forbidden) => deny(StatusCode::NOT_FOUND),
+        Err(AuthorError::Unavailable) => fail(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "База данных недоступна. Повторите с тем же файлом без изменения ключа.",
+        ),
+    }
+}
