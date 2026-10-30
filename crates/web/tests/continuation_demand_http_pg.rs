@@ -261,16 +261,9 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "number=2&title=Demand+fulfilled&body=C15%20reader%20return&access=free&price_amount=0&command_key={}&csrf_token={csrf}",
         generate_session_token()
     );
-    let denied = call(
-        &app,
-        "POST",
-        &save_path,
-        &reader_cookie,
-        ORIGIN,
-        &save_body,
-    )
-    .await
-    .status();
+    let denied = call(&app, "POST", &save_path, &reader_cookie, ORIGIN, &save_body)
+        .await
+        .status();
     assert!(
         matches!(denied, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
         "a reader must not publish the requested continuation: {denied}"
@@ -307,10 +300,8 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "1",
         "one author Save must create exactly one reader-visible first release"
     );
-    let follower_updates = html(
-        call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await
-    )
-    .await;
+    let follower_updates =
+        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
     assert!(follower_updates.contains("Demand fulfilled"));
     assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
     let returned = html(
@@ -339,7 +330,8 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     );
     let owner_fulfilled =
         html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
-    assert!(owner_fulfilled.contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+    assert!(owner_fulfilled
+        .contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
     // A separate synthetic paid release remains as the old non-leak regression.
 
     let next: i64 = pg(
