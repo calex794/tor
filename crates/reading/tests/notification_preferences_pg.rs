@@ -28,22 +28,49 @@ async fn c_17_modes_default_disabled_and_are_actor_scoped() {
     let first = users[0];
     let second = users[1];
     let prefs = PgNotificationPreferences::new(pool.clone());
-    assert_eq!(prefs.delivery_preference(first).await.unwrap(), DeliveryMode::Disabled);
-    assert_eq!(prefs.delivery_preference(second).await.unwrap(), DeliveryMode::Disabled);
-    assert_eq!(prefs.delivery_preference(0).await, Err(PreferenceError::Invalid));
     assert_eq!(
-        prefs.set_delivery_preference(0, DeliveryMode::Immediate).await,
+        prefs.delivery_preference(first).await.unwrap(),
+        DeliveryMode::Disabled
+    );
+    assert_eq!(
+        prefs.delivery_preference(second).await.unwrap(),
+        DeliveryMode::Disabled
+    );
+    assert_eq!(
+        prefs.delivery_preference(0).await,
         Err(PreferenceError::Invalid)
     );
-    for mode in [DeliveryMode::Immediate, DeliveryMode::DailyDigest, DeliveryMode::Disabled] {
+    assert_eq!(
+        prefs
+            .set_delivery_preference(0, DeliveryMode::Immediate)
+            .await,
+        Err(PreferenceError::Invalid)
+    );
+    for mode in [
+        DeliveryMode::Immediate,
+        DeliveryMode::DailyDigest,
+        DeliveryMode::Disabled,
+    ] {
         prefs.set_delivery_preference(first, mode).await.unwrap();
         prefs.set_delivery_preference(first, mode).await.unwrap();
         assert_eq!(prefs.delivery_preference(first).await.unwrap(), mode);
-        assert_eq!(prefs.delivery_preference(second).await.unwrap(), DeliveryMode::Disabled);
+        assert_eq!(
+            prefs.delivery_preference(second).await.unwrap(),
+            DeliveryMode::Disabled
+        );
     }
-    prefs.set_delivery_preference(second, DeliveryMode::DailyDigest).await.unwrap();
-    assert_eq!(prefs.delivery_preference(first).await.unwrap(), DeliveryMode::Disabled);
-    assert_eq!(prefs.delivery_preference(second).await.unwrap(), DeliveryMode::DailyDigest);
+    prefs
+        .set_delivery_preference(second, DeliveryMode::DailyDigest)
+        .await
+        .unwrap();
+    assert_eq!(
+        prefs.delivery_preference(first).await.unwrap(),
+        DeliveryMode::Disabled
+    );
+    assert_eq!(
+        prefs.delivery_preference(second).await.unwrap(),
+        DeliveryMode::DailyDigest
+    );
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM reader_notification_delivery_preferences WHERE user_id IN ($1,$2)",
     )

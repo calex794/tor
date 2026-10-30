@@ -21,7 +21,11 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let mode = match state.notification_preferences.delivery_preference(actor).await {
+    let mode = match state
+        .notification_preferences
+        .delivery_preference(actor)
+        .await
+    {
         Ok(mode) => mode,
         Err(PreferenceError::Invalid) => return deny(StatusCode::BAD_REQUEST),
         Err(PreferenceError::Unavailable) => return deny(StatusCode::SERVICE_UNAVAILABLE),

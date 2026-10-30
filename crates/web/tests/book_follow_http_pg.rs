@@ -418,7 +418,6 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     pool.close().await;
 }
 
-
 async fn c17_settings_page(app: &Router, cookies: &str) -> String {
     let request = Request::builder()
         .uri("/me/notification-settings")
@@ -450,7 +449,9 @@ async fn c17_change_mode(
         .header(header::COOKIE, cookies)
         .header(header::ORIGIN, origin)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from(format!("csrf_token={csrf}&delivery_mode={mode}")))
+        .body(Body::from(format!(
+            "csrf_token={csrf}&delivery_mode={mode}"
+        )))
         .unwrap();
     app.clone().oneshot(request).await.unwrap().status()
 }
@@ -501,7 +502,9 @@ async fn c_17_settings_are_private_and_cannot_be_changed_by_another_reader() {
     );
     let one = format!("tor-dev-session={first_token}; tor-dev-csrf={csrf}");
     let two = format!("tor-dev-session={second_token}; tor-dev-csrf={csrf}");
-    assert!(dashboard_page(&app, &one).await.contains("/me/notification-settings"));
+    assert!(dashboard_page(&app, &one)
+        .await
+        .contains("/me/notification-settings"));
     let page = c17_settings_page(&app, &one).await;
     assert!(page.contains("value=\"disabled\" checked"));
     assert!(page.contains("пока не подключена"));
