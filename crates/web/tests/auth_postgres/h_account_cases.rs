@@ -32,6 +32,31 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     assert!(!escaped_html.contains("value=\"<script>\""));
 }
 
+/// F-09: an invalid manual code must keep the pending guest invitation and
+/// must not create an account before the visitor corrects the form.
+pub(super) async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str) {
+    for (code, message) in [
+        ("broken+code", "Некорректный код приглашения"),
+        ("unknown_invite_2026", "Код приглашения не найден"),
+    ] {
+        let form = format!(
+            "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&manual_invite_code={code}&csrf_token={csrf}"
+        );
+        let response = send(app, request("POST", "/register", &form, cookies, ORIGIN)).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(
+            response.headers().get_all(header::SET_COOKIE).iter().next().is_none(),
+            "rejected signup must not reset the valid guest invitation"
+        );
+        let html = body_of(response).await;
+        assert!(html.contains(message));
+        assert!(html.contains("value=\"tor_ci_account@example.com\""));
+        assert!(html.contains("name=\"csrf_token\""));
+        assert!(!html.contains("value=\"LongSecurePassword2026\""));
+    }
+}
+
 pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie: &str) {
     let duplicate = send(app, request("POST", "/register", form, csrf_cookie, ORIGIN)).await;
     assert_eq!(
