@@ -8,6 +8,7 @@ use axum::{
     response::{Redirect, Response},
 };
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use tor_accounts::services::security::generate_session_token;
 use tor_books::services::{
     authoring::AuthorError,
@@ -49,6 +50,14 @@ struct ConfirmResponse {
 #[derive(Serialize)]
 struct ErrorResponse {
     error: &'static str,
+}
+
+fn digest_hex(book_id: i64, chapters: &[ImportedChapter]) -> String {
+    let mut hex = String::with_capacity(64);
+    for byte in fingerprint(book_id, chapters) {
+        write!(&mut hex, "{byte:02x}").expect("write String");
+    }
+    hex
 }
 
 fn fail(status: StatusCode, message: &'static str) -> Response {
@@ -199,7 +208,7 @@ pub(super) async fn preview(
         .collect();
     private_response(
         Json(PreviewResponse {
-            fingerprint: format!("{:x}", fingerprint(id, &chapters)),
+            fingerprint: digest_hex(id, &chapters),
             count: chapters.len(),
             chapters: preview,
         }),
@@ -236,7 +245,7 @@ pub(super) async fn confirm(
         Ok(chapters) => chapters,
         Err(error) => return import_error(error),
     };
-    let actual = format!("{:x}", fingerprint(id, &chapters));
+    let actual = digest_hex(id, &chapters);
     if input.fingerprint.as_deref() != Some(actual.as_str()) {
         return fail(
             StatusCode::CONFLICT,
