@@ -365,3 +365,35 @@ fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
     assert!(private.contains("href=\"/reader/78\""));
     assert!(!private.contains("href=\"/read/78\""));
 }
+
+#[test]
+fn b_18_navigation_follows_books_in_catalog_layout() {
+    let query = CatalogPageQuery {
+        query: "",
+        language: None,
+        genre: None,
+        tag: None,
+        fandom: None,
+        cursor: Some("20"),
+        previous_cursor: None,
+        page_number: 1,
+        sort: "oldest",
+        total: Some(42),
+        options: None,
+    };
+    let html = catalog_search(
+        &[PublicBookCard {
+            id: 20,
+            title: "Последняя на странице".into(),
+            language: "ru".into(),
+            author_name: None,
+            genres: vec![],
+        }],
+        query,
+    )
+    .0;
+    let card = html.find("Последняя на странице").expect("book card");
+    let navigation = html.find("catalog-pagination").expect("page controls");
+    assert!(navigation > card, "page navigation follows the book grid");
+    assert!(html.contains("Страница 1"));
+}

@@ -273,7 +273,6 @@ pub fn catalog_search_with_covers(
         );
     }
     controls = catalog_taxonomy_selects::apply(controls, options, genre, tag, fandom);
-    controls.push_str(&pagination);
     let count_markup = total
         .map(|number| {
             format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
@@ -295,7 +294,8 @@ pub fn catalog_search_with_covers(
             },
         )
         .replace("<!--SEARCH_FORM-->", &controls)
-        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"));
+        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"))
+        .replace("<!--PAGINATION-->", &pagination);
     layout(
         "Каталог",
         "Поиск опубликованных книг на Пандаолейт.",
