@@ -26,9 +26,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Temporary anonymous I-06 policy shape diagnostic (PR only)
-        if: github.event_name == 'pull_request'
-        run: python3 tools/debug_i06_public_policy.py
       - name: Read-only I-06 main ruleset proof on trusted push
         if: github.event_name == 'push'
         env:
