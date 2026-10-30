@@ -76,11 +76,21 @@ def _actions_checks(items: object, provider_key: str) -> bool:
 
 def _classic_is_enforced(branch: dict) -> bool:
     policy = branch.get("protection")
-    if not isinstance(policy, dict) or policy.get("enabled") is False:
+    # The compact branches/main response cannot prove PR-only merge,
+    # administrator enforcement or force-push/deletion restrictions. Never
+    # infer them from protected=true or a successful status check alone.
+    if not isinstance(policy, dict) or policy.get("enabled") is not True:
         return False
     status = policy.get("required_status_checks")
-    return (isinstance(status, dict) and status.get("enforcement_level") == "everyone"
-            and _actions_checks(status.get("checks"), "app_id"))
+    return (
+        policy.get("enforce_admins", {}).get("enabled") is True
+        and isinstance(policy.get("required_pull_request_reviews"), dict)
+        and policy.get("allow_force_pushes", {}).get("enabled") is False
+        and policy.get("allow_deletions", {}).get("enabled") is False
+        and isinstance(status, dict)
+        and status.get("enforcement_level") == "everyone"
+        and _actions_checks(status.get("checks"), "app_id")
+    )
 
 
 def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
@@ -149,7 +159,22 @@ def evaluate_branch_policy(
         return "fail", "ruleset pagination cannot be verified"
     if _classic_is_enforced(branch):
         return "pass", "classic main protection requires both Actions checks for admins"
+    reasons = []
     for item in rulesets:
         if _ruleset_is_enforced(item, effective_rules):
             return "pass", f"active effective ruleset #{item['id']} enforces main"
-    return "fail", "no verified active main policy with PR and both Actions checks"
+        if item.get("enforcement") != "active":
+            reasons.append("inactive ruleset")
+        elif not _applies_to_main(item):
+            reasons.append("ruleset scope does not include main")
+        elif item.get("current_user_can_bypass") != "never":
+            reasons.append("bypass not disproved")
+        elif item.get("bypass_actors") is None and (
+            item.get("id") != REVIEWED_RULESET_ID
+            or item.get("updated_at") != REVIEWED_RULESET_UPDATED
+        ):
+            reasons.append("unreviewed ruleset version or hidden bypass")
+        else:
+            reasons.append("ruleset/effective-rule evidence mismatch")
+    return "fail", ("no verified active main policy: " + ", ".join(sorted(set(reasons)))
+                    if reasons else "no verified active main policy: no active rulesets")
