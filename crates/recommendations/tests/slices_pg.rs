@@ -333,3 +333,112 @@ async fn f_05_pg_visible_ranked_list_excludes_blocked_books_and_unrelated_users(
     );
     assert!(repo.visible_ranks(i64::MAX).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn f_07_pg_scored_recommendations_recheck_live_canonical_visibility() {
+    use tor_recommendations::{
+        repositories::PgRecommendationMetadata,
+        services::assembly::AssemblyError,
+        services::hybrid_scoring::{
+            score_hybrid_candidates, Candidate, Reason, Source, Weights,
+        },
+    };
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("test PG");
+    assert!(url.ends_with("/tor_ci"), "never use production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let mut ids = Vec::new();
+    for index in 0..4 {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES($1,'ru',$2,'public')
+             ON CONFLICT(source_identity,target_language)
+             DO UPDATE SET title=EXCLUDED.title,visibility='public',
+                 admin_hold=false,is_deleted=false
+             RETURNING id",
+        )
+        .bind(format!("ci:f07:live-assembly:{index}"))
+        .bind(format!("Public recommendation {index}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+
+    // Scoring is computed first. The B-owned visibility predicate must still
+    // be re-evaluated on every later metadata read.
+    let candidates: Vec<_> = ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| Candidate {
+            book_id: id.to_string(),
+            source: Source::Content,
+            reason: Reason::SimilarByContent,
+            raw_score: 1000 - index as i64 * 100,
+            normalized_score: Some(1000 - index as i64 * 100),
+            source_book_id: None,
+        })
+        .collect();
+    let decision = score_hybrid_candidates(
+        &candidates,
+        Weights {
+            behavioral: 0,
+            content: 100,
+            popularity: 0,
+        },
+        4,
+        &[],
+    );
+    assert!(decision.rejected_reason.is_none());
+    let repo = PgRecommendationMetadata::new(pool.clone());
+    let before = repo
+        .assemble_public(&decision.candidates, 20, None)
+        .await
+        .unwrap();
+    assert_eq!(before.len(), 4);
+    assert_eq!(before[0].book_id, ids[0]);
+
+    sqlx::query("UPDATE books SET visibility='draft' WHERE id=$1")
+        .bind(ids[1])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(ids[2])
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET is_deleted=true WHERE id=$1")
+        .bind(ids[3])
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let after = repo
+        .assemble_public(&decision.candidates, 20, None)
+        .await
+        .unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].book_id, ids[0]);
+    assert_eq!(after[0].rank, 1);
+    assert_eq!(after[0].algorithm_version, "recommendations_v1");
+    assert!(repo
+        .assemble_public(&decision.candidates, 20, Some(ids[0]))
+        .await
+        .unwrap()
+        .is_empty());
+
+    let mut invalid = decision.candidates.clone();
+    invalid[0].book_id = "001".to_owned();
+    assert_eq!(
+        repo.assemble_public(&invalid, 20, None).await,
+        Err(AssemblyError::Invalid)
+    );
+    pool.close().await;
+    assert_eq!(
+        repo.assemble_public(&decision.candidates, 20, None).await,
+        Err(AssemblyError::Unavailable),
+        "database outage must not fall back to stale unfiltered metadata"
+    );
+}
