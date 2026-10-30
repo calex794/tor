@@ -1,0 +1,38 @@
+name: REC feedback acceptance
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rec-feedback-acceptance.yml'
+      - 'crates/recommendations/**'
+      - 'crates/web/src/recommendation*'
+      - 'crates/web/tests/recommendation*'
+      - 'migrations/*rec_*'
+      - 'tools/rec_*'
+permissions:
+  contents: read
+concurrency:
+  group: rec-feedback-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  source:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reproducible source bundle (no checkout credentials or environment)
+        run: |
+          git fetch origin pull/309/head:refs/heads/source-rec309 pull/320/head:refs/heads/source-rec320 pull/326/head:refs/heads/source-rec326
+          git bundle create "$RUNNER_TEMP/tor-source.bundle" --all
+          sha256sum "$RUNNER_TEMP/tor-source.bundle" > "$RUNNER_TEMP/tor-source.bundle.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rec-source-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/tor-source.bundle
+            ${{ runner.temp }}/tor-source.bundle.sha256
+          retention-days: 1
+          if-no-files-found: error
