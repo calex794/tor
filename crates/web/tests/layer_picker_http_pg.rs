@@ -172,6 +172,26 @@ async fn d_05_http_owner_only_layer_picker_filters_team_and_rechecks_stale_form(
     assert!(owner_dashboard.contains("my-layers-heading"));
     assert!(owner_dashboard.contains(&format!("/me/layers/{layer}/books")));
     assert!(owner_dashboard.contains("D05 browser picker"));
+    assert!(owner_dashboard.contains("href=\"/me/layers\""));
+    // Direct owner index must require a session and never list another owner.
+    assert_eq!(
+        request(&app, "GET", "/me/layers", "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let list_response = request(&app, "GET", "/me/layers", &owner_cookie, ORIGIN, "").await;
+    assert_eq!(list_response.status(), StatusCode::OK);
+    assert_eq!(list_response.headers()[header::CACHE_CONTROL], "no-store");
+    let own_layers = body(list_response).await;
+    assert!(own_layers.contains("Мои слои"));
+    assert!(own_layers.contains("href=\"/me/layers/new\""));
+    assert!(own_layers.contains(&format!("/me/layers/{layer}/books")));
+    assert!(own_layers.contains("D05 browser picker"));
+    let foreign_layers =
+        body(request(&app, "GET", "/me/layers", &other_cookie, ORIGIN, "").await).await;
+    assert!(!foreign_layers.contains("D05 browser picker"));
+    assert!(!foreign_layers.contains(&format!("/me/layers/{layer}/books")));
     let foreign_dashboard =
         body(request(&app, "GET", "/me/books", &other_cookie, ORIGIN, "").await).await;
     assert!(!foreign_dashboard.contains(&format!("/me/layers/{layer}/books")));
