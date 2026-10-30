@@ -1,10 +1,6 @@
 name: TOR paid S3 grant end-to-end
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
 concurrency:
