@@ -217,5 +217,32 @@ async fn c_thanks_http_csrf_session_repeat_hidden_and_reader_link() {
         call(&app, "GET", &path, &cookie, ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
+    // Python NEwBOO used 20 chapter_thanks actions per user per 60 seconds.
+    // The first success, repeat and blocked attempt already used 3 slots.
+    pg(
+        &url,
+        &format!("UPDATE chapters SET admin_hold=false WHERE id={chapter}"),
+    );
+    for _ in 0..17 {
+        assert_eq!(
+            call(&app, "POST", &path, &cookie, ORIGIN, &form)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    let limited = call(&app, "POST", &path, &cookie, ORIGIN, &form).await;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.headers()[header::RETRY_AFTER], "60");
+    let count_after_limit: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*) FROM chapter_thanks WHERE chapter_id={chapter} AND user_id={user}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(count_after_limit, 1);
+
     pool.close().await;
 }
