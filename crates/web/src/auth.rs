@@ -344,11 +344,11 @@ async fn public_user_profile(
         if !blocked {
             let (token, issued_cookies) = state.cookies.csrf_for_page(&headers);
             cookies = issued_cookies;
-            action = format!("<form method=\\"post\\" action=\\"/mail/start/{recipient}\\"><input type=\\"hidden\\" name=\\"csrf_token\\" value=\\"{}\\"><button type=\\"submit\\" class=\\"ui-button ui-button--ghost\\">Почта</button></form>", pages::escape_html(&token));
+            action = format!("<form method=\"post\" action=\"/mail/start/{recipient}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><button type=\"submit\" class=\"ui-button ui-button--ghost\">Почта</button></form>", pages::escape_html(&token));
         }
     }
     let html = pages::layout("Публичный профиль", "Профиль участника.", &format!(
-        "<section class=\\"me-page\\"><div class=\\"container\\"><h1>{}</h1>{action}</div></section>",
+        "<section class=\"me-page\"><div class=\"container\"><h1>{}</h1>{action}</div></section>",
         pages::escape_html(&name)
     ));
     private_response(html, &cookies)
