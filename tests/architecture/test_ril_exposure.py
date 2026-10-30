@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 87)  # C-16 adds one protected release read-state POST.
-        self.assertEqual(report["route_pairs"], 84)  # E-03 adds one read-state browser action.
+        self.assertEqual(report["route_pairs"], 85)  # C-16 adds one distinct reader notification route.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
