@@ -155,3 +155,135 @@ async fn d_05_pg_two_concurrent_creates_have_one_winner_and_one_replay() {
     assert_eq!((layer_count, versions, terms), (1, 1, 0));
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_owner_metadata_hides_restores_without_mutating_paid_versions() {
+    let (pool, repo, owner, buyer, book) = setup("metadata-owner").await;
+    let (layer, version, offer_id) = offer(&repo, owner, book, 250, false).await;
+    let paid = repo
+        .buy(&cmd(buyer, layer, offer_id, version, 250, 'J'))
+        .await
+        .unwrap();
+    let original = repo
+        .owned_layers(id(owner), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.layer_id == layer)
+        .unwrap();
+    assert_eq!(original.status, "active");
+    assert_eq!(original.metadata_revision, 1);
+    assert!(repo.owned_layers(id(buyer), 100).await.unwrap().is_empty());
+
+    repo.update_metadata_if_current(
+        id(owner),
+        id(layer),
+        1,
+        " Скрытый & слой ",
+        " <описание> ",
+        "hidden",
+    )
+    .await
+    .unwrap();
+    let hidden = repo
+        .owned_layers(id(owner), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.layer_id == layer)
+        .unwrap();
+    assert_eq!(hidden.title, "Скрытый & слой");
+    assert_eq!(hidden.description, "<описание>");
+    assert_eq!(hidden.status, "hidden");
+    assert_eq!(hidden.metadata_revision, 2);
+    assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
+    assert_eq!(
+        repo.buy(&cmd(buyer, layer, offer_id, version, 250, 'K'))
+            .await,
+        Err(LayerError::StaleOffer),
+        "hidden layer cannot sell new rights"
+    );
+    assert_eq!(
+        repo.update_metadata_if_current(id(owner), id(layer), 1, "Old", "", "active")
+            .await,
+        Err(LayerError::StaleOffer),
+        "a stale form cannot silently restore an old state"
+    );
+    assert_eq!(
+        repo.update_metadata_if_current(id(buyer), id(layer), 2, "Theft", "", "active")
+            .await,
+        Err(LayerError::Inaccessible),
+        "another account cannot edit a layer"
+    );
+    assert_eq!(
+        repo.update_metadata_if_current(id(owner), id(layer), 2, "Bad", "", "blocked")
+            .await,
+        Err(LayerError::Invalid),
+        "the owner is not an operator"
+    );
+    assert_eq!(
+        repo.update_metadata_if_current(id(owner), id(layer), 2, " ", "", "active")
+            .await,
+        Err(LayerError::Invalid)
+    );
+    assert_eq!(
+        repo.update_metadata_if_current(
+            id(owner),
+            id(layer),
+            2,
+            "Long",
+            &"д".repeat(2001),
+            "active"
+        )
+        .await,
+        Err(LayerError::Invalid)
+    );
+
+    repo.update_metadata_if_current(id(owner), id(layer), 2, "Back", "", "active")
+        .await
+        .unwrap();
+    let restored = repo
+        .owned_layers(id(owner), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.layer_id == layer)
+        .unwrap();
+    assert_eq!(restored.status, "active");
+    assert_eq!(restored.metadata_revision, 3);
+
+    sqlx::query("UPDATE commerce_layers SET status='blocked' WHERE id=$1")
+        .bind(layer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.update_metadata_if_current(id(owner), id(layer), 3, "Bypass", "", "active")
+            .await,
+        Err(LayerError::Inaccessible)
+    );
+    let blocked = repo
+        .owned_layers(id(owner), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.layer_id == layer)
+        .unwrap();
+    assert_eq!(blocked.status, "blocked");
+    assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
+    let (versions, terms, debits): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+            (SELECT count(*) FROM commerce_layer_versions WHERE layer_id=$1),
+            (SELECT count(*) FROM commerce_layer_terms WHERE layer_id=$1),
+            (SELECT count(*) FROM reader_wallet_entries WHERE user_id=$2 AND kind='layer_purchase')",
+    )
+    .bind(layer)
+    .bind(buyer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((versions, terms, debits), (2, 1, 1));
+    assert!(paid.term_id > 0);
+    pool.close().await;
+}

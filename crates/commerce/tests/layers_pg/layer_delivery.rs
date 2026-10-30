@@ -121,6 +121,16 @@ async fn d_05_layer_current_chapter_requires_active_term_and_current_publication
         "Layer must follow current published V2, not pin historical V1"
     );
 
+    sqlx::query("UPDATE commerce_layers SET status='hidden' WHERE id=$1")
+        .bind(layer)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        decision(&resolver, buyer, chapter, None).await,
+        allow(chapter, published_v2),
+        "hidden storefront must preserve an already paid right"
+    );
     sqlx::query("UPDATE commerce_layers SET status='blocked' WHERE id=$1")
         .bind(layer)
         .execute(&pool)

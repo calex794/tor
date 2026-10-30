@@ -13,11 +13,11 @@ pub use classifier::classify;
 use entries_core::BASE_ROUTES;
 use entries_follow::FOLLOW_ROUTES;
 use entries_inbox::INBOX_ROUTES;
-use entries_layer::{LAYER_INDEX_ROUTES, LAYER_ROUTES};
+use entries_layer::{LAYER_INDEX_ROUTES, LAYER_METADATA_ROUTES, LAYER_ROUTES};
 use entries_reply::REPLY_ROUTES;
 
-const ROUTES: [RouteRegistration; 97] = {
-    let mut result = [BASE_ROUTES[0]; 97];
+const ROUTES: [RouteRegistration; 98] = {
+    let mut result = [BASE_ROUTES[0]; 98];
     let mut i = 0;
     while i < 79 {
         result[i] = BASE_ROUTES[i];
@@ -37,6 +37,7 @@ const ROUTES: [RouteRegistration; 97] = {
     result[94] = LAYER_INDEX_ROUTES[0];
     result[95] = INBOX_ROUTES[0];
     result[96] = INBOX_ROUTES[1];
+    result[97] = LAYER_METADATA_ROUTES[0];
     result
 };
 

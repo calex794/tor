@@ -96,3 +96,13 @@ pub(super) const LAYER_INDEX_ROUTES: [RouteRegistration; 1] = [RouteRegistration
     Dashboard,
     Read,
 )]; // 94
+
+pub(super) const LAYER_METADATA_ROUTES: [RouteRegistration; 1] = [RouteRegistration::new(
+    "/me/layers/{layer_id}/metadata",
+    "POST",
+    "/me/",
+    Prefix,
+    Page,
+    Dashboard,
+    Write,
+)]; // 97

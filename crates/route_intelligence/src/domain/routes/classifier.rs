@@ -107,6 +107,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/layers"), "GET") => Some(94),
         (Some("/me/inbox"), "GET") => Some(95),
         (Some("/api/v1/me/inbox"), "GET") => Some(96),
+        (Some("/me/layers/{layer_id}/metadata"), "POST") => Some(97),
         _ => None,
     };
     index
