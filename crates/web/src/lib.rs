@@ -280,8 +280,9 @@ async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     headers: axum::http::HeaderMap,
+    method: axum::http::Method,
 ) -> Response {
-    public_reader_http::reader_page(State(state), Path(id), headers).await
+    public_reader_http::reader_page(State(state), Path(id), headers, method).await
 }
 
 /// S3 delivery is not connected: deny every alternative reader API request.

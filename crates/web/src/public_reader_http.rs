@@ -2,7 +2,7 @@
 use super::{auth_cookies, pages, AppState};
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     response::Response,
 };
 use tor_reading::services::PublicReadingRepository;
@@ -12,6 +12,7 @@ pub(super) async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     headers: HeaderMap,
+    method: Method,
 ) -> Response {
     let Some(reader) = state.reader else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
@@ -38,7 +39,8 @@ pub(super) async fn reader_page(
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
-    if let Some(catalog) = state.postgres.as_ref() {
+    if method == Method::GET {
+        if let Some(catalog) = state.postgres.as_ref() {
         // If verification is unavailable, omit optional analytics. Never
         // misclassify an authenticated reader as an anonymous visitor.
         let actor = match state.follow_control.as_ref() {
@@ -62,6 +64,7 @@ pub(super) async fn reader_page(
                 tracing::warn!(?error, "book statistics open not recorded");
             }
         }
+    }
     }
     auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[])
 }
