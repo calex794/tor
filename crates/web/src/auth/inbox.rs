@@ -120,10 +120,9 @@ fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
     if cards.is_empty() {
         cards.push_str("<p class=\"ui-section-header__text\">Ответов пока нет.</p>");
     }
-    let mut next_link = String::new();
-    if let Some(after) = page.next_after {
-        next_link = format!("<a class=\"button\" href=\"/me/inbox?filter={}&amp;after={after}\">Следующие ответы</a>", page.filter.as_str());
-    }
+    let next_link = page.next_after.map_or_else(String::new, |after| {
+        format!("<a class=\"button\" href=\"/me/inbox?filter={}&amp;after={after}\">Следующие ответы</a>", page.filter.as_str())
+    });
     let body = format!(
         "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item is-active\" href=\"/me/inbox\" aria-current=\"page\">Обсуждения</a><a class=\"dashboard-nav__item\" href=\"/me/library\">Библиотека</a></nav><header class=\"ui-page-header\"><div><p class=\"ui-page-header__kicker\">Личный кабинет</p><h1 class=\"ui-page-header__title\">Входящие обсуждения</h1><p class=\"ui-page-header__text\">Ответы на ваши комментарии в доступных книгах.</p></div></header><nav aria-label=\"Фильтр ответов\"><a href=\"/me/inbox?filter=all\">Все</a> · <a href=\"/me/inbox?filter=unread\">Непрочитанные</a> · <a href=\"/me/inbox?filter=read\">Прочитанные</a></nav><section class=\"me-section\">{cards}{next_link}</section></div></section>"
     );
