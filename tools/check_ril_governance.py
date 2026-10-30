@@ -27,6 +27,7 @@ SCOPE_CALLS = {
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
+    "delivery_preference", "set_delivery_preference",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -119,7 +120,7 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return root / "__unsupported_nested_handler__"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
-        allowed = {"profile_http", "notification_settings", "password_reset", "password_change"}
+        allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
