@@ -146,6 +146,7 @@ mod tests {
         assert!(html.contains("Создать ссылку"));
         assert!(html.contains("name=\"book_id\" value=\"15\""));
         assert!(!html.contains("type=\"text\" id=\"referral-url\""));
+    }
 
     #[test]
     fn f_09_public_book_link_contains_only_own_code() {
