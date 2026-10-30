@@ -71,7 +71,7 @@ pub fn offer_page(
     let interactive_pricing = checkout_enabled
         && offer.public_book_count > 0
         && viewer != Some(offer.owner_id)
-        && !(offer.has_access && offer.term_kind == "lifetime")
+        && !offer.has_lifetime_access
         && (viewer.is_none() || (csrf.is_some() && key.is_some()));
     let static_price_card = if interactive_pricing {
         String::new()
@@ -85,7 +85,7 @@ pub fn offer_page(
         action.push_str("<p class=\"layer-note\" role=\"status\">Оплата станет доступна после публикации книг.</p>");
     } else if viewer == Some(offer.owner_id) {
         action.push_str("<p class=\"layer-note\">Автор не покупает собственный пакет.</p>");
-    } else if offer.has_access && offer.term_kind == "lifetime" {
+    } else if offer.has_lifetime_access {
         action.push_str("<p class=\"ui-alert ui-alert--success\" role=\"status\">Этот пакет уже доступен в вашем аккаунте.</p><a class=\"ui-button ui-button--primary\" href=\"/me/library/layers\">Мои пакеты</a>");
     } else if !checkout_enabled {
         action.push_str("<p class=\"layer-note\" role=\"status\">Покупка временно отключена. Уже оплаченные сроки сохраняются.</p>");
@@ -95,7 +95,9 @@ pub fn offer_page(
              <span class=\"layer-offer__meta\">Войти и приобрести доступ</span></a></div>"
         ));
     } else if let (Some(csrf), Some(key)) = (csrf, key) {
-        let button = if offer.has_access {
+        let button = if offer.has_access && offer.term_kind == "lifetime" {
+            "Купить бессрочный доступ"
+        } else if offer.has_access {
             "Продлить ещё на 30 дней"
         } else {
             "Приобрести пакет"
@@ -264,6 +266,7 @@ mod tests {
                 },
             ],
             has_access: false,
+            has_lifetime_access: false,
         };
         let page = offer_page(&offer, Some(40), Some("csrf"), Some("key"), false, true).0;
         assert!(page.contains("layers-public-layout"));
@@ -333,6 +336,7 @@ mod tests {
             public_book_count: 1,
             public_books: Vec::new(),
             has_access: true,
+            has_lifetime_access: true,
         };
         let html = offer_page(&offer, Some(12), Some("csrf"), Some("key"), true, true).0;
         assert!(html.contains("Этот пакет уже доступен"));
@@ -341,5 +345,37 @@ mod tests {
         offer.public_book_count = 0;
         let html = offer_page(&offer, Some(12), Some("csrf"), Some("key"), false, true).0;
         assert!(!html.contains("layer-purchase-form"));
+    }
+    #[test]
+    fn d05_prepaid_buyer_can_upgrade_to_lifetime_without_second_lifetime_purchase() {
+        let mut offer = LayerStorefront {
+            id: 17,
+            title: "Книги".into(),
+            owner_id: 11,
+            offer_id: 29,
+            version_id: 31,
+            price_minor: 550,
+            term_kind: "lifetime".into(),
+            public_book_count: 1,
+            public_books: vec![
+                tor_commerce::repositories::layer_storefront::StorefrontBook {
+                    id: 42,
+                    title: "Книга".into(),
+                    has_cover: false,
+                },
+            ],
+            has_access: true,
+            has_lifetime_access: false,
+        };
+        let upgrade = offer_page(&offer, Some(12), Some("csrf"), Some("key"), false, true).0;
+        assert!(upgrade.contains("layer-purchase-form"));
+        assert!(upgrade.contains("Купить бессрочный доступ"));
+        assert!(!upgrade.contains("Этот пакет уже доступен"));
+
+        // Once the lifetime term is paid, all further checkout paths are hidden.
+        offer.has_lifetime_access = true;
+        let already_owned = offer_page(&offer, Some(12), Some("csrf"), Some("key"), false, true).0;
+        assert!(already_owned.contains("Этот пакет уже доступен"));
+        assert!(!already_owned.contains("layer-purchase-form"));
     }
 }

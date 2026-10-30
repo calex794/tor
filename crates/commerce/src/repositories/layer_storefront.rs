@@ -22,6 +22,7 @@ pub struct LayerStorefront {
     pub public_books: Vec<StorefrontBook>,
     pub public_book_count: i64,
     pub has_access: bool,
+    pub has_lifetime_access: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -99,17 +100,20 @@ pub async fn storefront(
                 .map_err(|_| LayerError::Unavailable)?,
         });
     }
-    let has_access = if let Some(actor) = viewer {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(
-              SELECT 1 FROM commerce_layer_terms t
-              WHERE t.user_id=$1 AND t.layer_id=$2
-                AND t.started_at<=now()
-                AND (t.expires_at IS NULL OR t.expires_at>now())
-                AND NOT EXISTS(
-                  SELECT 1 FROM commerce_layer_term_revocations r WHERE r.term_id=t.id
-                )
-            )",
+    // An active 30-day term is not an owned lifetime term. The checkout
+    // allows the reader to purchase lifetime even while prepaid access works.
+    let (has_access, has_lifetime_access): (bool, bool) = if let Some(actor) = viewer {
+        sqlx::query_as(
+            "SELECT COALESCE(BOOL_OR(
+                       t.started_at<=now()
+                       AND (t.expires_at IS NULL OR t.expires_at>now())
+                    ),FALSE),
+                    COALESCE(BOOL_OR(t.term_kind='lifetime'),FALSE)
+             FROM commerce_layer_terms t
+             WHERE t.user_id=$1 AND t.layer_id=$2
+               AND NOT EXISTS(
+                   SELECT 1 FROM commerce_layer_term_revocations r WHERE r.term_id=t.id
+               )",
         )
         .bind(actor)
         .bind(layer_id)
@@ -117,7 +121,7 @@ pub async fn storefront(
         .await
         .map_err(|_| LayerError::Unavailable)?
     } else {
-        false
+        (false, false)
     };
     Ok(Some(LayerStorefront {
         id: layer_id,
@@ -138,6 +142,7 @@ pub async fn storefront(
         public_books: books,
         public_book_count,
         has_access,
+        has_lifetime_access,
     }))
 }
 

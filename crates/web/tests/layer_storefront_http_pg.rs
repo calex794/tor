@@ -408,5 +408,111 @@ async fn d_05_newboo_layer_offer_form_ledger_and_private_library() {
         });
         std::fs::write(destination, serde_json::to_vec(&fixture).unwrap()).unwrap();
     }
+
+    // A paid 30-day term must not remove the lifetime upgrade form or its
+    // session-scoped CSRF/key. Verify this through the real Axum/PG route.
+    let lifetime_offer = layers
+        .publish_offer(
+            PositiveId::new(author).unwrap(),
+            PositiveId::new(layer).unwrap(),
+            150,
+            true,
+        )
+        .await
+        .unwrap();
+    let upgrade_reply = get(&app, &path, Some(&buyer_token)).await;
+    assert_eq!(upgrade_reply.status(), StatusCode::OK);
+    let upgrade_cookie = upgrade_reply
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find_map(|value| {
+            let value = value.to_str().ok()?;
+            value
+                .strip_prefix("tor-dev-csrf=")
+                .map(|token| token.split(';').next().unwrap().to_owned())
+        })
+        .expect("lifetime upgrade must receive CSRF cookie");
+    let upgrade_page = html(upgrade_reply).await;
+    assert!(upgrade_page.contains("Купить бессрочный доступ"));
+    assert!(upgrade_page.contains("layer-purchase-form"));
+    let upgrade_csrf = input(&upgrade_page, "csrf_token");
+    assert_eq!(upgrade_csrf, upgrade_cookie);
+    let upgrade_key = input(&upgrade_page, "idempotency_key");
+    assert_eq!(upgrade_key.len(), 43);
+    let upgrade_body = format!(
+        "csrf_token={upgrade_csrf}&idempotency_key={upgrade_key}&expected_offer_id={lifetime_offer}&expected_version_id={current}&expected_price_minor=150&confirm=1"
+    );
+    let upgraded = form(
+        &app,
+        &format!("{path}/purchase"),
+        &upgrade_body,
+        &buyer_token,
+        &upgrade_csrf,
+        Some(ORIGIN),
+    )
+    .await;
+    assert_eq!(upgraded.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        175
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id={buyer}")
+        ),
+        2
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id={buyer} AND kind='layer_purchase'")
+        ),
+        2
+    );
+
+    let owned_page = html(get(&app, &path, Some(&buyer_token)).await).await;
+    assert!(owned_page.contains("Этот пакет уже доступен"));
+    assert!(!owned_page.contains("layer-purchase-form"));
+
+    // Even a fresh valid key must not charge a second lifetime term.
+    // The remaining balance (175) exceeds the lifetime price (150).
+    let another_key = generate_session_token();
+    let duplicate_body = upgrade_body.replace(&upgrade_key, &another_key);
+    let duplicate = form(
+        &app,
+        &format!("{path}/purchase"),
+        &duplicate_body,
+        &buyer_token,
+        &upgrade_csrf,
+        Some(ORIGIN),
+    )
+    .await;
+    assert_eq!(duplicate.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id={buyer}")
+        ),
+        175
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM commerce_layer_terms WHERE user_id={buyer}")
+        ),
+        2
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT COUNT(*) FROM reader_wallet_entries WHERE user_id={buyer} AND kind='layer_purchase'")
+        ),
+        2
+    );
     pool.close().await;
 }

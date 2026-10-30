@@ -351,6 +351,14 @@ async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
         quote.term_kind,
         tor_commerce::domain::layers::LayerTermKind::Lifetime
     );
+    // Paid prepaid access must not look like an already purchased lifetime.
+    let before_upgrade =
+        tor_commerce::repositories::layer_storefront::storefront(&pool, layer, Some(buyer))
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(before_upgrade.has_access);
+    assert!(!before_upgrade.has_lifetime_access);
     assert_eq!(
         repo.buy(&cmd(buyer, layer, first_offer, version, 251, 'Q'))
             .await,
@@ -381,6 +389,13 @@ async fn d_05_pg_republished_offer_preserves_paid_term_ledger_and_shares() {
         .unwrap();
     assert_ne!(later.term_id, paid.term_id);
     assert_eq!(later.balance_after_minor, 699);
+    let after_upgrade =
+        tor_commerce::repositories::layer_storefront::storefront(&pool, layer, Some(buyer))
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(after_upgrade.has_access);
+    assert!(after_upgrade.has_lifetime_access);
     let saved_term: (i64, i64, String, i64) = sqlx::query_as(
         "SELECT offer_id,base_version_id,term_kind,amount_minor
          FROM commerce_layer_terms WHERE id=$1",
