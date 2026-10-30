@@ -94,6 +94,17 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     .await
     .unwrap();
     assert_eq!(release_fact, 1);
+    let outbox: (i64, bool) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint,
+                BOOL_AND((payload->>'first_release')::boolean)
+         FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(saved.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(outbox, (1, true), "exact command replay emits one event");
     let working: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(saved.chapter_id)

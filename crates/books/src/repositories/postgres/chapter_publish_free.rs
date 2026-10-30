@@ -1,7 +1,7 @@
 //! A normal Save to an already public book releases a free chapter in one
 //! atomic owner-only transaction. The historical private/draft commands remain
 //! separate for books that are not yet published.
-use super::PgAuthoring;
+use super::{chapter_outbox::enqueue_chapter_published, PgAuthoring};
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, SaveChapter, SavedChapter,
 };
@@ -153,6 +153,14 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
+        enqueue_chapter_published(
+            &mut tx,
+            input.book_id,
+            chapter_id,
+            version_id,
+            true,
+        )
+        .await?;
         sqlx::query(
             "UPDATE chapter_save_commands SET chapter_id=$3,version_id=$4,saved_revision=1
              WHERE user_id=$1 AND command_key=$2",
