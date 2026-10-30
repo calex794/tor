@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    auth_cookies::{deny, private_response, CookiePolicy},
+    auth_cookies::{private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
@@ -40,6 +40,7 @@ use tor_reading::{
     },
 };
 
+mod access_audit;
 mod account_form_http;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -56,13 +57,20 @@ mod inbox;
 mod library_actions;
 mod library_page;
 mod login_limiter;
+mod notification_settings;
 mod paid_completion;
+mod password_change;
+mod password_reset;
 mod private_reader;
+mod profile_http;
 mod rankings;
 mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
 mod reply_read_state;
+mod reset_delivery;
+mod security_retention;
+mod settings_routes;
 mod sync_actions;
 mod types;
 use types::*;
@@ -134,6 +142,8 @@ fn router_inner(
     paid_reader_available: bool,
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
+    security_retention::start(accounts.clone());
+    let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -156,6 +166,10 @@ fn router_inner(
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
+        reset_delivery,
+        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
+            accounts.pool().clone(),
+        ),
         accounts,
         checkout,
         paid_checkout_enabled,
@@ -177,6 +191,7 @@ fn router_inner(
     };
     let observation_state = state.clone();
     let app = Router::new()
+        .merge(settings_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -185,10 +200,10 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/me", get(me))
         .route("/r/{code}", get(referral_capture::capture))
         .route("/go/{alias}", get(referral_capture::go))
         .route("/promo/{alias}", get(referral_capture::promo))
-        .route("/me", get(me))
         .route(
             "/me/referrals",
             get(referral_dashboard::page).post(referral_dashboard::create),
@@ -201,6 +216,10 @@ fn router_inner(
         .route(
             "/api/v1/me/referrals/alias",
             post(referral_alias::api_create),
+        )
+        .route(
+            "/me/settings/password",
+            get(password_change::page).post(password_change::submit),
         )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
@@ -290,6 +309,10 @@ fn router_inner(
     } else {
         app
     }
+}
+
+fn deny(status: StatusCode) -> Response {
+    private_response(status, &[])
 }
 
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {

@@ -9,8 +9,8 @@ mod account;
 mod referrals;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, my_account, my_account_with_follow_updates, registration_form,
-    registration_form_with_error,
+    account_error_page, login_form, my_account, my_account_with_follow_updates,
+    password_change_form, registration_form, registration_form_with_error,
 };
 pub use referrals::referrals_page;
 mod reader_private;
@@ -517,3 +517,11 @@ pub fn book_detail_with_chapters(
 
 #[cfg(test)]
 mod tests;
+
+mod profile_settings;
+pub use profile_settings::profile_settings;
+mod notification_settings;
+pub use notification_settings::delivery_preferences_page;
+
+mod password_reset;
+pub use password_reset::{reset_confirm_form, reset_request_form};

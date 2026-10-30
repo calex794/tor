@@ -6,6 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
+    domain::access_audit::{LoginAuditContext, LoginEventKind, UserAgentFamily},
     repositories::{postgres::RegistrationReferral, PgAccounts},
     services::security::{generate_session_token, session_token_digest},
 };
@@ -71,7 +72,7 @@ async fn seed_capture(pool: &PgPool, guest: &[u8; 32], code: &str) -> i64 {
 async fn register(pool: &PgPool, guest: Option<&[u8; 32]>, manual: Option<&str>) -> i64 {
     let digest = session_token_digest(&generate_session_token());
     PgAccounts::from_pool(pool.clone())
-        .register_with_session_referral(
+        .register_with_audited_session_referral(
             &unique_email("invited"),
             "F09 invited",
             "$argon2id$test",
@@ -80,6 +81,11 @@ async fn register(pool: &PgPool, guest: Option<&[u8; 32]>, manual: Option<&str>)
             RegistrationReferral {
                 guest_hash: guest,
                 manual_code: manual,
+            },
+            LoginAuditContext {
+                verified_ip: None,
+                agent_family: UserAgentFamily::Unknown,
+                event_kind: LoginEventKind::Registration,
             },
         )
         .await

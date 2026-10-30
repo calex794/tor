@@ -2,13 +2,23 @@
 //! This adapter never stores plaintext passwords or session tokens.
 #![forbid(unsafe_code)]
 
+use crate::domain::access_audit::LoginAuditContext;
 use sqlx::{PgPool, Row};
 use std::num::NonZeroU32;
+
+pub(super) const INSERT_AUDITED_SESSION: &str = "WITH saved AS ( \
+    INSERT INTO sessions (user_id, token_hash, expires_at) \
+    VALUES ($1, $2, now() + ($3::double precision * INTERVAL '1 second')) \
+    RETURNING session_id, user_id \
+) INSERT INTO account_login_events \
+    (session_id, user_id, verified_ip, agent_family, event_kind) \
+  SELECT session_id, user_id, $4::text::inet, $5, $6 FROM saved";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountWriteError {
     Duplicate,
     Unavailable,
+    InvalidReferral,
 }
 
 impl From<sqlx::Error> for AccountWriteError {
@@ -22,15 +32,14 @@ impl From<sqlx::Error> for AccountWriteError {
     }
 }
 
-#[derive(Clone)]
-pub struct PgAccounts {
-    pool: PgPool,
-}
-
-#[derive(Default)]
 pub struct RegistrationReferral<'a> {
     pub guest_hash: Option<&'a [u8; 32]>,
     pub manual_code: Option<&'a str>,
+}
+
+#[derive(Clone)]
+pub struct PgAccounts {
+    pool: PgPool,
 }
 
 pub struct StoredUser {
@@ -62,7 +71,10 @@ impl PgAccounts {
         sqlx::query("SELECT id FROM users LIMIT 0")
             .execute(&self.pool)
             .await?;
-        sqlx::query("SELECT token_hash FROM sessions LIMIT 0")
+        sqlx::query("SELECT token_hash, session_id FROM sessions LIMIT 0")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("SELECT session_id FROM account_login_events LIMIT 0")
             .execute(&self.pool)
             .await?;
         sqlx::query("SELECT key_hash FROM auth_attempts LIMIT 0")
@@ -95,7 +107,7 @@ impl PgAccounts {
     ) -> Result<Option<StoredUser>, sqlx::Error> {
         let row = sqlx::query(
             "SELECT id, email_normalized, display_name, password_hash \
-             FROM users WHERE email_normalized = $1",
+             FROM users WHERE email_normalized = $1 AND account_state='active'",
         )
         .bind(normalized_email)
         .fetch_optional(&self.pool)
@@ -130,14 +142,30 @@ impl PgAccounts {
         Ok(())
     }
 
+    pub async fn insert_audited_session(
+        &self,
+        user_id: i64,
+        digest: &[u8; 32],
+        ttl_seconds: NonZeroU32,
+        audit: LoginAuditContext,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(INSERT_AUDITED_SESSION)
+            .bind(user_id)
+            .bind(digest.as_slice())
+            .bind(ttl_seconds.get() as f64)
+            .bind(audit.verified_ip.map(|ip| ip.to_string()))
+            .bind(audit.agent_family.label())
+            .bind(audit.event_kind.label())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn active_session_user(&self, digest: &[u8; 32]) -> Result<Option<i64>, sqlx::Error> {
-        sqlx::query_scalar(
-            "SELECT user_id FROM sessions \
-             WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()",
-        )
-        .bind(digest.as_slice())
-        .fetch_optional(&self.pool)
-        .await
+        Ok(self
+            .session_actor(digest)
+            .await?
+            .map(|actor| actor.actor.user_id.get()))
     }
 
     /// Register and establish the first session atomically. A failed session
@@ -149,28 +177,6 @@ impl PgAccounts {
         password_hash: &str,
         digest: &[u8; 32],
         ttl: NonZeroU32,
-    ) -> Result<i64, AccountWriteError> {
-        self.register_with_session_referral(
-            email,
-            name,
-            password_hash,
-            digest,
-            ttl,
-            RegistrationReferral::default(),
-        )
-        .await
-    }
-
-    /// Referrals share the same commit as the account and its initial session.
-    /// This extension keeps the original five-argument registration API intact.
-    pub async fn register_with_session_referral(
-        &self,
-        email: &str,
-        name: &str,
-        password_hash: &str,
-        digest: &[u8; 32],
-        ttl: NonZeroU32,
-        referral: RegistrationReferral<'_>,
     ) -> Result<i64, AccountWriteError> {
         let mut transaction = self.pool.begin().await?;
         let user_id: i64 = sqlx::query_scalar(
@@ -191,6 +197,73 @@ impl PgAccounts {
         .bind(ttl.get() as f64)
         .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
+        Ok(user_id)
+    }
+
+    pub async fn register_with_audited_session(
+        &self,
+        email: &str,
+        name: &str,
+        password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        audit: LoginAuditContext,
+    ) -> Result<i64, AccountWriteError> {
+        let mut tx = self.pool.begin().await?;
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (email_normalized, display_name, password_hash) \
+             VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(email)
+        .bind(name)
+        .bind(password_hash)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(INSERT_AUDITED_SESSION)
+            .bind(user_id)
+            .bind(digest.as_slice())
+            .bind(ttl.get() as f64)
+            .bind(audit.verified_ip.map(|ip| ip.to_string()))
+            .bind(audit.agent_family.label())
+            .bind(audit.event_kind.label())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(user_id)
+    }
+
+    /// Referrals share the same commit as the account and its initial session.
+    /// This extension keeps the original five-argument registration API intact.
+    pub async fn register_with_audited_session_referral(
+        &self,
+        email: &str,
+        name: &str,
+        password_hash: &str,
+        digest: &[u8; 32],
+        ttl: NonZeroU32,
+        referral: RegistrationReferral<'_>,
+        audit: LoginAuditContext,
+    ) -> Result<i64, AccountWriteError> {
+        let mut transaction = self.pool.begin().await?;
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (email_normalized, display_name, password_hash) \
+             VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(email)
+        .bind(name)
+        .bind(password_hash)
+        .fetch_one(&mut *transaction)
+        .await?;
+        sqlx::query(INSERT_AUDITED_SESSION)
+            .bind(user_id)
+            .bind(digest.as_slice())
+            .bind(ttl.get() as f64)
+            .bind(audit.verified_ip.map(|ip| ip.to_string()))
+            .bind(audit.agent_family.label())
+            .bind(audit.event_kind.label())
+            .execute(&mut *transaction)
+            .await?;
         if referral.guest_hash.is_some() || referral.manual_code.is_some() {
             // Freeze the winner at the moment the account and session commit.
             // Reading this information later loses valid invitations if a
@@ -211,6 +284,9 @@ impl PgAccounts {
             } else {
                 None
             };
+            if referral.manual_code.is_some() && candidate.is_none() {
+                return Err(AccountWriteError::InvalidReferral);
+            }
             // A guest capture belongs to at most one committed registration.
             // Claim it under a row lock *inside* the account/session transaction:
             // a concurrent signup with a copied guest cookie cannot claim it.
@@ -354,7 +430,8 @@ impl PgAccounts {
             "SELECT s.user_id, c.epoch FROM sessions s
                 JOIN ril_behavior_consents c ON c.user_id = s.user_id
              WHERE s.token_hash = $1 AND s.revoked_at IS NULL
-               AND s.expires_at > now() AND c.enabled = TRUE",
+               AND s.expires_at > now() AND c.enabled = TRUE
+               AND EXISTS (SELECT 1 FROM users u WHERE u.id=s.user_id AND u.account_state='active')",
         )
         .bind(token_digest.as_slice())
         .fetch_optional(&self.pool)
