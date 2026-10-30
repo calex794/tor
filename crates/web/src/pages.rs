@@ -520,8 +520,8 @@ mod tests;
 
 mod profile_settings;
 mod session_security;
-pub use session_security::active_sessions;
 pub use profile_settings::profile_settings;
+pub use session_security::active_sessions;
 mod notification_settings;
 pub use notification_settings::delivery_preferences_page;
 

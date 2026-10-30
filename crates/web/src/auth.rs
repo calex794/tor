@@ -67,6 +67,7 @@ mod rankings;
 mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
+mod referral_routes;
 mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
@@ -193,6 +194,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(referral_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -202,16 +204,6 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/r/{code}", get(referral_capture::capture))
-        .route("/go/{alias}", get(referral_capture::go))
-        .route("/promo/{alias}", get(referral_capture::promo))
-        .route(
-            "/me/referrals",
-            get(referral_dashboard::page).post(referral_dashboard::create),
-        )
-        .route("/api/v1/me/referrals", get(referral_dashboard::api_get).post(referral_dashboard::api_create))
-        .route("/me/referrals/alias", post(referral_alias::browser_create))
-        .route("/api/v1/me/referrals/alias", post(referral_alias::api_create))
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),

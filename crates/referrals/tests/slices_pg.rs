@@ -714,7 +714,10 @@ async fn f_09_pg_legacy_outbox_cannot_credit_same_capture_twice() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert!(processed, "a rejected replay must not leave an endless retry");
+    assert!(
+        processed,
+        "a rejected replay must not leave an endless retry"
+    );
     assert_eq!(result, "unattributed");
     assert!(!repo.finalize_one(second_subject).await.unwrap());
 }

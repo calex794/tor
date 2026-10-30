@@ -7,7 +7,10 @@ use std::{
 };
 use tor_accounts::{
     domain::access_audit::{LoginAuditContext, LoginEventKind, UserAgentFamily},
-    repositories::{postgres::RegistrationReferral, PgAccounts},
+    repositories::{
+        postgres::{AccountWriteError, RegistrationContext, RegistrationReferral},
+        PgAccounts,
+    },
     services::security::{generate_session_token, session_token_digest},
 };
 
@@ -71,25 +74,38 @@ async fn seed_capture(pool: &PgPool, guest: &[u8; 32], code: &str) -> i64 {
 
 async fn register(pool: &PgPool, guest: Option<&[u8; 32]>, manual: Option<&str>) -> i64 {
     let digest = session_token_digest(&generate_session_token());
-    PgAccounts::from_pool(pool.clone())
+    let user_id = PgAccounts::from_pool(pool.clone())
         .register_with_audited_session_referral(
             &unique_email("invited"),
             "F09 invited",
             "$argon2id$test",
             &digest,
             NonZeroU32::new(3600).unwrap(),
-            RegistrationReferral {
-                guest_hash: guest,
-                manual_code: manual,
-            },
-            LoginAuditContext {
-                verified_ip: None,
-                agent_family: UserAgentFamily::Unknown,
-                event_kind: LoginEventKind::Registration,
+            RegistrationContext {
+                referral: RegistrationReferral {
+                    guest_hash: guest,
+                    manual_code: manual,
+                },
+                audit: LoginAuditContext {
+                    verified_ip: None,
+                    agent_family: UserAgentFamily::Unknown,
+                    event_kind: LoginEventKind::Registration,
+                },
             },
         )
         .await
-        .expect("account, session and referral decision commit atomically")
+        .expect("account, session and referral decision commit atomically");
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM account_login_events e
+         JOIN sessions s ON s.session_id=e.session_id AND s.user_id=e.user_id
+         WHERE e.user_id=$1 AND e.event_kind='registration'",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .expect("persisted audited registration session");
+    assert_eq!(audited, 1, "every referral signup must audit its first session");
+    user_id
 }
 
 async fn snapshot(pool: &PgPool, user: i64) -> Snapshot {
@@ -139,13 +155,11 @@ async fn f_09_pg_signup_guest_owner_survives_later_fraud_block() {
     let hash = session_token_digest(&generate_session_token());
     let capture_id = seed_capture(&db, &hash, &code).await;
     let subject = register(&db, Some(&hash), None).await;
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM referral_captures WHERE id=$1",
-    )
-    .bind(capture_id)
-    .fetch_one(&db)
-    .await
-    .unwrap();
+    let status: String = sqlx::query_scalar("SELECT status FROM referral_captures WHERE id=$1")
+        .bind(capture_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
     assert_eq!(status, "consumed", "signup consumes its capture atomically");
     let decided = snapshot(&db, subject).await;
     assert_eq!(
@@ -186,14 +200,15 @@ async fn f_09_pg_signup_manual_priority_and_expired_code_fallback() {
     assert_eq!(decided.2, Some(second_owner));
     assert_eq!(decided.4, None);
     assert_eq!(decided.5, Some("manual_code_at_registration".into()));
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM referral_captures WHERE id=$1",
-    )
-    .bind(capture_id)
-    .fetch_one(&db)
-    .await
-    .unwrap();
-    assert_eq!(status, "consumed", "manual override must spend the old guest capture");
+    let status: String = sqlx::query_scalar("SELECT status FROM referral_captures WHERE id=$1")
+        .bind(capture_id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        status, "consumed",
+        "manual override must spend the old guest capture"
+    );
 
     sqlx::query("UPDATE referral_codes SET status='disabled' WHERE code=$1")
         .bind(&second_code)
@@ -242,7 +257,10 @@ async fn f_09_pg_one_guest_capture_cannot_register_two_invitees() {
     assert_eq!(snapshot(&db, first).await.4, Some(capture));
 
     let second = register(&db, Some(&hash), None).await;
-    assert_eq!(snapshot(&db, second).await, (true, None, None, None, None, None));
+    assert_eq!(
+        snapshot(&db, second).await,
+        (true, None, None, None, None, None)
+    );
 
     let repo = tor_referrals::repositories::PgReferrals::new(db.clone());
     assert_eq!(
@@ -307,16 +325,73 @@ async fn f_09_pg_concurrent_signup_serializes_guest_claim() {
     assert_eq!(attributed.len(), 1, "only one signup may claim the guest");
     assert_eq!(attributed[0].4, Some(capture));
     assert_eq!(
-        snapshots.iter().filter(|snapshot| snapshot.1.is_none()).count(),
+        snapshots
+            .iter()
+            .filter(|snapshot| snapshot.1.is_none())
+            .count(),
         1,
         "losing signup has an immutable no-referral decision"
     );
-    let status: String = sqlx::query_scalar(
-        "SELECT status FROM referral_captures WHERE id=$1",
-    )
-    .bind(capture)
-    .fetch_one(&db)
-    .await
-    .unwrap();
+    let status: String = sqlx::query_scalar("SELECT status FROM referral_captures WHERE id=$1")
+        .bind(capture)
+        .fetch_one(&db)
+        .await
+        .unwrap();
     assert_eq!(status, "consumed");
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_disabled_manual_code_rolls_back_audited_signup_and_guest_claim() {
+    let db = pool().await;
+    let (_, manual) = seed_code(&db, "reader_spend").await;
+    let (_, guest) = seed_code(&db, "reader_spend").await;
+    let guest_hash = session_token_digest(&generate_session_token());
+    let capture = seed_capture(&db, &guest_hash, &guest).await;
+    sqlx::query("UPDATE referral_codes SET status='disabled' WHERE code=$1")
+        .bind(&manual)
+        .execute(&db)
+        .await
+        .unwrap();
+
+    let email = unique_email("disabled-manual");
+    let digest = session_token_digest(&generate_session_token());
+    let result = PgAccounts::from_pool(db.clone())
+        .register_with_audited_session_referral(
+            &email,
+            "Rejected signup",
+            "$argon2id$test",
+            &digest,
+            NonZeroU32::new(3600).unwrap(),
+            RegistrationContext {
+                referral: RegistrationReferral {
+                    guest_hash: Some(&guest_hash),
+                    manual_code: Some(&manual),
+                },
+                audit: LoginAuditContext {
+                    verified_ip: None,
+                    agent_family: UserAgentFamily::Unknown,
+                    event_kind: LoginEventKind::Registration,
+                },
+            },
+        )
+        .await;
+    assert!(matches!(result, Err(AccountWriteError::InvalidReferral)));
+    let users: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE email_normalized=$1")
+        .bind(&email)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE token_hash=$1")
+        .bind(digest.as_slice())
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    let status: String = sqlx::query_scalar("SELECT status FROM referral_captures WHERE id=$1")
+        .bind(capture)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!((users, sessions), (0, 0), "failed signup must leave no account or audited session");
+    assert_eq!(status, "active", "rejected manual code must not consume the guest capture");
 }

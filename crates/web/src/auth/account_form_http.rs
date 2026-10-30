@@ -244,11 +244,13 @@ pub(super) async fn register(
             &hashed,
             &digest,
             ttl,
-            tor_accounts::repositories::postgres::RegistrationReferral {
-                guest_hash: guest_hash.as_ref(),
-                manual_code,
+            tor_accounts::repositories::postgres::RegistrationContext {
+                referral: tor_accounts::repositories::postgres::RegistrationReferral {
+                    guest_hash: guest_hash.as_ref(),
+                    manual_code,
+                },
+                audit,
             },
-            audit,
         )
         .await
     {

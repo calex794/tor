@@ -37,6 +37,12 @@ pub struct RegistrationReferral<'a> {
     pub manual_code: Option<&'a str>,
 }
 
+/// Registration audit and optional referral decision share one transaction.
+pub struct RegistrationContext<'a> {
+    pub referral: RegistrationReferral<'a>,
+    pub audit: LoginAuditContext,
+}
+
 #[derive(Clone)]
 pub struct PgAccounts {
     pool: PgPool,
@@ -242,9 +248,9 @@ impl PgAccounts {
         password_hash: &str,
         digest: &[u8; 32],
         ttl: NonZeroU32,
-        referral: RegistrationReferral<'_>,
-        audit: LoginAuditContext,
+        context: RegistrationContext<'_>,
     ) -> Result<i64, AccountWriteError> {
+        let RegistrationContext { referral, audit } = context;
         let mut transaction = self.pool.begin().await?;
         let user_id: i64 = sqlx::query_scalar(
             "INSERT INTO users (email_normalized, display_name, password_hash) \
