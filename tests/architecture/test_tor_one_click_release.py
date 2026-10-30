@@ -251,6 +251,39 @@ class OneClickReleaseTests(unittest.TestCase):
                 self.assertEqual(gate.evaluate_branch_policy(branch, changed, effective)[0],
                                  "fail")
 
+    def test_i06_real_readonly_api_hides_both_bypass_fields(self):
+        # Actual public GitHub API shape from PR #331 diagnostic job.
+        branch, rules, effective = active_main_policy()
+        candidate = rules[0]
+        candidate.pop("current_user_can_bypass")
+        candidate.pop("bypass_actors", None)
+        candidate["updated_at"] = "2026-10-30T19:28:58.370Z"
+        self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
+                         "pass")
+        # Unseen actor list is accepted ONLY for exact reviewed revision.
+        for change in ("revision", "id", "source", "explicit_bypass",
+                       "viewer_bypass", "missing_effective", "provider"):
+            with self.subTest(change=change):
+                b, rs, eff = copy.deepcopy((branch, rules, effective))
+                if change == "revision":
+                    rs[0]["updated_at"] = "2026-10-30T19:28:59.370Z"
+                elif change == "id":
+                    rs[0]["id"] += 1
+                    for row in eff:
+                        row["ruleset_id"] = rs[0]["id"]
+                elif change == "source":
+                    rs[0]["source"] = "other/repo"
+                elif change == "explicit_bypass":
+                    rs[0]["bypass_actors"] = [{"actor_id": 42}]
+                elif change == "viewer_bypass":
+                    rs[0]["current_user_can_bypass"] = "always"
+                elif change == "missing_effective":
+                    eff = []
+                elif change == "provider":
+                    eff[-1]["parameters"]["required_status_checks"][0]["integration_id"] = -1
+                self.assertEqual(gate.evaluate_branch_policy(b, rs, eff)[0],
+                                 "fail")
+
     def test_i06_classic_protection_requires_both_app_scoped_checks(self):
         branch = protected_main()
         # Compact branch metadata is not a complete classic protection proof.
@@ -325,6 +358,7 @@ class OneClickReleaseTests(unittest.TestCase):
                     eff[0]["ruleset_id"] = 4567
                 elif action == "missing_metadata":
                     item["current_user_can_bypass"] = None
+                    item["updated_at"] = "2026-11-01T00:00:00Z"
                 elif action == "missing_enforcement":
                     item.pop("enforcement")
                 self.assertEqual(gate.evaluate_branch_policy(b, rs, eff)[0], "fail")

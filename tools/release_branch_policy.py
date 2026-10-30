@@ -122,19 +122,23 @@ def _classic_is_enforced(branch: dict) -> bool:
 def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
     if (item.get("target") != "branch" or item.get("enforcement") != "active"
             or not isinstance(item.get("id"), int)
-            or not _applies_to_main(item)
-            or item.get("current_user_can_bypass") != "never"):
+            or not _applies_to_main(item)):
         return False
 
-    # GitHub hides this field from tokens without write rights to rulesets.
-    # Absence is not evidence of an empty bypass list: require reviewed version.
-    bypass = item.get("bypass_actors")
-    if bypass is not None:
-        if bypass != []:
-            return False
-    elif (item["id"] != REVIEWED_RULESET_ID
-          or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
-          or item.get("source_type") != "Repository"):
+    # The read-only GitHub REST API can omit BOTH the viewer-bypass field
+    # and the configured bypass list. Explicit bypass always blocks release.
+    viewer_bypass = item.get("current_user_can_bypass")
+    bypass_actors = item.get("bypass_actors")
+    if viewer_bypass not in (None, "never") or bypass_actors not in (None, []):
+        return False
+    # Hidden information is safe only for the administrator-reviewed exact
+    # ruleset revision; a changed timestamp, ID or source fails closed.
+    if (viewer_bypass is None or bypass_actors is None) and (
+        item["id"] != REVIEWED_RULESET_ID
+        or item.get("source_type") != "Repository"
+        or item.get("source") != REPO
+        or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
+    ):
         return False
 
     rows = item.get("rules")
@@ -193,13 +197,18 @@ def evaluate_branch_policy(
             reasons.append("inactive ruleset")
         elif not _applies_to_main(item):
             reasons.append("ruleset scope does not include main")
-        elif item.get("current_user_can_bypass") != "never":
-            reasons.append("bypass not disproved")
-        elif item.get("bypass_actors") is None and (
+        elif item.get("current_user_can_bypass") not in (None, "never"):
+            reasons.append("viewer has bypass permission")
+        elif item.get("bypass_actors") not in (None, []):
+            reasons.append("bypass actors configured")
+        elif (item.get("current_user_can_bypass") is None
+              or item.get("bypass_actors") is None) and (
             item.get("id") != REVIEWED_RULESET_ID
+            or item.get("source_type") != "Repository"
+            or item.get("source") != REPO
             or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
         ):
-            reasons.append("unreviewed ruleset version or hidden bypass")
+            reasons.append("hidden bypass metadata and unreviewed revision")
         else:
             reasons.append("ruleset/effective-rule evidence mismatch")
     return "fail", ("no verified active main policy: " + ", ".join(sorted(set(reasons)))
