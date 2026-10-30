@@ -40,17 +40,18 @@ export function setup() {
       password: 'IsolatedStrongPassword2026',
       csrf_token: key,
     };
+    // k6's setup cookie jar already holds the CSRF cookie from GET /register.
+    // A second explicit Cookie header would cause TOR's duplicate-cookie guard
+    // to reject the registration with HTTP 403.
     const registered = http.post(base + '/register', form, {
-      headers: { Cookie: csrfCookie, Origin: base },
+      headers: { Origin: base },
       redirects: 0,
     });
     const session = cookie(registered, 'tor-dev-session');
     if (registered.status !== 303 || !session) throw new Error('registration failed ' + registered.status);
-    const me = http.get(base + '/me', { headers: { Cookie: session }, redirects: 0 });
-    const accountCsrfCookie = cookie(me, 'tor-dev-csrf');
-    const csrfValue = csrf(me.body);
-    if (me.status !== 200 || !accountCsrfCookie || !csrfValue) throw new Error('profile CSRF failed');
-    users.push({ session, csrfCookie: accountCsrfCookie, csrfValue });
+    // The registration token remains valid after the session is issued.
+    // /me normally reuses the same token without setting another cookie.
+    users.push({ session, csrfCookie, csrfValue: key });
   }
   return { users };
 }
