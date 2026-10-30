@@ -279,7 +279,7 @@ async fn book_detail(
 async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
-    headers: HeaderMap,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     public_reader_http::reader_page(State(state), Path(id), headers).await
 }
