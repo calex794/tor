@@ -2,7 +2,7 @@
 use axum::response::Html;
 use std::fmt::Write;
 use tor_books::services::authoring::{
-    ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterSummary, PendingChapter,
+    ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
 
 use crate::pages::{escape_html, layout};
@@ -36,6 +36,23 @@ pub fn detail_with_covers_with_demand(
     uploads_enabled: bool,
     latest_job: Option<&str>,
     demand_count: i64,
+) -> Html<String> {
+    detail_with_covers_with_demand_page(
+        book, published, chapters, csrf, uploads_enabled, latest_job, demand_count, None, false,
+    )
+}
+
+/// Owner-only, keyset-paged list. Public book pages retain their own TOC.
+pub fn detail_with_covers_with_demand_page(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+    uploads_enabled: bool,
+    latest_job: Option<&str>,
+    demand_count: i64,
+    next: Option<OwnedChapterCursor>,
+    has_previous_page: bool,
 ) -> Html<String> {
     let mut items = String::new();
     if chapters.is_empty() {
@@ -78,9 +95,26 @@ pub fn detail_with_covers_with_demand(
             .expect("write String");
         }
         items.push_str("</ol>");
-        if chapters.len() == 200 {
-            items.push_str("<p>Показаны первые 200 глав.</p>");
+    }
+    if has_previous_page || next.is_some() {
+        items.push_str("<nav class=\"chapter-toc__more\" aria-label=\"Страницы глав\">");
+        if has_previous_page {
+            write!(
+                &mut items,
+                "<a class=\"button button--small\" href=\"/me/books/{}\">К первым главам</a> ",
+                book.id
+            )
+            .expect("write String");
         }
+        if let Some(cursor) = next {
+            write!(
+                &mut items,
+                "<a class=\"button button--small\" href=\"/me/books/{}?after={}:{}\">Следующие главы</a>",
+                book.id, cursor.number, cursor.id
+            )
+            .expect("write String");
+        }
+        items.push_str("</nav>");
     }
 
     let status = if published {
@@ -329,6 +363,16 @@ fn edit_chapter_mode(
     } else {
         "Редакция остаётся закрытой до выпуска книги или главы."
     };
+    // NEwBOO has a "В главу" action. The TOR title itself opens the
+    // published reader view; a draft has no publicly readable URL.
+    let title_in_heading = if published {
+        format!(
+            "<a class=\"author-chapter-view-link\" href=\"/reader/{chapter_id}\" title=\"Открыть главу для чтения\">{}</a>",
+            escape_html(&chapter.title)
+        )
+    } else {
+        escape_html(&chapter.title)
+    };
     let html = include_str!("../templates/author_edit_chapter.html")
         .replace(
             "<!--EDIT_EYEBROW-->",
@@ -343,6 +387,7 @@ fn edit_chapter_mode(
         .replace("<!--CHAPTER_ID-->", &chapter_id.to_string())
         .replace("<!--REVISION-->", &chapter.revision.to_string())
         .replace("<!--NUMBER-->", &chapter.number.to_string())
+        .replace("<!--TITLE_HEADING-->", &title_in_heading)
         .replace("<!--TITLE-->", &escape_html(&chapter.title))
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -402,6 +447,36 @@ pub fn detail(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn b12_owner_pages_keep_navigation_for_long_books() {
+        let book = OwnedBook {
+            id: 42,
+            title: "Повесть".to_owned(),
+        };
+        let chapter = OwnedChapterSummary {
+            id: 501,
+            number: 501,
+            title: "<безопасная>".to_owned(),
+            access: ChapterAccess::Free,
+            published: true,
+        };
+        let page = detail_with_covers_with_demand_page(
+            &book,
+            true,
+            &[chapter],
+            "csrf",
+            false,
+            None,
+            0,
+            Some(OwnedChapterCursor { number: 501, id: 501 }),
+            true,
+        )
+        .0;
+        assert!(page.contains("/me/books/42?after=501:501"));
+        assert!(page.contains("К первым главам"));
+        assert!(page.contains("&lt;безопасная&gt;"));
+        assert!(!page.contains("Показаны первые 200 глав"));
+    }
     use super::*;
     #[test]
     fn paid_controls_only_appear_in_enabled_author_pages() {
@@ -503,6 +578,9 @@ mod tests {
         };
         let page = edit_published_chapter(42, 55, &chapter, "csrf", "command").0;
         assert!(page.contains("Сохранение сразу обновит опубликованную редакцию"));
+        assert!(page.contains("href=\"/reader/55\""));
+        assert!(page.contains(">Новая глава</a>"));
+        assert!(!page.contains("<!--TITLE_HEADING-->"));
         assert!(page.contains("name=\"expected_revision\" value=\"3\""));
         assert!(!page.contains("<!--EDIT_DESCRIPTION-->"));
     }
@@ -521,5 +599,8 @@ mod tests {
         assert!(page.0.contains("value=\"7\""));
         assert!(page.0.contains("&lt;/textarea&gt;"));
         assert!(!page.0.contains("<script>evil()"));
+        assert!(!page.0.contains("href=\"/reader/3\""));
+        assert!(page.0.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!page.0.contains("<!--TITLE_HEADING-->"));
     }
 }
