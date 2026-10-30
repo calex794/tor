@@ -134,6 +134,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/promo/{alias}"), "GET") => Some(121),
         (Some("/me/referrals/alias"), "POST") => Some(122),
         (Some("/api/v1/me/referrals/alias"), "POST") => Some(123),
+        (Some("/assets/mentions.js"), "GET") => Some(124),
+        (Some("/api/v1/social/mentions/discover"), "GET") => Some(125),
         _ => None,
     };
     index

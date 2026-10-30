@@ -219,6 +219,11 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/assets/mentions.js", get(book_comments::mention_script))
+        .route(
+            "/api/v1/social/mentions/discover",
+            get(book_comments::discover_mentions),
+        )
         .route("/me", get(me))
         .route(
             "/me/settings/password",

@@ -4,11 +4,13 @@
 
 pub mod domain {
     pub mod comments;
+    pub mod mentions;
     pub mod spoilers;
 }
 
 pub mod repositories {
     pub mod inbox;
+    pub mod mentions;
     pub mod public_book_comments;
 }
 

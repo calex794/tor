@@ -883,6 +883,20 @@
       "source": "crates/web/src/auth/referral_routes.rs",
       "handler": "referral_alias::api_create",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mentions.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::mention_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/social/mentions/discover",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::discover_mentions",
+      "policy": "session"
     }
   ]
 }
