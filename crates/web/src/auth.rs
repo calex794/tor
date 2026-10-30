@@ -80,6 +80,10 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
+mod support;
+mod support_admin;
+mod support_identity;
+mod support_pages;
 mod sync_actions;
 mod types;
 use types::*;
@@ -201,6 +205,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(support::router())
         .merge(referral_routes::router())
         .route(
             "/register",

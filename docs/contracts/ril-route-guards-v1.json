@@ -785,6 +785,97 @@
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "session_security::revoke",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/support",
+      "handler": "page",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/support/widget",
+      "handler": "widget",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/support/messages",
+      "handler": "messages",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/support/messages",
+      "handler": "submit",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support",
+      "handler": "index",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support/{id}",
+      "handler": "page",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support/{id}/messages",
+      "handler": "messages",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/messages",
+      "handler": "submit",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/support/tickets",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "widget",
+      "policy": "support_requester"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/support/tickets",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "json_submit",
+      "policy": "support_requester"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/read",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "mark_read",
+      "policy": "support_admin"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-support-widget.js",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "widget_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-admin-support.js",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "admin_script",
+      "policy": "public"
     }
   ]
 }

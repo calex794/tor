@@ -440,6 +440,7 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-comments.css"));
+        css.push_str(include_str!("../assets/newboo-support-widget.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');

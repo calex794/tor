@@ -48,6 +48,18 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_support_admin_must_check_global_live_role(self):
+        self.mutate("crates/web/src/auth/support_admin.rs", "if !actor.administrator", "if false")
+        self.assert_detected("support administrator role boundary missing")
+
+    def test_support_guest_capability_cannot_skip_current_session(self):
+        self.mutate("crates/web/src/auth/support_identity.rs", "session_user(state, headers)", "unverified_user(state, headers)")
+        self.assert_detected("support requester capability boundary missing")
+
+    def test_support_guest_cookie_requires_strict_token_validation(self):
+        self.mutate("crates/web/src/auth/support_identity.rs", "valid_token(t)", "true")
+        self.assert_detected("support requester capability boundary missing")
+
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",

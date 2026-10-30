@@ -71,7 +71,18 @@ def check_repository(root: Path = ROOT) -> list[str]:
     for row in routes:
         template = row["template"]
         policy = row["policy"]
-        if template.startswith(("/admin", "/internal")) and policy != "deny":
+        support_admin = (
+            policy == "support_admin"
+            and row.get("source") == "crates/web/src/auth/support_admin.rs"
+            and (row["method"], template, row.get("handler")) in {
+                ("GET", "/admin/support", "index"),
+                ("GET", "/admin/support/{id}", "page"),
+                ("GET", "/admin/support/{id}/messages", "messages"),
+                ("POST", "/admin/support/{id}/messages", "submit"),
+                ("POST", "/admin/support/{id}/read", "mark_read"),
+            }
+        )
+        if template.startswith(("/admin", "/internal")) and policy != "deny" and not support_admin:
             problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
