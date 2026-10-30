@@ -256,6 +256,18 @@ async fn f_09_pg_one_guest_capture_cannot_register_two_invitees() {
     .unwrap();
     assert_eq!(count, 1);
     assert_eq!(status, "consumed");
+    sqlx::query("UPDATE referral_captures SET status='blocked' WHERE id=$1")
+        .bind(capture)
+        .execute(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.capture(&hash, &code, "direct_ref_link", "/r/after-block")
+            .await
+            .unwrap(),
+        tor_referrals::repositories::postgres::CaptureResult::Existing,
+        "moderating a spent capture must not reopen the bearer for replay"
+    );
     assert!(repo.finalize_one(first).await.unwrap());
     assert!(!repo.finalize_one(second).await.unwrap());
     let count: i64 = sqlx::query_scalar(

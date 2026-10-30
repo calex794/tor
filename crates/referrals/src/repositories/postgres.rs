@@ -245,12 +245,12 @@ impl PgReferrals {
         .bind(guest_hash.as_slice())
         .execute(&mut *tx)
         .await?;
-        // A consumed capture remains a spent bearer for the rest of its
+        // A consumed or fraud-blocked capture remains a spent bearer for its
         // original 30-day window. Replaying a copied guest cookie cannot
         // create a second active capture after the first signup.
         let previous: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM referral_captures
-             WHERE guest_hash=$1 AND status IN ('active','consumed')
+             WHERE guest_hash=$1 AND status IN ('active','consumed','blocked')
                AND expires_at>now() LIMIT 1",
         )
         .bind(guest_hash.as_slice())
