@@ -357,11 +357,13 @@ mod tests {
             price_minor: 550,
             term_kind: "lifetime".into(),
             public_book_count: 1,
-            public_books: vec![tor_commerce::repositories::layer_storefront::StorefrontBook {
-                id: 42,
-                title: "Книга".into(),
-                has_cover: false,
-            }],
+            public_books: vec![
+                tor_commerce::repositories::layer_storefront::StorefrontBook {
+                    id: 42,
+                    title: "Книга".into(),
+                    has_cover: false,
+                },
+            ],
             has_access: true,
             has_lifetime_access: false,
         };
@@ -376,5 +378,4 @@ mod tests {
         assert!(already_owned.contains("Этот пакет уже доступен"));
         assert!(!already_owned.contains("layer-purchase-form"));
     }
-
 }
