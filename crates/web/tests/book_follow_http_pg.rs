@@ -137,6 +137,33 @@ async fn book_page(app: &Router, book_id: i64, cookies: &str) -> String {
     .unwrap()
 }
 
+async fn author_chapter_page(
+    app: &Router,
+    book_id: i64,
+    cookies: &str,
+    after: Option<&str>,
+) -> (StatusCode, String) {
+    let path = match after {
+        Some(cursor) => format!("/me/books/{book_id}?after={cursor}"),
+        None => format!("/me/books/{book_id}"),
+    };
+    let request = Request::builder()
+        .uri(path)
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let content = String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("bounded owner page")
+            .to_vec(),
+    )
+    .unwrap();
+    (status, content)
+}
+
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL 18 tor_ci"]
 async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
@@ -413,6 +440,52 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         "0",
         "following a book must not mark chapters read"
     );
+    // B-12: a 502-chapter book retains its entire private author TOC.
+    // Only one chapter is public; 501 extra drafts must not leak to readers.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             SELECT {public}, n, 'Черновик ' || n::text, 'draft', 'free', 0
+             FROM generate_series(2,502) AS n"
+        ),
+    );
+    let (foreign_status, foreign_page) = author_chapter_page(&app, public, &two, None).await;
+    assert_eq!(foreign_status, StatusCode::NOT_FOUND);
+    assert!(!foreign_page.contains("Черновик 502"));
+    let (bad_status, _) = author_chapter_page(&app, public, &one, Some("2:0")).await;
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
+    let (bad_status, _) = author_chapter_page(&app, public, &one, Some("2:xyz")).await;
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
+
+    let mut after: Option<String> = None;
+    let mut pages = 0;
+    let mut seen = 0;
+    loop {
+        let (status, html) = author_chapter_page(&app, public, &one, after.as_deref()).await;
+        assert_eq!(status, StatusCode::OK);
+        let count = html.matches("<li>№").count();
+        assert!(count > 0 && count <= 100, "bounded author page");
+        seen += count;
+        pages += 1;
+        if let Some(cursor) = html
+            .split(&format!("/me/books/{public}?after="))
+            .nth(1)
+            .and_then(|tail| tail.split('"').next())
+        {
+            assert!(pages <= 6, "cursor must advance, not loop");
+            assert!(html.contains("Следующие главы"));
+            after = Some(cursor.to_owned());
+        } else {
+            assert!(html.contains("Черновик 502"));
+            break;
+        }
+    }
+    assert_eq!(pages, 6);
+    assert_eq!(seen, 502, "502 chapters through stable private keyset pages");
+    let guest = author_chapter_page(&app, public, "", None).await;
+    assert_eq!(guest.0, StatusCode::SEE_OTHER);
+
     // CI drops its isolated tor_ci database; deleting these owned books
     // manually would bypass the ownership lifecycle and violate RESTRICT FKs.
     pool.close().await;
