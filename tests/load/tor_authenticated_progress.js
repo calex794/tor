@@ -82,5 +82,17 @@ export default function (data) {
     failures.add(1);
     return;
   }
+  // Every fifth journey also loads the visible discussion page. Comment
+  // publication is tested separately; no synthetic bulk posts in this profile.
+  if (__ITER % 5 === 0) {
+    const discussion = http.get(base + '/books/1/comments', {
+      headers,
+      tags: { name: 'reader_discussion_list' },
+    });
+    if (!check(discussion, { 'comments readable': r => r.status === 200 })) {
+      failures.add(1);
+      return;
+    }
+  }
   completed.add(1);
 }
