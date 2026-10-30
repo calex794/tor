@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from audit_sqlx_history import (
     AuditError, evaluate_history, local_migrations, parse_inventory,
-    read_from_psql, scan_conflicts,
+    read_from_psql, scan_conflicts, scan_live,
 )
 
 
@@ -154,6 +154,66 @@ class SQLxAuditTests(unittest.TestCase):
         pulls[0]["files"][0]["status"] = "removed"
         self.assertEqual(scan_conflicts(main, pulls), [])
 
+    def mock_live_scan(self, changed="none"):
+        root = "/repos/calex794/tor"
+        main_sha = "a" * 40
+        refs_before = {
+            "number": 260,
+            "base": {"sha": main_sha},
+            "head": {"sha": "b" * 40},
+        }
+        refs_after = {
+            "number": 260,
+            "base": {"sha": "c" * 40 if changed == "base" else main_sha},
+            "head": {"sha": "d" * 40 if changed == "head" else "b" * 40},
+        }
+        calls = {"branch": 0, "pulls": 0}
+
+        def github_json(path, token=None):
+            if path == f"{root}/branches/main":
+                calls["branch"] += 1
+                sha = "e" * 40 if changed == "main" and calls["branch"] == 2 else main_sha
+                return {"commit": {"sha": sha}}
+            if path == f"{root}/contents/migrations?ref={main_sha}":
+                return [{
+                    "path": "migrations/202610300002_e03_reply_read_state.sql",
+                    "sha": "1" * 40,
+                }]
+            raise AssertionError(f"Unexpected GitHub endpoint: {path}")
+
+        def github_pages(path, token=None):
+            if path == f"{root}/pulls?state=open&per_page=100":
+                calls["pulls"] += 1
+                if calls["pulls"] == 1:
+                    return [refs_before]
+                return [] if changed == "set" else [refs_after]
+            if path == f"{root}/pulls/260/files?per_page=100":
+                return [{
+                    "filename": "migrations/202610300002_archive_share_offers.sql",
+                    "sha": "2" * 40,
+                    "status": "added",
+                }]
+            raise AssertionError(f"Unexpected GitHub endpoint: {path}")
+
+        with patch("audit_sqlx_history.github_json", side_effect=github_json):
+            with patch("audit_sqlx_history.github_pages", side_effect=github_pages):
+                return scan_live("calex794/tor")
+
+    def test_live_scan_records_rechecked_open_pr_refs_and_real_collisions(self):
+        report = self.mock_live_scan()
+        self.assertEqual(report["main_sha"], "a" * 40)
+        self.assertEqual(report["open_prs_scanned"], 1)
+        self.assertEqual(report["open_pr_refs"], [{
+            "number": 260, "base_sha": "a" * 40, "head_sha": "b" * 40,
+        }])
+        self.assertEqual([x["version"] for x in report["collisions"]], ["202610300002"])
+        self.assertIn("rechecked", report["notice"])
+
+    def test_live_scan_fails_closed_on_main_pr_head_base_or_open_set_drift(self):
+        for changed in ("main", "head", "base", "set"):
+            with self.subTest(changed=changed):
+                with self.assertRaisesRegex(AuditError, "snapshot drift"):
+                    self.mock_live_scan(changed)
 
 if __name__ == "__main__":
     unittest.main()

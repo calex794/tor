@@ -220,6 +220,22 @@ def scan_conflicts(main_files, pull_requests):
     return collisions
 
 
+def _open_pr_refs(pulls):
+    """Validate and capture a complete, order-independent GitHub PR snapshot."""
+    refs = {}
+    for pr in pulls:
+        number = pr["number"]
+        base = pr["base"]["sha"]
+        head = pr["head"]["sha"]
+        if type(number) is not int or number <= 0 or number in refs:
+            raise AuditError("Invalid or duplicate open PR identity in GitHub snapshot")
+        if (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base)
+                or not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{40}", head)):
+            raise AuditError("Invalid open PR Git SHA in GitHub snapshot")
+        refs[number] = (base, head)
+    return refs
+
+
 def scan_live(repo):
     if not REPOSITORY.fullmatch(repo):
         raise AuditError("Repository must be in owner/name format")
@@ -229,18 +245,33 @@ def scan_live(repo):
     main_files = github_json(f"{root}/contents/migrations?ref={main_sha}", token)
     if not isinstance(main_files, list):
         raise AuditError("Could not enumerate main migrations")
-    prs = github_pages(f"{root}/pulls?state=open&per_page=100", token)
+    pr_query = f"{root}/pulls?state=open&per_page=100"
+    prs = github_pages(pr_query, token)
+    initial_refs = _open_pr_refs(prs)
+
     observed = []
     for pr in prs:
         files = github_pages(f"{root}/pulls/{pr['number']}/files?per_page=100", token)
-        observed.append({"number": pr["number"], "head": pr["head"]["sha"], "files": files})
+        observed.append({"number": pr["number"], "files": files})
+
+    # The /pulls/{number}/files endpoint cannot pin a PR head SHA.
+    # Fail closed rather than publish a candidate report built from mixed refs.
+    final_refs = _open_pr_refs(github_pages(pr_query, token))
+    final_main_sha = github_json(f"{root}/branches/main", token)["commit"]["sha"]
+    if initial_refs != final_refs or main_sha != final_main_sha:
+        raise AuditError("GitHub snapshot drift while scanning; rerun the audit")
+
     return {
         "repository": repo,
         "main_sha": main_sha,
         "open_prs_scanned": len(observed),
+        "open_pr_refs": [
+            {"number": number, "base_sha": base, "head_sha": head}
+            for number, (base, head) in sorted(initial_refs.items())
+        ],
         "collisions": scan_conflicts(main_files, observed),
         "notice": (
-            "Read-only candidate conflicts from changed files of OPEN PRs; "
+            "Read-only candidate conflicts from one rechecked GitHub ref snapshot; "
             "not a merged-tree or applied-database verification. "
             "Inherited, removed, and renamed paths require integration review."
         ),
