@@ -54,7 +54,6 @@ pub(super) fn conversation(
     page: &MessagePage,
     peer_name: &str,
     csrf: &str,
-    key: &str,
 ) -> Html<String> {
     let csrf = escape_html(csrf);
     let peer_name = escape_html(peer_name);
@@ -82,7 +81,7 @@ pub(super) fn conversation(
     if page.blocked {
         body.push_str("<p>Новые сообщения заблокированы.</p>");
     } else {
-        write!(body,"<form class=\"comments-form\" action=\"/mail/{id}/messages\" method=\"post\" data-mail-compose><label for=\"mail-body\">Ваше сообщение</label><textarea class=\"ui-textarea comments-form__input\" id=\"mail-body\" name=\"body\" data-mail-compose-textarea rows=\"3\" required></textarea><input type=\"hidden\" name=\"client_message_id\" value=\"\" data-mail-client-message-id><input type=\"hidden\" name=\"command_key\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--primary\" type=\"submit\" data-mail-compose-submit>Отправить сообщение</button><p id=\"mail-send-error\" role=\"alert\" hidden></p></form>",escape_html(key)).expect("mail form");
+        write!(body,"<form class=\"comments-form\" action=\"/mail/{id}/messages\" method=\"post\" data-mail-compose><label for=\"mail-body\">Ваше сообщение</label><textarea class=\"ui-textarea comments-form__input\" id=\"mail-body\" name=\"body\" data-mail-compose-textarea rows=\"3\" required></textarea><input type=\"hidden\" name=\"client_message_id\" value=\"\" data-mail-client-message-id><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--primary\" type=\"submit\" data-mail-compose-submit>Отправить сообщение</button><p id=\"mail-send-error\" role=\"alert\" hidden></p></form>").expect("mail form");
     }
     let (value, label) = if page.blocked_by_me {
         ("false", "Снять мою блокировку")
@@ -111,9 +110,10 @@ mod tests {
             blocked_by_me: false,
             has_more: false,
         };
-        let html = conversation(1, 1, &page, "Peer <safe>", "csrf", "key").0;
+        let html = conversation(1, 1, &page, "Peer <safe>", "csrf").0;
         assert!(html.contains("&lt;img onerror=alert(1)&gt;"));
         assert!(!html.contains("<img onerror"));
+        assert!(!html.contains("name=\"command_key\""));
         assert!(!html.contains("href=\"/books/secret"));
     }
 }
