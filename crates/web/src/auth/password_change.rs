@@ -78,6 +78,7 @@ pub(super) async fn submit(
         Ok(None) => return private_response(StatusCode::UNAUTHORIZED, &[]),
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
+    let expected_hash = stored_hash.clone();
     let old_password = form.current_password;
     let new_password = form.new_password;
     let new_hash = match state.password_jobs.run(move || {
@@ -90,14 +91,6 @@ pub(super) async fn submit(
         Ok(None) => return error(StatusCode::UNAUTHORIZED, "Не удалось изменить пароль. Проверьте текущий пароль.", csrf),
         Err(status) => return private_response(status, &[]),
     };
-    // Re-read the current hash because the verify job consumed its own copy.
-    // The database CAS ensures a concurrent change cannot overwrite newer credentials.
-    let expected_hash = match state.accounts.password_hash_for_user(user_id).await {
-        Ok(Some(hash)) => hash,
-        _ => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    // This expected hash must match the one verified, not just a fresh hash.
-    // The original digest is verified again within the same repository transaction.
     let token = generate_session_token();
     let updated = state.accounts.rotate_password_and_sessions(
         user_id,
