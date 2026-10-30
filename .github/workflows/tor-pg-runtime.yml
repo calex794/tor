@@ -1,11 +1,11 @@
 name: TOR PostgreSQL runtime
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   select:
     uses: ./.github/workflows/ci-selection.yml
@@ -65,13 +65,18 @@ jobs:
           ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
             GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
           SQL
-      - name: Format and unit tests
+      - name: Feature boundary checks
+        run: python3 tools/check_feature_layout.py
+      # The Rust S0 suite owns automatic workspace fmt/test/Clippy for every main SHA.
+      # Preserve the full workspace baseline for standalone manual dispatches.
+      - name: Standalone manual workspace baseline
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          python3 tools/check_feature_layout.py
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
-          cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
+      - name: Combined S3 feature Clippy
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -131,9 +136,15 @@ jobs:
           VALUES (101,201),(102,202),(103,203),(104,204),
                  (105,205),(106,206),(107,207),(108,208);
           SQL
-      - name: Advance explicit-ID book fixture sequence as schema owner
+      - name: Advance explicit-ID fixture sequences as schema owner
         run: |
-          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
+          # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
+          # Fix all seeded entities before running tests that INSERT default IDs.
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
+          SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
+          SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
+          SQL
       - name: Database and HTTP integration
         run: |
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
@@ -149,6 +160,8 @@ jobs:
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-search --test search_pg -- --ignored
+          cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
@@ -169,10 +182,15 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
+          cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
@@ -181,8 +199,10 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
+          cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
@@ -236,6 +256,17 @@ jobs:
         run: |
           cargo build -p tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: Line A credential and login audit PostgreSQL checks
+        run: |
+          cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |

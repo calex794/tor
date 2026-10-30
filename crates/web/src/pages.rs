@@ -6,9 +6,15 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod referrals;
+mod session_security;
+#[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, my_account, registration_form, registration_form_with_error,
+    account_error_page, login_form, my_account, my_account_with_follow_updates,
+    password_change_form, registration_form, registration_form_with_error,
 };
+pub use referrals::referrals_page;
+pub use session_security::active_sessions;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -102,10 +108,12 @@ fn book_detail_with_chapters_cover_internal(
             } else {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
+                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span>",
                     chapter.id, chapter.number
                 )
                 .expect("writing String");
+                write!(items, "<!--BOOK_OWNER_EDIT:{}--></li>", chapter.id)
+                    .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -296,6 +304,13 @@ fn book_detail_body(
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
         .replace(
+            "<!--BOOK_REFERRAL_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
+                book.id
+            ),
+        )
+        .replace(
             "<!--BATCH_PURCHASE_ACTION-->",
             &if batch_enabled {
                 format!(
@@ -401,76 +416,8 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
     )
 }
 
-pub fn my_library(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-) -> Html<String> {
-    my_library_with_purchases(items, saved, csrf, false)
-}
-
-pub fn my_library_with_purchases(
-    items: &[tor_reading::services::progress::ContinueReading],
-    saved: &tor_reading::services::library::SavedBookPage,
-    csrf: &str,
-    purchased_available: bool,
-) -> Html<String> {
-    let mut cards = String::new();
-    if items.is_empty() {
-        cards.push_str("<div class=\"library-empty\"><h2>Вы пока не сохраняли место чтения</h2><p>Откройте каталог, чтобы выбрать книгу. Откройте любую бесплатную главу, затем нажмите «Сохранить место здесь». После этого книга появится в вашей истории чтения.</p><a class=\"button\" href=\"/catalog\">Открыть каталог</a></div>");
-    } else {
-        for item in items {
-            let book = escape_html(&item.book_title);
-            let chapter = escape_html(&item.chapter_title);
-            let bookmark = if item.block_index > 0 {
-                format!("#p-{}", item.block_index)
-            } else {
-                String::new() // published version changed: never resume at an old anchor
-            };
-            let hint = if item.block_index > 0 {
-                format!("Фрагмент {}", item.block_index)
-            } else {
-                "Глава обновлена — проверьте новое содержание".to_owned()
-            };
-            write!(cards, "<article class=\"library-card\"><div><p class=\"eyebrow\">Продолжить чтение</p><h2>{book}</h2><p>Глава {}. {chapter}</p><p class=\"library-card__place\">{hint}</p></div><a class=\"button\" href=\"/read/{}{bookmark}\">Продолжить</a></article>", item.chapter_no, item.chapter_id).expect("write HTML");
-        }
-    }
-    let token = escape_html(csrf);
-    let mut saved_html = String::new();
-    if saved.items.is_empty() {
-        saved_html.push_str("<p>Пока нет сохранённых книг.</p>");
-    } else {
-        for book in &saved.items {
-            let title = escape_html(&book.title);
-            write!(
-                saved_html,
-                "<article class=\"library-card\"><div><h3><a href=\"/books/{}\">{title}</a></h3></div><form method=\"post\" action=\"/me/library/{}/remove\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button class=\"button button--small\" type=\"submit\">Убрать из библиотеки</button></form></article>",
-                book.book_id, book.book_id
-            )
-            .expect("writing saved book");
-        }
-    }
-    if let Some(after) = saved.next_cursor {
-        write!(
-            saved_html,
-            "<p><a href=\"/me/library?after={after}\">Другие сохранённые книги</a></p>"
-        )
-        .expect("writing library cursor");
-    }
-    let purchased_link = if purchased_available {
-        "<p><a class=\"button button--small\" href=\"/me/purchases\">Мои купленные главы</a></p>"
-    } else {
-        ""
-    };
-    let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>Ваша история чтения доступна только после входа. Платные и закрытые главы сюда не попадают.</p>{purchased_link}</div><div class=\"library-grid\">{cards}</div><section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
-    );
-    layout(
-        "Моя библиотека",
-        "Продолжить чтение в личной библиотеке.",
-        &html,
-    )
-}
+mod library;
+pub use library::my_library_with_updates;
 
 pub async fn stylesheet() -> impl IntoResponse {
     (
@@ -574,3 +521,11 @@ pub fn book_detail_with_chapters(
 
 #[cfg(test)]
 mod tests;
+
+mod profile_settings;
+pub use profile_settings::profile_settings;
+mod notification_settings;
+pub use notification_settings::delivery_preferences_page;
+
+mod password_reset;
+pub use password_reset::{reset_confirm_form, reset_request_form};

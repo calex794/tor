@@ -298,6 +298,31 @@ async fn e_02_e03_received_replies_are_private_live_references() {
     assert_eq!(received[0].comment_id, reply);
     assert_eq!(received[0].book_id, book);
     assert_eq!(received[0].book_title, "Reply book");
+    assert!(!received[0].is_read);
+    use tor_discussions::repositories::public_book_comments::ReadStateResult;
+    assert_eq!(
+        repo.set_reply_read_state(users[1], reply, true).await,
+        ReadStateResult::NotFound
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, true).await,
+        ReadStateResult::Updated
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, true).await,
+        ReadStateResult::Updated
+    );
+    assert!(repo.received_replies(users[0], 10).await.unwrap()[0].is_read);
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, false).await,
+        ReadStateResult::Updated
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], reply, false).await,
+        ReadStateResult::Updated
+    );
+    assert!(!repo.received_replies(users[0], 10).await.unwrap()[0].is_read);
+
     assert!(repo
         .received_replies(users[1], 10)
         .await
@@ -372,6 +397,85 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         CreateResult::Created(id) => id,
         other => panic!("{other:?}"),
     };
+    // E-03: Inbox uses the exact same canonical replies, read markers and actor guard.
+    let inbox = tor_discussions::services::inbox::InboxService::new(
+        tor_discussions::repositories::inbox::PgInbox::new(pool.clone()),
+    );
+    use tor_discussions::services::inbox::InboxFilter;
+    let all = inbox
+        .list(users[0], InboxFilter::All, None, 1)
+        .await
+        .unwrap();
+    assert_eq!(all.items.len(), 1);
+    assert_eq!(all.items[0].reply.comment_id, second);
+    assert!(all.items[0].created_at.ends_with("Z"));
+    assert_eq!(
+        inbox
+            .list(users[1], InboxFilter::All, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        0
+    );
+    assert_eq!(
+        inbox
+            .list(users[0], InboxFilter::Unread, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    assert_eq!(
+        inbox
+            .list(users[0], InboxFilter::Read, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        0
+    );
+    assert_eq!(
+        inbox
+            .list(users[0], InboxFilter::All, Some(second), 25)
+            .await
+            .unwrap()
+            .items[0]
+            .reply
+            .comment_id,
+        reply
+    );
+    assert_eq!(
+        repo.set_reply_read_state(users[0], second, true).await,
+        ReadStateResult::Updated
+    );
+    assert_eq!(
+        inbox
+            .list(users[0], InboxFilter::Read, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+    assert_eq!(
+        inbox
+            .list(users[0], InboxFilter::Unread, None, 25)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+    assert!(inbox
+        .list(users[0], InboxFilter::All, Some(-1), 25)
+        .await
+        .is_err());
+    assert!(inbox
+        .list(users[0], InboxFilter::All, None, 51)
+        .await
+        .is_err());
     let bounded = repo.received_replies(users[0], 1).await.unwrap();
     assert_eq!(bounded.len(), 1);
     assert_eq!(bounded[0].comment_id, second);
@@ -395,4 +499,113 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         .execute(&pool)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending /tor_ci"]
+async fn e_03_private_mention_participant_is_canonical_and_replay_safe() {
+    use tor_discussions::repositories::inbox::PgInbox;
+    let url = std::env::var("TEST_DATABASE_URL").expect("test PG URL");
+    assert!(url.ends_with("/tor_ci"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = format!("ci:e03:mention:{seed}");
+    let users: Vec<i64> = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1,'Target','$argon2id$fixture'),($2,'Writer','$argon2id$fixture')
+         RETURNING id",
+    )
+    .bind(format!("e03-target-{seed}@example.invalid"))
+    .bind(format!("e03-writer-{seed}@example.invalid"))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES($1,'ru','Mentions','public') RETURNING id",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let store = PgPublicBookComments::new(pool.clone());
+    let first_comment = store
+        .create(
+            users[0],
+            book,
+            "Target is participating",
+            &"x".repeat(43),
+            &[9; 32],
+        )
+        .await;
+    assert!(matches!(first_comment, CreateResult::Created(_)));
+    let body = format!("Hello @[user:{}] @[user:{}]", users[0], i64::MAX);
+    let write = store
+        .create(users[1], book, &body, &"y".repeat(43), &[10; 32])
+        .await;
+    let comment_id = match write {
+        CreateResult::Created(id) => id,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        store
+            .create(users[1], book, &body, &"y".repeat(43), &[10; 32])
+            .await,
+        CreateResult::Replayed(comment_id)
+    );
+    let text: String = sqlx::query_scalar("SELECT body FROM discussion_comments WHERE id=$1")
+        .bind(comment_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(text, format!("Hello @[user:{}] @пользователь", users[0]));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM discussion_comment_mentions WHERE comment_id=$1")
+            .bind(comment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    let rows = PgInbox::new(pool.clone())
+        .received(users[0], None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].reply.comment_id, comment_id);
+    assert!(rows[0].is_mention);
+    assert!(PgInbox::new(pool.clone())
+        .received(users[1], None, None, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("DELETE FROM discussion_comments WHERE id=$1")
+        .bind(comment_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let first_id: i64 = sqlx::query_scalar("SELECT id FROM discussion_comments WHERE book_id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM discussion_comments WHERE id=$1")
+        .bind(first_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for user in users {
+        sqlx::query("DELETE FROM users WHERE id=$1")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
 }

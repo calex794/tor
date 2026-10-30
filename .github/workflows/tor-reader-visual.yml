@@ -1,11 +1,11 @@
 name: TOR PostgreSQL reader browser
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   select:
     uses: ./.github/workflows/ci-selection.yml
@@ -109,7 +109,9 @@ jobs:
           TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
           TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
           node --check tools/batch_checkout_chromium_pg.cjs
+          node --check tools/referral_share_browser_smoke.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
+          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" node tools/referral_share_browser_smoke.cjs
       - name: Preserve screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4

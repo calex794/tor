@@ -330,6 +330,20 @@ button:disabled, input:disabled { cursor: not-allowed; }
 .library-card { background: #fff; border: 1px solid #dfebe1; border-radius: 15px; padding: 24px; display: flex; gap: 22px; align-items: center; justify-content: space-between; box-shadow: 0 9px 25px rgba(31,60,40,.04); }
 .library-card h2 { font-size: clamp(19px,2.6vw,24px); margin: 0 0 8px; overflow-wrap: anywhere; }
 .library-card p:not(.eyebrow) { margin: 0; color: #69796b; }
+/* C-16: keep release actions tappable without crowding narrow cards. */
+.library-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.library-card__actions form { margin: 0; }
+.library-card__actions .button { min-height: 44px; }
+@media (max-width: 680px) {
+  .library-card__actions { justify-content: flex-start; }
+}
+
 .library-empty { max-width: 650px; border: 1px dashed #bdcfbf; border-radius: 15px; background: #f8faf7; padding: clamp(24px, 4vw, 42px); }
 .library-empty h2 { margin-top: 0; font-size: 22px; }
 .library-empty p { max-width: 460px; line-height: 1.7; color: #5f7462; }
@@ -506,4 +520,19 @@ button:disabled, input:disabled { cursor: not-allowed; }
   .account-error__card { border-radius: 18px; }
   .account-error__actions { align-items: stretch; flex-direction: column; }
   .account-error__actions .button { width: 100%; }
+}
+
+/* B-18: catalog cursor navigation on narrow and wide screens. */
+.catalog-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.catalog-pagination__current {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 0.5rem 0.25rem;
 }

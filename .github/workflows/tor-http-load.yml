@@ -4,6 +4,8 @@ on:
     paths:
       - .github/workflows/tor-http-load.yml
       - tests/load/**
+      - crates/search/src/repositories/catalog.rs
+      - migrations/202610300021_public_catalog_exact_projection.sql
       - tools/ci_test_map.py
       - tests/architecture/test_ci_workflow_wiring.py
   workflow_dispatch:
@@ -25,8 +27,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: tor-load-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   local-http-load:
     runs-on: ubuntu-24.04

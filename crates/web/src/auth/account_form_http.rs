@@ -1,5 +1,5 @@
 //! Standalone account forms and error responses; browser-only, no SQL in HTTP.
-use super::{login_limiter, AuthState};
+use super::{access_audit, auth_observation, login_limiter, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
     observability, pages,
@@ -12,6 +12,7 @@ use axum::{
 use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
+    domain::access_audit::LoginEventKind,
     services::security::{
         generate_session_token, hash_password, session_token_digest, verify_password,
     },
@@ -25,6 +26,7 @@ pub(super) struct RegisterForm {
     display_name: String,
     password: String,
     csrf_token: Option<String>,
+    manual_invite_code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +51,22 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
         (
             status,
             pages::account_error_page(title, message, registration),
+        ),
+        &[],
+    )
+}
+
+fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
+    // A failed manual code never changes the existing guest referral capture.
+    private_response(
+        (
+            StatusCode::BAD_REQUEST,
+            pages::registration_form_with_error(
+                form.csrf_token.as_deref().unwrap_or(""),
+                &form.display_name,
+                &form.email,
+                Some(reason),
+            ),
         ),
         &[],
     )
@@ -150,10 +168,40 @@ pub(super) async fn register(
             );
         }
     };
+    let audit = access_audit::context(&headers, peer.0, LoginEventKind::Registration);
     if let Err(status) =
         login_limiter::limit(&state, "register", &account.email, &headers, peer).await
     {
         return auth_limit_error(status, true);
+    }
+
+    // Check the manual invitation before Argon2 and before account creation.
+    // Invalid or disabled codes must not silently result in a new account.
+    let manual_code = match tor_referrals::domain::manual_code(form.manual_invite_code.as_deref()) {
+        Ok(code) => code,
+        Err(_) => {
+            return invalid_invite(
+                &form,
+                "Некорректный код приглашения. Исправьте или удалите код.",
+            )
+        }
+    };
+    if let Some(code) = manual_code {
+        match state.referrals.active_code(code).await {
+            Ok(true) => {}
+            Ok(false) => return invalid_invite(
+                &form,
+                "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить.",
+            ),
+            Err(_) => {
+                return auth_problem(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Регистрация временно недоступна",
+                    "Не удалось проверить код приглашения. Попробуйте снова позже.",
+                    true,
+                )
+            }
+        }
     }
 
     // Argon2 is deliberately moved off Tokio's request executor.
@@ -181,15 +229,54 @@ pub(super) async fn register(
             );
         }
     };
+    let guest_hash = state
+        .cookies
+        .guest_token(&headers)
+        .map(|token| session_token_digest(&token));
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
     match state
         .accounts
-        .register_with_session(&account.email, &account.display_name, &hashed, &digest, ttl)
+        .register_with_audited_session_referral(
+            &account.email,
+            &account.display_name,
+            &hashed,
+            &digest,
+            ttl,
+            tor_accounts::repositories::postgres::RegistrationContext {
+                referral: tor_accounts::repositories::postgres::RegistrationReferral {
+                    guest_hash: guest_hash.as_ref(),
+                    manual_code,
+                },
+                audit,
+            },
+        )
         .await
     {
-        Ok(_) => private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)]),
+        Ok(user_id) => {
+            // The pending event is already committed with the account. A failure
+            // here must not lose attribution or turn a valid signup into an error.
+            let referrals = state.referrals.clone();
+            tokio::spawn(async move {
+                let _ = referrals.finalize_one(user_id).await;
+            });
+            private_response(
+                Redirect::to("/me"),
+                &[
+                    state.cookies.session_cookie(&token),
+                    state.cookies.cleared_guest_cookie(),
+                ],
+            )
+        }
+        Err(tor_accounts::repositories::postgres::AccountWriteError::InvalidReferral) => {
+            auth_problem(
+                StatusCode::BAD_REQUEST,
+                "Код приглашения больше не действует",
+                "Проверьте код приглашения и повторите регистрацию.",
+                true,
+            )
+        }
         Err(tor_accounts::repositories::postgres::AccountWriteError::Duplicate) => {
             // No account ID, email or database exception is disclosed.
             auth_problem(
@@ -214,12 +301,14 @@ pub(super) async fn login(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<LoginForm>,
 ) -> Response {
+    let source = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
+    let mut observed = auth_observation::RequestObservation::new(&state, &form.email, source);
     if !state.cookies.same_origin(&headers)
         || !state
             .cookies
             .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
-        observability::record_login_outcome(LoginOutcome::InvalidForm);
+        observed.report(auth_observation::Outcome::InvalidForm, None);
         return auth_problem(
             StatusCode::FORBIDDEN,
             "Форма устарела",
@@ -229,15 +318,32 @@ pub(super) async fn login(
     }
     let email = match rules::login(&form.email, &form.password) {
         Ok(email) => email,
-        Err(_) => return invalid_credentials(),
+        Err(_) => {
+            observed.report(auth_observation::Outcome::InvalidForm, None);
+            return invalid_credentials();
+        }
     };
+    let audit = source;
     let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
         Ok(key) => key,
-        Err(status) => return auth_limit_error(status, false),
+        Err(status) => {
+            observed.report(
+                if status == StatusCode::TOO_MANY_REQUESTS {
+                    auth_observation::Outcome::RateLimited
+                } else {
+                    auth_observation::Outcome::Unavailable
+                },
+                None,
+            );
+            return auth_limit_error(status, false);
+        }
     };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
-        Err(_) => return login_storage_error(LoginOutcome::LookupUnavailable),
+        Err(_) => {
+            observed.report(auth_observation::Outcome::Unavailable, None);
+            return login_storage_error(LoginOutcome::LookupUnavailable);
+        }
     };
     let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
@@ -255,6 +361,10 @@ pub(super) async fn login(
     {
         Ok(valid) => valid,
         Err(StatusCode::TOO_MANY_REQUESTS) => {
+            observed.report(
+                auth_observation::Outcome::WorkerBusy,
+                stored.as_ref().map(|u| u.id),
+            );
             observability::record_login_outcome(LoginOutcome::PasswordPoolBusy);
             let mut response = auth_problem(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -267,12 +377,27 @@ pub(super) async fn login(
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
             return response;
         }
-        Err(_) => return login_storage_error(LoginOutcome::PasswordWorkerUnavailable),
+        Err(_) => {
+            observed.report(
+                auth_observation::Outcome::Unavailable,
+                stored.as_ref().map(|u| u.id),
+            );
+            return login_storage_error(LoginOutcome::PasswordWorkerUnavailable);
+        }
     };
     if !verified {
+        observed.report(
+            if stored.is_some() {
+                auth_observation::Outcome::BadPassword
+            } else {
+                auth_observation::Outcome::UnknownAccount
+            },
+            stored.as_ref().map(|u| u.id),
+        );
         return invalid_credentials();
     }
     let Some(user) = stored else {
+        observed.report(auth_observation::Outcome::UnknownAccount, None);
         return invalid_credentials();
     };
     if state
@@ -281,20 +406,29 @@ pub(super) async fn login(
         .await
         .is_err()
     {
+        observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
         return login_storage_error(LoginOutcome::AttemptResetUnavailable);
     }
     let token = generate_session_token();
     let digest = session_token_digest(&token);
     let ttl = NonZeroU32::new(SESSION_AGE).expect("nonzero session lifetime");
-    if state
+    match state
         .accounts
-        .insert_session(user.id, &digest, ttl)
+        .insert_verified_session(user.id, &user.password_hash, &digest, ttl, audit)
         .await
-        .is_err()
     {
-        return login_storage_error(LoginOutcome::SessionUnavailable);
+        Ok(true) => {}
+        Ok(false) => {
+            observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
+            return invalid_credentials();
+        }
+        Err(_) => {
+            observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
+            return login_storage_error(LoginOutcome::SessionUnavailable);
+        }
     }
     // No next parameter is accepted: redirects always stay on this site.
+    observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
     private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
 }
