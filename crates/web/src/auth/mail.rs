@@ -57,6 +57,7 @@ pub(super) struct StartForm {
 pub(super) struct SendForm {
     body: String,
     command_key: Option<String>,
+    client_message_id: Option<String>,
     csrf_token: Option<String>,
 }
 #[derive(Deserialize)]
@@ -169,15 +170,35 @@ pub(super) async fn send(
     if let Err(s) = csrf(&state, &headers, form.csrf_token.as_deref()) {
         return deny(s);
     }
+    let is_ajax = headers.get("x-requested-with").and_then(|x|x.to_str().ok()).is_some_and(|x|x.eq_ignore_ascii_case("fetch")||x.eq_ignore_ascii_case("xmlhttprequest"))
+        || headers.get("accept").and_then(|x|x.to_str().ok()).is_some_and(|x|x.contains("application/json"));
     let mail = service(&state);
-    let result = match form.command_key.as_deref().filter(|key| !key.is_empty()) {
+    let result = if let Some(client_id) = form.client_message_id.as_deref().filter(|id| !id.trim().is_empty()) {
+        mail.send_html(actor, id, &form.body, client_id, &generate_session_token()).await
+    } else { match form.command_key.as_deref().filter(|key| !key.is_empty()) {
         Some(key) => mail.send(actor, id, &form.body, key).await,
         None => {
             mail.send_unkeyed(actor, id, &form.body, &generate_session_token())
                 .await
         }
-    };
+    }};
     match result {
+        Ok(sent) if is_ajax => {
+            // Retrieve the committed canonical row, including timestamp and replay identity.
+            let page = match mail.messages(actor, id, Some(sent.id - 1), None, 1).await {
+                Ok(page) => page,
+                Err(e) => return deny(status(e)),
+            };
+            let Some(message) = page.items.into_iter().find(|m| m.id == sent.id) else {
+                return deny(StatusCode::SERVICE_UNAVAILABLE);
+            };
+            let payload = serde_json::json!({"ok":true,"message":{
+                "id": message.id.to_string(), "sender_id":message.sender_id.to_string(),
+                "text":message.body, "created_at":message.created_at,
+                "created_at_display":message.created_at_display
+            }});
+            private_response(axum::Json(payload), &[])
+        },
         Ok(_) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
         Err(e) => deny(status(e)),
     }
