@@ -129,7 +129,35 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     .await
     .unwrap();
     assert_eq!(stored, 1);
-    // Requests never settle money or revoke paid access.
+    // Issuing the first protected key AFTER a pending request must disable
+    // a new request; the original idempotent receipt remains unchanged.
+    use tor_commerce::repositories::direct_exposure::{
+        DirectGrantKind, PgDirectFirstExposure,
+    };
+    PgDirectFirstExposure::new(pool.clone())
+        .record(
+            PositiveId::new(buyer).unwrap(),
+            PositiveId::new(chapter).unwrap(),
+            PositiveId::new(version).unwrap(),
+            Some(PositiveId::new(purchase).unwrap()),
+            DirectGrantKind::Chapter,
+        )
+        .await
+        .unwrap();
+    let after_grant_key = IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap();
+    assert_eq!(
+        requests
+            .request_once(buyer, purchase, &after_grant_key, "новая заявка")
+            .await,
+        Err(DirectRefundRequestError::AlreadyOpened)
+    );
+    let replay_after_grant = requests
+        .request_once(buyer, purchase, &key, "передумал")
+        .await
+        .unwrap();
+    assert_eq!(replay_after_grant.request_id, first.request_id);
+    assert!(!replay_after_grant.created);
+    // Requests and protected grant evidence never move wallet money.
     assert_eq!(count(&pool, "ledger", buyer).await, 1);
     assert_eq!(count(&pool, "rights", buyer).await, 1);
     assert_eq!(count(&pool, "facts", buyer).await, 1);
