@@ -1,5 +1,6 @@
 use super::{
-    notification_settings, password_change, password_reset, profile_http, session_security, AuthState,
+    notification_settings, password_change, password_reset, profile_http, session_security,
+    AuthState,
 };
 use axum::{
     routing::{get, post},
