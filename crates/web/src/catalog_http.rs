@@ -16,6 +16,8 @@ pub(super) struct CatalogQuery {
     tag: Option<String>,
     fandom: Option<String>,
     after: Option<String>,
+    before: Option<String>,
+    page: Option<u32>,
     sort: Option<String>,
 }
 pub(super) async fn catalog(
@@ -26,6 +28,19 @@ pub(super) async fn catalog(
         // Always page the real PG catalog, even without a text filter.
         // Demo mode remains a separate legacy-compatible path.
         let sort = query.sort.as_deref().unwrap_or("oldest");
+        // Keep old /catalog?after=... links working as page 2.
+        let page_number = query
+            .page
+            .unwrap_or(if query.after.is_some() { 2 } else { 1 });
+        if (query.after.is_some() && query.before.is_some())
+            || page_number == 0
+            || page_number > 1_000_000
+            || (query.after.is_some() && page_number < 2)
+            || (query.before.is_some() && query.page.is_none())
+            || (page_number > 1 && query.after.is_none() && query.before.is_none())
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
         let facets = tor_search::repositories::CatalogFacets {
             term: query.q.as_deref().unwrap_or(""),
             language: query.language.as_deref(),
@@ -34,9 +49,10 @@ pub(super) async fn catalog(
             fandom: query.fandom.as_deref(),
         };
         let page = search
-            .search_catalog(
+.browse_catalog_page(
                 facets,
                 query.after.as_deref(),
+                query.before.as_deref(),
                 DEFAULT_PAGE_SIZE,
                 Some(sort),
             )
@@ -47,7 +63,7 @@ pub(super) async fn catalog(
             })?;
         // First page shows the exact count once. Cursor requests remain
         // cheap and do not perform a repeated full-filter count.
-        let total = if query.after.is_none() {
+        let total = if page_number == 1 {
             Some(
                 search
                     .count_catalog(facets)
@@ -60,7 +76,7 @@ pub(super) async fn catalog(
         } else {
             None
         };
-        let options = if query.after.is_none() {
+        let options = if page_number == 1 {
             Some(
                 search
                     .taxonomy_options()
@@ -95,6 +111,8 @@ pub(super) async fn catalog(
                 tag: query.tag.as_deref(),
                 fandom: query.fandom.as_deref(),
                 cursor: page.next_cursor.as_deref(),
+                previous_cursor: page.previous_cursor.as_deref(),
+                page_number,
                 sort,
                 total,
                 options: options.as_ref(),
@@ -104,6 +122,8 @@ pub(super) async fn catalog(
     }
     if query.q.is_some()
         || query.after.is_some()
+        || query.before.is_some()
+        || query.page.is_some()
         || query.language.is_some()
         || query.genre.is_some()
         || query.tag.is_some()
