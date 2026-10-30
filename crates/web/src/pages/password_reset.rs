@@ -36,7 +36,7 @@ pub fn reset_confirm_form(csrf: &str, message: Option<&str>) -> Html<String> {
 <label for="reset-confirm">Повторите новый пароль</label><input id="reset-confirm" name="confirm_password" type="password" autocomplete="new-password" maxlength="512" required>
 <button class="button" type="submit">Сохранить пароль</button></form>
 <p><a href="/forgot-password">Запросить новую ссылку</a></p></div></div></section>
-<script>(function(){{var code=location.hash.slice(1);history.replaceState(null,'',location.pathname);if(/^[A-Za-z0-9_-]{{43}}$/.test(code)){{document.getElementById('reset-token').value=code;}}}})();</script>"#,
+<script src="/assets/account-reset.js" defer></script>"#,
         csrf = escape_html(csrf)
     );
     layout("Новый пароль", "Подтверждение смены пароля.", &body)

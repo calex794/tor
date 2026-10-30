@@ -701,6 +701,13 @@
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "password_change::api_submit",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/account-reset.js",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "password_reset::script",
+      "policy": "public"
     }
   ]
 }

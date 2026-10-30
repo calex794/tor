@@ -6,6 +6,7 @@ use axum::{
 
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
+        .route("/assets/account-reset.js", get(password_reset::script))
         .route("/api/v1/me/password", post(password_change::api_submit))
         .route(
             "/forgot-password",

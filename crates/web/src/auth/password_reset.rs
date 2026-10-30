@@ -3,8 +3,8 @@ use super::{login_limiter, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{ConnectInfo, Form, State},
-    http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Redirect, Response},
 };
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -91,9 +91,31 @@ pub(super) async fn request(
     private_response(pages::reset_request_form(&csrf, true, Some("Если учётная запись существует, на её адрес будет отправлена ссылка для смены пароля.")), &cookies)
 }
 
+// Only the reset document enables reviewed same-origin JS; inline JS stays forbidden.
+fn confirm_response(result: impl IntoResponse, cookies: &[String]) -> Response {
+    let mut response = private_response(result, cookies);
+    response.headers_mut().insert("content-security-policy", HeaderValue::from_static(
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    ));
+    response
+}
+
+pub(super) async fn script() -> Response {
+    private_response(
+        (
+            [(
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            )],
+            include_str!("../../assets/account-reset.js"),
+        ),
+        &[],
+    )
+}
+
 pub(super) async fn confirm_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::reset_confirm_form(&csrf, None), &cookies)
+    confirm_response(pages::reset_confirm_form(&csrf, None), &cookies)
 }
 
 pub(super) async fn confirm(
@@ -107,16 +129,16 @@ pub(super) async fn confirm(
             .cookies
             .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
-        return private_response(StatusCode::FORBIDDEN, &[]);
+        return confirm_response(StatusCode::FORBIDDEN, &[]);
     }
     if state.reset_delivery.is_none() {
-        return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
+        return confirm_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
     }
     // Apply the same independent identity/IP limits to known, expired and forged proofs.
     if let Err(status) =
         login_limiter::limit(&state, "reset-confirm", &form.token, &headers, peer).await
     {
-        return private_response(status, &[]);
+        return confirm_response(status, &[]);
     }
     let csrf = form.csrf_token.as_deref().unwrap_or("");
     if form.token.len() != 43
@@ -125,7 +147,7 @@ pub(super) async fn confirm(
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
     {
-        return private_response(
+        return confirm_response(
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 pages::reset_confirm_form(
@@ -137,7 +159,7 @@ pub(super) async fn confirm(
         );
     }
     if let Err(message) = password_reset(&form.new_password, &form.confirm_password) {
-        return private_response(
+        return confirm_response(
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 pages::reset_confirm_form(csrf, Some(message)),
@@ -152,7 +174,7 @@ pub(super) async fn confirm(
     {
         Ok(Some(hash)) => hash,
         Ok(None) => {
-            return private_response(
+            return confirm_response(
                 (
                     StatusCode::UNPROCESSABLE_ENTITY,
                     pages::reset_confirm_form(
@@ -163,7 +185,7 @@ pub(super) async fn confirm(
                 &[],
             )
         }
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Err(_) => return confirm_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
     let password = form.new_password;
     let hash = match state
@@ -178,7 +200,7 @@ pub(super) async fn confirm(
     {
         Ok(Ok(Some(hash))) => hash,
         Ok(Ok(None)) => {
-            return private_response(
+            return confirm_response(
                 (
                     StatusCode::UNPROCESSABLE_ENTITY,
                     pages::reset_confirm_form(
@@ -189,16 +211,16 @@ pub(super) async fn confirm(
                 &[],
             )
         }
-        Ok(Err(_)) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        Err(status) => return private_response(status, &[]),
+        Ok(Err(_)) => return confirm_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Err(status) => return confirm_response(status, &[]),
     };
     match state
         .accounts
         .consume_password_reset(&session_token_digest(&form.token), &hash)
         .await
     {
-        Ok(true) => private_response(Redirect::to("/login"), &state.cookies.cleared_cookies()),
-        Ok(false) => private_response(
+        Ok(true) => confirm_response(Redirect::to("/login"), &state.cookies.cleared_cookies()),
+        Ok(false) => confirm_response(
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 pages::reset_confirm_form(
@@ -208,6 +230,6 @@ pub(super) async fn confirm(
             ),
             &[],
         ),
-        Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Err(_) => confirm_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     }
 }

@@ -108,6 +108,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/reset-password"), "GET") => Some(95),
         (Some("/reset-password"), "POST") => Some(96),
         (Some("/api/v1/me/password"), "POST") => Some(97),
+        (Some("/assets/account-reset.js"), "GET") => Some(98),
         _ => None,
     };
     index
