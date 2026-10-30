@@ -140,7 +140,8 @@
         "algorithm_version",
         "generation_id",
         "trust_class",
-        "recorded_at_utc"
+        "occurred_at_utc",
+        "received_at_utc"
       ],
       "properties": {
         "event_id": {
@@ -160,8 +161,7 @@
           "enum": [
             "recommendation_impression",
             "recommendation_click",
-            "recommendation_action",
-            "recommendation_feedback"
+            "recommendation_action"
           ]
         },
         "action_type": {
@@ -176,9 +176,7 @@
             "chapter_finished",
             "library_added",
             "bookmark_added",
-            "purchase_completed",
-            "not_interested",
-            "clear"
+            "purchase_completed"
           ]
         },
         "source_event_id": {
@@ -233,13 +231,18 @@
           "enum": [
             "client_observed",
             "server_verified_navigation",
-            "domain_committed",
-            "explicit_user_choice"
+            "domain_committed"
           ]
         },
-        "recorded_at_utc": {
+        "occurred_at_utc": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "Trusted C/D occurred_at or server receive for client hints"
+        },
+        "received_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server receipt time, independent of delayed C outbox"
         }
       },
       "allOf": [
@@ -321,6 +324,7 @@
                   "chapter_started",
                   "chapter_finished",
                   "library_added",
+                  "bookmark_added",
                   "purchase_completed"
                 ]
               }
@@ -333,6 +337,10 @@
             "properties": {
               "trust_class": {
                 "const": "domain_committed"
+              },
+              "source_event_id": {
+                "type": "string",
+                "format": "uuid"
               }
             },
             "required": [
@@ -343,24 +351,18 @@
         {
           "if": {
             "properties": {
-              "event_type": {
-                "const": "recommendation_feedback"
+              "action_type": {
+                "const": "book_opened"
               }
             },
             "required": [
-              "event_type"
+              "action_type"
             ]
           },
           "then": {
             "properties": {
-              "action_type": {
-                "enum": [
-                  "not_interested",
-                  "clear"
-                ]
-              },
               "trust_class": {
-                "const": "explicit_user_choice"
+                "const": "server_verified_navigation"
               }
             }
           }

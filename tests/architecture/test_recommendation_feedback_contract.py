@@ -35,15 +35,17 @@ class RecFeedbackContractTests(unittest.TestCase):
                 self.assertNotIn(forbidden, body)
         facts = self.defs["InternalAttributionFact"]["properties"]
         self.assertEqual(facts["trust_class"]["enum"],
-                         ["client_observed", "server_verified_navigation",
-                          "domain_committed", "explicit_user_choice"])
+                         ["client_observed", "server_verified_navigation", "domain_committed"])
 
     def test_no_click_is_not_a_forged_domain_event(self) -> None:
         events = self.defs["InternalAttributionFact"]["properties"]
         self.assertEqual(set(events["event_type"]["enum"]),
-                         {"recommendation_impression", "recommendation_click",
-                          "recommendation_action", "recommendation_feedback"})
+                         {"recommendation_impression", "recommendation_click", "recommendation_action"})
         self.assertNotIn("no_click", events["action_type"]["enum"])
+        self.assertNotIn("not_interested", events["action_type"]["enum"])
+        self.assertIn("rec_feedback_commands", self.text)
+        self.assertIn("occurred_at", self.text)
+        self.assertIn("received_at", self.text)
         self.assertIn("ChapterCompletedV1", self.text)
         self.assertIn("UNKNOWN/CENSORED", self.text)
         self.assertIn("не штраф", self.text.lower())

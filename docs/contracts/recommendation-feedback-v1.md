@@ -38,15 +38,15 @@
 | recommendation_action/chapter_finished | C unique ChapterCompletedV1 | domain_committed | meaningful_read_v1 по действующему правилу |
 | recommendation_action/library_added | C PG commit | domain_committed | сохранение книги, не чтение |
 | recommendation_action/purchase_completed | D PG commit | domain_committed | покупка, не чтение |
-| recommendation_feedback/not_interested или clear | H/F session+CSRF | explicit_user_choice | персональное решение, не качество книги |
+| explicit not_interested или clear (отдельный preference command) | H/F session+CSRF | explicit_user_choice | только персональное решение, без обязательного assignment_id |
 
-**Важно:** локальное отсутствие клика и отсутствие прогресса не добавляются в BusinessEventV1. Это вычисляемые состояния в агрегаторе с версией правил. Client signal никогда не получает domain_committed.
+**Важно:** локальное отсутствие клика и отсутствие прогресса не добавляются в BusinessEventV1. Это вычисляемые состояния в агрегаторе с версией правил. Client signal никогда не получает domain_committed. Явный feedback хранится в rec_feedback_state и rec_feedback_commands без обязательного assignment_id: пользователь вправе выбрать not_interested на обычной странице книги.
 
 ## 3. Машинная схема и обязательный контекст
 
 Файл [recommendation-feedback-v1.schema.json](recommendation-feedback-v1.schema.json) содержит JSON Schema 2020-12 для: ImpressionBatchRequest, ActivationCommand, ExplicitFeedbackCommand, InternalAttributionFact и DailyQualityAggregate.
 
-Ticket — непрозрачное HMAC/AEAD-подписанное утверждение либо серверная ссылка на него; только доверенный сервер задаёт assignment_id (UUID), book_id (положительная canonical decimal string), source, reason, surface, position (1..20), generation_id, algorithm_version, session-bound subject/consent epoch, issued/expires и organic purpose. На клиенте не размещать subject_token, raw user ID, cookie hash или секрет подписи. Уважать rotation ключей, проверять scope/actor, аудит replays и clock skew. Ticket никогда не публикуется в URL, referrer, telemetry labels или URL книги.
+Ticket — непрозрачное HMAC/AEAD-подписанное утверждение либо серверная ссылка на него; только доверенный сервер задаёт assignment_id (UUID), book_id (положительная canonical decimal string), source, reason, surface, position (1..20), generation_id, algorithm_version, session-bound subject/consent epoch, issued/expires и organic purpose. На клиенте не размещать subject_token, raw user ID, cookie hash или секрет подписи. Уважать rotation ключей, проверять scope/actor, аудит replays и clock skew. Ticket никогда не публикуется в URL, referrer, telemetry labels или URL книги. Для определения distinct visits сервер выпускает отдельный HMAC visit_scope_digest, не реальный ID сессии. Например, 30 минут простоя начинают новый visit; digest удаляется с сырыми событиями в пределах 30 дней.
 
 **Пилотные технические пределы для review** (не доказанные метриками): ticket TTL 15 минут; квалифицированный organic view — >=500 промилле видимости карточки непрерывно >=1000 ms при document.visibilityState=visible; максимум 20 claims на запрос, одна засчитанная экспозиция на assignment/book. Эти пороги НЕ имеют отношения к рекламе и не могут использоваться для billable impression. Browser IntersectionObserver сообщает только claim; JS может быть подделан, иметь ошибки или отсутствовать.
 
@@ -104,10 +104,10 @@ CREATE TABLE rec_attribution_events (
   event_id uuid PRIMARY KEY,
   assignment_id uuid NOT NULL,
   subject_token bytea NOT NULL CHECK (octet_length(subject_token)=32),
+  visit_scope_digest bytea NOT NULL CHECK (octet_length(visit_scope_digest)=32),
   book_id bigint NOT NULL CHECK (book_id > 0),
   event_type text NOT NULL CHECK (event_type IN
-    ('recommendation_impression','recommendation_click',
-     'recommendation_action','recommendation_feedback')),
+    ('recommendation_impression','recommendation_click','recommendation_action')),
   action_type text,
   source_event_id uuid UNIQUE,
   surface text NOT NULL CHECK (surface IN
@@ -119,18 +119,21 @@ CREATE TABLE rec_attribution_events (
   algorithm_version text NOT NULL,
   generation_id text NOT NULL,
   trust_class text NOT NULL CHECK (trust_class IN
-    ('client_observed','server_verified_navigation',
-     'domain_committed','explicit_user_choice')),
-  recorded_at timestamptz NOT NULL DEFAULT now(),
+    ('client_observed','server_verified_navigation','domain_committed')),
+  occurred_at timestamptz NOT NULL,
+  received_at timestamptz NOT NULL DEFAULT now(),
   CHECK (
-    (event_type IN ('recommendation_impression','recommendation_click')
-     AND action_type IS NULL)
+    (event_type='recommendation_impression'
+     AND action_type IS NULL AND trust_class='client_observed')
+    OR (event_type='recommendation_click'
+        AND action_type IS NULL AND trust_class='server_verified_navigation')
     OR (event_type='recommendation_action'
-        AND action_type IN ('book_opened','chapter_started',
-          'chapter_finished','library_added','bookmark_added',
-          'purchase_completed'))
-    OR (event_type='recommendation_feedback'
-        AND action_type IN ('not_interested','clear'))
+        AND (
+          (action_type='book_opened' AND trust_class='server_verified_navigation')
+          OR (action_type IN ('chapter_started','chapter_finished',
+                             'library_added','bookmark_added','purchase_completed')
+              AND trust_class='domain_committed' AND source_event_id IS NOT NULL)
+        ))
   )
 );
 CREATE UNIQUE INDEX rec_one_impression_per_card
@@ -140,9 +143,9 @@ CREATE UNIQUE INDEX rec_one_click_per_card
   ON rec_attribution_events(assignment_id,book_id)
   WHERE event_type='recommendation_click';
 CREATE INDEX rec_attribution_subject_book_time
-  ON rec_attribution_events(subject_token,book_id,recorded_at DESC);
+  ON rec_attribution_events(subject_token,book_id,occurred_at DESC);
 CREATE INDEX rec_attribution_retention
-  ON rec_attribution_events(recorded_at);
+  ON rec_attribution_events(received_at);
 
 CREATE TABLE rec_quality_daily (
   bucket_date date NOT NULL,
@@ -161,6 +164,7 @@ CREATE TABLE rec_quality_daily (
   confirmed_completions bigint NOT NULL DEFAULT 0 CHECK (confirmed_completions>=0),
   censored_count bigint NOT NULL DEFAULT 0 CHECK (censored_count>=0),
   calculation_version smallint NOT NULL DEFAULT 1,
+  CHECK (paired_clicks<=qualified_impressions),
   PRIMARY KEY (bucket_date,book_id,surface,source,reason,position_bucket,
                algorithm_version,generation_id)
 );
@@ -171,23 +175,36 @@ CREATE TABLE rec_feedback_state (
   book_id bigint NOT NULL CHECK (book_id>0),
   choice text NOT NULL CHECK (choice IN ('not_interested','clear')),
   revision bigint NOT NULL CHECK (revision>=1),
-  last_command_id uuid NOT NULL UNIQUE,
+  last_command_id uuid NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,
   PRIMARY KEY (subject_token,book_id)
 );
+-- Dedup/cached result per personal command. Commit atomically with CAS.
+CREATE TABLE rec_feedback_commands (
+  subject_token bytea NOT NULL CHECK (octet_length(subject_token)=32),
+  command_id uuid NOT NULL,
+  book_id bigint NOT NULL CHECK (book_id>0),
+  resulting_revision bigint NOT NULL CHECK (resulting_revision>=1),
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (subject_token,command_id)
+);
+CREATE INDEX rec_feedback_commands_expiry
+  ON rec_feedback_commands(recorded_at);
 ~~~
 
 **DDL детали для миграции I:** после review добавить ограничения длины reason/algorithm/generation, индексы по указанным PG workload, приватные roles/GRANT, partition/TTL без удаления чужих canonical facts, и запрет некорректной пары event_type/trust_class. Интегратор проверяет DDL на реальном disposable tor_ci PG18, права tor_app и план запроса на 100k книг.
 
-Идемпотентное построение daily-счётчиков: каждое исходное событие участвует максимум один раз (event_id receipt или пересборка bounded window из фактов), counts и receipt фиксируются одной транзакцией. At-least-once из G не удваивает значения; запоздалое событие корректно пересчитывает открытый дневной bucket, но не меняет закрытый отчёт без контролируемого versioned backfill. Raw events удалить не позднее 30 дней, агрегаты не позднее 180 дней; персональное состояние по умолчанию TTL 30 дней либо удаляется при clear/opt-out. Финансовые C/D факты и их retention не меняются.
+Для explicit feedback применить CAS по (subject_token,book_id) и expected_revision с atomic insert receipt (subject_token,command_id). Повтор в пределах 30 дней возвращает исходный revision, даже если более новая команда уже изменила состояние. После удаления receipts принимаются только свежие команды с действительным короткоживущим session-bound CSRF proof. Clear сохраняет краткоживущий tombstone для CAS, не вечную историю.
+
+Идемпотентное построение daily-счётчиков: occurred_at в UTC отвечает за порядок действий, received_at — за задержку доставки/ретенцию. Каждое исходное событие участвует максимум один раз (event_id receipt или пересборка bounded window из фактов), counts и receipt фиксируются одной транзакцией. At-least-once из G не удваивает значения; запоздалое событие корректно пересчитывает открытый дневной bucket, но не меняет закрытый отчёт без контролируемого versioned backfill. Raw events удалить не позднее 30 дней, агрегаты не позднее 180 дней; персональное состояние по умолчанию TTL 30 дней либо удаляется при clear/opt-out. Финансовые C/D факты и их retention не меняются.
 
 ## 6. Детеминированная атрибуция и окна
 
 **Предложение стартовой политики для эксперимента; не считать доказанной оптимальной конфигурацией:**
 
-1. Для пары (subject_token, book_id) выбрать **последний валидный подтверждённый click**, предшествующий действию; tie: recorded_at DESC, assignment_id ASC. Ранее созданное чтение не становится новой конверсией. Действие без подходящего click учитывается в своей предметной аналитике, но НЕ как результат рекомендации.
-2. Attribution window после click: ChapterStartedV1 не позже 7 суток, первый новый ChapterCompletedV1 не позже 14 суток. Событие C обязано иметь свой оригинальный server committed occurred_at и event_id; если после возвращения через 10 дней читатель завершил главу, это может быть post-click completion, но не «start within 7d».
+1. Для пары (subject_token, book_id) выбрать **последний валидный подтверждённый click**, предшествующий действию; tie: occurred_at DESC, assignment_id ASC. Ранее созданное чтение не становится новой конверсией. Действие без подходящего click учитывается в своей предметной аналитике, но НЕ как результат рекомендации.
+2. Attribution window после click: ChapterStartedV1 не позже 7 суток, первый новый ChapterCompletedV1 не позже 14 суток. Событие C обязано иметь свой оригинальный server committed occurred_at и event_id; received_at отражает только время доставки; если после возвращения через 10 дней читатель завершил главу, это может быть post-click completion, но не «start within 7d».
 3. Клик без видимого impression (JS отключён/заблокирован) — **unpaired click**: он не улучшает CTR, но навигация разрешена. Qualified view сам по себе не создаёт training event.
 4. Через 72 часа после подтверждённого book_open можно вычислять provisional no_verified_start. Если C не получил progress, есть ошибка, неразрешённая глава, paywall, hold, opt-out, задержка outbox или срок ещё не истёк, значение UNKNOWN/CENSORED, не отрицание интереса. При позднем достоверном progress метрику пересчитать.
 5. Для no_click необходимы >=3 отдельных квалифицированных показов в разных сессиях в течение 7 суток. Это **только shadow diagnostic**, никогда автоматическое отрицательное событие или штраф v1. Отсутствие view telemetry не трактовать как отсутствие клика.
@@ -233,7 +250,7 @@ CREATE TABLE rec_feedback_state (
 | REC-FB-02 | скрытая/невидимая карточка, предзагрузка | 0 qualified impressions |
 | REC-FB-03 | видимая 499‰/999ms vs >=500‰/1000ms | только квалифицированная claim принимается как client_observed |
 | REC-FB-04 | тот же assignment/book повторно 10 раз/2 tabs | ровно 1 impression и не больше 1 click |
-| REC-FB-05 | подпись ticket изменена/истёк TTL/другая сессия | нет attribution, нет утечки, canonical safe navigation |
+| REC-FB-05 | подпись ticket изменена/истёк TTL/другая сессия | нет attribution и утечки; forged отвергается, expired authentic может перейти только при B/A доступе |
 | REC-FB-06 | fake client ChapterCompleted, trusted=true | 0 domain_committed, нет quality boost |
 | REC-FB-07 | C valid first progress + last manifest block | 1 start и 1 completion, source event_id уникален |
 | REC-FB-08 | paid grant/S3 GET/purchase без progress | 0 meaningful_read |
