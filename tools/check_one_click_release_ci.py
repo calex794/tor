@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Wait for push checks on the exact TOR main SHA before any VPS SSH.
+"""Read-only I-06: verify main ruleset and *every* required push CI job before SSH.
 
-GitHub path filters mean a documentation-only commit may run Repository rules
-without PostgreSQL/visual suites. A code or migration commit starts its relevant
-workflows. We never treat an existing failed or still-running check as green.
+A successful workflow shell is NOT proof that all 14 suites executed. This
+script never authorizes production by itself (backup/restore and VPS readiness
+must be verified separately).
 """
 from __future__ import annotations
 
@@ -13,127 +13,126 @@ import os
 import re
 import sys
 import time
-from urllib.error import URLError, HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from audit_release_candidate import (
+    EvidenceError, GitHub, collect, latest_push_runs, require_current_main,
+    workflow_names,
+)
+from release_branch_policy import evaluate_branch_policy
+
 SHA = re.compile(r"^[a-f0-9]{40}$")
-REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-REQUIRED = "Repository rules"
-BAD_CONCLUSIONS = {
-    "failure", "cancelled", "timed_out", "action_required",
-    "startup_failure", "stale",
-}
-GOOD_CONCLUSIONS = {"success", "neutral", "skipped"}
+REPO = "calex794/tor"
 
 
-def evaluate_branch_policy(branch: dict) -> tuple[str, str]:
-    """I-06 release minimum: enforced 'rules' GitHub check on protected main.
-
-    This read-only check cannot prove the PR-only setting or bypass policy.
-    Those require a separate administrative review and a denied-push test.
-    """
-    if not isinstance(branch, dict) or branch.get("name") != "main":
-        return "fail", "missing or unexpected main branch metadata"
-    if branch.get("protected") is not True:
-        return "fail", "main is unprotected (GitHub branches/main protected=false)"
-    policy = branch.get("protection")
-    if not isinstance(policy, dict) or policy.get("enabled") is False:
-        return "fail", "main protection is disabled"
-    checks = policy.get("required_status_checks")
-    if not isinstance(checks, dict):
-        return "fail", "main has no required status checks"
-    # GitHub reports 'non_admins' if owners can ignore these checks.
-    if checks.get("enforcement_level") != "everyone":
-        return "fail", "main checks must also apply to administrators"
-    contexts = checks.get("contexts", [])
-    required_checks = checks.get("checks", [])
-    if not isinstance(contexts, list) or not isinstance(required_checks, list):
-        return "fail", "malformed required status checks"
-    names = set()
-    for value in contexts:
-        if not isinstance(value, str):
-            return "fail", "malformed context"
-        names.add(value)
-    for value in required_checks:
-        if not isinstance(value, dict) or not isinstance(value.get("context"), str):
-            return "fail", "malformed required check entry"
-        names.add(value["context"])
-    if "rules" not in names:
-        return "fail", "Repository rules job is not mandatory on main"
-    return "pass", "main protects required Repository rules check for admins too"
+def _fetch_json(repo: str, token: str, path: str, params: dict | None = None):
+    url = f"https://api.github.com/repos/{repo}/{path}"
+    if params:
+        url += "?" + urlencode(params)
+    request = Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "tor-one-click-release-preflight",
+    })
+    with urlopen(request, timeout=20) as response:
+        return json.load(response)
 
 
 def fetch_branch(repo: str, token: str) -> dict:
-    request = Request(
-        f"https://api.github.com/repos/{repo}/branches/main",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+    branch = _fetch_json(repo, token, "branches/main")
+    if not isinstance(branch, dict):
+        raise ValueError("Malformed main branch metadata")
+    return branch
+
+
+def fetch_rulesets(repo: str, token: str) -> list[dict]:
+    # includes_parents ensures organization-level policy is considered.
+    summary = _fetch_json(repo, token, "rulesets", {
+        "includes_parents": "true", "targets": "branch", "per_page": 100,
+    })
+    if (not isinstance(summary, list) or len(summary) >= 100
+            or any(not isinstance(row, dict) for row in summary)):
+        raise ValueError("Incomplete or malformed ruleset list")
+    seen: set[int] = set()
+    details = []
+    for row in summary:
+        rid = row.get("id")
+        if not isinstance(rid, int) or rid <= 0 or rid in seen:
+            raise ValueError("Missing or duplicate ruleset ID")
+        seen.add(rid)
+        if row.get("target") != "branch":
+            raise ValueError("Unexpected ruleset target")
+        if row.get("enforcement") != "active":
+            continue
+        item = _fetch_json(repo, token, f"rulesets/{rid}",
+                           {"includes_parents": "true"})
+        if (not isinstance(item, dict) or item.get("id") != rid
+                or any(item.get(key) != row.get(key)
+                       for key in ("target", "source_type", "source",
+                                   "enforcement", "updated_at"))):
+            raise ValueError("Inconsistent or changing ruleset settings")
+        details.append(item)
+    return details
+
+
+def fetch_effective_rules(repo: str, token: str) -> list[dict]:
+    # GitHub's effective endpoint returns only ACTIVE branch rules,
+    # including the organization's rules. No enabled/evaluate confusion.
+    rules = _fetch_json(repo, token, "rules/branches/main", {"per_page": 100})
+    if (not isinstance(rules, list) or len(rules) >= 100
+            or any(not isinstance(x, dict) for x in rules)):
+        raise ValueError("Incomplete or malformed effective branch rules")
+    return rules
+
+
+def verify_policy(repo: str, token: str) -> tuple[str, str]:
+    return evaluate_branch_policy(
+        fetch_branch(repo, token),
+        fetch_rulesets(repo, token),
+        fetch_effective_rules(repo, token),
     )
-    with urlopen(request, timeout=15) as response:
-        payload = json.load(response)
-    if not isinstance(payload, dict):
-        raise ValueError("Unexpected main branch response")
-    return payload
 
 
 def evaluate(runs: list[dict], sha: str) -> tuple[str, str]:
-    """Return pass/wait/fail and a short explanation; newest rerun wins."""
-    latest = {}
-    for run in sorted(
-        runs, key=lambda item: (item.get("created_at", ""), item.get("id", 0))
-    ):
-        if run.get("head_sha") != sha or run.get("event") != "push":
-            continue
-        name = run.get("name")
-        if isinstance(name, str):
-            latest[name] = run
-    if REQUIRED not in latest:
-        return "wait", "Repository rules has not started for this commit"
-    if not latest:
-        return "wait", "No main checks found"
-    bad = [
-        name for name, run in latest.items()
-        if run.get("conclusion") in BAD_CONCLUSIONS
-    ]
-    if bad:
-        return "fail", "Failed checks: " + ", ".join(sorted(bad))
-    pending = [
-        name for name, run in latest.items()
-        if run.get("status") != "completed"
-    ]
-    if pending:
-        return "wait", "Still running: " + ", ".join(sorted(pending))
-    unknown = [
-        name for name, run in latest.items()
-        if run.get("conclusion") not in GOOD_CONCLUSIONS
-    ]
-    if unknown:
-        return "fail", "Unknown check result: " + ", ".join(sorted(unknown))
-    if latest[REQUIRED].get("conclusion") != "success":
-        return "fail", "Repository rules did not pass"
-    return "pass", f"All {len(latest)} applicable checks passed"
+    """Preliminary wait/fail status; full job evidence is verified by collect()."""
+    if not isinstance(runs, list):
+        return "fail", "Malformed workflow run list"
+    try:
+        latest = latest_push_runs(runs, sha)
+        expected = workflow_names()
+    except (EvidenceError, OSError) as exc:
+        return "fail", str(exc)
+    unexpected = set(latest) - set(expected)
+    if unexpected:
+        return "fail", "Unregistered main push workflows: " + ", ".join(sorted(unexpected))
+    failing = [name for name, row in latest.items()
+               if row.get("status") == "completed" and row.get("conclusion") != "success"]
+    if failing:
+        return "fail", "Failed mandatory workflows: " + ", ".join(sorted(failing))
+    waiting = [name for name in expected
+               if name not in latest or latest[name].get("status") != "completed"]
+    if waiting:
+        return "wait", "Mandatory workflows not yet green: " + ", ".join(sorted(waiting))
+    if set(latest) != set(expected):
+        return "fail", "Incomplete workflow registry"
+    if any(row.get("conclusion") != "success" for row in latest.values()):
+        return "fail", "Non-successful workflow"
+    return "pass", "Both registered push workflows completed successfully"
 
 
 def fetch_runs(repo: str, sha: str, token: str) -> list[dict]:
-    args = urlencode({"head_sha": sha, "event": "push", "per_page": 100})
-    request = Request(
-        f"https://api.github.com/repos/{repo}/actions/runs?{args}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    with urlopen(request, timeout=15) as response:
-        payload = json.load(response)
-    if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
-        raise ValueError("Unexpected GitHub Actions response")
-    if payload.get("total_count", 0) > 100:
-        raise ValueError("Too many checks for one SHA; cannot establish complete result")
+    payload = _fetch_json(repo, token, "actions/runs", {
+        "head_sha": sha, "event": "push", "per_page": 100,
+    })
+    if (not isinstance(payload, dict)
+            or not isinstance(payload.get("workflow_runs"), list)
+            or not isinstance(payload.get("total_count"), int)
+            or payload["total_count"] != len(payload["workflow_runs"])
+            or len(payload["workflow_runs"]) > 100):
+        raise ValueError("Incomplete GitHub Actions run pagination")
     return payload["workflow_runs"]
 
 
@@ -142,46 +141,68 @@ def main() -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=1200)
+    parser.add_argument("--policy-only", action="store_true",
+                        help="read-only verify current SHA and branch protection; no CI/SSH")
     opts = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN", "")
-    if not REPO.fullmatch(opts.repo) or opts.repo != "calex794/tor":
-        print("TOR_CI_REFUSED: unapproved GitHub repository", file=sys.stderr)
-        return 1
-    if not SHA.fullmatch(opts.sha) or not token:
-        print("TOR_CI_REFUSED: missing token or invalid main SHA", file=sys.stderr)
+    if opts.repo != REPO or not SHA.fullmatch(opts.sha) or not token:
+        print("TOR_CI_REFUSED: invalid repository, SHA or token", file=sys.stderr)
         return 1
     if not 0 <= opts.timeout_seconds <= 1800:
         print("TOR_CI_REFUSED: timeout outside allowed range", file=sys.stderr)
         return 1
+
+    api = GitHub(token)
     try:
-        state, detail = evaluate_branch_policy(fetch_branch(opts.repo, token))
-    except (ValueError, URLError, HTTPError) as exc:
-        print(f"TOR_CI_REFUSED: cannot verify main protection: {type(exc).__name__}", file=sys.stderr)
+        require_current_main(api, opts.sha)
+        state, detail = verify_policy(opts.repo, token)
+    except (EvidenceError, ValueError, URLError, HTTPError, TimeoutError) as exc:
+        print(f"TOR_CI_REFUSED: cannot verify main rules: {type(exc).__name__}", file=sys.stderr)
         return 1
     if state != "pass":
         print(f"TOR_CI_REFUSED: I-06: {detail}", file=sys.stderr)
         return 1
+    if opts.policy_only:
+        try:
+            require_current_main(api, opts.sha)
+        except EvidenceError as exc:
+            print(f"TOR_CI_REFUSED: main moved during policy verification: {exc}", file=sys.stderr)
+            return 1
+        print(f"TOR_CI_POLICY_OK: {detail}")
+        return 0
+
     deadline = time.monotonic() + opts.timeout_seconds
     while True:
         try:
-            outcome, detail = evaluate(fetch_runs(opts.repo, opts.sha, token), opts.sha)
-        except (ValueError, URLError, HTTPError) as exc:
-            print(f"TOR_CI_REFUSED: cannot verify GitHub Actions: {type(exc).__name__}", file=sys.stderr)
+            outcome, detail = evaluate(fetch_runs(opts.repo, opts.sha, token),
+                                       opts.sha)
+        except (ValueError, URLError, HTTPError, TimeoutError) as exc:
+            print(f"TOR_CI_REFUSED: cannot fetch CI: {type(exc).__name__}", file=sys.stderr)
             return 1
         print(f"TOR_CI_{outcome.upper()}: {detail}", flush=True)
         if outcome == "pass":
-            # Protection might be removed while waiting for the checks.
+            # A workflow success can hide missing/skipped suite jobs. Reuse the
+            # exact-main, two-workflow/16-job release auditor, fail-closed.
             try:
-                state, detail = evaluate_branch_policy(fetch_branch(opts.repo, token))
-            except (ValueError, URLError, HTTPError) as exc:
-                print(f"TOR_CI_REFUSED: cannot reverify main protection: {type(exc).__name__}", file=sys.stderr)
+                report = collect(api, opts.sha)
+                if not report["ci_complete"]:
+                    print("TOR_CI_REFUSED: incomplete suite evidence: "
+                          + "; ".join(report["blockers"]), file=sys.stderr)
+                    return 1
+                state, detail = verify_policy(opts.repo, token)
+                require_current_main(api, opts.sha)
+            except (EvidenceError, ValueError, URLError, HTTPError,
+                    TimeoutError, OSError) as exc:
+                print(f"TOR_CI_REFUSED: final audit incomplete: "
+                      f"{type(exc).__name__}", file=sys.stderr)
                 return 1
             if state != "pass":
-                print(f"TOR_CI_REFUSED: I-06: {detail}", file=sys.stderr)
+                print(f"TOR_CI_REFUSED: I-06 after CI: {detail}", file=sys.stderr)
                 return 1
+            print("TOR_CI_VERIFIED: exact-main rules + all 14 suites + ci-required")
             return 0
         if outcome == "fail" or time.monotonic() >= deadline:
-            print("TOR_CI_REFUSED: no verified green build for selected commit", file=sys.stderr)
+            print("TOR_CI_REFUSED: no verified complete green main build", file=sys.stderr)
             return 1
         time.sleep(min(15, max(1, deadline - time.monotonic())))
 

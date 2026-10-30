@@ -136,6 +136,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/referrals/alias"), "POST") => Some(123),
         (Some("/assets/mentions.js"), "GET") => Some(124),
         (Some("/api/v1/social/mentions/discover"), "GET") => Some(125),
+        (Some("/me/books/{id}/chapters/import"), "GET") => Some(126),
+        (Some("/me/books/{id}/chapters/import-preview"), "POST") => Some(127),
+        (Some("/me/books/{id}/chapters/import-confirm"), "POST") => Some(128),
+        (Some("/assets/newboo-chapter-import.js"), "GET") => Some(129),
         _ => None,
     };
     index

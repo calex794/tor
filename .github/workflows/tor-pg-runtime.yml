@@ -165,6 +165,7 @@ jobs:
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
+          cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
@@ -188,12 +189,14 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_03_ -- --ignored --test-threads=1
