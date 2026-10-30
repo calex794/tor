@@ -83,8 +83,7 @@ mod session_security;
 mod settings_routes;
 mod sync_actions;
 mod types;
-use types::*;
-pub(crate) use types::NewBookForm;
+pub(crate) use types::*;
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
