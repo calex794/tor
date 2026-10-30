@@ -190,7 +190,8 @@ async fn password_rotation_impl() {
         request("POST", "/me/settings/password", &change, &cookies, ORIGIN),
     )
     .await;
-    assert_ne!(replay.status(), StatusCode::SEE_OTHER, "revoked session must not rotate again");
+    assert_eq!(replay.status(), StatusCode::SEE_OTHER);
+    assert_eq!(replay.headers()[header::LOCATION], "/login");
 
     let rejected = login(&app, &email, OLD_PASSWORD).await;
     assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
