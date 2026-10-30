@@ -129,9 +129,10 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     .unwrap();
     pg(
         &url,
-        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
     );
-
 
     // HEAD probes must never count as chapter opens.
     let reader_path = format!("/reader/{chapter}");
@@ -140,7 +141,7 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
         .oneshot(
             Request::builder()
                 .method("HEAD")
-                .uri(&reader_path)
+                .uri(reader_path.as_str())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -192,7 +193,7 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later.status(), StatusCode::OK);
     let later_html = body(later).await;
-    assert!(later_html.contains(&format!("/books/{book}/stats/export.csv?after=1:5")));
+    assert!(later_html.contains(format!("/books/{book}/stats/export.csv?after=1:5").as_str()));
     let later_csv = get(&app, &format!("{csv_path}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later_csv.status(), StatusCode::OK);
     assert_eq!(
