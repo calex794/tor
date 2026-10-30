@@ -222,6 +222,35 @@ async function inspect(page, viewport, name) {
         assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
           viewport + ': new reader bookmark is missing');
 
+        // E-05 / S014: an account-follow is independent of saving a Book.
+        // Exercise the real user action and private author-follow listing.
+        await reader.goto(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Следить за автором' }).isVisible(),
+          viewport + ': creator-follow control missing from book');
+        await reader.getByRole('button', { name: 'Следить за автором' }).click();
+        await reader.waitForURL(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
+          viewport + ': account-follow did not persist');
+        await reader.goto(base + '/me/creators');
+        assert(await reader.getByRole('heading', { name: 'Подписки на авторов' }).isVisible(),
+          viewport + ': private followed-creators page missing');
+        assert(await reader.getByText('Автор ' + viewport).isVisible(),
+          viewport + ': authoritative owner not in reader follows');
+        assert(await reader.getByRole('link', { name: 'Новая книга ' + viewport }).isVisible(),
+          viewport + ': source Book attribution missing');
+        await inspect(reader, viewport, 'creator-followed');
+        await reader.getByRole('button', { name: 'Отписаться от автора' }).click();
+        await reader.waitForURL(base + '/me/creators');
+        assert(await reader.getByText(/Вы пока не подписаны на авторов/).isVisible(),
+          viewport + ': unsubscribe did not deactivate the follow');
+        await reader.goto(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Следить за автором' }).isVisible(),
+          viewport + ': re-follow after unsubscribe unavailable');
+        await reader.getByRole('button', { name: 'Следить за автором' }).click();
+        await reader.waitForURL(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
+          viewport + ': new active creator period absent');
+
         const privateReader = await reader.goto(base + '/read/' + chapterId);
         assert(privateReader && privateReader.status() === 200,
           viewport + ': account-only free reader failed');

@@ -6,6 +6,8 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod creators;
+pub use creators::creator_follows;
 mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.

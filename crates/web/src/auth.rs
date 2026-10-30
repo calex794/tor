@@ -54,6 +54,7 @@ mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
+mod creator_follows;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -164,6 +165,9 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let creator_follows = tor_social::services::follow::PgCreatorFollows::new(
+        accounts.pool().clone(),
+    );
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let achievements =
@@ -191,6 +195,7 @@ fn router_inner(
         bookmarks,
         demand,
         book_follows,
+        creator_follows,
         follow_updates,
         reader,
         rankings,
@@ -214,6 +219,9 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/me/creators", get(creator_follows::page))
+        .route("/me/creators/{id}/unfollow", post(creator_follows::unfollow))
+        .route("/me/books/{id}/follow-creator", post(book_follow_actions::follow_creator))
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
