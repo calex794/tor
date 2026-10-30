@@ -232,6 +232,25 @@ class OneClickReleaseTests(unittest.TestCase):
         self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
                          "pass")
 
+    def test_i06_utc_ruleset_revision_is_same_instant_as_reviewed_offset(self):
+        branch, rules, effective = active_main_policy()
+        local_time = rules[0]["updated_at"]
+        actual_github_utc = "2026-10-30T19:28:58.370Z"
+        self.assertTrue(gate.same_ruleset_revision(local_time, actual_github_utc))
+        rules[0]["updated_at"] = actual_github_utc
+        self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
+                         "pass")
+        for invalid in (None, "", "2026-10-30T19:28:58.370",
+                        "2026-10-30T19:28:58.371Z",
+                        "2026-10-31T00:29:58.370+05:00",
+                        "not-a-date", "2026-10-30T19:28:58.3700001Z"):
+            with self.subTest(invalid=invalid):
+                changed = copy.deepcopy(rules)
+                changed[0]["updated_at"] = invalid
+                self.assertFalse(gate.same_ruleset_revision(local_time, invalid))
+                self.assertEqual(gate.evaluate_branch_policy(branch, changed, effective)[0],
+                                 "fail")
+
     def test_i06_classic_protection_requires_both_app_scoped_checks(self):
         branch = protected_main()
         # Compact branch metadata is not a complete classic protection proof.
@@ -344,6 +363,9 @@ class OneClickReleaseTests(unittest.TestCase):
         summary = {key: detail[key] for key in
                    ("id", "target", "source_type", "source", "enforcement", "updated_at")}
         with mock.patch.object(gate, "_fetch_json", side_effect=[[summary], detail]):
+            self.assertEqual(gate.fetch_rulesets("calex794/tor", "fake"), [detail])
+        utc_summary = dict(summary, updated_at="2026-10-30T19:28:58.370Z")
+        with mock.patch.object(gate, "_fetch_json", side_effect=[[utc_summary], detail]):
             self.assertEqual(gate.fetch_rulesets("calex794/tor", "fake"), [detail])
         wrong = dict(detail, updated_at="updated")
         with mock.patch.object(gate, "_fetch_json", side_effect=[[summary], wrong]):
