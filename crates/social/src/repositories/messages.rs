@@ -59,6 +59,7 @@ impl PgMail {
         body: &str,
         key: &str,
         dedup_recent: bool,
+        client_id: Option<&str>,
     ) -> Result<SentMessage, MailError> {
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
         // Per-sender serialization protects cross-conversation TOR command identity.
@@ -69,6 +70,17 @@ impl PgMail {
         pair_lock(&mut tx, low, high).await?;
         if blocked(&mut tx, low, high).await? {
             return Err(MailError::Blocked);
+        }
+        // Source HTML identity is per sender and conversation, not TOR JSON global key.
+        // The pair lock serializes concurrent retries and blocking.
+        if let Some(client_id) = client_id {
+            if let Some(id) = sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM social_messages WHERE conversation_id=$1 AND sender_id=$2 AND client_message_id=$3"
+            ).bind(conversation).bind(actor).bind(client_id)
+                .fetch_optional(&mut *tx).await.map_err(unavailable)? {
+                tx.commit().await.map_err(unavailable)?;
+                return Ok(SentMessage { id, replayed: true });
+            }
         }
         // NEwBOO mail_service.py: absent client ID scans the last 20 messages,
         // returning the latest same-sender/body message aged 0..5 seconds.
@@ -95,8 +107,8 @@ impl PgMail {
         }
         // IDs are allocated under the conversation's pair lock, so a committed
         // polling cursor cannot skip a later commit with an earlier message ID.
-        let id = sqlx::query_scalar("INSERT INTO social_messages(conversation_id,sender_id,body,command_key) VALUES($1,$2,$3,$4) RETURNING id")
-            .bind(conversation).bind(actor).bind(body).bind(key).fetch_one(&mut *tx).await.map_err(unavailable)?;
+        let id = sqlx::query_scalar("INSERT INTO social_messages(conversation_id,sender_id,body,command_key,client_message_id) VALUES($1,$2,$3,$4,$5) RETURNING id")
+            .bind(conversation).bind(actor).bind(body).bind(key).bind(client_id).fetch_one(&mut *tx).await.map_err(unavailable)?;
         tx.commit().await.map_err(unavailable)?;
         Ok(SentMessage {
             id,
