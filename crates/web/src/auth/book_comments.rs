@@ -20,6 +20,14 @@ use tor_discussions::{
     repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment},
 };
 
+pub(super) async fn mention_script() -> Response {
+    private_response(
+        ([(axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+         include_str!("../../assets/mentions.js")).into_response(),
+        &[],
+    )
+}
+
 #[derive(Deserialize)]
 pub(super) struct MentionsQuery { book_id: i64, q: String }
 
