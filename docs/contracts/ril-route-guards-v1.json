@@ -109,6 +109,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/social/mentions/discover",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::discover_mentions",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/assets/account-reset.js",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "password_reset::script",
@@ -133,6 +140,13 @@
       "template": "/assets/mail.js",
       "source": "crates/web/src/auth.rs",
       "handler": "mail::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mentions.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::mention_script",
       "policy": "public"
     },
     {
