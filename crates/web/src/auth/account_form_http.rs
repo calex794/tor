@@ -55,6 +55,22 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
     )
 }
 
+fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
+    // A failed manual code never changes the existing guest referral capture.
+    private_response(
+        (
+            StatusCode::BAD_REQUEST,
+            pages::registration_form_with_error(
+                form.csrf_token.as_deref().unwrap_or(""),
+                &form.display_name,
+                &form.email,
+                Some(reason),
+            ),
+        ),
+        &[],
+    )
+}
+
 fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
     if !registration {
         observability::record_login_outcome(if status == StatusCode::TOO_MANY_REQUESTS {
@@ -157,6 +173,25 @@ pub(super) async fn register(
         return auth_limit_error(status, true);
     }
 
+    // Check the manual invitation before Argon2 and before account creation.
+    // Invalid or disabled codes must not silently result in a new account.
+    let manual_code = match tor_referrals::domain::manual_code(form.manual_invite_code.as_deref()) {
+        Ok(code) => code,
+        Err(_) => return invalid_invite(&form, "Некорректный код приглашения. Исправьте или удалите код."),
+    };
+    if let Some(code) = manual_code {
+        match state.referrals.active_code(code).await {
+            Ok(true) => {}
+            Ok(false) => return invalid_invite(&form, "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить."),
+            Err(_) => return auth_problem(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Регистрация временно недоступна",
+                "Не удалось проверить код приглашения. Попробуйте снова позже.",
+                true,
+            ),
+        }
+    }
+
     // Argon2 is deliberately moved off Tokio's request executor.
     let password = form.password;
     let hashed = match state
@@ -180,17 +215,6 @@ pub(super) async fn register(
                 "Попробуйте повторить регистрацию немного позже.",
                 true,
             );
-        }
-    };
-    let manual_code = match tor_referrals::domain::manual_code(form.manual_invite_code.as_deref()) {
-        Ok(code) => code,
-        Err(_) => {
-            return auth_problem(
-                StatusCode::BAD_REQUEST,
-                "Неверный код приглашения",
-                "Проверьте код и повторите регистрацию.",
-                true,
-            )
         }
     };
     let guest_hash = state
