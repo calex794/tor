@@ -18,6 +18,15 @@ async fn g_06_two_consumers_finish_only_after_both_receipts() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    sqlx::query(
+        "UPDATE outbox_events
+         SET next_attempt_at=now()-interval '10 days'
+         WHERE id=$1::uuid",
+    )
+    .bind(&event_id)
+    .execute(&pool)
+    .await
+    .unwrap();
     let outbox = PgOutbox::new(pool.clone());
     let claimed = outbox.claim_next().await.unwrap().unwrap();
     assert_eq!(claimed.id, event_id);
@@ -60,6 +69,15 @@ async fn g_07_expired_worker_cannot_ack_after_reclaim() {
     )
     .bind(format!("g07-test-{}", std::process::id()))
     .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE outbox_events
+         SET next_attempt_at=now()-interval '10 days'
+         WHERE id=$1::uuid",
+    )
+    .bind(&event_id)
+    .execute(&pool)
     .await
     .unwrap();
     let outbox = PgOutbox::new(pool.clone());
