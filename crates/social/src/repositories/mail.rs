@@ -123,6 +123,10 @@ impl PgMail {
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
         pair_lock(&mut tx, actor, peer).await?;
         if value {
+            // Source block supersedes pending/accepted friendship atomically.
+            sqlx::query("DELETE FROM social_friendships WHERE user_low=$1 AND user_high=$2")
+                .bind(actor.min(peer)).bind(actor.max(peer))
+                .execute(&mut *tx).await.map_err(unavailable)?;
             sqlx::query("INSERT INTO social_user_blocks(blocker_id,blocked_id) VALUES($1,$2) ON CONFLICT DO NOTHING")
                 .bind(actor).bind(peer).execute(&mut *tx).await.map_err(foreign_or_unavailable)?;
         } else {
