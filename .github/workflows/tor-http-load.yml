@@ -210,9 +210,20 @@ jobs:
           if [[ "$ready" != 1 ]]; then cat "$RUNNER_TEMP/tor-load/progress/server.log"; exit 1; fi
           k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary.json" \
             tests/load/tor_authenticated_progress.js | tee "$RUNNER_TEMP/tor-load/progress/k6.log"
-          PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
-            psql -X -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND revision>0" \
-            | tee "$RUNNER_TEMP/tor-load/progress/saved-count.txt"
+          saved_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND revision>0")"
+          printf '%s\n' "$saved_count" | tee "$RUNNER_TEMP/tor-load/progress/saved-count.txt"
+          # Require persisted PG writes, not just successful k6 HTTP assertions.
+          if ! [[ "$saved_count" =~ ^[0-9]+$ ]] || (( saved_count < 1 || saved_count > 32 )); then
+            echo "Expected 1..32 persisted reader positions, got $saved_count" >&2
+            exit 1
+          fi
+          invalid_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND (block_index<>1 OR char_offset<1 OR char_offset>4000 OR revision<1)")"
+          if [[ "$invalid_count" != 0 ]]; then
+            echo "Invalid saved reader positions: $invalid_count" >&2
+            exit 1
+          fi
       - name: Diagnose 300-500 RPS and isolate expensive routes
         if: ${{ github.event_name == 'pull_request' || inputs.diagnostics }}
         env:
