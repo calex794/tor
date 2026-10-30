@@ -1,13 +1,13 @@
 //! Required PostgreSQL schema gate for this binary. A catalog-only readiness
 //! check would miss the transactionally maintained public metadata projection.
-pub(super) const REQUIRED_MIGRATION: i64 = 202610300002;
+pub(super) const REQUIRED_MIGRATION: i64 = 202610300021;
 
 pub(super) fn require_latest_migration(version: Option<i64>) -> Result<(), sqlx::Error> {
     if version == Some(REQUIRED_MIGRATION) {
         Ok(())
     } else {
         Err(sqlx::Error::Protocol(
-            "TOR schema missing exact public catalog projection migration 202610300002".into(),
+            "TOR schema missing exact public catalog projection migration 202610300021".into(),
         ))
     }
 }
