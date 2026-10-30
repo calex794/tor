@@ -108,9 +108,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
-                pending_referral_consumer = Some(tor_referrals::repositories::PgReferrals::new(
-                    pool.clone(),
-                ));
+                pending_referral_consumer =
+                    Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
