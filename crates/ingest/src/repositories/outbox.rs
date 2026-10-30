@@ -17,6 +17,13 @@ pub enum OutboxError {
     Unavailable,
 }
 
+/// Failure is applied only by the holder of the live, fenced lease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureDisposition {
+    RetryScheduled,
+    DeadLetter,
+}
+
 #[derive(Clone)]
 pub struct PgOutbox {
     pool: PgPool,
@@ -27,14 +34,38 @@ impl PgOutbox {
         Self { pool }
     }
 
+    /// A worker may crash on its final lease without recording an explicit
+    /// failure. Reap such events in bounded batches, rather than reclaiming
+    /// them indefinitely. A live lease is never reaped.
+    pub async fn reap_exhausted(&self) -> Result<u64, OutboxError> {
+        let result = sqlx::query(
+            "WITH exhausted AS (
+               SELECT id FROM outbox_events
+               WHERE delivered_at IS NULL AND dead_at IS NULL
+                 AND attempts>=12 AND next_attempt_at<=now()
+                 AND (lease_until IS NULL OR lease_until<now())
+               ORDER BY next_attempt_at,created_at,id
+               FOR UPDATE SKIP LOCKED LIMIT 64
+             )
+             UPDATE outbox_events AS event
+             SET dead_at=now(),lease_until=NULL
+             FROM exhausted WHERE event.id=exhausted.id",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|_| OutboxError::Unavailable)?;
+        Ok(result.rows_affected())
+    }
+
     /// SKIP LOCKED permits competing workers without duplicate claims.
     /// The lease epoch fences acknowledgments from superseded workers.
     pub async fn claim_next(&self) -> Result<Option<ClaimedEvent>, OutboxError> {
+        self.reap_exhausted().await?;
         let row = sqlx::query(
             "WITH next_event AS (
                SELECT id FROM outbox_events
                WHERE delivered_at IS NULL AND dead_at IS NULL
-                 AND next_attempt_at<=now()
+                 AND attempts<12 AND next_attempt_at<=now()
                  AND (lease_until IS NULL OR lease_until<now())
                ORDER BY next_attempt_at,created_at,id
                FOR UPDATE SKIP LOCKED LIMIT 1
@@ -141,4 +172,49 @@ impl PgOutbox {
         tx.commit().await.map_err(|_| OutboxError::Unavailable)?;
         Ok(missing == 0)
     }
+
+    /// Release a failed lease, preserving consumer receipts already committed.
+    /// Retry delay is exponential (5s..1h), with bounded jitter to avoid a
+    /// thundering herd. After 12 claims, or on a non-retryable failure, the
+    /// event is dead-lettered. This never runs external side effects.
+    pub async fn record_failure(
+        &self,
+        event_id: &str,
+        epoch: i64,
+        retryable: bool,
+    ) -> Result<FailureDisposition, OutboxError> {
+        if epoch <= 0 || event_id.len() != 36 {
+            return Err(OutboxError::Invalid);
+        }
+        let dead: Option<bool> = sqlx::query_scalar(
+            "UPDATE outbox_events
+             SET lease_until=NULL,
+                 next_attempt_at=CASE
+                   WHEN $3 AND attempts<12 THEN
+                     now()+make_interval(secs=>LEAST(3600,
+                       5*(1 << LEAST(attempts-1,10))
+                       +floor(random()*5)::integer))
+                   ELSE next_attempt_at
+                 END,
+                 dead_at=CASE
+                   WHEN NOT $3 OR attempts>=12 THEN now()
+                   ELSE dead_at
+                 END
+             WHERE id=$1::uuid AND lease_epoch=$2 AND lease_until>now()
+               AND delivered_at IS NULL AND dead_at IS NULL
+             RETURNING dead_at IS NOT NULL",
+        )
+        .bind(event_id)
+        .bind(epoch)
+        .bind(retryable)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| OutboxError::Unavailable)?;
+        match dead {
+            Some(true) => Ok(FailureDisposition::DeadLetter),
+            Some(false) => Ok(FailureDisposition::RetryScheduled),
+            None => Err(OutboxError::LostLease),
+        }
+    }
+
 }
