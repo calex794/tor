@@ -100,6 +100,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/referrals"), "POST") => Some(87),
         (Some("/api/v1/me/referrals"), "GET") => Some(88),
         (Some("/api/v1/me/referrals"), "POST") => Some(89),
+        (Some("/go/{alias}"), "GET") => Some(90),
+        (Some("/promo/{alias}"), "GET") => Some(91),
         _ => None,
     };
     index

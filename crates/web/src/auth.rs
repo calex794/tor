@@ -185,6 +185,8 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/r/{code}", get(referral_capture::capture))
+        .route("/go/{alias}", get(referral_capture::go))
+        .route("/promo/{alias}", get(referral_capture::promo))
         .route("/me", get(me))
         .route(
             "/me/referrals",

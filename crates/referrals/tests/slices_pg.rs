@@ -563,3 +563,40 @@ async fn f_09_pg_private_overview_exposes_only_owned_aggregates() {
     assert!(subject.default_code.is_none());
     assert_eq!(subject.active, 0);
 }
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_alias_resolves_only_correct_prefix_and_active_code() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let owner = seed_user(&pool, "alias-code").await;
+    let code = seed_code(&pool, owner, "reader_spend").await;
+    sqlx::query(
+        "UPDATE referral_codes SET alias='novel-2026',alias_path_prefix='go' WHERE code=$1",
+    )
+    .bind(&code)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.resolve_active_alias("go", "novel-2026").await.unwrap(),
+        Some(code.clone())
+    );
+    for (prefix, alias) in [
+        ("promo", "novel-2026"),
+        ("go", "unknown"),
+        ("go", "me"),
+        ("other", "novel-2026"),
+    ] {
+        assert_eq!(repo.resolve_active_alias(prefix, alias).await.unwrap(), None);
+    }
+    sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
+        .bind(&code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.resolve_active_alias("go", "novel-2026").await.unwrap(),
+        None
+    );
+}

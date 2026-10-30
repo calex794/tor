@@ -124,6 +124,25 @@ impl PgReferrals {
         })
     }
 
+    /// An alias only points to an active code and never directly captures identity.
+    pub async fn resolve_active_alias(
+        &self,
+        prefix: &str,
+        alias: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        if !matches!(prefix, "go" | "promo") || !crate::domain::valid_alias(alias) {
+            return Ok(None);
+        }
+        sqlx::query_scalar(
+            "SELECT code FROM referral_codes
+             WHERE alias_path_prefix=$1 AND alias=$2 AND status='active'",
+        )
+        .bind(prefix)
+        .bind(alias)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     pub async fn active_code(&self, code: &str) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM referral_codes WHERE code=$1 AND status='active')",

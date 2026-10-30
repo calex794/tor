@@ -645,6 +645,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "referral_dashboard::api_create",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/go/{alias}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "referral_capture::go",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/promo/{alias}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "referral_capture::promo",
+      "policy": "public"
     }
   ]
 }

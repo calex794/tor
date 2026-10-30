@@ -48,3 +48,28 @@ pub(super) async fn capture(
         Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     }
 }
+
+async fn alias_redirect(state: &AuthState, prefix: &str, alias: &str) -> Response {
+    if !tor_referrals::domain::valid_alias(alias) {
+        return private_response(Redirect::to("/"), &[]);
+    }
+    match state.referrals.resolve_active_alias(prefix, alias).await {
+        Ok(Some(code)) => private_response(Redirect::to(&format!("/r/{code}")), &[]),
+        Ok(None) => private_response(Redirect::to("/"), &[]),
+        Err(_) => private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
+}
+
+pub(super) async fn go(
+    State(state): State<AuthState>,
+    Path(alias): Path<String>,
+) -> Response {
+    alias_redirect(&state, "go", &alias).await
+}
+
+pub(super) async fn promo(
+    State(state): State<AuthState>,
+    Path(alias): Path<String>,
+) -> Response {
+    alias_redirect(&state, "promo", &alias).await
+}
