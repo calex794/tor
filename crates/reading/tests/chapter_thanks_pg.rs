@@ -102,6 +102,27 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
         ThanksMutation::NotVisible
     );
 
+    // Book moderation is independent of chapter moderation.
+    sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .visible_free_summary(user, chapter)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        repo.thank_visible_free(user, chapter).await.unwrap(),
+        ThanksMutation::NotVisible
+    );
+
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(user)
         .execute(&pool)
