@@ -137,6 +137,29 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    // NEwBOO friendship: outgoing -> reciprocal acceptance -> removal.
+    let request_friend = format!("/users/{}/friend", users[1]);
+    let accept_friend = format!("/users/{}/friend", users[0]);
+    let remove_friend = format!("/users/{}/unfriend", users[1]);
+    assert_eq!(call(&app, "POST", &request_friend, &cookies[0], &start, &[]).await.status(), StatusCode::SEE_OTHER);
+    let outgoing = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert!(outgoing.contains("Заявка уже отправлена"));
+    let incoming = text(call(&app, "GET", "/users/Mail%20reader%200", &cookies[1], "", &[]).await).await;
+    assert!(incoming.contains("Принять в друзья"));
+    let accept = format!("csrf_token={}", csrf[1]);
+    assert_eq!(call(&app, "POST", &accept_friend, &cookies[1], &accept, &[]).await.status(), StatusCode::SEE_OTHER);
+    let accepted = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert!(accepted.contains("Удалить из друзей"));
+    assert_eq!(call(&app, "POST", &remove_friend, &cookies[0], &start, &[]).await.status(), StatusCode::SEE_OTHER);
+    let removed = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert!(removed.contains("Добавить в друзья"));
+    assert_eq!(call(&app, "POST", &request_friend, &cookies[0], &start, &[("origin","https://attacker.invalid")]).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(call(&app, "POST", &request_friend, &cookies[0], "csrf_token=forged", &[]).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(call(&app, "POST", &request_friend, &cookies[2], &format!("csrf_token={}", csrf[2]), &[]).await.status(), StatusCode::SEE_OTHER);
+    // No browser-supplied actor field can reassign the verified session identity.
+    assert_eq!(call(&app, "POST", &request_friend, &cookies[0],
+        &format!("csrf_token={}&actor_id={}", csrf[0], users[2]), &[]).await.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
     let response = call(&app, "POST", &start_path, &cookies[0], &start, &[]).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let path = response.headers()[header::LOCATION]
