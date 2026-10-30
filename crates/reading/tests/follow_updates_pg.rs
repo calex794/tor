@@ -89,10 +89,10 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         chapter_ids.push(chapter);
     }
     // The follow is after chapter 1 (33 s ago), before chapter 2 (32 s ago).
-    // Leave a full second between events to avoid transaction clock skew.
+    // Use the midpoint of the one-second interval, not an equality boundary.
     sqlx::query(
         "INSERT INTO reader_book_follows(user_id,book_id,created_at)
-         VALUES ($1,$2,now() - interval '33 seconds')",
+         VALUES ($1,$2,now() - interval '32.5 seconds')",
     )
     .bind(reader)
     .bind(book)
