@@ -500,3 +500,112 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending /tor_ci"]
+async fn e_03_private_mention_participant_is_canonical_and_replay_safe() {
+    use tor_discussions::repositories::inbox::PgInbox;
+    let url = std::env::var("TEST_DATABASE_URL").expect("test PG URL");
+    assert!(url.ends_with("/tor_ci"));
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let first = format!("ci:e03:mention:{seed}");
+    let users: Vec<i64> = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES ($1,'Target','$argon2id$fixture'),($2,'Writer','$argon2id$fixture')
+         RETURNING id",
+    )
+    .bind(format!("e03-target-{seed}@example.invalid"))
+    .bind(format!("e03-writer-{seed}@example.invalid"))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES($1,'ru','Mentions','public') RETURNING id",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let store = PgPublicBookComments::new(pool.clone());
+    let first_comment = store
+        .create(
+            users[0],
+            book,
+            "Target is participating",
+            &"x".repeat(43),
+            &[9; 32],
+        )
+        .await;
+    assert!(matches!(first_comment, CreateResult::Created(_)));
+    let body = format!("Hello @[user:{}] @[user:{}]", users[0], i64::MAX);
+    let write = store
+        .create(users[1], book, &body, &"y".repeat(43), &[10; 32])
+        .await;
+    let comment_id = match write {
+        CreateResult::Created(id) => id,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        store
+            .create(users[1], book, &body, &"y".repeat(43), &[10; 32])
+            .await,
+        CreateResult::Replayed(comment_id)
+    );
+    let text: String = sqlx::query_scalar("SELECT body FROM discussion_comments WHERE id=$1")
+        .bind(comment_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(text, format!("Hello @[user:{}] @пользователь", users[0]));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM discussion_comment_mentions WHERE comment_id=$1")
+            .bind(comment_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    let rows = PgInbox::new(pool.clone())
+        .received(users[0], None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].reply.comment_id, comment_id);
+    assert!(rows[0].is_mention);
+    assert!(PgInbox::new(pool.clone())
+        .received(users[1], None, None, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    sqlx::query("DELETE FROM discussion_comments WHERE id=$1")
+        .bind(comment_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let first_id: i64 = sqlx::query_scalar("SELECT id FROM discussion_comments WHERE book_id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM discussion_comments WHERE id=$1")
+        .bind(first_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for user in users {
+        sqlx::query("DELETE FROM users WHERE id=$1")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+}

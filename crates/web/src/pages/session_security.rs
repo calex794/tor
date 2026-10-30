@@ -27,6 +27,7 @@ pub fn active_sessions(csrf: &str, sessions: &[ActiveSession]) -> Html<String> {
              <form method=\"post\" action=\"/me/security/sessions\">\
              <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\
              <input type=\"hidden\" name=\"session_id\" value=\"{id}\">\
+             <label>Текущий пароль<input type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"512\" required></label>\
              <button class=\"button button--small\" type=\"submit\">Завершить сеанс</button>\
              </form></li>",
             opened = escape_html(&session.opened_utc),

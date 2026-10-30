@@ -711,6 +711,69 @@
     },
     {
       "method": "GET",
+      "template": "/r/{code}",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_capture::capture",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::create",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::api_get",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::api_create",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/go/{alias}",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_capture::go",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/promo/{alias}",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_capture::promo",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/me/referrals/alias",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_alias::browser_create",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/referrals/alias",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_alias::api_create",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/me/security/sessions",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "session_security::page",
@@ -721,6 +784,20 @@
       "template": "/me/security/sessions",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "session_security::revoke",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mentions.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::mention_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/social/mentions/discover",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_comments::discover_mentions",
       "policy": "session"
     },
     {

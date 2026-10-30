@@ -54,7 +54,7 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 CRITICAL_PACKAGES = {
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence",
+    "tor-route_intelligence", "tor-referrals",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
@@ -74,7 +74,12 @@ TEST_SUITES = {
     "crates/contracts/tests/paid_delivery_contract.rs": {"rust", "crypto"},
     "crates/search/tests/f02_load_pg.rs": {"rust", "search_load"},
     "crates/search/tests/search_pg.rs": {"rust", "postgres"},
+    "crates/search/tests/catalog_window_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/catalog_pagination_http_pg.rs": {"rust", "postgres"},
+    "crates/search/tests/perf233_projection_pg.rs": {"rust", "postgres"},
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
+    "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/accounts/tests/referral_signup_decision_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/public_book_comments_pg.rs": {"rust", "postgres"},
@@ -84,6 +89,7 @@ TEST_SUITES = {
     "tools/operator_trace_visual_smoke.cjs": {"visual"},
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
+    "tools/referral_share_browser_smoke.cjs": {"reader_browser"},
     "tools/author_chapter_visual_smoke.cjs": {"reader_browser"},
     "tools/chapter_file_import_browser.cjs": {"reader_browser"},
     "tools/search_visual_smoke.cjs": {"reader_browser"},
