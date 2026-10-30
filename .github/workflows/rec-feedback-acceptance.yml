@@ -3,16 +3,39 @@ on:
   pull_request:
     paths:
       - '.github/workflows/rec-feedback-acceptance.yml'
-      - 'crates/recommendations/**'
-      - 'crates/reading/**'
-      - 'crates/web/**'
+      - 'crates/**'
       - 'migrations/*rec_*'
+      - 'tools/rec13_*'
 permissions:
   contents: read
 concurrency:
   group: rec-feedback-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
+  prepare-source:
+    if: ${{ github.repository == 'calex794/tor' && github.event.pull_request.number == 328 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/f/rec-feedback-system-20261031' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Exact source wiring in isolated checkout
+        run: python3 tools/rec13_integrate.py
+      - name: Canonical Rust formatting
+        run: cargo fmt --all
+      - name: Publish source Git objects only (no ref update or deployment)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REC_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: python3 tools/rec13_publish_tree.py
   acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -37,11 +60,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Exact source wiring in isolated checkout
+        run: python3 tools/rec13_integrate.py
       - name: Prepare isolated database
         run: |
           sudo apt-get update -qq
@@ -65,6 +91,13 @@ jobs:
         run: |
           cargo test -p tor-recommendations --all-targets
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+      - name: Read-only source checks
+        run: |
+          python3 tools/check_feature_layout.py
+          python3 tools/check_ril_governance.py
+          python3 tools/check_contracts.py
       - name: Formatting evidence
         if: always()
         run: |

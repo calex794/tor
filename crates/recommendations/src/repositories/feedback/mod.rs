@@ -10,6 +10,7 @@ mod conversions;
 mod maintenance;
 mod sources;
 mod generations;
+mod serving;
 
 #[derive(Clone)]
 pub struct PgRecommendations {
