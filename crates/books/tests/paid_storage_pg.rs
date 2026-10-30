@@ -395,7 +395,10 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     .await
     .unwrap();
     assert!(!first_release, "V2 must not pretend to be a new chapter");
-    assert!(!event_metadata.contains(v2_body), "paid text cannot leak to outbox");
+    assert!(
+        !event_metadata.contains(v2_body),
+        "paid text cannot leak to outbox"
+    );
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -419,7 +422,10 @@ async fn b_04_s3_09_11_verified_paid_v1_remains_after_v2_publish() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 1, "exact V2 replay cannot duplicate the outbox event");
+    assert_eq!(
+        count, 1,
+        "exact V2 replay cannot duplicate the outbox event"
+    );
     assert_eq!(
         b.attach_verified_and_publish(
             owner,
@@ -691,7 +697,10 @@ async fn paid_author_save_prepares_hidden_replay_and_publishes_only_verified_b_v
     .await
     .unwrap();
     assert!(first_release, "paid V1 is a first publication");
-    assert!(!event_metadata.contains(body), "no paid text in event metadata");
+    assert!(
+        !event_metadata.contains(body),
+        "no paid text in event metadata"
+    );
     publisher
         .attach_verified_and_publish(
             owner,

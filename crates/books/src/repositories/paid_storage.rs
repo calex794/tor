@@ -493,8 +493,14 @@ impl PgPaidStorage {
                 .map_err(map_write)?;
                 // The verified paid publication and its notification event
                 // commit atomically; KeepCurrent and exact replay emit nothing.
-                enqueue_chapter_published(&mut tx, book_id, chapter_id, version_id, current.is_none())
-                    .await?;
+                enqueue_chapter_published(
+                    &mut tx,
+                    book_id,
+                    chapter_id,
+                    version_id,
+                    current.is_none(),
+                )
+                .await?;
             }
         }
         tx.commit().await.map_err(map_write)?;
