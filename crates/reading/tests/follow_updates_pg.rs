@@ -120,6 +120,31 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     assert_eq!(second.items.len(), 2);
     assert_eq!(second.next_cursor, None);
     assert!(second.items.iter().all(|item| item.chapter_number >= 2));
+    let free = chapter_ids[1];
+    assert!(releases.set_read_state(reader, free, true).await.unwrap());
+    assert!(releases.set_read_state(reader, free, true).await.unwrap());
+    let free_page = releases.latest(reader, first.next_cursor).await.unwrap();
+    assert!(free_page
+        .items
+        .iter()
+        .any(|item| item.chapter_id == free && item.is_read));
+    assert!(!releases.set_read_state(outsider, free, true).await.unwrap());
+    assert!(!releases
+        .set_read_state(reader, chapter_ids[0], true)
+        .await
+        .unwrap());
+    assert!(releases.set_read_state(reader, free, false).await.unwrap());
+    assert!(releases.set_read_state(reader, free, false).await.unwrap());
+    assert!(!releases
+        .latest(reader, first.next_cursor)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .find(|item| item.chapter_id == free)
+        .unwrap()
+        .is_read);
+
 
     // A paid chapter is visible as a purchase opportunity only after B/G
     // record a verified encrypted release. Unverified paid publication alone
@@ -162,6 +187,8 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .items
         .iter()
         .any(|x| x.chapter_id == paid));
+    assert!(!releases.set_read_state(reader, paid, true).await.unwrap());
+
     // Production B publishes only after G verified and attached ciphertext.
     // The isolated fixture records the same immutable B/G proof shape.
     let object_id: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
@@ -219,6 +246,21 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         "verified paid release belongs in update list"
     );
     assert_eq!(offer.price_minor, 19900);
+    assert!(!offer.is_read);
+    assert!(releases.set_read_state(reader, paid, true).await.unwrap());
+    let confirmed = releases.latest(reader, None).await.unwrap();
+    assert!(confirmed
+        .items
+        .iter()
+        .any(|item| item.chapter_id == paid && item.is_paid && item.is_read));
+    assert!(releases.set_read_state(reader, paid, false).await.unwrap());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .any(|item| item.chapter_id == paid && !item.is_read));
+
     assert!(!releases
         .latest(outsider, None)
         .await
@@ -235,6 +277,11 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .await
         .unwrap();
     assert_eq!(releases.latest(reader, None).await.unwrap().items.len(), 30);
+    assert!(!releases
+        .set_read_state(reader, chapter_ids[32], true)
+        .await
+        .unwrap());
+
     sqlx::query("DELETE FROM reader_book_follows WHERE user_id=$1 AND book_id=$2")
         .bind(reader)
         .bind(book)
@@ -247,6 +294,8 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .unwrap()
         .items
         .is_empty());
+    assert!(!releases.set_read_state(reader, paid, true).await.unwrap());
+
     assert!(UpdatesCursor::parse("bad-cursor").is_none());
     // The disposable tor_ci database is discarded by the workflow. Do not
     // delete owned books manually across RESTRICT ownership constraints.
