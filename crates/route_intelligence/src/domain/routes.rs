@@ -580,15 +580,7 @@ const ROUTES: [RouteRegistration; 87] = [
         Reading,
         Write,
     ), // 80
-    RouteRegistration::new(
-        "/me/replies/{id}/read-state",
-        "POST",
-        "/me/replies/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 81
+    RouteRegistration::new("/me/replies/{id}/read-state", "POST", "/me/replies/", Prefix, Page, Dashboard, Write), // 81
     RouteRegistration::new("/me/inbox", "GET", "/me/inbox/", Exact, Page, Dashboard, Read), // 82
     RouteRegistration::new("/api/v1/me/inbox", "GET", "/api/v1/me/inbox/", Exact, Api, Dashboard, Read), // 83
     RouteRegistration::new("/me/updates/{id}/read-state", "POST", "/me/updates/", Prefix, Page, Reading, Write), // 84
