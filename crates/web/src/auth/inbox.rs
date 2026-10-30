@@ -101,6 +101,7 @@ pub(super) async fn api(
 
 fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
     let mut cards = String::new();
+    use tor_accounts::services::security::generate_session_token;
     for item in &page.items {
         let r = &item.reply;
         let url = comment_url(r.book_id, r.comment_id);
@@ -120,6 +121,13 @@ fn render(page: &InboxPage, csrf: &str) -> axum::response::Html<String> {
             pages::escape_html(&url), pages::escape_html(&r.book_title),
             r.comment_id, pages::escape_html(csrf),
         ));
+        let command_key = generate_session_token();
+        cards.push_str(&format!(
+            "<details class=\"comment-reply\"><summary>Ответить на сообщение №{}</summary><form method=\"post\" action=\"/books/{}/comments\" class=\"comments-form\"><label for=\"inbox-reply-{}\">Ваш ответ</label><textarea id=\"inbox-reply-{}\" class=\"ui-textarea comments-form__input\" name=\"body\" rows=\"3\" maxlength=\"2000\" required></textarea><input type=\"hidden\" name=\"parent_id\" value=\"{}\"><input type=\"hidden\" name=\"command_key\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"return_to\" value=\"inbox\"><button class=\"ui-button ui-button--primary\" type=\"submit\">Отправить ответ</button></form></details>",
+            r.comment_id, r.book_id, r.comment_id, r.comment_id, r.comment_id,
+            command_key, pages::escape_html(csrf),
+        ));
+
     }
     if cards.is_empty() {
         cards.push_str("<p class=\"ui-section-header__text\">Ответов пока нет.</p>");
@@ -161,6 +169,8 @@ mod tests {
         assert!(!html.contains("<script>secret</script>"));
         assert!(html.contains("/books/4/comments?after=27#comment-26"));
         assert!(html.contains("Отметить прочитанным"));
+        assert!(html.contains("Ответить на сообщение №26"));
+        assert!(html.contains("name=\\\"return_to\\\" value=\\\"inbox\\\""));
         assert!(html.contains("after=26"));
     }
 }
