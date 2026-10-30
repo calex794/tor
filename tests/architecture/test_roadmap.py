@@ -31,6 +31,14 @@ class RoadmapTests(unittest.TestCase):
         self.mutate("scenarios.tsv", "S021\tB", "S070\tB")
         self.assertTrue(any("S001..S069" in e for e in check(self.root)))
 
+    def test_yandex_oauth_scenario_stays_frozen(self):
+        self.mutate("scenarios.tsv", "S003\t-\tзаморожено", "S003\tA\tСохранить")
+        self.assertTrue(any("S003" in issue for issue in check(self.root)))
+
+    def test_yandex_oauth_task_stays_archived(self):
+        self.mutate("tasks.tsv", "A-08\tA\tЗАМОРОЖЕНО", "A-08\tA\t· Д4 P1")
+        self.assertTrue(any("A-08" in issue for issue in check(self.root)))
+
     def test_cross_owner_misrouting_detected(self):
         self.mutate("scenarios.tsv", "S032\tD", "S032\tB")
         self.assertTrue(any("S032" in e for e in check(self.root)))
