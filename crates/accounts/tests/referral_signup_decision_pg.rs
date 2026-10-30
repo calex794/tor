@@ -192,7 +192,13 @@ async fn f_09_pg_signup_cannot_claim_later_click() {
     let (_, code) = seed_code(&db, "reader_spend").await;
     let hash = session_token_digest(&generate_session_token());
     let subject = register(&db, Some(&hash), None).await;
-    assert_eq!(snapshot(&db, subject).await, (true, None, None, None, None, None));
+    assert_eq!(
+        snapshot(&db, subject).await,
+        (true, None, None, None, None, None)
+    );
     seed_capture(&db, &hash, &code).await;
-    assert_eq!(snapshot(&db, subject).await, (true, None, None, None, None, None));
+    assert_eq!(
+        snapshot(&db, subject).await,
+        (true, None, None, None, None, None)
+    );
 }
