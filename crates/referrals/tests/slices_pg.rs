@@ -428,7 +428,7 @@ async fn f_09_pg_recovery_uses_signup_time_not_replay_time() {
     assert_eq!(result, "attributed");
 
     // An invitation captured AFTER a signup must never retroactively attach.
-    let late_guest = guest_hash(invited);
+    let late_guest = crate::guest_hash(invited);
     let before_click = seed_user(&pool, "before-click").await;
     enqueue(&pool, before_click, Some(&late_guest), None).await;
     sqlx::query(
