@@ -550,7 +550,19 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
         )
         .await
         .unwrap();
+    let outsider_session = generate_session_token();
+    accounts
+        .register_with_session(
+            &format!("d05-metadata-outsider-{nonce}@tor-ci.example"),
+            "Other account",
+            &password,
+            &session_token_digest(&outsider_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
     let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
+    let outsider_cookie = format!("tor-dev-session={outsider_session}; tor-dev-csrf={csrf}");
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
@@ -670,5 +682,87 @@ async fn d_05_http_create_layer_is_csrf_protected_and_replay_safe() {
     let dashboard = body(request(&app, "GET", "/me/books", &cookie, ORIGIN, "").await).await;
     assert!(dashboard.contains(&destination));
     assert!(dashboard.contains("New Layer"));
+    // The actual S032 HTTP route, not merely the page renderer or PG repository.
+    let index = request(&app, "GET", "/me/layers", &cookie, ORIGIN, "").await;
+    assert_eq!(index.status(), StatusCode::OK);
+    assert_eq!(index.headers()[header::CACHE_CONTROL], "no-store");
+    let index_html = body(index).await;
+    let metadata_route = format!("/me/layers/{id}/metadata");
+    assert!(index_html.contains(&format!("action=\"{metadata_route}\"")));
+    assert!(index_html.contains(&format!("name=\"csrf_token\" value=\"{csrf}\"")));
+    assert!(index_html.contains("name=\"expected_revision\" value=\"1\""));
+
+    let update = format!(
+        "title=Owner+Updated&description=Private+description&status=hidden&expected_revision=1&csrf_token={csrf}"
+    );
+    let guest = request(&app, "POST", &metadata_route, "", ORIGIN, &update).await;
+    assert_eq!(guest.status(), StatusCode::UNAUTHORIZED);
+    let other = request(
+        &app,
+        "POST",
+        &metadata_route,
+        &outsider_cookie,
+        ORIGIN,
+        &update,
+    )
+    .await;
+    assert_eq!(other.status(), StatusCode::NOT_FOUND);
+    let cross_origin = request(
+        &app,
+        "POST",
+        &metadata_route,
+        &cookie,
+        "https://evil.invalid",
+        &update,
+    )
+    .await;
+    assert_eq!(cross_origin.status(), StatusCode::FORBIDDEN);
+    let invalid_csrf = update.replace(&format!("csrf_token={csrf}"), "csrf_token=invalid");
+    let bad_csrf = request(
+        &app,
+        "POST",
+        &metadata_route,
+        &cookie,
+        ORIGIN,
+        &invalid_csrf,
+    )
+    .await;
+    assert_eq!(bad_csrf.status(), StatusCode::FORBIDDEN);
+    let blocked = update.replace("status=hidden", "status=blocked");
+    let blocked = request(&app, "POST", &metadata_route, &cookie, ORIGIN, &blocked).await;
+    assert_eq!(blocked.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let saved = request(&app, "POST", &metadata_route, &cookie, ORIGIN, &update).await;
+    assert_eq!(saved.status(), StatusCode::SEE_OTHER);
+    assert_eq!(saved.headers()[header::LOCATION], "/me/layers");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT title||'|'||description||'|'||status||'|'||metadata_revision
+                 FROM commerce_layers WHERE id={id}"
+            )
+        ),
+        "Owner Updated|Private description|hidden|2"
+    );
+    let stale = request(&app, "POST", &metadata_route, &cookie, ORIGIN, &update).await;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+    let hidden = body(request(&app, "GET", "/me/layers", &cookie, ORIGIN, "").await).await;
+    assert!(hidden.contains("Owner Updated"));
+    assert!(hidden.contains("Скрыт"));
+    assert!(hidden.contains(&format!("action=\"{metadata_route}\"")));
+
+    let restore = format!(
+        "title=Owner+Updated&description=Private+description&status=active&expected_revision=2&csrf_token={csrf}"
+    );
+    let restored = request(&app, "POST", &metadata_route, &cookie, ORIGIN, &restore).await;
+    assert_eq!(restored.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT status||'|'||metadata_revision FROM commerce_layers WHERE id={id}")
+        ),
+        "active|3"
+    );
     pool.close().await;
 }
