@@ -15,8 +15,8 @@ use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     domain::access_audit::{LoginAuditContext, LoginEventKind},
     services::{
-    security::{generate_session_token, hash_password, session_token_digest, verify_password},
-    validation::password_change,
+        security::{generate_session_token, hash_password, session_token_digest, verify_password},
+        validation::password_change,
     },
 };
 
