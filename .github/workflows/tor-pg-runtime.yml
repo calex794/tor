@@ -131,9 +131,15 @@ jobs:
           VALUES (101,201),(102,202),(103,203),(104,204),
                  (105,205),(106,206),(107,207),(108,208);
           SQL
-      - name: Advance explicit-ID book fixture sequence as schema owner
+      - name: Advance explicit-ID fixture sequences as schema owner
         run: |
-          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true)"
+          # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
+          # Fix all seeded entities before running tests that INSERT default IDs.
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
+          SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
+          SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
+          SQL
       - name: Database and HTTP integration
         run: |
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
