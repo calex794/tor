@@ -1,7 +1,7 @@
 # F001-F061 functional audit 2026-10-26. planned is NOT implemented; insufficient means parent-task present but no execution-ready detailed contract.
 code	function	lane	scenarios	tor_tasks	roadmap_depth	specific_remaining_item	notion_source	neboo_state
 F001	Регистрация, вход по паролю и выход	A	S002	A-02,A-03	planned		https://app.notion.com/p/40432a84beec8165b204ef24085608d9	Код в main
-F002	Вход через Яндекс и подтверждение чувствительных действий	A	S003	A-08	external_gate	OAuth/подтверждение чувствительных действий: реальные credentials, state/nonce, step-up и recovery	https://app.notion.com/p/40432a84beec812e8497ccd35aae86c7	Код в main
+F002	Подтверждение чувствительных действий паролем (Яндекс OAuth заморожен)	A	S004	A-07,A-09	planned	Выполнять проверку действующего пароля/сеанса, ограничение попыток и отзыв сеансов. Яндекс OAuth из S003/A-08 заморожен решением 30.10.2026.	https://app.notion.com/p/40432a84beec812e8497ccd35aae86c7	Код в main
 F003	Настройки аккаунта: пароль, 18+, delivery и handle	A	S004	A-06,A-07	planned		https://app.notion.com/p/40432a84beec81a7922cfaa513cefb18	Код в main
 F004	Каталог, поиск и фильтры обнаружения книг	F	S001	F-02,F-03	planned		https://app.notion.com/p/40432a84beec8148879be80f6fd57535	Код в main
 F005	Главная страница и её кэшируемые витрины	F	S001	F-04	insufficient	Кэш витрин: invalidation, stale budget, visibility и метрики попаданий	https://app.notion.com/p/40432a84beec81b095d8cb7d24de5f4b	Код в main
