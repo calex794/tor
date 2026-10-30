@@ -56,7 +56,6 @@ pub mod ranking_consumer;
 pub mod referral_consumer;
 mod ril;
 mod worker_health;
-
 #[derive(Clone)]
 struct AppState {
     books: Arc<dyn PublicBookRepository>,
@@ -67,7 +66,6 @@ struct AppState {
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
-
 async fn health() -> &'static str {
     "ok"
 }
