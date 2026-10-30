@@ -129,6 +129,57 @@ def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
                                 "integration_id"))
 
 
+
+def _rejection_summary(item: dict, effective_rules: list[dict]) -> str:
+    """Diagnostics only: booleans and counts, never identities or bypass actors."""
+    rule_id = item.get("id")
+    rules = item.get("rules")
+    if not isinstance(rules, list):
+        rules = []
+    detail_checks = next(
+        (r.get("parameters") for r in rules
+         if isinstance(r, dict) and r.get("type") == "required_status_checks"),
+        None,
+    )
+    detail_checks_ok = (
+        isinstance(detail_checks, dict)
+        and _actions_checks(detail_checks.get("required_status_checks"), "integration_id")
+    )
+    applied = [
+        r for r in effective_rules
+        if isinstance(r, dict) and r.get("ruleset_id") == rule_id
+    ]
+    effective_status = next(
+        (r.get("parameters") for r in applied if r.get("type") == "required_status_checks"),
+        None,
+    )
+    effective_checks_ok = (
+        isinstance(effective_status, dict)
+        and _actions_checks(effective_status.get("required_status_checks"), "integration_id")
+    )
+    bypass = item.get("bypass_actors", "omitted")
+    bypass_label = (
+        "omitted" if bypass == "omitted" else
+        "empty" if bypass == [] else "present"
+    )
+    pin_matches = (
+        rule_id == REVIEWED_RULESET_ID
+        and item.get("updated_at") == REVIEWED_RULESET_UPDATED
+    )
+    applied_types = {
+        r.get("type") for r in applied if isinstance(r.get("type"), str)
+    }
+    return (
+        f"scope={_applies_to_main(item)}, active={item.get('enforcement') == 'active'}, "
+        f"viewer_no_bypass={item.get('current_user_can_bypass') == 'never'}, "
+        f"bypass_field={bypass_label}, pin_matches={pin_matches}, "
+        f"detail_checks={detail_checks_ok}, "
+        f"effective_rules={len(applied)}, "
+        f"effective_types={REQUIRED_RULES.issubset(applied_types)}, "
+        f"effective_checks={effective_checks_ok}"
+    )
+
+
 def evaluate_branch_policy(
     branch: dict, rulesets: list[dict] | None, effective_rules: list[dict] | None,
 ) -> tuple[str, str]:
@@ -152,4 +203,10 @@ def evaluate_branch_policy(
     for item in rulesets:
         if _ruleset_is_enforced(item, effective_rules):
             return "pass", f"active effective ruleset #{item['id']} enforces main"
-    return "fail", "no verified active main policy with PR and both Actions checks"
+    hints = [
+        _rejection_summary(item, effective_rules)
+        for item in rulesets[:3]
+        if isinstance(item, dict)
+    ]
+    detail = "; ".join(hints) if hints else "no candidate rulesets"
+    return "fail", "no verified active main policy with PR and both Actions checks: " + detail
