@@ -307,13 +307,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     );
     // B-02: only the real owner sees a direct edit action on published free chapters.
     let owner_after_release = book_page(&app, public, &one).await;
-    assert!(owner_after_release.contains(&format!(
-        "/me/books/{public}/chapters/{chapter}/edit"
-    )));
+    assert!(owner_after_release.contains(&format!("/me/books/{public}/chapters/{chapter}/edit")));
     let other_after_release = book_page(&app, public, &two).await;
-    assert!(!other_after_release.contains(&format!(
-        "/me/books/{public}/chapters/{chapter}/edit"
-    )));
+    assert!(!other_after_release.contains(&format!("/me/books/{public}/chapters/{chapter}/edit")));
     assert!(!other_after_release.contains("<!--BOOK_OWNER_"));
     let first_feed = followed_page(&app, &one).await;
     assert!(first_feed.contains("Новая глава"));
