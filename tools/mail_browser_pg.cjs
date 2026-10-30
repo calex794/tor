@@ -41,7 +41,7 @@ module.exports = async (browser, base, out) => {
       await b.page.goto(base + conversation); // Open empty transcript before first send.
       const marker = 'PRIVATE-MAIL-' + name;
       await a.page.getByLabel('Ваше сообщение', { exact: true }).fill(marker + '\n<img src=x onerror="window.mailXss=1"> /books/2');
-      const form = a.page.locator('form').filter({ has: a.page.locator('[name="command_key"]') });
+      const form = a.page.locator('form[data-mail-compose]');
       await form.locator('[name="client_message_id"]').evaluate((el, value) => { el.value = value; }, 'mail-replay-' + name);
       const submitted = await form.evaluate(el => Object.fromEntries(new FormData(el)));
       await form.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
