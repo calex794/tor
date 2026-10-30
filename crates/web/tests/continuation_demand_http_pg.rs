@@ -194,7 +194,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         pg(
             &url,
             &format!(
-                "SELECT count(*) FROM reader_chapter_completions \\
+                "SELECT count(*) FROM reader_chapter_completions \
                  WHERE user_id={reader} AND chapter_id={chapter}"
             )
         ),
@@ -205,8 +205,8 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         pg(
             &url,
             &format!(
-                "SELECT count(*) FROM outbox_events \\
-                 WHERE event_type='ChapterCompletedV1' \\
+                "SELECT count(*) FROM outbox_events \
+                 WHERE event_type='ChapterCompletedV1' \
                    AND dedupe_key='chapter-completed:{reader}:{chapter}'"
             )
         ),
