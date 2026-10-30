@@ -47,10 +47,10 @@ export function setup() {
     const session = cookie(registered, 'tor-dev-session');
     if (registered.status !== 303 || !session) throw new Error('registration failed ' + registered.status);
     const me = http.get(base + '/me', { headers: { Cookie: session }, redirects: 0 });
-    const csrfCookie = cookie(me, 'tor-dev-csrf');
+    const accountCsrfCookie = cookie(me, 'tor-dev-csrf');
     const csrfValue = csrf(me.body);
-    if (me.status !== 200 || !csrfCookie || !csrfValue) throw new Error('profile CSRF failed');
-    users.push({ session, csrfCookie, csrfValue });
+    if (me.status !== 200 || !accountCsrfCookie || !csrfValue) throw new Error('profile CSRF failed');
+    users.push({ session, csrfCookie: accountCsrfCookie, csrfValue });
   }
   return { users };
 }
