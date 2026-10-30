@@ -4,24 +4,30 @@
       <p class="eyebrow">Кабинет автора</p>
       <h1>Создать книгу</h1>
       <p>Новая книга будет сохранена как личный черновик. Публикация выполняется отдельно.</p>
-      <form class="auth-form" method="post" action="/me/books" autocomplete="off">
+      <form class="auth-form" method="post" action="/me/books/check" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
         <label for="book-title">Название книги</label>
-        <input id="book-title" name="title" type="text" required maxlength="200" minlength="1">
+        <input id="book-title" name="title" type="text" required maxlength="200" minlength="1" value="<!--BOOK_TITLE-->">
+        <label for="book-original">Оригинальное название (необязательно)</label>
+        <input id="book-original" name="original_title" type="text" maxlength="200" value="<!--BOOK_ORIGINAL-->">
+        <label for="book-alternatives">Другие названия (необязательно, до трёх через запятую)</label>
+        <input id="book-alternatives" name="alternative_titles" type="text" maxlength="600" value="<!--BOOK_ALTERNATIVES-->">
         <label for="book-author">Автор произведения (необязательно)</label>
-        <input id="book-author" name="author_name" type="text" maxlength="160">
+        <input id="book-author" name="author_name" type="text" maxlength="160" value="<!--BOOK_AUTHOR-->">
         <label for="book-description">Аннотация книги (до 4000 символов)</label>
-        <textarea id="book-description" name="description" rows="6" maxlength="4000" placeholder="О чём эта книга?"></textarea>
+        <textarea id="book-description" name="description" rows="6" maxlength="4000" placeholder="О чём эта книга?"><!--BOOK_DESCRIPTION--></textarea>
         <label for="book-genres">Жанры через запятую (до 8)</label>
-        <input id="book-genres" name="genres" type="text" maxlength="400" placeholder="Фэнтези, Приключения">
+        <input id="book-genres" name="genres" type="text" maxlength="400" value="<!--BOOK_GENRES-->" placeholder="Фэнтези, Приключения">
         <label for="book-tags">Теги через запятую (до 8)</label>
-        <input id="book-tags" name="tags" type="text" maxlength="400" placeholder="Магия, Академия">
+        <input id="book-tags" name="tags" type="text" maxlength="400" value="<!--BOOK_TAGS-->" placeholder="Магия, Академия">
         <label for="book-fandoms">Фэндомы через запятую (до 8)</label>
-        <input id="book-fandoms" name="fandoms" type="text" maxlength="400" placeholder="Наруто, Звёздные войны">
+        <input id="book-fandoms" name="fandoms" type="text" maxlength="400" value="<!--BOOK_FANDOMS-->" placeholder="Наруто, Звёздные войны">
         <label for="book-language">Язык</label>
-        <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
-        <button class="button" type="submit">Создать книгу</button>
+        <input id="book-language" name="target_language" type="text" value="<!--BOOK_LANGUAGE-->" required maxlength="32">
+        <!--BOOK_DUPLICATE_RESULTS-->
+        <button class="button" type="submit">Проверить совпадения</button>
+        <!--BOOK_CREATE_BUTTON-->
       </form>
       <p class="auth-card__footer"><a href="/me/books">Вернуться к моим книгам</a></p>
     </div>
