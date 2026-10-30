@@ -29,7 +29,7 @@ def job_sections(text):
 def problems(text, suite):
     """Standalone suites must be manual-only and preserve their guarded job."""
     result = []
-    events = text.split("\npermissions:", 1)[0]
+    events = text.split("\npermissions:", 1)[0] + "\n"
     if "  workflow_dispatch:\n" not in events:
         result.append("missing manual dispatch")
     for forbidden in ("  pull_request:\n", "  push:\n", "  workflow_run:\n"):
