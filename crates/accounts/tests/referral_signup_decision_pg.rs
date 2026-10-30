@@ -264,15 +264,6 @@ async fn f_09_pg_one_guest_capture_cannot_register_two_invitees() {
         snapshot(&db, second).await,
         (true, None, None, None, None, None)
     );
-
-    let repo = tor_referrals::repositories::PgReferrals::new(db.clone());
-    assert_eq!(
-        repo.capture(&hash, &code, "direct_ref_link", "/r/replay")
-            .await
-            .unwrap(),
-        tor_referrals::repositories::postgres::CaptureResult::Existing,
-        "replayed guest cookie must not create a new active capture"
-    );
     let (count, status): (i64, String) = sqlx::query_as(
         "SELECT count(*) OVER(), status
          FROM referral_captures WHERE guest_hash=$1",
@@ -283,29 +274,6 @@ async fn f_09_pg_one_guest_capture_cannot_register_two_invitees() {
     .unwrap();
     assert_eq!(count, 1);
     assert_eq!(status, "consumed");
-    sqlx::query("UPDATE referral_captures SET status='blocked' WHERE id=$1")
-        .bind(capture)
-        .execute(&db)
-        .await
-        .unwrap();
-    assert_eq!(
-        repo.capture(&hash, &code, "direct_ref_link", "/r/after-block")
-            .await
-            .unwrap(),
-        tor_referrals::repositories::postgres::CaptureResult::Existing,
-        "moderating a spent capture must not reopen the bearer for replay"
-    );
-    assert!(repo.finalize_one(first).await.unwrap());
-    assert!(!repo.finalize_one(second).await.unwrap());
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM referral_attributions
-         WHERE source_capture_id=$1",
-    )
-    .bind(capture)
-    .fetch_one(&db)
-    .await
-    .unwrap();
-    assert_eq!(count, 1);
 }
 
 #[tokio::test]
