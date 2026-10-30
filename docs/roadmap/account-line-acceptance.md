@@ -33,3 +33,11 @@ Recovery defaults off. Enabling requires `TOR_PASSWORD_RESET_ENABLED=1`, an abso
 An accepted request is not proof of inbox delivery. The local MTA must durably queue accepted mail; end-to-end production delivery and MTA failure/restart monitoring require G/operator configuration and are not proven by the isolated test adapter. The application does not introduce another general-purpose outbox beside #277. A process crash before MTA handoff can lose a request; the reader can request another link. External notification cadence is only a saved preference, not a sender consent or active external newsletter.
 
 Account-owned cleanup runs bounded batches every five minutes: IP cleared after 30 days, login events after 90 days, expired reset proofs after two days, attempt counters after one day. Outage backlogs drain on restart. Production retention/privacy policy and initial administrator provisioning still require operator review. No VPS deployment is authorized or performed by this PR.
+
+## A-03 — владельцу видны и подконтрольны собственные сеансы (дополнительный пользовательский сценарий)
+
+[PR с реализацией](https://github.com/calex794/tor/pulls?q=is%3Apr+session-security-center): `GET /me/security/sessions` выводит максимум 50 действующих сеансов с временем входа UTC, семейством браузера и отметкой текущего устройства. В интерфейсе **нет** IP, хешей токенов, полного User-Agent или ложной «последней активности». Только владелец видит свои сеансы.
+
+`POST /me/security/sessions` принимает проверенный формат UUID, действующий серверный сеанс и Origin/CSRF; PostgreSQL отзывает только принадлежащий владельцу сеанс, если действующий инициирующий сеанс всё ещё активен. Чужие/несуществующие ID дают одинаковый 404. Самоотзыв очищает cookie и требует новый вход. Нельзя менять другого пользователя и нельзя обойти защиту чужим UUID.
+
+Проверка: `cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1` на отдельной PG18; `node tools/account_line_browser.cjs` теперь проверяет завершение второй сессии реальным Chromium. Новые маршруты включены в RIL/ACL. Никакой GeoIP или автоматической блокировки по стране: на это нужны отдельные измерения и политика ложных срабатываний.

@@ -31,3 +31,15 @@ evidence of that migration.
 per-SHA selector runner count (14 to 1 expected), total runner wall-clock time,
 and queue depth, but do not claim an exact matched-workflow speedup from the
 `tools/ci_metrics.py` comparison when check identities have changed.
+
+**Stable required check:** The combined workflow runs a single `ci-required`
+job after the selector and all fourteen suite jobs. On PRs, it verifies that
+every selected suite succeeded and every skipped suite was genuinely unselected.
+If the selector fails, the gate requires the full suite pack to succeed.
+On main and manual combined runs, all fourteen suites must succeed. The release
+audit also requires `ci-required` to be successful on the exact main SHA.
+
+For branch protection, the administrator should require the actual checks
+`rules` and `ci-required` (confirm their observed names in GitHub). Avoid
+requiring individual suite jobs that legitimately skip on narrow PR changes.
+This code change does not configure protection; #289 still needs admin action.
