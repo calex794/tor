@@ -7,11 +7,13 @@ use std::fmt::Write;
 
 mod account;
 mod referrals;
+mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
     account_error_page, login_form, my_account, my_account_with_follow_updates,
     password_change_form, registration_form, registration_form_with_error,
 };
+pub use session_security::active_sessions;
 pub use referrals::referrals_page;
 mod reader_private;
 #[allow(unused_imports)]
@@ -106,10 +108,12 @@ fn book_detail_with_chapters_cover_internal(
             } else {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
+                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span>",
                     chapter.id, chapter.number
                 )
                 .expect("writing String");
+                write!(items, "<!--BOOK_OWNER_EDIT:{}--></li>", chapter.id)
+                    .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -519,9 +523,7 @@ pub fn book_detail_with_chapters(
 mod tests;
 
 mod profile_settings;
-mod session_security;
 pub use profile_settings::profile_settings;
-pub use session_security::active_sessions;
 mod notification_settings;
 pub use notification_settings::delivery_preferences_page;
 
