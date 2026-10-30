@@ -73,7 +73,6 @@ pub(super) async fn unfollow(
     }
 }
 
-
 /// Follow the real current owner of a visible book; the browser never sends
 /// a trusted creator id or source attribution.
 pub(super) async fn follow_creator(

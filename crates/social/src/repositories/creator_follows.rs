@@ -92,11 +92,10 @@ impl PgCreatorFollows {
         let mut tx = self.pool.begin().await?;
         // Serializing the reader's own follow commands also fences rapid
         // follow/unfollow/re-follow requests across browsers.
-        let actor: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-                .bind(follower)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let actor: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(follower)
+            .fetch_optional(&mut *tx)
+            .await?;
         if actor.is_none() {
             return Err(CreatorFollowError::Invalid);
         }
@@ -137,20 +136,15 @@ impl PgCreatorFollows {
 
     /// Unfollow by creator id, not current owner of an old source Book:
     /// a transferred/hidden/removed source must not strand the follower.
-    pub async fn unfollow(
-        &self,
-        follower: i64,
-        creator: i64,
-    ) -> Result<(), CreatorFollowError> {
+    pub async fn unfollow(&self, follower: i64, creator: i64) -> Result<(), CreatorFollowError> {
         if follower <= 0 || creator <= 0 {
             return Err(CreatorFollowError::Invalid);
         }
         let mut tx = self.pool.begin().await?;
-        let actor: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-                .bind(follower)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let actor: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(follower)
+            .fetch_optional(&mut *tx)
+            .await?;
         if actor.is_none() {
             return Err(CreatorFollowError::Invalid);
         }

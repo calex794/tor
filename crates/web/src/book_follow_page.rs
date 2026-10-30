@@ -100,9 +100,15 @@ impl FollowBookControl {
                 .await
                 .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
             let (route, text) = if active {
-                (format!("/me/creators/{creator}/unfollow"), "Отписаться от автора")
+                (
+                    format!("/me/creators/{creator}/unfollow"),
+                    "Отписаться от автора",
+                )
             } else {
-                (format!("/me/books/{book_id}/follow-creator"), "Следить за автором")
+                (
+                    format!("/me/books/{book_id}/follow-creator"),
+                    "Следить за автором",
+                )
             };
             html.push_str(&format!(
                 "<form method=\"post\" action=\"{route}\" class=\"book-hero-actions__follow\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{text}</button></form>"

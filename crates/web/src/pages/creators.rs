@@ -47,7 +47,11 @@ pub fn creator_follows(
            {cards}\
          </div></section>"
     );
-    private_account_layout("Подписки на авторов", "Ваши подписки на аккаунты авторов.", &content)
+    private_account_layout(
+        "Подписки на авторов",
+        "Ваши подписки на аккаунты авторов.",
+        &content,
+    )
 }
 
 #[cfg(test)]
