@@ -1,10 +1,7 @@
 //! G-08 integration: owned outbox lease -> 201 durable metadata intents.
 //! No email, push, paid content or false acknowledgements of search effects.
 use sqlx::PgPool;
-use tor_ingest::repositories::{
-    notify::PgNotificationRecipients,
-    outbox::PgOutbox,
-};
+use tor_ingest::repositories::{notify::PgNotificationRecipients, outbox::PgOutbox};
 use tor_ingest::services::notify_worker::{NotificationRun, NotificationWorker};
 
 async fn database() -> PgPool {
@@ -65,13 +62,7 @@ async fn setup_book(pool: &PgPool, label: &str) -> (i64, i64, i64) {
     (book, chapter, version)
 }
 
-async fn event(
-    pool: &PgPool,
-    label: &str,
-    book: i64,
-    chapter: i64,
-    version: i64,
-) -> String {
+async fn event(pool: &PgPool, label: &str, book: i64, chapter: i64, version: i64) -> String {
     sqlx::query_scalar(
         "INSERT INTO outbox_events(event_type,schema_version,aggregate_kind,aggregate_id,
             dedupe_key,payload,required_consumers,next_attempt_at)
@@ -95,12 +86,11 @@ async fn event(
 #[ignore = "requires disposable PG18 /tor_ci"]
 async fn g_08_worker_stages_all_201_without_acknowledging_search_or_sending() {
     let pool = database().await;
-    let nonce: i64 = sqlx::query_scalar(
-        "SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let nonce: i64 =
+        sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let label = format!("{nonce}");
     let (book, chapter, version) = setup_book(&pool, &label).await;
     let prefix = format!("notify-worker-reader-{label}-");
@@ -171,7 +161,10 @@ async fn g_08_worker_stages_all_201_without_acknowledging_search_or_sending() {
         .claim_next_for_consumer("ChapterPublished", "subscription-inbox-v1")
         .await
         .unwrap();
-    assert_ne!(claimed.as_ref().map(|e| e.id.as_str()), Some(event_id.as_str()));
+    assert_ne!(
+        claimed.as_ref().map(|e| e.id.as_str()),
+        Some(event_id.as_str())
+    );
     pool.close().await;
 }
 
@@ -179,12 +172,11 @@ async fn g_08_worker_stages_all_201_without_acknowledging_search_or_sending() {
 #[ignore = "requires disposable PG18 /tor_ci"]
 async fn g_08_worker_dead_letters_malformed_event_but_not_other_consumer() {
     let pool = database().await;
-    let nonce: i64 = sqlx::query_scalar(
-        "SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let nonce: i64 =
+        sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let label = format!("bad-{nonce}");
     // The older, unrelated event must never be claimed by the G08 worker.
     let unrelated_id: String = sqlx::query_scalar(

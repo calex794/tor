@@ -136,7 +136,11 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         ORIGIN,
     )
     .await;
-    assert_eq!(status, StatusCode::SEE_OTHER, "reader follows before release");
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "reader follows before release"
+    );
     let path = format!("/me/books/{book}/chapters");
     let page_path = format!("/me/books/{book}/chapters/new");
     let (status, html) = send(&app, "GET", &page_path, "", Some(&token), &csrf, ORIGIN).await;
@@ -251,7 +255,10 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
              WHERE event_id='{event_id}'::uuid AND user_id={follower}"
         ),
     );
-    assert_eq!(intent_count, "1", "real HTTP follower has one staged intent");
+    assert_eq!(
+        intent_count, "1",
+        "real HTTP follower has one staged intent"
+    );
     let delivery_count = pg(
         &url,
         &format!(

@@ -91,11 +91,7 @@ impl NotificationWorker {
         epoch: i64,
         retryable: bool,
     ) -> Result<NotificationRun, NotificationWorkerError> {
-        match self
-            .outbox
-            .record_failure(event_id, epoch, retryable)
-            .await
-        {
+        match self.outbox.record_failure(event_id, epoch, retryable).await {
             Ok(FailureDisposition::RetryScheduled) => Ok(NotificationRun::RetryScheduled),
             Ok(FailureDisposition::DeadLetter) => Ok(NotificationRun::DeadLetter),
             Err(OutboxError::LostLease) => Ok(NotificationRun::Superseded),
