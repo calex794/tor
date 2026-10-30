@@ -128,7 +128,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/newboo-chapter-import.js"), "GET") => Some(115),
         (Some("/books/{id}/stats"), "GET") => Some(116),
         (Some("/books/{id}/stats/export.csv"), "GET") => Some(117),
-        (Some("/me/revisions/{id}/read-state"), "POST") => Some(118),
+        (Some("/reader/{id}/thanks"), "GET") => Some(118),
+        (Some("/reader/{id}/thanks"), "POST") => Some(119),
+        (Some("/me/revisions/{id}/read-state"), "POST") => Some(120),
         _ => None,
     };
     index
