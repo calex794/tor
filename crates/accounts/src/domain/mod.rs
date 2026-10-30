@@ -1,6 +1,7 @@
 //! Identity value normalization, independent of storage and HTTP.
 #![forbid(unsafe_code)]
 pub mod access_audit;
+pub mod auth_observation;
 pub mod access_level;
 
 /// Single canonical email key used for uniqueness, login, and account lookup.
