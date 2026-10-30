@@ -84,7 +84,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         let id = accounts
             .register_with_session(
                 &format!("mail-http-{nonce}-{n}@example.invalid"),
-                "Mail reader",
+                &format!("Mail reader {n}"),
                 &hash,
                 &session_token_digest(&session),
                 NonZeroU32::new(3600).unwrap(),
@@ -114,6 +114,11 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let index_html = text(index).await;
     assert!(!index_html.contains("Номер получателя"));
     assert!(!index_html.contains("data-mail-user"));
+    let profile = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert!(profile.contains("action=\"/mail/start/"));
+    assert!(profile.contains(">Почта</button>"));
+    let guest_profile = text(call(&app, "GET", "/users/Mail%20reader%201", "", "", &[]).await).await;
+    assert!(!guest_profile.contains(">Почта</button>"));
     let start_path = format!("/mail/start/{}", users[1]);
     let start = format!("csrf_token={}", csrf[0]);
     assert_eq!(
@@ -285,6 +290,13 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     )
     .unwrap();
     assert!(inbox["conversations"][0].get("unread").is_none());
+    let html_client_form = format!(
+        "body=Source%20HTML%20identity&client_message_id=html%3Atest.1&csrf_token={}",
+        csrf[0]
+    );
+    assert_eq!(call(&app, "POST", &send_path, &cookies[0], &html_client_form, &[]).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(call(&app, "POST", &send_path, &cookies[0], &html_client_form.replace("Source", "Changed"), &[]).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "2");
     let blocked = format!("blocked=true&csrf_token={}", csrf[1]);
     assert_eq!(
         call(
@@ -340,7 +352,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")
         )
         .await,
-        "1"
+        "2"
     );
     // A fresh HTTP router still reads the committed transcript from PostgreSQL.
     let catalog = PgCatalog::connect(&url).await.unwrap();
