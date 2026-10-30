@@ -1,4 +1,6 @@
 -- E-08/S057 and blocking subset of E-06. PR-local draft migration, absent from main.
+-- Public profile lookup must not scan user accounts for each source profile visit.
+CREATE INDEX users_display_name_lookup ON users(display_name, id);
 CREATE TABLE social_conversations (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY CHECK(id > 0),
   user_low BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
