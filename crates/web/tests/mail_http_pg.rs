@@ -339,6 +339,11 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .status(),
         StatusCode::SEE_OTHER
     );
+    let blocked_start = call(&app, "POST", &start_path, &cookies[0], &start, &[]).await;
+    assert_eq!(blocked_start.status(), StatusCode::SEE_OTHER);
+    assert_eq!(blocked_start.headers()[header::LOCATION], "/mail?error=blocked");
+    let mailbox_error = text(call(&app, "GET", "/mail?error=blocked", &cookies[0], "", &[]).await).await;
+    assert!(mailbox_error.contains("Переписка заблокирована"));
     assert_eq!(
         call(&app, "POST", &send_path, &cookies[0], &form, &[])
             .await
