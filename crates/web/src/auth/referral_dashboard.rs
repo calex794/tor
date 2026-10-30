@@ -76,28 +76,14 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
     )
 }
 
-async fn create_for_actor(
-    state: &AuthState,
-    headers: &HeaderMap,
-    form: &CreateReferralForm,
-) -> Result<i64, StatusCode> {
-    if !state.cookies.same_origin(headers)
-        || !state
-            .cookies
-            .valid_csrf(headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let actor = session_user(state, headers)
-        .await?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+async fn create_for_actor(state: &AuthState, actor: i64) -> Result<(), StatusCode> {
     let random_code = format!("r_{}", generate_session_token());
     state
         .referrals
         .create_default_reader_code(actor, &random_code)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    Ok(actor)
+    Ok(())
 }
 
 pub(super) async fn create(
@@ -105,8 +91,22 @@ pub(super) async fn create(
     headers: HeaderMap,
     Form(form): Form<CreateReferralForm>,
 ) -> Response {
-    match create_for_actor(&state, &headers, &form).await {
-        Ok(_) => private_response(Redirect::to("/me/referrals"), &[]),
+    // Keep the session and CSRF evidence in the public handler. The
+    // repository receives only an authenticated actor ID.
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    match create_for_actor(&state, actor).await {
+        Ok(()) => private_response(Redirect::to("/me/referrals"), &[]),
         Err(status) => deny(status),
     }
 }
@@ -128,10 +128,21 @@ pub(super) async fn api_create(
     headers: HeaderMap,
     Form(form): Form<CreateReferralForm>,
 ) -> Response {
-    let actor = match create_for_actor(&state, &headers, &form).await {
-        Ok(actor) => actor,
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
+    if let Err(status) = create_for_actor(&state, actor).await {
+        return deny(status);
+    }
     match overview(&state, actor).await {
         Ok(snapshot) => private_response(Json(report_data(snapshot, &state.cookies.origin)), &[]),
         Err(status) => deny(status),
