@@ -50,6 +50,7 @@ pub(crate) fn auth_observation_dropped() -> u64 {
 mod account_form_http;
 mod author_book_page;
 mod batch_checkout_browser;
+mod book_create_duplicate;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
@@ -83,6 +84,7 @@ mod settings_routes;
 mod sync_actions;
 mod types;
 use types::*;
+pub(crate) use types::NewBookForm;
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -276,7 +278,7 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
-        .route("/me/books/check", post(check_book_title))
+        .route("/me/books/check", post(book_create_duplicate::check_book_title))
         .route("/me/books/{id}", get(author_book_page::page))
         .route(
             "/me/books/{id}/description",
@@ -417,66 +419,6 @@ async fn create_book(
     }
 }
 
-
-async fn check_book_title(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<NewBookForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(
-            &headers,
-            form.csrf_token.as_deref().unwrap_or(""),
-        )
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
-        Err(status) => return deny(status),
-    };
-    if !tor_books::services::authoring::valid_command_key(&form.command_key) {
-        return deny(StatusCode::BAD_REQUEST);
-    }
-    // Validate all create fields, not just the name; keep the review page
-    // consistent with what can actually be submitted.
-    let identity = format!("manual:{actor}:{}", form.command_key);
-    let valid = new_book_with_taxonomy(
-        &identity,
-        &form.target_language,
-        &form.title,
-        &form.command_key,
-        form.author_name.as_deref().unwrap_or(""),
-        form.genres.as_deref().unwrap_or(""),
-        TaxonomyFields {
-            tags: form.tags.as_deref().unwrap_or(""),
-            fandoms: form.fandoms.as_deref().unwrap_or(""),
-        },
-    )
-    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    .and_then(|book| tor_books::services::title_duplicates::with_title_aliases(
-        book,
-        form.original_title.as_deref().unwrap_or(""),
-        form.alternative_titles.as_deref().unwrap_or(""),
-    ));
-    if valid.is_err() {
-        return deny(StatusCode::BAD_REQUEST);
-    }
-    let names = match tor_books::services::title_duplicates::candidate_titles(
-        &form.title,
-        form.original_title.as_deref().unwrap_or(""),
-        form.alternative_titles.as_deref().unwrap_or(""),
-    ) {
-        Ok(names) => names,
-        Err(_) => return deny(StatusCode::BAD_REQUEST),
-    };
-    let candidates = match state.authoring.title_candidates(actor, &names).await {
-        Ok(matches) => matches,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    private_response(author_pages::review_new_book(&form, &candidates), &[])
-}
 
 /// NEwBOO owner cover settings, restricted script; no inline scripts.
 async fn cover_settings(
