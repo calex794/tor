@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TOR REC-13 v1 feedback and attribution (DRAFT)",
+  "description": "Proposed wire/internal contracts; not deployed HTTP. Client event cannot assert domain_committed trust. Version 2026-10-31.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ImpressionBatchRequest"
+    },
+    {
+      "$ref": "#/$defs/ActivationCommand"
+    },
+    {
+      "$ref": "#/$defs/ExplicitFeedbackCommand"
+    },
+    {
+      "$ref": "#/$defs/InternalAttributionFact"
+    },
+    {
+      "$ref": "#/$defs/DailyQualityAggregate"
+    }
+  ],
+  "$defs": {
+    "ImpressionClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "ticket",
+        "visible_fraction_per_mille",
+        "continuous_visible_ms",
+        "document_visible"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ticket": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 512,
+          "description": "Opaque signed server token; never sent in URL/log labels"
+        },
+        "visible_fraction_per_mille": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "continuous_visible_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        },
+        "document_visible": {
+          "const": true
+        }
+      }
+    },
+    "ImpressionBatchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/ImpressionClaim"
+          }
+        }
+      }
+    },
+    "ActivationCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ticket",
+        "command_id"
+      ],
+      "properties": {
+        "ticket": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 512
+        },
+        "command_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "ExplicitFeedbackCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "book_id",
+        "choice",
+        "expected_revision",
+        "command_id"
+      ],
+      "properties": {
+        "book_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$",
+          "maxLength": 19
+        },
+        "choice": {
+          "enum": [
+            "not_interested",
+            "clear"
+          ]
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "command_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "InternalAttributionFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "assignment_id",
+        "book_id",
+        "event_type",
+        "action_type",
+        "surface",
+        "source",
+        "reason",
+        "position",
+        "algorithm_version",
+        "generation_id",
+        "trust_class",
+        "recorded_at_utc"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assignment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "book_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$",
+          "maxLength": 19
+        },
+        "event_type": {
+          "enum": [
+            "recommendation_impression",
+            "recommendation_click",
+            "recommendation_action",
+            "recommendation_feedback"
+          ]
+        },
+        "action_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "book_opened",
+            "chapter_started",
+            "chapter_finished",
+            "library_added",
+            "bookmark_added",
+            "purchase_completed",
+            "not_interested",
+            "clear"
+          ]
+        },
+        "source_event_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "surface": {
+          "enum": [
+            "home",
+            "book_detail",
+            "reader_end",
+            "catalog",
+            "library"
+          ]
+        },
+        "source": {
+          "enum": [
+            "behavioral",
+            "content",
+            "popularity",
+            "related_books"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "algorithm_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "generation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "trust_class": {
+          "enum": [
+            "client_observed",
+            "server_verified_navigation",
+            "domain_committed",
+            "explicit_user_choice"
+          ]
+        },
+        "recorded_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "recommendation_impression"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "action_type": {
+                "type": "null"
+              },
+              "trust_class": {
+                "const": "client_observed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "recommendation_click"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "action_type": {
+                "type": "null"
+              },
+              "trust_class": {
+                "const": "server_verified_navigation"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "recommendation_action"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "action_type": {
+                "enum": [
+                  "book_opened",
+                  "chapter_started",
+                  "chapter_finished",
+                  "library_added",
+                  "bookmark_added",
+                  "purchase_completed"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_type": {
+                "enum": [
+                  "chapter_started",
+                  "chapter_finished",
+                  "library_added",
+                  "purchase_completed"
+                ]
+              }
+            },
+            "required": [
+              "action_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "trust_class": {
+                "const": "domain_committed"
+              }
+            },
+            "required": [
+              "source_event_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "recommendation_feedback"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "action_type": {
+                "enum": [
+                  "not_interested",
+                  "clear"
+                ]
+              },
+              "trust_class": {
+                "const": "explicit_user_choice"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "DailyQualityAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket_date",
+        "book_id",
+        "surface",
+        "source",
+        "reason",
+        "position_bucket",
+        "algorithm_version",
+        "generation_id",
+        "qualified_impressions",
+        "paired_clicks",
+        "unpaired_clicks",
+        "book_opens",
+        "confirmed_starts",
+        "confirmed_completions",
+        "censored_count",
+        "calculation_version"
+      ],
+      "properties": {
+        "bucket_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "book_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$",
+          "maxLength": 19
+        },
+        "surface": {
+          "enum": [
+            "home",
+            "book_detail",
+            "reader_end",
+            "catalog",
+            "library"
+          ]
+        },
+        "source": {
+          "enum": [
+            "behavioral",
+            "content",
+            "popularity",
+            "related_books"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "position_bucket": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "algorithm_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "generation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "qualified_impressions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paired_clicks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unpaired_clicks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "book_opens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confirmed_starts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confirmed_completions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "censored_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "calculation_version": {
+          "const": 1
+        }
+      }
+    }
+  }
+}
