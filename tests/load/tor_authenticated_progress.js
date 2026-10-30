@@ -1,4 +1,5 @@
 import http from 'k6/http';
+import exec from 'k6/execution';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
@@ -8,19 +9,26 @@ const completed = new Counter('journeys_written');
 const savedComments = new Counter('comments_written');
 const publicJourneys = new Counter('public_journeys');
 const publicFailures = new Counter('public_journey_failures');
-// 25 full journeys/s: 15 write/comment and 10 anonymous catalog/reader journeys.
+const purchased = new Counter('purchased_journeys');
+const purchaseFailures = new Counter('purchase_journey_failures');
+// 25 full journeys/s: 13 progress/comment, 10 public reading, 2 paid.
 export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     writers: {
       executor: 'constant-arrival-rate', exec: 'authenticatedWriter',
-      rate: 15, timeUnit: '1s', duration: '60s',
+      rate: 13, timeUnit: '1s', duration: '60s',
       preAllocatedVUs: 24, maxVUs: 32,
     },
     readers: {
       executor: 'constant-arrival-rate', exec: 'publicReader',
       rate: 10, timeUnit: '1s', duration: '60s',
       preAllocatedVUs: 16, maxVUs: 24,
+    },
+    buyers: {
+      executor: 'constant-arrival-rate', exec: 'paidReader',
+      rate: 2, timeUnit: '1s', duration: '60s',
+      preAllocatedVUs: 4, maxVUs: 8,
     },
   },
   thresholds: {
@@ -31,6 +39,8 @@ export const options = {
     comments_written: ['count>0'],
     journeys_written: ['count>0'],
     public_journeys: ['count>0'],
+    purchased_journeys: ['count>0'],
+    purchase_journey_failures: ['count==0'],
   },
 };
 function pageLink(html, rel) {
@@ -106,7 +116,70 @@ export function setup() {
     // /me normally reuses the same token without setting another cookie.
     users.push({ session, csrfCookie, csrfValue: key });
   }
-  return { users };
+  const buyers = [];
+  for (let n = 1; n <= 8; n++) {
+    const page = http.get(base + '/login');
+    const csrfCookie = cookie(page, 'tor-dev-csrf');
+    const token = csrf(page.body);
+    if (!csrfCookie || !token) throw new Error('buyer login CSRF missing');
+    const logged = http.post(base + '/login', {
+      email: 'perf252-paid-buyer-' + n + '@tor-ci.example',
+      password: 'D04VeryStrongBuyerPassword2026', csrf_token: token,
+    }, { headers: { Origin: base }, redirects: 0 });
+    const session = cookie(logged, 'tor-dev-session');
+    if (logged.status !== 303 || !session) {
+      throw new Error('buyer login failed: ' + logged.status);
+    }
+    buyers.push({ session, csrfCookie, csrfValue: token });
+  }
+  return { users, buyers };
+}
+export function paidReader(data) {
+  // Unique across every VU, even when the scheduler reuses VUs under load.
+  const ordinal = exec.scenario.iterationInTest + 1;
+  if (ordinal > 300) { purchaseFailures.add(1); return; }
+  const actor = data.buyers[(ordinal - 1) % data.buyers.length];
+  const chapter = (2000000 + ordinal).toString();
+  const version = (3000000 + ordinal).toString();
+  const headers = {
+    Cookie: actor.session + '; ' + actor.csrfCookie,
+    Origin: base,
+    'x-csrf-token': actor.csrfValue,
+    'Content-Type': 'application/json',
+    'idempotency-key': ('P' + String(ordinal).padStart(8, '0')).padEnd(42, 'A') + '8',
+  };
+  const body = JSON.stringify({
+    chapter_id: chapter, expected_version_id: version, expected_price_minor: 100,
+  });
+  const first = http.post(base + '/api/v1/purchases', body, {
+    headers, tags: { name: 'paid_checkout' }, timeout: '10s',
+  });
+  if (!check(first, { 'paid checkout succeeds once': r => r.status === 200 })) {
+    purchaseFailures.add(1); return;
+  }
+  const receipt = first.json();
+  if (receipt.replayed || receipt.chapter_id !== chapter ||
+      receipt.version_id !== version || !receipt.purchase_id) {
+    purchaseFailures.add(1); return;
+  }
+  if (ordinal % 10 === 0) {
+    const replay = http.post(base + '/api/v1/purchases', body, {
+      headers, tags: { name: 'paid_idempotent_replay' }, timeout: '10s',
+    });
+    if (!check(replay, { 'retry does not charge again': r =>
+      r.status === 200 && r.json().replayed === true &&
+      r.json().purchase_id === receipt.purchase_id,
+    })) { purchaseFailures.add(1); return; }
+  }
+  const uri = base + '/api/v1/me/progress/purchased?purchase_id=' +
+    receipt.purchase_id + '&chapter_id=' + chapter + '&version_id=' + version;
+  const access = http.get(uri, {
+    headers, tags: { name: 'paid_pinned_read' }, timeout: '10s',
+  });
+  if (!check(access, { 'pinned paid edition is accessible': r =>
+    r.status === 200 && r.json().version_id === version,
+  })) { purchaseFailures.add(1); return; }
+  purchased.add(1);
 }
 export function authenticatedWriter(data) {
   const user = data.users[(__VU - 1) % data.users.length];
