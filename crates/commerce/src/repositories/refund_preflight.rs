@@ -18,6 +18,7 @@ pub enum DirectRefundGate {
     AlreadyRequested,
     AlreadyOpened,
     FirstGrantBarrierUnavailable,
+    FirstGrantNotSeenInTrackedPurchase,
     Unavailable,
 }
 
@@ -63,7 +64,15 @@ impl PgDirectRefundPreflight {
             return DirectRefundGate::NotFound;
         }
         let row = sqlx::query(
-            "SELECT p.refund_policy_version,
+            "SELECT p.refund_policy_version,p.first_grant_tracking_version,
+                    EXISTS (
+                        SELECT 1 FROM finance_direct_refund_policy_catalog c
+                        WHERE c.version=p.refund_policy_version
+                          AND c.approved_at<=p.acquired_at
+                          AND c.effective_at<=p.acquired_at
+                          AND p.refund_deadline_at<=p.acquired_at
+                              + (c.window_seconds * INTERVAL '1 second')
+                    ) AS approved_policy,
                     (p.refund_deadline_at IS NOT NULL
                      AND p.refund_deadline_at < now()) AS expired,
                     (r.purchase_id IS NOT NULL) AS revoked,
@@ -104,6 +113,9 @@ impl PgDirectRefundPreflight {
             Ok(None) => return DirectRefundGate::PolicyUnavailable,
             _ => return DirectRefundGate::Unavailable,
         }
+        if read_flag("approved_policy") != Some(true) {
+            return DirectRefundGate::PolicyUnavailable;
+        }
         if read_flag("expired") == Some(true) {
             return DirectRefundGate::WindowExpired;
         }
@@ -130,7 +142,14 @@ impl PgDirectRefundPreflight {
             Ok(true) => DirectRefundGate::AlreadyOpened,
             // A missing row does NOT prove an unopened historic purchase:
             // approval stays unavailable until a known first-grant cutover.
-            Ok(false) => DirectRefundGate::FirstGrantBarrierUnavailable,
+            Ok(false) => match row.try_get::<Option<String>, _>("first_grant_tracking_version") {
+                Ok(Some(version)) if version == "c06-first-issue-v1" => {
+                    // A safe classification for review, not finance approval.
+                    DirectRefundGate::FirstGrantNotSeenInTrackedPurchase
+                }
+                Ok(None) => DirectRefundGate::FirstGrantBarrierUnavailable,
+                _ => DirectRefundGate::Unavailable,
+            },
             Err(_) => DirectRefundGate::Unavailable,
         }
     }

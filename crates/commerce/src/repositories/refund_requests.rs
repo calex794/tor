@@ -15,6 +15,7 @@ pub enum DirectRefundRequestError {
     WindowExpired,
     Revoked,
     AlreadyOpened,
+    FirstGrantBarrierUnavailable,
     UnverifiedPurchase,
     AlreadyOpen,
     DuplicateKeyDifferentRequest,
@@ -61,7 +62,7 @@ impl PgDirectRefundRequests {
             .map_err(|_| DirectRefundRequestError::Unavailable)?;
 
         let purchase = sqlx::query(
-            "SELECT p.refund_policy_version,
+            "SELECT p.refund_policy_version,p.first_grant_tracking_version,
                     COALESCE(p.refund_deadline_at < now(),false) AS expired,
                     EXISTS (
                       SELECT 1 FROM finance_direct_refund_policy_catalog c
@@ -146,6 +147,12 @@ impl PgDirectRefundRequests {
             .map_err(|_| DirectRefundRequestError::Unavailable)?;
         if policy_version.is_none() || !approved_policy {
             return Err(DirectRefundRequestError::PolicyUnavailable);
+        }
+        let coverage: Option<String> = purchase
+            .try_get("first_grant_tracking_version")
+            .map_err(|_| DirectRefundRequestError::Unavailable)?;
+        if coverage.as_deref() != Some("c06-first-issue-v1") {
+            return Err(DirectRefundRequestError::FirstGrantBarrierUnavailable);
         }
         let expired: bool = purchase
             .try_get("expired")

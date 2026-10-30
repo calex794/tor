@@ -35,8 +35,10 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     let purchase: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_purchase_facts
          (user_id,chapter_id,version_id,settlement_reference,
-          amount_minor,currency,refund_policy_version,refund_deadline_at)
-         VALUES($1,$2,$3,$4,300,'RUB',$5,now()+INTERVAL '1 day')
+          amount_minor,currency,refund_policy_version,refund_deadline_at,
+          first_grant_tracking_version)
+         VALUES($1,$2,$3,$4,300,'RUB',$5,now()+INTERVAL '1 day',
+                'c06-first-issue-v1')
          RETURNING id",
     )
     .bind(buyer)

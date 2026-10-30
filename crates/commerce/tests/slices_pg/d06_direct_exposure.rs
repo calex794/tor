@@ -12,6 +12,15 @@ async fn d_06_first_protected_grant_records_exact_pinned_purchase_once() {
         .unwrap()
         .purchase_id
         .get();
+    let tracking: Option<String> = sqlx::query_scalar(
+        "SELECT first_grant_tracking_version FROM chapter_purchase_facts
+         WHERE id=$1",
+    )
+    .bind(purchase)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tracking.as_deref(), Some("c06-first-issue-v1"));
     let first = PgDirectFirstExposure::new(pool.clone());
     let id = |n| PositiveId::new(n).unwrap();
     let count = |pool: &PgPool| {

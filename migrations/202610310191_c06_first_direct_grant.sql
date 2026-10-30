@@ -16,3 +16,10 @@ CREATE TABLE chapter_purchase_first_exposures (
 CREATE TRIGGER c06_direct_first_exposures_immutable
     BEFORE UPDATE OR DELETE ON chapter_purchase_first_exposures
     FOR EACH ROW EXECUTE FUNCTION reject_purchase_history_mutation();
+
+-- Only purchases committed by post-cutover, instrumented checkouts can
+-- claim complete tracking of first protected grant. Historical NULL = UNKNOWN.
+ALTER TABLE chapter_purchase_facts
+  ADD COLUMN first_grant_tracking_version TEXT
+    CHECK (first_grant_tracking_version IS NULL OR
+           first_grant_tracking_version='c06-first-issue-v1');

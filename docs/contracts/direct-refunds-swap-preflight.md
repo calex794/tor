@@ -96,3 +96,17 @@ creator posting is performed. This is deliberately an internal D repository:
 any future web route. Approval remains disabled until original buyer/creator/
 platform ledgers, first grant proof, refund terms and a fully atomic posting
 are verified. Tests exercise two simultaneous moderator rejects on `tor_ci`.
+
+
+## Immutable first-grant cutover for single and batch checkout
+
+`chapter_purchase_facts.first_grant_tracking_version` is NULL for every
+historic purchase. Both single and batch buyer checkout bind
+`c06-first-issue-v1` at immutable purchase creation, only when C's protected
+HTTP issuance also records the first grant. Without this marker, an absent
+first-grant row is UNKNOWN and new refund requests fail closed. With this
+marker and an approved purchase-time policy, a missing first grant permits
+request creation, **not** payment approval. Read-only preflight returns
+`FirstGrantNotSeenInTrackedPurchase` as a non-financial state. Seller and
+platform ledgers still require independent financial evidence. New tests
+cover direct and two-chapter batch checkout tracking.
