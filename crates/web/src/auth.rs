@@ -24,7 +24,8 @@ use tor_accounts::{
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{
-        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
+        new_book_with_taxonomy, with_book_description, AuthorError, OwnedChapterCursor,
+        TaxonomyFields,
     },
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
@@ -404,9 +405,36 @@ async fn create_book(
     }
 }
 
+#[derive(Deserialize, Default)]
+struct AuthorBookQuery {
+    after: Option<String>,
+}
+
+/// Parse only positive decimal keyset components; no unbounded or encoded state.
+fn author_chapter_cursor(raw: Option<&str>) -> Result<Option<OwnedChapterCursor>, ()> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let (number, id) = raw.split_once(':').ok_or(())?;
+    if number.is_empty()
+        || id.is_empty()
+        || !number.bytes().all(|value| value.is_ascii_digit())
+        || !id.bytes().all(|value| value.is_ascii_digit())
+    {
+        return Err(());
+    }
+    let number: i32 = number.parse().map_err(|_| ())?;
+    let id: i64 = id.parse().map_err(|_| ())?;
+    if number <= 0 || id <= 0 {
+        return Err(());
+    }
+    Ok(Some(OwnedChapterCursor { number, id }))
+}
+
 async fn author_book(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
+    Query(query): Query<AuthorBookQuery>,
     headers: HeaderMap,
 ) -> Response {
     let actor = match session_user(&state, &headers).await {
@@ -428,8 +456,17 @@ async fn author_book(
         Ok(count) => count,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let chapters = match state.authoring.list_owned_chapters(actor, id).await {
-        Ok(chapters) => chapters,
+    let cursor = match author_chapter_cursor(query.after.as_deref()) {
+        Ok(cursor) => cursor,
+        Err(()) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let page = match state
+        .authoring
+        .list_owned_chapters_page(actor, id, cursor)
+        .await
+    {
+        Ok(page) => page,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let latest_cover = if let Some(jobs) = state.cover_jobs.as_ref() {
@@ -442,14 +479,16 @@ async fn author_book(
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        author_chapter_pages::detail_with_covers_with_demand(
+        author_chapter_pages::detail_with_covers_with_demand_page(
             &book,
             published,
-            &chapters,
+            &page.chapters,
             &csrf,
             state.cover_upload_enabled,
             latest_cover.as_deref(),
             demand_count,
+            page.next,
+            cursor.is_some(),
         ),
         &cookies,
     )
