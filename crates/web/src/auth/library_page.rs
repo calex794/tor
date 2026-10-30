@@ -54,7 +54,11 @@ pub(super) async fn my_library(
         },
         None => None,
     };
-    let revisions = match state.staged_revisions.latest(user_id, revision_cursor).await {
+    let revisions = match state
+        .staged_revisions
+        .latest(user_id, revision_cursor)
+        .await
+    {
         Ok(revisions) => revisions,
         Err(tor_reading::repositories::StagedRevisionError::Invalid) => {
             return deny(StatusCode::BAD_REQUEST);
@@ -72,9 +76,8 @@ pub(super) async fn my_library(
         &csrf,
         state.paid_reader_available,
         state.paid_checkout_enabled,
-        &updates,
+        (&updates, &revisions),
         &owned,
-        &revisions,
     );
     private_response(page, &cookies)
 }

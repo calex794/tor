@@ -411,9 +411,7 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     // C-16 first-release feed. The worker stages it and the follower views it.
     let v2_id = pg(
         &url,
-        &format!(
-            "SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"
-        ),
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
     );
     assert_ne!(v2_id, version_id.to_string());
     let v2_event = pg(
@@ -454,16 +452,8 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     assert!(updated_library.contains("Updated chapter"));
     assert!(updated_library.contains("V2"));
     assert!(!updated_library.contains("Updated free text V2"));
-    let (status, owner_library) = send(
-        &app,
-        "GET",
-        "/me/library",
-        "",
-        Some(&token),
-        &csrf,
-        ORIGIN,
-    )
-    .await;
+    let (status, owner_library) =
+        send(&app, "GET", "/me/library", "", Some(&token), &csrf, ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
         !owner_library.contains("Обновлённые редакции"),

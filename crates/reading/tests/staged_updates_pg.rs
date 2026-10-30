@@ -67,14 +67,12 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO chapter_first_release_events(chapter_id,version_id) VALUES($1,$2)",
-    )
-    .bind(chapter)
-    .bind(v1)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO chapter_first_release_events(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(v1)
+        .execute(&pool)
+        .await
+        .unwrap();
     let v1_event: String = sqlx::query_scalar(
         "INSERT INTO outbox_events(
             event_type,schema_version,aggregate_kind,aggregate_id,dedupe_key,
@@ -137,8 +135,15 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .unwrap();
     }
     let revisions = PgStagedRevisions::new(pool.clone());
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty(),
-        "uncommitted batches must not appear on the reader page");
+    assert!(
+        revisions
+            .latest(follower, None)
+            .await
+            .unwrap()
+            .items
+            .is_empty(),
+        "uncommitted batches must not appear on the reader page"
+    );
 
     sqlx::query(
         "INSERT INTO notification_event_fanout_scans(event_id,completed_at)
@@ -148,8 +153,15 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty(),
-        "a checkpoint without consumer receipt is not completion");
+    assert!(
+        revisions
+            .latest(follower, None)
+            .await
+            .unwrap()
+            .items
+            .is_empty(),
+        "a checkpoint without consumer receipt is not completion"
+    );
     sqlx::query(
         "INSERT INTO event_deliveries(consumer,event_id)
          VALUES('subscription-inbox-v1',$1::uuid)",
@@ -166,8 +178,16 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
     assert!(!page.items[0].is_paid);
     assert_eq!(page.items[0].book_title, "Reader staged book");
     assert!(!format!("{page:?}").contains("Private-notification-proof"));
-    assert!(revisions.latest(outsider, None).await.unwrap().items.is_empty());
-    assert_eq!(revisions.latest(0, None).await, Err(StagedRevisionError::Invalid));
+    assert!(revisions
+        .latest(outsider, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        revisions.latest(0, None).await,
+        Err(StagedRevisionError::Invalid)
+    );
 
     // No actor can read another user's intent merely by knowing its event UUID.
     sqlx::query(
@@ -179,14 +199,24 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(revisions.latest(outsider, None).await.unwrap().items.is_empty());
+    assert!(revisions
+        .latest(outsider, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
 
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty());
+    assert!(revisions
+        .latest(follower, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -197,7 +227,12 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty());
+    assert!(revisions
+        .latest(follower, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
         .bind(chapter)
         .execute(&pool)
@@ -208,8 +243,15 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty(),
-        "paid chapter without protected storage is not advertised");
+    assert!(
+        revisions
+            .latest(follower, None)
+            .await
+            .unwrap()
+            .items
+            .is_empty(),
+        "paid chapter without protected storage is not advertised"
+    );
     sqlx::query("UPDATE chapters SET access_level='free',price_amount=0 WHERE id=$1")
         .bind(chapter)
         .execute(&pool)
@@ -230,22 +272,37 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty(),
-        "a later revision must hide the stale V2 notification");
+    assert!(
+        revisions
+            .latest(follower, None)
+            .await
+            .unwrap()
+            .items
+            .is_empty(),
+        "a later revision must hide the stale V2 notification"
+    );
     sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
         .bind(chapter)
         .bind(v2)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(revisions.latest(follower, None).await.unwrap().items.len(), 1);
+    assert_eq!(
+        revisions.latest(follower, None).await.unwrap().items.len(),
+        1
+    );
     sqlx::query("DELETE FROM reader_book_follows WHERE user_id=$1 AND book_id=$2")
         .bind(follower)
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty());
+    assert!(revisions
+        .latest(follower, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     sqlx::query(
         "INSERT INTO reader_book_follows(user_id,book_id,created_at)
          VALUES($1,$2,now()+interval '1 day')",
@@ -255,7 +312,14 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(revisions.latest(follower, None).await.unwrap().items.is_empty(),
-        "re-follow never retroactively shows older V2 intents");
+    assert!(
+        revisions
+            .latest(follower, None)
+            .await
+            .unwrap()
+            .items
+            .is_empty(),
+        "re-follow never retroactively shows older V2 intents"
+    );
     pool.close().await;
 }

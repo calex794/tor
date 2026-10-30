@@ -9,10 +9,13 @@ pub fn my_library_with_updates(
     csrf: &str,
     purchased_available: bool,
     checkout_enabled: bool,
-    updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
+    notifications: (
+        &tor_reading::repositories::follow_updates::FollowedReleasePage,
+        &tor_reading::repositories::staged_updates::StagedRevisionPage,
+    ),
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
-    revisions: &tor_reading::repositories::staged_updates::StagedRevisionPage,
 ) -> Html<String> {
+    let (updates, revisions) = notifications;
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     let revision_html = revision_cards(revisions);
     my_library_inner(
@@ -216,13 +219,16 @@ fn revision_cards(
         )
         .expect("writing revision HTML");
     }
-    let next = revisions.next_cursor.as_ref().map_or_else(String::new, |cursor| {
-        format!(
-            "<p><a href=\"/me/library?revisions_after={}#revised-chapters\">\
+    let next = revisions
+        .next_cursor
+        .as_ref()
+        .map_or_else(String::new, |cursor| {
+            format!(
+                "<p><a href=\"/me/library?revisions_after={}#revised-chapters\">\
              Ранее обновлённые редакции</a></p>",
-            cursor.encode()
-        )
-    });
+                cursor.encode()
+            )
+        });
     format!(
         "<section class=\"section\" id=\"revised-chapters\" \
          aria-labelledby=\"revised-chapters-heading\">\
@@ -235,13 +241,12 @@ fn revision_cards(
 #[cfg(test)]
 mod update_tests {
     use super::*;
-    use tor_reading::repositories::staged_updates::{
-        RevisionCursor, StagedRevision, StagedRevisionPage,
-    };
     use tor_reading::repositories::follow_updates::{
         FollowedRelease, FollowedReleasePage, UpdatesCursor,
     };
-
+    use tor_reading::repositories::staged_updates::{
+        RevisionCursor, StagedRevision, StagedRevisionPage,
+    };
 
     #[test]
     fn staged_revision_escapes_titles_and_leaks_no_paid_body() {

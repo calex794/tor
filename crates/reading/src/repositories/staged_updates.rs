@@ -80,9 +80,11 @@ impl PgStagedRevisions {
         actor: i64,
         before: Option<RevisionCursor>,
     ) -> Result<StagedRevisionPage, StagedRevisionError> {
-        if actor <= 0 || before.as_ref().is_some_and(|cursor| {
-            cursor.staged_micros <= 0 || !valid_uuid(&cursor.event_id)
-        }) {
+        if actor <= 0
+            || before
+                .as_ref()
+                .is_some_and(|cursor| cursor.staged_micros <= 0 || !valid_uuid(&cursor.event_id))
+        {
             return Err(StagedRevisionError::Invalid);
         }
         let rows = sqlx::query(
@@ -214,9 +216,12 @@ mod tests {
         };
         assert_eq!(RevisionCursor::parse(&valid.encode()), Some(valid));
         for invalid in [
-            "", "1", "-1.01234567-89ab-cdef-0123-456789abcdef",
+            "",
+            "1",
+            "-1.01234567-89ab-cdef-0123-456789abcdef",
             "0.01234567-89ab-cdef-0123-456789abcdef",
-            "1.x", "1.01234567-89ab-cdef-0123-456789abcdez",
+            "1.x",
+            "1.01234567-89ab-cdef-0123-456789abcdez",
             "1.0123456789abcdef0123456789abcdef",
             "1.01234567-89ab-cdef-0123-456789abcdef.extra",
         ] {
