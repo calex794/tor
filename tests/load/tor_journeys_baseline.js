@@ -26,15 +26,37 @@ export const options = {
     http_req_failed: ['rate<0.01'],
   },
 };
-// Public-only routes: comments are registered only with TOR_AUTH_ENABLED=1.
-const paths = ['/catalog', '/books/1', '/reader/101', '/api/v1/books/1/toc'];
+// Exercise B-18 page 1 -> 2 -> 1 against 10k books; no browser receives 10k cards.
+function pageLink(html, rel) {
+  const match = html.match(new RegExp('rel="' + rel + '" href="([^"]+)"'));
+  if (!match) return null;
+  const href = match[1].replace(/&amp;/g, '&');
+  return href.startsWith('/catalog?') ? href : null;
+}
+function countCards(html) {
+  return (html.match(/class="book-mini-card book-mini-card--compact"/g) || []).length;
+}
+function request(path) {
+  return http.get(BASE + path, { timeout: '10s' });
+}
 export default function () {
-  const success = paths.every((path) => {
-    const reply = http.get(BASE + path, {
-      tags: { name: 'journey_' + path.split('/')[1] },
-      timeout: '10s',
-    });
-    return check(reply, { 'HTTP 200': (r) => r.status === 200 });
-  });
-  if (success) completed.add(1);
+  const useFilter = (__VU + __ITER) % 5 === 0;
+  const first = request(useFilter ? '/catalog?genre=fantasy&sort=title' : '/catalog?sort=oldest');
+  const next = pageLink(first.body || '', 'next');
+  if (!check(first, { 'page 1: exactly 20 books': r =>
+    r.status === 200 && countCards(r.body) === 20,
+  }) || !next) return;
+  const second = request(next);
+  const previous = pageLink(second.body || '', 'prev');
+  if (!check(second, { 'page 2: exactly 20 books': r =>
+    r.status === 200 && countCards(r.body) === 20 && r.body.includes('Страница 2'),
+  }) || !previous || (useFilter && !next.includes('genre=fantasy'))) return;
+  const back = request(previous);
+  if (!check(back, { 'page 2 -> 1': r =>
+    r.status === 200 && countCards(r.body) === 20 && r.body.includes('Страница 1'),
+  })) return;
+  for (const path of ['/books/1', '/reader/101', '/api/v1/books/1/toc']) {
+    if (!check(request(path), { 'book/reader/toc 200': r => r.status === 200 })) return;
+  }
+  completed.add(1);
 }
