@@ -23,3 +23,5 @@ pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, Pref
 
 pub mod staged_updates;
 pub use staged_updates::{PgStagedRevisions, RevisionCursor, StagedRevisionError};
+
+pub mod book_stats;

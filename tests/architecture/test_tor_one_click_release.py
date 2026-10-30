@@ -232,9 +232,76 @@ class OneClickReleaseTests(unittest.TestCase):
         self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
                          "pass")
 
+    def test_i06_utc_ruleset_revision_is_same_instant_as_reviewed_offset(self):
+        branch, rules, effective = active_main_policy()
+        local_time = rules[0]["updated_at"]
+        actual_github_utc = "2026-10-30T19:28:58.370Z"
+        self.assertTrue(gate.same_ruleset_revision(local_time, actual_github_utc))
+        rules[0]["updated_at"] = actual_github_utc
+        self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
+                         "pass")
+        for invalid in (None, "", "2026-10-30T19:28:58.370",
+                        "2026-10-30T19:28:58.371Z",
+                        "2026-10-31T00:29:58.370+05:00",
+                        "not-a-date", "2026-10-30T19:28:58.3700001Z"):
+            with self.subTest(invalid=invalid):
+                changed = copy.deepcopy(rules)
+                changed[0]["updated_at"] = invalid
+                self.assertFalse(gate.same_ruleset_revision(local_time, invalid))
+                self.assertEqual(gate.evaluate_branch_policy(branch, changed, effective)[0],
+                                 "fail")
+
+    def test_i06_real_readonly_api_hides_both_bypass_fields(self):
+        # Actual public GitHub API shape from PR #331 diagnostic job.
+        branch, rules, effective = active_main_policy()
+        candidate = rules[0]
+        candidate.pop("current_user_can_bypass")
+        candidate.pop("bypass_actors", None)
+        candidate["updated_at"] = "2026-10-30T19:28:58.370Z"
+        self.assertEqual(gate.evaluate_branch_policy(branch, rules, effective)[0],
+                         "pass")
+        # Unseen actor list is accepted ONLY for exact reviewed revision.
+        for change in ("revision", "id", "source", "explicit_bypass",
+                       "viewer_bypass", "missing_effective", "provider"):
+            with self.subTest(change=change):
+                b, rs, eff = copy.deepcopy((branch, rules, effective))
+                if change == "revision":
+                    rs[0]["updated_at"] = "2026-10-30T19:28:59.370Z"
+                elif change == "id":
+                    rs[0]["id"] += 1
+                    for row in eff:
+                        row["ruleset_id"] = rs[0]["id"]
+                elif change == "source":
+                    rs[0]["source"] = "other/repo"
+                elif change == "explicit_bypass":
+                    rs[0]["bypass_actors"] = [{"actor_id": 42}]
+                elif change == "viewer_bypass":
+                    rs[0]["current_user_can_bypass"] = "always"
+                elif change == "missing_effective":
+                    eff = []
+                elif change == "provider":
+                    eff[-1]["parameters"]["required_status_checks"][0]["integration_id"] = -1
+                self.assertEqual(gate.evaluate_branch_policy(b, rs, eff)[0],
+                                 "fail")
+
     def test_i06_classic_protection_requires_both_app_scoped_checks(self):
         branch = protected_main()
-        self.assertEqual(gate.evaluate_branch_policy(branch, [], [])[0], "pass")
+        # Compact branch metadata is not a complete classic protection proof.
+        self.assertEqual(gate.evaluate_branch_policy(branch, [], [])[0], "fail")
+        full = copy.deepcopy(branch)
+        full["protection"].update({
+            "enforce_admins": {"enabled": True},
+            "required_pull_request_reviews": {"required_approving_review_count": 1},
+            "allow_force_pushes": {"enabled": False},
+            "allow_deletions": {"enabled": False},
+        })
+        self.assertEqual(gate.evaluate_branch_policy(full, [], [])[0], "pass")
+        for key in ("enforce_admins", "required_pull_request_reviews",
+                    "allow_force_pushes", "allow_deletions"):
+            incomplete = copy.deepcopy(full)
+            incomplete["protection"].pop(key)
+            self.assertEqual(gate.evaluate_branch_policy(incomplete, [], [])[0], "fail")
+        branch = full
         for change in ("level", "missing_check", "wrong_app", "disabled"):
             with self.subTest(change=change):
                 variant = copy.deepcopy(branch)
@@ -291,6 +358,7 @@ class OneClickReleaseTests(unittest.TestCase):
                     eff[0]["ruleset_id"] = 4567
                 elif action == "missing_metadata":
                     item["current_user_can_bypass"] = None
+                    item["updated_at"] = "2026-11-01T00:00:00Z"
                 elif action == "missing_enforcement":
                     item.pop("enforcement")
                 self.assertEqual(gate.evaluate_branch_policy(b, rs, eff)[0], "fail")
@@ -329,6 +397,9 @@ class OneClickReleaseTests(unittest.TestCase):
         summary = {key: detail[key] for key in
                    ("id", "target", "source_type", "source", "enforcement", "updated_at")}
         with mock.patch.object(gate, "_fetch_json", side_effect=[[summary], detail]):
+            self.assertEqual(gate.fetch_rulesets("calex794/tor", "fake"), [detail])
+        utc_summary = dict(summary, updated_at="2026-10-30T19:28:58.370Z")
+        with mock.patch.object(gate, "_fetch_json", side_effect=[[utc_summary], detail]):
             self.assertEqual(gate.fetch_rulesets("calex794/tor", "fake"), [detail])
         wrong = dict(detail, updated_at="updated")
         with mock.patch.object(gate, "_fetch_json", side_effect=[[summary], wrong]):
