@@ -155,7 +155,9 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .to_owned();
     let id: i64 = path.strip_prefix("/mail/").unwrap().parse().unwrap();
     let page = text(call(&app, "GET", &path, &cookies[0], "", &[]).await).await;
-    let key = field(&page, "command_key");
+    assert!(!page.contains("name=\"command_key\""));
+    assert!(page.contains("name=\"client_message_id\""));
+    let key = generate_session_token();
     let send_path = format!("{path}/messages");
     let form = format!(
         "body=PRIVATE%0D%0A%3Cscript%3E%20%2Fbooks%2F2&command_key={key}&csrf_token={}",
