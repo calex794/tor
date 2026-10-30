@@ -231,5 +231,24 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
+    def test_release_read_state_requires_actor_bound_repository_call(self):
+        self.mutate(
+            "crates/web/src/auth/follow_read_state.rs",
+            "state.follow_updates.set_read_state(actor, id, read)",
+            "state.follow_updates.set_read_state(id, read)",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_release_read_state_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/follow_read_state.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+
 if __name__ == "__main__":
     unittest.main()
