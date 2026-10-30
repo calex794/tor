@@ -11,17 +11,41 @@ async fn public_chapters_hide_drafts_embargoes_admin_holds_paid_and_private_book
     assert_eq!(public.chapters.len(), 3, "2 free, 1 paid metadata only");
     assert_eq!(public.chapters.iter().filter(|c| !c.is_paid).count(), 2);
     assert!(public.chapters.iter().any(|c| c.is_paid && c.id == 103));
+    let paid = reader
+        .public_paid_chapter_preview(103)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(paid.book_id, 1);
+    assert_eq!(paid.chapter_no, 3);
+    assert!(paid.price_minor > 0);
+    // A paywall query never permits looking up a hidden or unreleased chapter.
+    for hidden in [0, 102, 104, 105, 106, 107, u64::MAX] {
+        assert!(
+            reader
+                .public_paid_chapter_preview(hidden)
+                .await
+                .unwrap()
+                .is_none(),
+            "no public paid preview for chapter {hidden}"
+        );
+    }
     assert!(!public
         .chapters
         .iter()
         .any(|c| c.id == 102 || c.id == 106 || c.id == 107));
     let first = reader.public_chapter(101).await.unwrap().unwrap();
     assert!(first.body_markdown.contains("Первая строка"));
-    assert_eq!(first.next_chapter_id, Some(108));
+    assert_eq!(first.next_chapter_id, Some(103));
+    assert!(
+        first.next_chapter_is_paid,
+        "nearest published chapter is paid, so it must lead to the paywall"
+    );
     assert_eq!(first.previous_chapter_id, None);
     let last = reader.public_chapter(108).await.unwrap().unwrap();
     assert_eq!(last.previous_chapter_id, Some(101));
     assert_eq!(last.next_chapter_id, None);
+    assert!(!last.next_chapter_is_paid);
     for hidden in [0, 102, 103, 104, 105, 106, 107, u64::MAX] {
         assert!(
             reader.public_chapter(hidden).await.unwrap().is_none(),

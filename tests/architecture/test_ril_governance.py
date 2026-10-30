@@ -111,18 +111,27 @@ class RilGovernanceTests(unittest.TestCase):
 
     def test_reader_saved_state_remains_actor_scoped(self):
         self.mutate(
-            "crates/web/src/auth.rs",
+            "crates/web/src/auth/private_reader.rs",
             "saved_state(actor, chapter_id, version_id)",
             "saved_state(chapter_id, version_id)",
-            start="async fn private_reader(",
+            start="pub(super) async fn page(",
         )
         # Both reading-state calls must be actor-scoped; weakening just one
         # must never be interpreted as a successful policy test.
         self.mutate(
-            "crates/web/src/auth.rs",
+            "crates/web/src/auth/private_reader.rs",
             "free_state(actor, chapter_id)",
             "free_state(chapter_id)",
-            start="async fn private_reader(",
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_continuation_demand_cannot_ignore_actor_scope(self):
+        self.mutate(
+            "crates/web/src/auth/continuation_demand.rs",
+            "record_verified_continuation(actor, book, chapter_id)",
+            "record_verified_continuation(book, chapter_id)",
+            start="pub(super) async fn submit(",
         )
         self.assert_detected("missing actor-bound scoped repository call")
 
@@ -194,6 +203,33 @@ class RilGovernanceTests(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assert_detected("duplicate route-policy binding")
 
+
+    def test_follow_write_requires_actor_bound_repository_call(self):
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.book_follows.follow(actor, book_id)",
+            "state.book_follows.follow(book_id)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_unfollow_write_requires_actor_bound_repository_call(self):
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.book_follows.unfollow(actor, book_id)",
+            "state.book_follows.unfollow(book_id)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_follow_write_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.cookies.same_origin(headers)",
+            "state.cookies.same_origin_bypass(headers)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
 
 if __name__ == "__main__":
     unittest.main()

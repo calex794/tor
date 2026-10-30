@@ -49,6 +49,7 @@ pub(super) async fn purchased_version_http_journey(
     app: &Router,
     first_session: &str,
     second_session: &str,
+    re_login_form: &str,
 ) {
     // The test user was registered through the public HTTP form beforehand.
     // Settlement facts are inserted only into the disposable PG database;
@@ -78,16 +79,32 @@ pub(super) async fn purchased_version_http_journey(
            COMMIT;"#,
     );
 
-    assert_eq!(
-        send(
-            app,
-            request("GET", &format!("/reader/{CHAPTER}"), "", "", ORIGIN)
-        )
-        .await
-        .status(),
-        StatusCode::NOT_FOUND,
-        "paid body must not be served by public reader"
+    // S005: a published paid chapter now returns a safe, non-cacheable
+    // metadata-only paywall. A successful 200 must never imply paid text access.
+    let paywall = send(
+        app,
+        request("GET", &format!("/reader/{CHAPTER}"), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(paywall.status(), StatusCode::OK);
+    assert_eq!(paywall.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(paywall.headers()["x-robots-tag"], "noindex, nofollow");
+    assert_eq!(paywall.headers()["x-content-type-options"], "nosniff");
+    let csp = paywall.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
+    assert!(csp.contains("script-src 'none'"));
+    assert!(csp.contains("frame-ancestors 'none'"));
+    let html = body_of(paywall).await;
+    assert!(html.contains("Для чтения нужен доступ"));
+    assert!(html.contains("href=\"/login\""));
+    assert!(html.contains("href=\"/books/95810#chapters\""));
+    assert!(
+        !html.contains(SECRET),
+        "paid V1 leaked through public paywall"
     );
+    assert!(!html.contains("C06-PRIVATE-V2-MARKER"), "paid V2 leaked");
+    assert!(!html.contains("<script>"), "paywall must not run scripts");
     let anonymous = owned_get(app, "", GET_V1, StatusCode::UNAUTHORIZED).await;
     assert!(anonymous.is_empty());
     let other_purchase =
@@ -235,6 +252,75 @@ pub(super) async fn purchased_version_http_journey(
     .await;
     assert_eq!(repeat.status(), StatusCode::CONFLICT);
 
+    // S006: real Axum logout and login recheck the pinned purchased V1 cursor
+    // after V2 is published. Keep the original user's other session active.
+    eprintln!("C06 checkpoint: revoked session and fresh login after V2");
+    let logged_out = send(
+        app,
+        request(
+            "POST",
+            "/logout",
+            &format!("csrf_token={csrf_b}"),
+            &cookies_b,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(logged_out.status(), StatusCode::SEE_OTHER);
+    assert_eq!(logged_out.headers()[header::LOCATION], "/login");
+    owned_get(app, second_session, GET_V1, StatusCode::UNAUTHORIZED).await;
+    let still_owned = owned_get(app, first_session, GET_V1, StatusCode::OK).await;
+    assert!(still_owned.contains(r#""revision":3"#));
+
+    let login_page = send(app, request("GET", "/login", "", "", ORIGIN)).await;
+    assert_eq!(login_page.status(), StatusCode::OK);
+    let login_cookie = cookie(&login_page, "tor-dev-csrf=");
+    let login_html = body_of(login_page).await;
+    let csrf = csrf_token(&login_html);
+    let credentials = re_login_form
+        .split("&csrf_token=")
+        .next()
+        .expect("test login form");
+    let login_form = format!("{credentials}&csrf_token={csrf}");
+    let logged_in = send(
+        app,
+        request("POST", "/login", &login_form, &login_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(logged_in.status(), StatusCode::SEE_OTHER);
+    assert_eq!(logged_in.headers()[header::LOCATION], "/me");
+    let fresh_session = cookie(&logged_in, "tor-dev-session=");
+    assert_ne!(fresh_session, second_session);
+    let restored = owned_get(app, &fresh_session, GET_V1, StatusCode::OK).await;
+    assert!(restored.contains(r#""version_id":"95831""#));
+    assert!(restored.contains(r#""revision":3"#));
+    assert!(restored.contains(r#""block_id":2"#));
+    assert!(
+        restored.contains(&format!(r#""char_offset":{final_offset}"#)),
+        "pinned V1 position must survive logout and V2 publication"
+    );
+    owned_get(app, &fresh_session, v2, StatusCode::NOT_FOUND).await;
+
+    let fresh_page = send(app, request("GET", "/read/101", "", &fresh_session, ORIGIN)).await;
+    assert_eq!(fresh_page.status(), StatusCode::OK);
+    let fresh_csrf_cookie = cookie(&fresh_page, "tor-dev-csrf=");
+    let fresh_csrf = csrf_token(&body_of(fresh_page).await).to_owned();
+    let fresh_cookies = format!("{fresh_session}; {fresh_csrf_cookie}");
+    let stale_replay = send(
+        app,
+        json_request(
+            "PUT",
+            SAVE,
+            &final_save,
+            &fresh_cookies,
+            ORIGIN,
+            &fresh_csrf,
+        ),
+    )
+    .await;
+    assert_eq!(stale_replay.status(), StatusCode::CONFLICT);
+    assert!(body_of(stale_replay).await.is_empty());
+
     // A refund revokes both reads and subsequent saves immediately.
     eprintln!("C06 checkpoint: revoke purchase");
     test_sql(
@@ -251,4 +337,5 @@ pub(super) async fn purchased_version_http_journey(
     assert_eq!(revoked.status(), StatusCode::NOT_FOUND);
     assert_eq!(revoked.headers()[header::CACHE_CONTROL], "no-store");
     assert!(body_of(revoked).await.is_empty());
+    owned_get(app, &fresh_session, GET_V1, StatusCode::NOT_FOUND).await;
 }

@@ -162,7 +162,19 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
     jobs_started = jobs_done = jobs_skipped = jobs_waiting = 0
     outcomes = []
     complete = True
+    workflow_names, events, executed_jobs, skipped_job_names = set(), set(), set(), set()
     for run in runs:
+        workflow, event = run.get("name"), run.get("event")
+        if not isinstance(workflow, str) or not workflow.strip():
+            raise MetricsError("Run has no workflow name")
+        if workflow in workflow_names:
+            raise MetricsError("Repeated workflow on one SHA would double-count its jobs")
+        workflow_names.add(workflow)
+        if not isinstance(event, str) or not event.strip():
+            raise MetricsError("Run has no GitHub event type")
+        events.add(event)
+        if len(events) != 1:
+            raise MetricsError("Different GitHub event types cannot share one CI measurement")
         status, conclusion = run.get("status"), run.get("conclusion")
         if status != "completed" or conclusion != "success":
             complete = False  # failed/cancelled workflows cannot prove a speedup
@@ -172,18 +184,26 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
         for job in jobs:
             if job.get("run_id") not in (None, run["id"]):
                 raise MetricsError("Job belongs to a different workflow run")
+            job_name = job.get("name")
+            if not isinstance(job_name, str) or not job_name.strip():
+                raise MetricsError("Job has no name; cannot establish comparable test coverage")
+            signature = f"{workflow} / {job_name}"
+            if signature in executed_jobs or signature in skipped_job_names:
+                raise MetricsError("Duplicate job name in a workflow")
             start, created, end = (timestamp(job.get(k)) for k in
                                    ("started_at", "created_at", "completed_at"))
             if job.get("conclusion") == "skipped":
                 jobs_skipped += 1
+                skipped_job_names.add(signature)
                 continue
-            if job.get("conclusion") not in ("success", None):
-                complete = False  # fail-fast is not a valid performance baseline
+            if job.get("conclusion") != "success":
+                complete = False  # pending/failed work cannot prove speedup
             if start is None:
                 jobs_waiting += 1
                 complete = False
                 continue
             jobs_started += 1
+            executed_jobs.add(signature)
             queue = elapsed_seconds(created, start)
             if queue is None:
                 complete = False
@@ -199,6 +219,10 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
         "label": label,
         "sha": found_sha,
         "workflow_runs": len(runs),
+        "event": next(iter(events)),
+        "workflow_names": sorted(workflow_names),
+        "executed_jobs": sorted(executed_jobs),
+        "skipped_jobs": sorted(skipped_job_names),
         "jobs_started": jobs_started,
         "jobs_completed": jobs_done,
         "jobs_skipped": jobs_skipped,
@@ -213,7 +237,28 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
     }
 
 
+def comparison_blocker(before, after):
+    """Only comparable executed tests can support an I-09 speed comparison.
+
+    A faster run after skipping one or more checks is not a performance gain
+    with equivalent coverage. The raw measurements remain available.
+    """
+    if not before["complete"] or not after["complete"]:
+        return "unfinished or unsuccessful workflow/job evidence"
+    if before["event"] != after["event"]:
+        return "mixed events (push, pull_request or manual workflow)"
+    if before["workflow_names"] != after["workflow_names"]:
+        return "different workflow sets"
+    if before["skipped_jobs"] or after["skipped_jobs"]:
+        return "skipped jobs mean the required coverage was not demonstrated"
+    if before["executed_jobs"] != after["executed_jobs"]:
+        return "different executed job sets"
+    return None
+
+
 def difference(before, after):
+    if issue := comparison_blocker(before, after):
+        raise MetricsError(f"Cannot compare CI performance: {issue}")
     keys = ("jobs_started", "queue_p50_seconds", "queue_p95_seconds", "run_p50_seconds",
             "run_p95_seconds", "runner_minutes")
     return {key: {"before": before[key], "after": after[key],
@@ -264,9 +309,11 @@ def main(argv=None, api=None):
         if opts.before_sha or opts.before_run:
             baseline = load_group(api, opts.repo, "baseline", opts.before_sha,
                                   opts.before_run, opts.max_runs, opts.max_jobs)
-        compared = difference(baseline, target) if baseline and baseline["complete"] and target["complete"] else None
+        blocker = comparison_blocker(baseline, target) if baseline else None
+        compared = difference(baseline, target) if baseline and blocker is None else None
         data = {"repository": opts.repo, "target": target, "baseline": baseline,
-                "comparison": compared, "method": "job timestamps; not billing minutes"}
+                "comparison": compared, "comparison_blocker": blocker,
+                "method": "matched executed jobs and timestamps; not billing or statistical proof"}
         if opts.json:
             print(json.dumps(data, ensure_ascii=False, indent=2))
         else:
@@ -278,7 +325,7 @@ def main(argv=None, api=None):
                     for k, v in compared.items():
                         print(f"  {k}: {v['delta']:+.2f} ({v['percent']:+.1f}% change)" if v["percent"] is not None else f"  {k}: {v['delta']:+.2f}")
                 else:
-                    print("Comparison suppressed: incomplete workflow/job data")
+                    print(f"Comparison suppressed: {blocker}")
             print("Note: runner-minutes sum observed job durations; no billing multiplier or rounding.")
         if baseline and compared is None:
             return 2

@@ -149,11 +149,8 @@ fn book_error_with_cards(
                 ""
             },
         );
-    let html = pages::layout(title, message, &body).0.replacen(
-        "</head>",
-        "<meta name=\"robots\" content=\"noindex, nofollow\">\n</head>",
-        1,
-    );
+    // The shared layout already inserts exactly one conservative robots tag.
+    let html = pages::layout(title, message, &body).0;
     let mut response = super::auth_cookies::private_response(
         (status, axum::response::Html(html)).into_response(),
         &[],

@@ -8,6 +8,7 @@ use tor_books::services::authoring::{
 use crate::pages::{escape_html, layout};
 
 /// The form exists only when a signed source store and cover worker are enabled.
+#[cfg(test)]
 pub fn detail_with_covers(
     book: &OwnedBook,
     published: bool,
@@ -15,6 +16,26 @@ pub fn detail_with_covers(
     csrf: &str,
     uploads_enabled: bool,
     latest_job: Option<&str>,
+) -> Html<String> {
+    detail_with_covers_with_demand(
+        book,
+        published,
+        chapters,
+        csrf,
+        uploads_enabled,
+        latest_job,
+        0,
+    )
+}
+
+pub fn detail_with_covers_with_demand(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+    uploads_enabled: bool,
+    latest_job: Option<&str>,
+    demand_count: i64,
 ) -> Html<String> {
     let mut items = String::new();
     if chapters.is_empty() {
@@ -27,7 +48,7 @@ pub fn detail_with_covers(
                 ChapterAccess::Paid => "Платная",
             };
             let pending = published && !chapter.published;
-            let edit_action = if chapter.access == ChapterAccess::Free && (!published || pending) {
+            let edit_action = if chapter.access == ChapterAccess::Free {
                 format!(
                     " <a href=\"/me/books/{}/chapters/{}/edit\">Редактировать</a>",
                     book.id, chapter.id
@@ -101,11 +122,19 @@ pub fn detail_with_covers(
     } else {
         String::new()
     };
+    let demand_panel = if published {
+        format!(
+            "<section class=\"author-demand\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"account-profile__hint\">Только подтверждённые читатели текущей границы книги.</p></section>"
+        )
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
         <p class="eyebrow">Кабинет автора · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
+        {demand_panel}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <h2>Главы</h2>{items}
@@ -198,6 +227,13 @@ pub fn new_chapter(
         r#"<input type="hidden" name="access" value="free">
         <input type="hidden" name="price_amount" value="0">"#
     };
+    let illustrated_link = if paid_enabled {
+        format!(
+            "<p><a href=\"/me/books/{book_id}/chapters/illustrated\">Добавить платную главу с иллюстрацией</a></p>"
+        )
+    } else {
+        String::new()
+    };
     let html = include_str!("../templates/author_new_chapter.html")
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -215,8 +251,47 @@ pub fn new_chapter(
                 "Если книга уже опубликована, новая глава появится у читателей сразу после сохранения. Для неопубликованной книги глава останется скрытой до выпуска книги."
             },
         )
-        .replace("<!--SAVE_LABEL-->", "Сохранить главу");
+        .replace("<!--SAVE_LABEL-->", "Сохранить главу")
+        .replace("<!--PAID_IMAGE_LINK-->", &illustrated_link);
     layout("Добавить главу", "Публикация главы автором", &html)
+}
+
+/// Initial end-to-end paid author scenario: one image at the end of the
+/// chapter. Browser never sees S3 keys; server freezes its asset ID with B text.
+pub fn illustrated_chapter(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
+    let content = format!(
+        r#"<section class="section auth-section"><div class="container">
+        <div class="auth-card author-chapter-card">
+          <p class="eyebrow">Кабинет автора · книга №{book_id}</p>
+          <h1>Платная глава с иллюстрацией</h1>
+          <p>Одно изображение появится в конце главы. После публикации менять его нельзя: новая редакция создаётся отдельно.</p>
+          <form class="auth-form author-form" action="/me/books/{book_id}/chapters/illustrated" method="post" enctype="multipart/form-data" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{}">
+            <input type="hidden" name="command_key" value="{}">
+            <label for="illustrated-number">Номер главы</label>
+            <input id="illustrated-number" name="number" type="number" min="1" max="1000000" value="1" required>
+            <label for="illustrated-title">Название</label>
+            <input id="illustrated-title" name="title" type="text" maxlength="200" required>
+            <label for="illustrated-price">Цена в копейках</label>
+            <input id="illustrated-price" name="price_amount" type="number" min="1" step="1" value="100" required>
+            <label for="illustrated-body">Текст главы (Markdown, до 50 000 символов)</label>
+            <textarea id="illustrated-body" name="body" rows="14" maxlength="49500" required></textarea>
+            <label for="illustrated-file">Иллюстрация PNG, JPEG или WebP (до 8 МиБ)</label>
+            <input id="illustrated-file" type="file" name="illustration"
+                   accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" required>
+            <p class="account-profile__hint">Изображение проверяется и шифруется отдельно. При потере ответа повторите отправку без изменения файла и текста.</p>
+            <button class="button" type="submit">Сохранить платную главу с иллюстрацией</button>
+          </form>
+          <p class="auth-card__footer"><a href="/me/books/{book_id}/chapters/new">Вернуться к обычной форме</a></p>
+        </div></div></section>"#,
+        escape_html(csrf),
+        escape_html(command_key),
+    );
+    layout(
+        "Платная глава с иллюстрацией",
+        "Создание зашифрованной редакции с изображением по образцу NEwBOO.",
+        &content,
+    )
 }
 
 pub fn edit_chapter(
@@ -226,7 +301,44 @@ pub fn edit_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, false)
+}
+
+/// A published free chapter uses the same NEwBOO-style editor and save action,
+/// but its new version is made readable atomically on the first POST.
+pub fn edit_published_chapter(
+    book_id: i64,
+    chapter_id: i64,
+    chapter: &OwnedChapter,
+    csrf: &str,
+    command_key: &str,
+) -> Html<String> {
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true)
+}
+
+fn edit_chapter_mode(
+    book_id: i64,
+    chapter_id: i64,
+    chapter: &OwnedChapter,
+    csrf: &str,
+    command_key: &str,
+    published: bool,
+) -> Html<String> {
+    let description = if published {
+        "Сохранение сразу обновит опубликованную редакцию. Предыдущая версия останется в истории."
+    } else {
+        "Редакция остаётся закрытой до выпуска книги или главы."
+    };
     let html = include_str!("../templates/author_edit_chapter.html")
+        .replace(
+            "<!--EDIT_EYEBROW-->",
+            if published {
+                "редактирование опубликованной главы"
+            } else {
+                "редактирование черновика"
+            },
+        )
+        .replace("<!--EDIT_DESCRIPTION-->", description)
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CHAPTER_ID-->", &chapter_id.to_string())
         .replace("<!--REVISION-->", &chapter.revision.to_string())
@@ -301,6 +413,13 @@ mod tests {
         assert!(enabled.contains("name=\"price_amount\""));
         assert!(enabled.contains("сразу после сохранения"));
         assert!(!enabled.contains("<!--CHAPTER_ACCESS-->"));
+        assert!(enabled.contains("/me/books/42/chapters/illustrated"));
+        assert!(!disabled.contains("/me/books/42/chapters/illustrated"));
+        let illustrated = illustrated_chapter(42, "csrf", "command").0;
+        assert!(illustrated.contains("enctype=\"multipart/form-data\""));
+        assert!(illustrated.contains("name=\"illustration\""));
+        assert!(illustrated.contains("name=\"csrf_token\" value=\"csrf\""));
+        assert!(!illustrated.contains("<script"));
     }
 
     #[test]
@@ -358,6 +477,36 @@ mod tests {
         assert!(page.0.contains("&lt;/pre&gt;"));
         assert!(!page.0.contains("<script>bad()"));
     }
+    #[test]
+    fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
+        let published_book = OwnedBook {
+            id: 42,
+            title: "Книга".to_owned(),
+        };
+        let summary = OwnedChapterSummary {
+            id: 55,
+            number: 1,
+            title: "Редакция".to_owned(),
+            access: ChapterAccess::Free,
+            published: true,
+        };
+        let detail_page =
+            detail_with_covers(&published_book, true, &[summary], "csrf", false, None).0;
+        assert!(detail_page.contains("/me/books/42/chapters/55/edit"));
+        let chapter = OwnedChapter {
+            number: 1,
+            title: "Новая глава".to_owned(),
+            body: "Содержание".to_owned(),
+            access: ChapterAccess::Free,
+            price_amount: 0,
+            revision: 3,
+        };
+        let page = edit_published_chapter(42, 55, &chapter, "csrf", "command").0;
+        assert!(page.contains("Сохранение сразу обновит опубликованную редакцию"));
+        assert!(page.contains("name=\"expected_revision\" value=\"3\""));
+        assert!(!page.contains("<!--EDIT_DESCRIPTION-->"));
+    }
+
     #[test]
     fn edit_form_escapes_title_and_textarea_breakout() {
         let chapter = OwnedChapter {

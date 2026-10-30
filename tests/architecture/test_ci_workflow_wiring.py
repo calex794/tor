@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/"tools"))
-from ci_test_map import MANUAL_WORKFLOWS, SUITES, TEST_SUITES, workflow_gate
+from ci_test_map import MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES, TEST_SUITES, workflow_gate
 
 
 def problems(text, suite):
@@ -56,6 +56,23 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("  workflow_run:", deploy)
                 self.assertIn("  workflow_dispatch:", deploy)
 
+    def test_isolated_performance_workflow_does_not_contact_live_hosts(self):
+        for filename in PERFORMANCE_WORKFLOWS:
+            with self.subTest(workflow=filename):
+                contents = (ROOT/".github/workflows"/filename).read_text()
+                self.assertIn("  workflow_dispatch:", contents)
+                self.assertIn("  pull_request:", contents)
+                self.assertIn("    paths:", contents)
+                self.assertNotIn("  push:", contents)
+                self.assertNotIn("  pull_request_target:", contents)
+                self.assertNotIn("secrets.", contents)
+                self.assertIn("127.0.0.1:3089", contents)
+                self.assertIn("postgres:18", contents)
+                self.assertNotIn("tor-one-click-release", contents)
+        harness = (ROOT/"tests/load/tor_http.js").read_text()
+        self.assertIn("http://127.0.0.1:3089", harness)
+        self.assertNotIn("__ENV.BASE_URL", harness)
+
     def test_reusable_planner_uses_complete_history_and_no_secrets(self):
         text = (ROOT/".github/workflows/ci-selection.yml").read_text()
         self.assertIn("fetch-depth: 0", text)
@@ -66,7 +83,7 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("python3 tools/select_feature_tests.py", text)
 
     def test_no_unknown_automatic_suite_or_missing_harness_in_registry(self):
-        known = {filename for filename, _ in SUITES.values()} | {"rules.yml", "ci-selection.yml"} | MANUAL_WORKFLOWS
+        known = {filename for filename, _ in SUITES.values()} | {"rules.yml", "ci-selection.yml"} | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS
         self.assertEqual({p.name for p in (ROOT/".github/workflows").glob("*.yml")}, known)
         for path, suites in TEST_SUITES.items():
             with self.subTest(path=path):

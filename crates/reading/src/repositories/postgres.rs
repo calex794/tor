@@ -1,7 +1,8 @@
 //! SQL-level public book and chapter visibility; raw versions are never returned by ID.
 use crate::services::{
     toc::{TocCursor, MAX_PAGE_SIZE},
-    PublicBookPage, PublicChapterLink, PublicChapterPage, PublicReadingRepository, ReadingError,
+    PublicBookPage, PublicChapterLink, PublicChapterPage, PublicPaidChapterPreview,
+    PublicReadingRepository, ReadingError,
 };
 use async_trait::async_trait;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
@@ -65,6 +66,46 @@ fn positive_id(value: i64) -> Result<u64, ReadingError> {
 }
 
 impl PgReader {
+    /// S005: metadata for an already-public, released paid chapter.
+    /// Never select version data, body text, object keys or purchases here.
+    pub async fn public_paid_chapter_preview(
+        &self,
+        id: u64,
+    ) -> Result<Option<PublicPaidChapterPreview>, ReadingError> {
+        let Ok(id) = i64::try_from(id) else {
+            return Ok(None);
+        };
+        if id <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT b.id AS book_id, b.title AS book_title, \
+                    c.chapter_no, c.title AS chapter_title, c.price_amount \
+             FROM chapters c \
+             JOIN books b ON b.id = c.book_id \
+             JOIN chapter_publications p ON p.chapter_id = c.id \
+             JOIN chapter_versions v ON v.id = p.version_id AND v.chapter_id = c.id \
+             WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
+               AND NOT b.is_deleted AND c.visibility = 'public' \
+               AND c.access_level = 'paid' AND NOT c.admin_hold AND NOT c.is_deleted \
+               AND (c.reader_released_at IS NULL OR c.reader_released_at <= now())",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_db)?;
+        row.map(|row| {
+            Ok(PublicPaidChapterPreview {
+                book_id: positive_id(row.try_get("book_id").map_err(map_db)?)?,
+                book_title: row.try_get("book_title").map_err(map_db)?,
+                chapter_no: row.try_get("chapter_no").map_err(map_db)?,
+                chapter_title: row.try_get("chapter_title").map_err(map_db)?,
+                price_minor: row.try_get("price_amount").map_err(map_db)?,
+            })
+        })
+        .transpose()
+    }
+
     pub async fn public_book_page(
         &self,
         id: u64,
@@ -178,18 +219,22 @@ impl PublicReadingRepository for PgReader {
                        AND NOT prior.admin_hold AND NOT prior.is_deleted \
                        AND (prior.reader_released_at IS NULL OR prior.reader_released_at <= now()) \
                      ORDER BY prior.chapter_no DESC LIMIT 1) AS previous_chapter_id, \
-                    (SELECT following.id FROM chapters following \
-                     JOIN chapter_publications fp ON fp.chapter_id = following.id \
-                     JOIN chapter_versions fv ON fv.id = fp.version_id AND fv.chapter_id = following.id \
-                     WHERE following.book_id = c.book_id AND following.chapter_no > c.chapter_no \
-                       AND following.visibility = 'public' AND following.access_level = 'free' \
-                       AND NOT following.admin_hold AND NOT following.is_deleted \
-                       AND (following.reader_released_at IS NULL OR following.reader_released_at <= now()) \
-                     ORDER BY following.chapter_no ASC LIMIT 1) AS next_chapter_id \
+                    next_public.id AS next_chapter_id, \
+                    COALESCE(next_public.access_level = 'paid', FALSE) AS next_chapter_is_paid \
              FROM chapters AS c \
              JOIN books AS b ON b.id = c.book_id \
              JOIN chapter_publications AS p ON p.chapter_id = c.id \
              JOIN chapter_versions AS v ON v.id = p.version_id AND v.chapter_id = c.id \
+             LEFT JOIN LATERAL ( \
+                SELECT following.id, following.access_level FROM chapters following \
+                JOIN chapter_publications fp ON fp.chapter_id = following.id \
+                JOIN chapter_versions fv ON fv.id = fp.version_id AND fv.chapter_id = following.id \
+                WHERE following.book_id = c.book_id AND following.chapter_no > c.chapter_no \
+                  AND following.visibility = 'public' AND NOT following.admin_hold \
+                  AND NOT following.is_deleted \
+                  AND (following.reader_released_at IS NULL OR following.reader_released_at <= now()) \
+                ORDER BY following.chapter_no, following.id LIMIT 1 \
+             ) AS next_public ON TRUE \
              WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
@@ -217,6 +262,7 @@ impl PublicReadingRepository for PgReader {
                     .map_err(map_db)?
                     .map(positive_id)
                     .transpose()?,
+                next_chapter_is_paid: row.try_get("next_chapter_is_paid").map_err(map_db)?,
             })
         })
         .transpose()

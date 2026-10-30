@@ -110,12 +110,20 @@ def buy(client: Client, payload: dict, *, csrf: str | None = None,
     return client.call("POST", PATH, payload, origin=origin, csrf=csrf, key=key)
 
 
+def buy_batch(client: Client, payload: dict, *, csrf: str | None = None,
+              key: str | None = None, origin: str | None = BASE):
+    return client.call("POST", "/api/v1/purchases/batch", payload,
+                       origin=origin, csrf=csrf, key=key)
+
+
 def disabled() -> None:
     expect(buy(Client(), {"chapter_id": "1", "expected_version_id": "1",
                           "expected_price_minor": 150}, key="A" * 42 + "8"),
            404, "Checkout must be disabled by default")
     expect(Client().call("POST", "/api/v1/reader/chapters/1/delivery-grants", {}),
            404, "Paid delivery must also be disabled by default")
+    expect(buy_batch(Client(), {"chapters": []}, key="A" * 42 + "8"), 404,
+           "S035 batch checkout must also be disabled by default")
     print("D-04 default-off: PASS")
 
 
@@ -158,7 +166,23 @@ def enabled() -> None:
            "Author cannot buy their own chapter")
     require(scalar("SELECT count(*) FROM chapter_purchase_facts "
                    f"WHERE user_id={buyer_id}") == 0, "Denials caused a debit")
-    expect(buyer.call("GET", f"/reader/{chapter}"), 404, "Free reader must hide paid bytes")
+    # S005: paid text stays private, but published metadata now has a safe
+    # explanatory page, not a 404. Check body and cache policy, not status alone.
+    paywall_status, paywall_headers, paywall_body = buyer.call(
+        "GET", f"/reader/{chapter}")
+    require(paywall_status == 200, "Public paid paywall must explain access")
+    require(paywall_headers.get("cache-control") == "no-store",
+            "Public paid paywall must not enter a shared cache")
+    require(paywall_headers.get("x-robots-tag") == "noindex, nofollow",
+            "Paid paywall must not be indexed")
+    require("script-src 'none'" in paywall_headers.get("content-security-policy", ""),
+            "Paid paywall must forbid scripts")
+    require("Для чтения нужен доступ" in paywall_body
+            and 'href="/login"' in paywall_body,
+            "Paid paywall must show a safe path to sign-in")
+    require("SECRET-PAID-D04-NO-LEAK" not in paywall_body
+            and "X-Amz-Signature" not in paywall_body,
+            "Public paid paywall leaked text or private S3 credentials")
 
     status, headers, body = buy(buyer, payload, csrf=csrf, key=key)
     require(status == 200 and headers.get("cache-control") == "no-store", "First purchase failed")
@@ -224,6 +248,182 @@ def enabled() -> None:
     expect(buyer.call("GET", uri), 404, "Refund must revoke progress access")
     expect(buyer.call("PUT", "/api/v1/me/progress/purchased", position,
                       origin=BASE, csrf=csrf), 404, "Refund must reject position writes")
+    # S035: real HTTP and PG batch checkout; the two offers must share one
+    # transaction and one command key but keep separate pinned purchases.
+    batch_book = scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) "
+        f"VALUES ('ci:d04:batch-http','ru','Пакет глав','public',{author_id}) RETURNING id")
+    batch_offers = []
+    for number, price in ((1, 90), (2, 110)):
+        part = scalar(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) "
+            f"VALUES ({batch_book},{number},'Новая глава','public','paid',{price}) RETURNING id")
+        edition = scalar(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) "
+            f"VALUES ({part},1,'PRIVATE S035 owned text') RETURNING id")
+        pg(f"INSERT INTO chapter_publications(chapter_id,version_id) "
+           f"VALUES ({part},{edition})")
+        batch_offers.append({"chapter_id": str(part),
+                             "expected_version_id": str(edition),
+                             "expected_price_minor": price})
+    multi = {"chapters": batch_offers}
+    batch_key = "L" * 42 + "8"
+    expect(buy_batch(Client(), multi, csrf=csrf, key=batch_key), 401,
+           "S035 guest must not buy a batch")
+    expect(buy_batch(buyer, multi, csrf=csrf, key=batch_key,
+                     origin="https://evil.invalid"), 403,
+           "S035 rejects cross-origin payment")
+    expect(buy_batch(buyer, multi, key=batch_key), 403,
+           "S035 requires genuine CSRF")
+    expect(buy_batch(buyer, multi, csrf=csrf), 422,
+           "S035 requires idempotency header")
+    expect(buy_batch(buyer, {**multi, "user_id": author_id}, csrf=csrf,
+                     key=batch_key), 422,
+           "S035 never trusts a client-supplied wallet actor")
+    expect(buy_batch(buyer, {"chapters": [batch_offers[0]] * 2},
+                     csrf=csrf, key=batch_key), 422,
+           "S035 cannot purchase a chapter twice within one offer")
+    expect(buy_batch(author, multi, csrf=author_csrf, key=batch_key), 404,
+           "S035 author cannot buy own book")
+    wrong_price = {"chapters": [batch_offers[0],
+                               {**batch_offers[1], "expected_price_minor": 111}]}
+    expect(buy_batch(buyer, wrong_price, csrf=csrf, key=batch_key), 409,
+           "S035 rejects stale price without partial payment")
+    require(scalar("SELECT count(*) FROM chapter_batch_commands "
+                   f"WHERE user_id={buyer_id}") == 0,
+            "S035 failed quote left a claimed command")
+    require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
+                   f"WHERE user_id={buyer_id}") == 425,
+            "S035 stale quote debited the buyer")
+
+    status, headers, text = buy_batch(buyer, multi, csrf=csrf, key=batch_key)
+    require(status == 200 and headers.get("cache-control") == "no-store",
+            "S035 atomic HTTP batch was rejected")
+    require("PRIVATE S035 owned text" not in text,
+            "S035 receipt leaked private chapter text")
+    receipt = json.loads(text)
+    require(receipt["total_minor"] == 200
+            and receipt["balance_minor"] == 225
+            and receipt["replayed"] is False
+            and len(receipt["purchases"]) == 2,
+            "S035 batch receipt or wallet amount differs from accepted offer")
+    ids = [r["purchase_id"] for r in receipt["purchases"]]
+    require(len(set(ids)) == 2, "S035 assigned the same purchase twice")
+    status, _, text = buy_batch(buyer, {"chapters": list(reversed(batch_offers))},
+                                csrf=csrf, key=batch_key)
+    replay = json.loads(text)
+    require(status == 200 and replay["replayed"] is True
+            and [r["purchase_id"] for r in replay["purchases"]] == ids
+            and replay["balance_minor"] == 225,
+            "S035 retry charged again or returned a different pinned purchase")
+    expect(buy_batch(buyer, multi, csrf=csrf, key="M" * 42 + "8"), 409,
+           "S035 second key cannot buy the owned batch again")
+    require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
+                   f"WHERE user_id={buyer_id}") == 225,
+            "S035 retry changed the final wallet balance")
+    for name, table, count in [
+        ("purchases", "chapter_purchase_facts", 3),
+        ("wallet journal", "reader_wallet_entries", 3),
+        ("owned chapters", "library_purchased_chapters", 3),
+        ("batch items", "chapter_batch_items", 2),
+        ("batch commands", "chapter_batch_commands", 1),
+    ]:
+        require(scalar(f"SELECT count(*) FROM {table} "
+                       f"WHERE user_id={buyer_id}") == count,
+                "S035 inconsistent " + name)
+    for item in receipt["purchases"]:
+        place = ("/api/v1/me/progress/purchased?"
+                 f"purchase_id={item['purchase_id']}&chapter_id={item['chapter_id']}"
+                 f"&version_id={item['version_id']}")
+        expect(buyer.call("GET", place), 200,
+               "S035 purchased version does not grant owned reading progress")
+        expect(stranger.call("GET", place), 404,
+               "S035 purchase exposed a chapter to an unrelated user")
+
+    # S035 native browser: real form selection -> explicit total -> wallet commit.
+    browser_book = scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) "
+        f"VALUES ('ci:s035:native-form','ru','Пакет в браузере','public',{author_id}) RETURNING id")
+    browser_chapters = []
+    for number, price in ((1, 50), (2, 75)):
+        part = scalar(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) "
+            f"VALUES ({browser_book},{number},'Выбор главы','public','paid',{price}) RETURNING id")
+        edition = scalar(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) "
+            f"VALUES ({part},1,'PRIVATE S035 BROWSER') RETURNING id")
+        pg(f"INSERT INTO chapter_publications(chapter_id,version_id) VALUES ({part},{edition})")
+        browser_chapters.append(part)
+    form_path = f"/me/books/{browser_book}/buy-chapters"
+    status, _, selection_page = buyer.call("GET", form_path)
+    require(status == 200 and "Выберите от 2 до 20 глав" in selection_page,
+            "S035 native browser selection is missing")
+    for part in browser_chapters:
+        require(f'name="chapter_{part}"' in selection_page,
+                "S035 browser is missing a selectable paid chapter")
+    require("PRIVATE S035 BROWSER" not in selection_page,
+            "S035 browser leaked a paid chapter body")
+    choose = urllib.parse.urlencode({
+        "step": "select", "csrf_token": csrf,
+        **{f"chapter_{part}": "1" for part in browser_chapters},
+    }).encode()
+    expect(buyer.call("POST", form_path, choose, origin="https://evil.invalid"),
+           403, "S035 native form rejects cross-origin")
+    without_csrf = urllib.parse.urlencode({
+        "step": "select",
+        **{f"chapter_{part}": "1" for part in browser_chapters},
+    }).encode()
+    expect(buyer.call("POST", form_path, without_csrf, origin=BASE), 403,
+           "S035 native form requires valid CSRF")
+    choose_one = urllib.parse.urlencode({
+        "step": "select", "csrf_token": csrf,
+        f"chapter_{browser_chapters[0]}": "1",
+    }).encode()
+    expect(buyer.call("POST", form_path, choose_one, origin=BASE), 422,
+           "S035 cannot confirm one chapter as a batch")
+    status, _, confirmation = buyer.call("POST", form_path, choose, origin=BASE)
+    require(status == 200 and "Итого: 1,25 ₽" in confirmation
+            and "Подтвердить покупку" in confirmation,
+            "S035 native confirmation must show full amount before debit")
+    def hidden(name: str) -> str:
+        match = re.search(r'name="' + name + r'" value="([^"]+)"', confirmation)
+        require(match is not None, "S035 native confirmation field missing: " + name)
+        return match.group(1)
+    fields = {
+        "step": "commit", "csrf_token": csrf,
+        "command_key": hidden("command_key"),
+        "chapter_ids": hidden("chapter_ids"),
+        "version_ids": hidden("version_ids"),
+        "prices": hidden("prices"),
+    }
+    wrong = dict(fields)
+    wrong["prices"] = "50,76"
+    expect(buyer.call("POST", form_path, urllib.parse.urlencode(wrong).encode(),
+                      origin=BASE), 409,
+           "S035 changed confirmation price must roll back every purchase")
+    require(scalar("SELECT count(*) FROM chapter_purchase_facts "
+                   f"WHERE user_id={buyer_id}") == 3,
+            "S035 stale browser quote made a partial debit")
+    send_form = urllib.parse.urlencode(fields).encode()
+    status, _, receipt_page = buyer.call("POST", form_path, send_form, origin=BASE)
+    require(status == 200 and "Покупка завершена" in receipt_page
+            and "Из внутреннего кошелька списано 1,25 ₽" in receipt_page
+            and 'href="/me/library"' in receipt_page,
+            "S035 successful browser response must link to buyer's library")
+    status, _, replay_page = buyer.call("POST", form_path, send_form, origin=BASE)
+    require(status == 200 and "Повтор без нового списания" in replay_page,
+            "S035 duplicate native form must replay without a second debit")
+    require(scalar("SELECT balance_minor FROM reader_wallet_accounts "
+                   f"WHERE user_id={buyer_id}") == 100,
+            "S035 browser purchase or replay had wrong final balance")
+    require(scalar("SELECT count(*) FROM chapter_purchase_facts "
+                   f"WHERE user_id={buyer_id}") == 5,
+            "S035 browser purchase created missing or duplicate purchases")
+    status, _, selection_after = buyer.call("GET", form_path)
+    require(status == 200 and "нет двух доступных" in selection_after,
+            "S035 browser must not reoffer already purchased chapters")
+    print("D/S035 native browser forms + PG: PASS (select/confirm/CSRF/stale/replay/library)")
+    print("D/S035 atomic HTTP+PostgreSQL batch: PASS (ACL/CSRF/price/ledger/replay/rights)")
     print("D-04/S034 real HTTP+PostgreSQL: PASS (sessions/CSRF/replay/ledger/V1/refund)")
 
 

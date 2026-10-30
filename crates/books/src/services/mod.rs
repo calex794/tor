@@ -127,5 +127,8 @@ pub mod authoring;
 /// B-09/S030: deny unsafe ownership transfers until verified A/B/D/B-10 guards exist.
 pub mod owner_transfer_policy;
 
+/// Strict UUID references in the immutable paid Markdown body.
+pub mod paid_asset_markers;
+
 /// Per-book manual Shadow SEO eligibility and indexing owner.
 pub mod shadow_seo;

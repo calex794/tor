@@ -151,17 +151,106 @@ async function inspect(page, viewport, name) {
         viewport + ': reader did not display new public version');
       await inspect(page, viewport, 'second-reader');
 
-      // Already public free chapters cannot re-enter draft edit/release forms.
+      // BKR-96: the published free chapter editor is available to its owner.
+      // A second release remains forbidden; Save immediately publishes V2.
       const chapterId = href.split('/').pop();
-      for (const action of ['edit', 'release']) {
-        const response = await page.goto(base + '/me/books/' + bookId +
-          '/chapters/' + chapterId + '/' + action);
-        assert(response && response.status() === 404,
-          viewport + ': public free chapter exposed a pending ' + action + ' route');
+      const edit = await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/edit');
+      assert(edit && edit.status() === 200,
+        viewport + ': owner cannot edit a published free chapter');
+      assert(await page.getByText(/Сохранение сразу обновит опубликованную редакцию/).isVisible(),
+        viewport + ': published editor lacks immediate release explanation');
+      assert(await page.getByRole('button', { name: 'Сохранить изменения' }).isVisible(),
+        viewport + ': published free chapter editor has no Save');
+      const release = await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/release');
+      assert(release && release.status() === 404,
+        viewport + ': published chapter still permits second release');
+
+      // S001/S002/S006/S007: follow the same book across three independent
+      // browser identities. A working author session must not substitute for
+      // a guest's discovery or a reader's durable personal progress.
+      const guestContext = await browser.newContext({ viewport: { width, height } });
+      const readerContext = await browser.newContext({ viewport: { width, height } });
+      try {
+        const guest = await guestContext.newPage();
+        const catalogResponse = await guest.goto(base + '/catalog?q=' +
+          encodeURIComponent('Новая книга ' + viewport), { waitUntil: 'networkidle' });
+        assert(catalogResponse && catalogResponse.status() === 200,
+          viewport + ': anonymous catalog failed');
+        const bookCard = guest.locator('.book-mini-card__link[href="/books/' + bookId + '"]');
+        assert(await bookCard.isVisible(),
+          viewport + ': author publication is not discoverable by a guest');
+        await bookCard.click();
+        await guest.waitForURL(base + '/books/' + bookId);
+        const freeLink = guest.locator('a[href="' + href + '"]');
+        assert(await freeLink.isVisible(), viewport + ': published free chapter missing in guest TOC');
+        await freeLink.click();
+        await guest.waitForURL(base + href);
+        assert(await guest.getByText('PUBLIC B06 new').isVisible(),
+          viewport + ': guest cannot read the real published chapter');
+
+        const reader = await readerContext.newPage();
+        const readerEmail = 'reader.chapter.' + viewport + '@example.test';
+        await reader.goto(base + '/register');
+        await reader.getByLabel('Отображаемое имя').fill('Читатель новой книги ' + viewport);
+        await reader.getByLabel('Электронная почта').fill(readerEmail);
+        await reader.getByLabel('Пароль (12–128 символов)').fill('ReaderChapterPassword2026');
+        await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
+        await reader.waitForURL('**/me');
+
+        const bookResponse = await reader.goto(base + '/books/' + bookId);
+        assert(bookResponse && bookResponse.status() === 200,
+          viewport + ': distinct reader cannot open the book');
+        await reader.getByRole('link', { name: 'Добавить в библиотеку' }).click();
+        await reader.waitForURL(base + '/me/library/add/' + bookId);
+        await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
+        await reader.waitForURL('**/me/library');
+        assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
+          viewport + ': new reader bookmark is missing');
+
+        const privateReader = await reader.goto(base + '/read/' + chapterId);
+        assert(privateReader && privateReader.status() === 200,
+          viewport + ': account-only free reader failed');
+        assert(await reader.getByRole('heading', { name: 'Вторая глава опубликована' }).isVisible(),
+          viewport + ': saved free edition heading missing');
+        const savePlace = reader.getByRole('button', { name: 'Сохранить после фрагмента 1' });
+        assert(await savePlace.isVisible(), viewport + ': progress form absent');
+        await savePlace.click();
+        await reader.waitForURL(base + '/read/' + chapterId + '#p-1');
+        await reader.goto(base + '/me/library');
+        assert(await reader.locator('a[href="/read/' + chapterId + '#p-1"]').isVisible(),
+          viewport + ': new reader did not persist a chapter-specific place');
+        await inspect(reader, viewport, 'cross-user-saved');
+
+        await reader.goto(base + '/me');
+        await reader.getByRole('button', { name: 'Выйти' }).click();
+        await reader.waitForURL('**/login');
+        await reader.goto(base + '/me/library');
+        assert(new URL(reader.url()).pathname === '/login',
+          viewport + ': revoked reader session still accesses personal library');
+        await reader.getByLabel('Электронная почта').fill(readerEmail);
+        await reader.getByLabel('Пароль').fill('ReaderChapterPassword2026');
+        await reader.getByRole('button', { name: 'Войти', exact: true }).click();
+        await reader.waitForURL('**/me');
+        await reader.goto(base + '/me/library');
+        const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
+        assert(await resume.isVisible(),
+          viewport + ': reader lost saved place after logout and login');
+        await resume.click();
+        await reader.waitForURL(base + '/read/' + chapterId + '#p-1');
+        assert(await reader.getByRole('link', { name: 'Перейти к сохранённому месту' }).isVisible(),
+          viewport + ': saved anchor not available after return');
+        assert(await reader.getByText('PUBLIC B06 new').isVisible(),
+          viewport + ': resumed reader text differs from author publication');
+        await inspect(reader, viewport, 'cross-user-resumed');
+      } finally {
+        await guestContext.close();
+        await readerContext.close();
       }
       await context.close();
     }
-    console.log('TOR BKR-96 browser PASS: 390/1440 draft-book release, immediate second free Save, public reader');
+    console.log('TOR H/S001/S002/S006/S007 browser PASS: 390/1440 author release, guest discovery, distinct reader bookmark and resumed progress');
   } finally {
     await browser.close();
   }

@@ -10,10 +10,15 @@ pub use account::{
     account_error_page, login_form, my_account, registration_form, registration_form_with_error,
 };
 mod reader_private;
+#[allow(unused_imports)]
 pub use reader_private::private_reader;
+pub use reader_private::private_reader_with_demand;
+mod paywall;
+pub use paywall::paid_chapter_paywall;
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
+mod seo_head;
 pub use public_catalog::{
     catalog, catalog_search_with_covers, home, home_recent_with_covers, CatalogPageQuery,
     PublicBookCard,
@@ -35,17 +40,27 @@ pub fn escape_html(value: &str) -> String {
 }
 
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
+    layout_with_seo(title, description, content, seo_head::default_head())
+}
+
+fn layout_with_seo(
+    title: &str,
+    description: &str,
+    content: &str,
+    seo_markup: &str,
+) -> Html<String> {
     Html(
         include_str!("../templates/layout.html")
             .replace("<!--PAGE_TITLE-->", &escape_html(title))
             .replace("<!--PAGE_DESCRIPTION-->", &escape_html(description))
+            .replace("<!--PAGE_SEO_HEAD-->", seo_markup)
             .replace("<!--PAGE_CONTENT-->", content),
     )
 }
 
 /// The S0 demo and the PostgreSQL book view share exactly one page shell.
 pub fn book_detail(book: &PublicBookCard) -> Html<String> {
-    book_detail_body(book, None, None, false, None)
+    book_detail_body(book, None, None, false, None, false)
 }
 
 /// Public TOC: paid metadata can be listed but paid bodies are never fetched.
@@ -53,6 +68,15 @@ pub fn book_detail_with_chapters_cover(
     book: &tor_reading::services::PublicBookPage,
     limit: u16,
     has_cover: bool,
+) -> Html<String> {
+    book_detail_with_chapters_cover_internal(book, limit, has_cover, false)
+}
+
+fn book_detail_with_chapters_cover_internal(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+    has_cover: bool,
+    batch_enabled: bool,
 ) -> Html<String> {
     let card = PublicBookCard {
         id: book.id,
@@ -71,8 +95,8 @@ pub fn book_detail_with_chapters_cover(
             if chapter.is_paid {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><span>Глава {}. {title}</span><span class=\"chapter-toc__badge\">Платная · пока недоступна</span></li>",
-                    chapter.number
+                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge\">Платная · нужен доступ</span></li>",
+                    chapter.id, chapter.number
                 )
                 .expect("writing String");
             } else {
@@ -98,7 +122,7 @@ pub fn book_detail_with_chapters_cover(
         "<section class=\"book-section-card chapter-toc\" id=\"chapters\" aria-labelledby=\"toc-title\"><p class=\"book-section-card__kicker\">Оглавление</p><h2 class=\"book-section-card__title\" id=\"toc-title\">Главы книги</h2>{items}</section>"
     );
     // The CTA is only a chapter already verified as public and free by PgReader.
-    // We never produce a paid chapter link or invent rights from bookmarks.
+    // A paid TOC link only opens a public metadata paywall, never a grant.
     let first_free = book
         .chapters
         .iter()
@@ -110,6 +134,14 @@ pub fn book_detail_with_chapters_cover(
         first_free,
         has_cover,
         Some(&book.description),
+        batch_enabled
+            && book
+                .chapters
+                .iter()
+                .filter(|chapter| chapter.is_paid)
+                .take(2)
+                .count()
+                == 2,
     )
 }
 
@@ -121,7 +153,17 @@ pub fn book_detail_with_chapters_cover_stars(
     has_cover: bool,
     stars: &tor_recommendations::repositories::BookStars,
 ) -> Html<String> {
-    let html = book_detail_with_chapters_cover(book, limit, has_cover);
+    book_detail_with_chapters_cover_stars_batch(book, limit, has_cover, stars, false)
+}
+
+pub fn book_detail_with_chapters_cover_stars_batch(
+    book: &tor_reading::services::PublicBookPage,
+    limit: u16,
+    has_cover: bool,
+    stars: &tor_recommendations::repositories::BookStars,
+    batch_enabled: bool,
+) -> Html<String> {
+    let html = book_detail_with_chapters_cover_internal(book, limit, has_cover, batch_enabled);
     Html(
         html.0
             .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
@@ -160,6 +202,7 @@ fn book_detail_body(
     first_free: Option<u64>,
     has_cover: bool,
     published_description: Option<&str>,
+    batch_enabled: bool,
 ) -> Html<String> {
     let title = escape_html(&book.title);
     let language = escape_html(&book.language);
@@ -252,20 +295,75 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace(
+            "<!--BATCH_PURCHASE_ACTION-->",
+            &if batch_enabled {
+                format!(
+                    "<a class=\"ui-button ui-button--ghost\" href=\"/me/books/{}/buy-chapters\">Купить несколько глав</a>",
+                    book.id
+                )
+            } else {
+                String::new()
+            },
+        )
         .replace("<!--CHAPTERS-->", toc.unwrap_or(""))
         .replace("<!--BOOK_DISCUSSION-->", &discussion);
-    layout(&book.title, &meta_description, &content)
+    // The current release has no authorized SEO-owner/approval projection wired
+    // to H. Keep real book pages noindex; the F policy controls future activation.
+    let seo = seo_head::disabled_book_head(
+        book.id,
+        first_free.is_some(),
+        &book.title,
+        &meta_description,
+    );
+    layout_with_seo(&book.title, &meta_description, &content, &seo)
 }
 
+#[allow(dead_code)]
 pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String> {
+    reader_with_login_link(chapter, None)
+}
+
+/// The public reader can link to the existing authenticated completion route.
+/// A link never creates demand, grants access, or assumes that an open was read.
+pub fn reader_with_login_link(
+    chapter: &tor_reading::services::PublicChapterPage,
+    chapter_id: Option<u64>,
+) -> Html<String> {
     let previous = chapter
         .previous_chapter_id
         .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
         .unwrap_or_default();
-    let next = chapter
-        .next_chapter_id
-        .map(|id| format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"))
-        .unwrap_or_default();
+    use tor_reading::services::PublicContinuation;
+    let (next, continuation_status) = match chapter.continuation() {
+        PublicContinuation::ReadNow(id) => (
+            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"),
+            "",
+        ),
+        PublicContinuation::NeedsAccess(id) => (
+            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава — платная</a>"),
+            "<p class=\"reader-next-state\">Следующая глава опубликована. Для чтения может потребоваться покупка.</p>",
+        ),
+        PublicContinuation::WaitingForRelease => (
+            String::new(),
+            "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
+        ),
+    };
+    let return_to_reading = if matches!(
+        chapter.continuation(),
+        PublicContinuation::WaitingForRelease
+    ) {
+        chapter_id
+            .map(|id| {
+                format!(
+                    "<p class=\"reader-next-state\"><a class=\"text-link\" href=\"/read/{id}\">Отметить главу прочитанной и попросить продолжение</a></p>"
+                )
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let continuation_status = format!("{continuation_status}{return_to_reading}");
     let navigation = if previous.is_empty() && next.is_empty() {
         String::new()
     } else {
@@ -277,6 +375,7 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
+        .replace("<!--CONTINUATION_STATUS-->", &continuation_status)
         .replace(
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),

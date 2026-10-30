@@ -401,7 +401,7 @@
 }
 
 .comment-spoiler {
-  display: inline-flex;
+  display: inline-block;
   max-width: 100%;
   align-items: baseline;
   gap: 5px;
@@ -409,6 +409,7 @@
 }
 
 .comment-spoiler__toggle {
+  display: list-item;
   padding: 2px 7px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);

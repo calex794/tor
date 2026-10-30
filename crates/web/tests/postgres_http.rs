@@ -88,7 +88,8 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     assert_eq!(status, StatusCode::OK);
     assert!(book.contains("Глава 1. Начало истории"));
     assert!(book.contains("href=\"/reader/101\""));
-    assert!(book.contains("Платная · пока недоступна"));
+    assert!(book.contains("href=\"/reader/103\""));
+    assert!(book.contains("Платная · нужен доступ"));
     assert!(!book.contains("PRIVATE-PAID-MARKER"));
     assert!(!book.contains("Секретный черновик"));
     assert!(!book.contains("Запланированная глава"));
@@ -97,9 +98,17 @@ async fn public_reading_http_renders_safe_markdown_and_blocks_paid_text() {
     assert!(html.contains("<strong>"));
     assert!(html.contains("&lt;script&gt;"));
     assert!(!html.contains("<script>"));
-    assert!(html.contains("href=\"/reader/108\""));
+    assert!(html.contains("href=\"/reader/103\""));
+    assert!(html.contains("Следующая глава — платная"));
+    assert!(!html.contains("href=\"/reader/108\""));
     assert!(!html.contains("PRIVATE-PAID-MARKER"));
-    for denied in [102, 103, 104, 105, 106, 107] {
+    let (status, locked) = get(app.clone(), "/reader/103").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(locked.contains("Платная глава"));
+    assert!(locked.contains("href=\"/login\""));
+    assert!(locked.contains("href=\"/books/1#chapters\""));
+    assert!(!locked.contains("PRIVATE-PAID-MARKER"));
+    for denied in [102, 104, 105, 106, 107] {
         assert_eq!(
             get(app.clone(), &format!("/reader/{denied}")).await.0,
             StatusCode::NOT_FOUND
@@ -135,7 +144,7 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         let code = reply.status();
         assert_eq!(
             code,
-            if path == "/reader/101" {
+            if path == "/reader/101" || path == "/reader/103" {
                 StatusCode::OK
             } else {
                 StatusCode::NOT_FOUND
@@ -145,12 +154,19 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         assert_eq!(reply.headers()["cache-control"], "no-store", "{path}");
         assert_eq!(reply.headers()["x-content-type-options"], "nosniff");
         let policy = reply.headers()["content-security-policy"].to_str().unwrap();
+        if path == "/reader/103" {
+            assert_eq!(reply.headers()["x-robots-tag"], "noindex, nofollow");
+        }
         assert!(policy.contains("script-src 'none'"));
         assert!(policy.contains("frame-ancestors 'none'"));
         let body = to_bytes(reply.into_body(), 256 * 1024).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(!text.contains("PRIVATE-PAID-MARKER"));
         assert!(!text.contains("PRIVATE-DRAFT-MARKER"));
+        if path == "/reader/103" {
+            assert!(text.contains("Платная глава"));
+            assert!(text.contains("href=\"/login\""));
+        }
         if code == StatusCode::NOT_FOUND && path == "/books/2" {
             // Browser-only book 404 uses the NEwBOO recovery page, never a private body.
             assert!(text.contains("Страница не найдена"));
@@ -159,8 +175,15 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         } else if code == StatusCode::NOT_FOUND {
             // Reader and API errors must still have empty bodies.
             assert!(text.is_empty(), "protected read error must not expose data");
-        } else {
+        } else if path == "/reader/101" {
+            // Only the published free chapter renders its escaped body.
             assert!(text.contains("&lt;script&gt;"));
+            assert!(!text.contains("<script>"));
+        } else {
+            // Paid metadata cannot borrow or expose the free or paid body.
+            assert_eq!(path, "/reader/103");
+            assert!(text.contains("Для чтения нужен доступ"));
+            assert!(!text.contains("&lt;script&gt;"));
             assert!(!text.contains("<script>"));
         }
     }

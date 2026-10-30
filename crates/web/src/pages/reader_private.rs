@@ -2,12 +2,14 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
+use tor_reading::repositories::demand::DemandState;
 use tor_reading::services::progress::{
     reader_blocks, valid_text_place, ReadingPlace, SavedPlaceState,
 };
 
 /// Account-only reading: the browser can save a deterministic point in an
 /// immutable, currently published, free chapter without requiring JavaScript.
+#[allow(dead_code)]
 pub fn private_reader(
     chapter_id: u64,
     chapter: &tor_reading::services::PublicChapterPage,
@@ -15,6 +17,26 @@ pub fn private_reader(
     saved: SavedPlaceState,
     expected_revision: i64,
     completed: bool,
+) -> Html<String> {
+    private_reader_with_demand(
+        chapter_id,
+        chapter,
+        csrf,
+        saved,
+        expected_revision,
+        completed,
+        None,
+    )
+}
+
+pub fn private_reader_with_demand(
+    chapter_id: u64,
+    chapter: &tor_reading::services::PublicChapterPage,
+    csrf: &str,
+    saved: SavedPlaceState,
+    expected_revision: i64,
+    completed: bool,
+    demand: Option<DemandState>,
 ) -> Html<String> {
     let blocks = reader_blocks(&chapter.body_markdown);
     // Do not infer completion from a GET or from a saved paragraph marker.
@@ -55,6 +77,21 @@ pub fn private_reader(
         )
         })
     };
+    let demand_panel = match demand {
+        Some(DemandState::Ready) => format!(
+            r#"<section class="reader-continuation" id="continuation">
+               <h2>Ждёте следующую главу?</h2>
+               <p>Сообщите автору, что хотите продолжения. Это не покупка и не обещание срока.</p>
+               <form method="post" action="/read/{chapter_id}/want-continuation">
+                 <input type="hidden" name="csrf_token" value="{}">
+                 <button class="ui-button ui-button--primary" type="submit">Хочу продолжение</button>
+               </form></section>"#,
+            escape_html(csrf)
+        ),
+        Some(DemandState::Recorded) =>
+            "<section class=\"reader-continuation\" id=\"continuation\" role=\"status\">Вы уже сообщили автору, что ждёте продолжения.</section>".to_owned(),
+        Some(DemandState::NotEligible) | None => String::new(),
+    };
     let mut sections = String::new();
     for (index, source) in blocks.iter().enumerate() {
         let block_index = index + 1;
@@ -93,7 +130,13 @@ pub fn private_reader(
         .unwrap_or_default();
     let next = chapter
         .next_chapter_id
-        .map(|id| format!(r#"<a rel="next" href="/read/{id}">Следующая глава</a>"#))
+        .map(|id| {
+            if chapter.next_chapter_is_paid {
+                format!(r#"<a rel="next" href="/reader/{id}">Следующая глава — платная</a>"#)
+            } else {
+                format!(r#"<a rel="next" href="/read/{id}">Следующая глава</a>"#)
+            }
+        })
         .unwrap_or_default();
     let navigation = format!(
         r#"<nav class="chapter-navigation" aria-label="Переход между главами">{prev}{next}</nav>"#
@@ -116,6 +159,7 @@ pub fn private_reader(
                     {sections}
                 </article>
                 {complete_form}
+                {demand_panel}
                 {navigation}
                 <p class="reader-page__return"><a class="text-link" href="/me/library">К моей библиотеке</a></p>
             </div></section>"#,

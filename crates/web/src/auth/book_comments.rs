@@ -12,7 +12,10 @@ use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use tor_accounts::services::security::generate_session_token;
 use tor_discussions::{
-    domain::comments::{CommentBody, CommentIntentKey},
+    domain::{
+        comments::{CommentBody, CommentIntentKey},
+        spoilers::{mask_mentions, parse, Segment},
+    },
     repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment},
 };
 
@@ -25,22 +28,60 @@ pub(super) struct CommentsQuery {
 pub(super) struct CommentForm {
     body: String,
     command_key: String,
+    parent_id: Option<i64>,
     csrf_token: Option<String>,
+    return_to: Option<String>,
 }
 
-fn comments_list(book_id: i64, comments: &[PublicComment]) -> String {
+// Only our fixed markup is trusted; every user-controlled segment is escaped.
+fn render_comment(body: &str) -> String {
+    let mut html = String::new();
+    for segment in parse(body) {
+        match segment {
+            Segment::Text(text) => html.push_str(&pages::escape_html(&mask_mentions(text))),
+            Segment::Spoiler(text) => {
+                html.push_str("<details class=\"comment-spoiler\"><summary class=\"comment-spoiler__toggle\">Спойлер</summary><span class=\"comment-spoiler__content\">");
+                html.push_str(&pages::escape_html(&mask_mentions(text)));
+                html.push_str("</span></details>");
+            }
+        }
+    }
+    html
+}
+
+fn comments_list(book_id: i64, comments: &[PublicComment], csrf: Option<&str>) -> String {
     if comments.is_empty() {
         return "<p class=\"comments-block__empty\">Комментариев пока нет.</p>".to_owned();
     }
     let mut output = String::from("<div class=\"comments-list\">");
     for comment in comments {
-        let body = pages::escape_html(&comment.body).replace('\n', "<br>");
+        let body = render_comment(&comment.body);
+        let context = comment.parent_id.map_or_else(String::new, |id| {
+            match id.checked_add(1) {
+                Some(after) => format!("<p><a href=\"/books/{book_id}/comments?after={after}#comment-{id}\">Ответ на комментарий №{id}</a></p>"),
+                None => format!("<p>Ответ на комментарий №{id}</p>"),
+            }
+        });
+        let reply = csrf.map_or_else(String::new, |csrf| {
+            format!(
+                "<details class=\"comment-reply\"><summary>Ответить на комментарий №{id}</summary>
+                 <form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
+                 <label for=\"reply-{id}\">Ваш ответ на комментарий №{id}</label>
+                 <textarea class=\"ui-textarea comments-form__input\" id=\"reply-{id}\" name=\"body\" rows=\"3\" maxlength=\"2000\" required></textarea>
+                 <input type=\"hidden\" name=\"parent_id\" value=\"{id}\">
+                 <input type=\"hidden\" name=\"command_key\" value=\"{}\">
+                 <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
+                 <button class=\"ui-button ui-button--primary\" type=\"submit\">Отправить ответ</button>
+                 </form></details>",
+                generate_session_token(), pages::escape_html(csrf), id = comment.id,
+            )
+        });
         write!(
             output,
             "<article class=\"comment-card\" id=\"comment-{}\">
-             <div class=\"comment-card__head\"><span class=\"comment-card__author\">Читатель</span></div>
-             <div class=\"comment-card__body\">{body}</div></article>",
-            comment.id
+             <div class=\"comment-card__head\"><span class=\"comment-card__author\">Читатель · комментарий №{id}</span></div>
+             {context}<div class=\"comment-card__body\">{body}</div>{reply}</article>",
+            comment.id, id = comment.id
         )
         .expect("render comment");
     }
@@ -69,7 +110,8 @@ fn comments_page(
         Some(csrf) => format!(
             "<form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
              <label for=\"comment-body\">Ваш комментарий</label>
-             <textarea class=\"ui-textarea comments-form__input\" id=\"comment-body\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
+             <p id=\"spoiler-help\">Чтобы скрыть спойлер, заключите текст в ||двойные черты||.</p>
+             <textarea class=\"ui-textarea comments-form__input\" id=\"comment-body\" aria-describedby=\"spoiler-help\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
              <input type=\"hidden\" name=\"command_key\" value=\"{}\">
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
              <button class=\"ui-button ui-button--primary comments-form__submit\" type=\"submit\">Отправить</button>
@@ -94,7 +136,7 @@ fn comments_page(
          {form}
          {list}
          </section></div></section>",
-        list = comments_list(book_id, comments),
+        list = comments_list(book_id, comments, csrf),
     );
     pages::layout(
         "Обсуждение книги",
@@ -169,17 +211,42 @@ pub(super) async fn submit(
     if book_id <= 0 {
         return deny(StatusCode::NOT_FOUND);
     }
-    // No client-provided actor or version. Hash includes the target ID and body.
-    let digest = Sha256::digest(format!("book:{book_id}\n{}", body.as_str()).as_bytes());
+    if form.parent_id.is_some_and(|id| id <= 0) {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    // The Inbox may request one fixed local destination, never a client URL.
+    // No Inbox redirect is accepted for a root comment.
+    let redirect_to_inbox = match form.return_to.as_deref() {
+        None => false,
+        Some("inbox") if form.parent_id.is_some() => true,
+        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    };
+    // Preserve existing root command hashes; reply identities include their parent.
+    let payload = match form.parent_id {
+        Some(parent) => format!("book:{book_id}\nreply:{parent}\n{}", body.as_str()),
+        None => format!("book:{book_id}\n{}", body.as_str()),
+    };
+    let digest = Sha256::digest(payload.as_bytes());
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
     match store
-        .create(actor, book_id, body.as_str(), key.as_str(), &digest[..])
+        .create_with_parent(
+            actor,
+            book_id,
+            body.as_str(),
+            key.as_str(),
+            &digest[..],
+            form.parent_id,
+        )
         .await
     {
-        CreateResult::Created(_) | CreateResult::Replayed(_) => private_response(
-            Redirect::to(&format!("/books/{book_id}/comments#comments")),
-            &[],
-        ),
+        CreateResult::Created(_) | CreateResult::Replayed(_) => {
+            let destination = if redirect_to_inbox {
+                "/me/inbox".to_owned()
+            } else {
+                format!("/books/{book_id}/comments#comments")
+            };
+            private_response(Redirect::to(&destination), &[])
+        }
         CreateResult::Conflict => deny(StatusCode::CONFLICT),
         CreateResult::NotFound => deny(StatusCode::NOT_FOUND),
         CreateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -190,9 +257,24 @@ pub(super) async fn submit(
 mod tests {
     use super::*;
     #[test]
+    fn e_04_spoiler_is_closed_escaped_and_mentions_are_masked() {
+        let html =
+            render_comment("до ||<img src=x onerror=alert(1)> @private_user @[user:42]|| после");
+        assert!(html.contains("<details class=\"comment-spoiler\">"));
+        assert!(!html.contains(" open"));
+        assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img"));
+        assert!(!html.contains("@private_user"));
+        assert!(!html.contains("@[user:42]"));
+        assert_eq!(render_comment("|||| ||не закрыт"), "|||| ||не закрыт");
+        assert_eq!(render_comment("a\nб"), "a\nб");
+    }
+
+    #[test]
     fn e_02_page_escapes_comment_markup_and_uses_a_fresh_command_key() {
         let comments = vec![PublicComment {
             id: 12,
+            parent_id: None,
             author_user_id: 1,
             body: "<script>alert(1)</script>\nПривет".to_owned(),
         }];

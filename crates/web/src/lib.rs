@@ -1,6 +1,6 @@
 //! Routing shell only: book business logic remains in tor-books.
 use axum::{
-    extract::{Path, Query, State},
+    extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -12,17 +12,16 @@ use tor_books::{
     repositories::PgCatalog,
     services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
 };
-use tor_reading::{
-    repositories::PgReader,
-    services::{PublicReadingRepository, ReadingError},
-};
+use tor_reading::{repositories::PgReader, services::ReadingError};
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
+mod author_chapter_images;
 mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
+mod book_follow_page;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
@@ -36,9 +35,14 @@ mod operator_overview;
 mod operator_traces;
 mod pages;
 #[cfg(feature = "s3-paid")]
+pub mod paid_author_assets;
+#[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
 mod paid_grants_http;
 mod paid_reader_router;
+mod public_reader_http;
+#[cfg(feature = "s3-paid")]
+pub use paid_author_assets::PgPaidAuthorAssets;
 #[cfg(feature = "s3-paid")]
 pub use paid_author_publish::PgPaidAuthorPublisher;
 #[cfg(feature = "s3-paid")]
@@ -59,13 +63,14 @@ struct AppState {
     postgres: Option<PgCatalog>,
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
+    paid_batch_browser_enabled: bool,
+    follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
 
 async fn health() -> &'static str {
     "ok"
 }
-/// Readiness uses the exact PG schema and database permissions, not only the process.
 async fn ready(State(state): State<AppState>) -> (StatusCode, &'static str) {
     if let Some(catalog) = state.postgres {
         if catalog.probe().await.is_err() {
@@ -204,8 +209,16 @@ async fn book_error(state: &AppState, status: StatusCode) -> Response {
 async fn book_detail(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    OriginalUri(uri): OriginalUri,
     Query(query): Query<TocQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
+    // Require the canonical numeric spelling before consulting public book data.
+    if !tor_search::domain::seo_urls::BookUrl::from_id(id)
+        .is_some_and(|book_url| book_url.matches_path(uri.path()))
+    {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    }
     if let Some(reader) = state.reader.as_ref() {
         let limit = query.limit.unwrap_or(100);
         let book = match reader
@@ -235,10 +248,17 @@ async fn book_detail(
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
-            return pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
-                .into_response();
+            let html = if state.paid_batch_browser_enabled {
+                pages::book_detail_with_chapters_cover_stars_batch(
+                    &book, limit, has_cover, &stars, true,
+                )
+            } else {
+                pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
+            };
+            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
         }
-        return pages::book_detail_with_chapters_cover(&book, limit, has_cover).into_response();
+        let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
+        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -246,29 +266,19 @@ async fn book_detail(
         Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
         Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
     };
-    pages::book_detail(&pages::PublicBookCard {
+    let html = pages::book_detail(&pages::PublicBookCard {
         id: book.id(),
         title: book.title().into(),
         language: book.key().target_language().into(),
         author_name: None,
         genres: Vec::new(),
-    })
-    .into_response()
+    });
+    Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", "")).into_response()
 }
-/// C-10: successful and denied reading both use no-store and strict CSP.
+/// Keep the security-reviewed public route identity stable while isolating
+/// the actual S005/C-10 reader logic in the C/H feature module.
 async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
-    let Some(reader) = state.reader else {
-        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
-    };
-    let chapter = match reader.public_chapter(id).await {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
-        Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
-        return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
-    }
-    auth_cookies::private_response(pages::reader(&chapter), &[])
+    public_reader_http::reader_page(State(state), Path(id)).await
 }
 
 /// S3 delivery is not connected: deny every alternative reader API request.
@@ -283,9 +293,6 @@ async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
 
-/// Optional, non-blocking persistence of anonymous technical RIL aggregates.
-/// Uses the already bounded PostgreSQL pool and never changes readiness/ACL.
-/// Internal aggregate diagnostics only; no user keys or route sequences.
 /// This is not an HTTP endpoint.
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
@@ -354,7 +361,7 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    ril::instrument(make_router(repo, None, None, false, None))
+    ril::instrument(make_router(repo, None, None, false, None, None))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     ril::instrument(make_router(
@@ -362,6 +369,7 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
         Some(catalog),
         None,
         false,
+        None,
         None,
     ))
 }
@@ -372,10 +380,10 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         Some(reader),
         false,
         None,
+        None,
     ))
 }
 
-/// Account forms are gated until their database, CSRF and rate-limit tests pass.
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -391,6 +399,11 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
+            Some(book_follow_page::FollowBookControl::new(
+                accounts.clone(),
+                secure,
+                public_origin.clone(),
+            )),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -402,6 +415,7 @@ fn make_router(
     reader: Option<PgReader>,
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    follow_control: Option<book_follow_page::FollowBookControl>,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     let mut app = Router::new()
@@ -458,7 +472,10 @@ fn make_router(
         postgres,
         reader,
         search,
+        paid_batch_browser_enabled: active_auth
+            && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
         covers,
+        follow_control,
     })
     .merge(api)
     .merge(search_api)
@@ -497,6 +514,28 @@ mod tests {
         ] {
             assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
         }
+    }
+
+    #[tokio::test]
+    async fn seo_03_book_urls_have_one_public_spelling() {
+        for path in ["/books/1", "/books/1?limit=1"] {
+            assert_eq!(get(path).await.0, StatusCode::OK, "{path}");
+        }
+        for path in ["/books/0", "/books/01", "/books/0001"] {
+            assert_eq!(get(path).await.0, StatusCode::NOT_FOUND, "{path}");
+        }
+        for path in [
+            "/books/+1",
+            "/books/%31",
+            "/books/1/",
+            "/books/18446744073709551616",
+            "/books/%D0%BA",
+        ] {
+            let (status, html) = get(path).await;
+            assert_ne!(status, StatusCode::OK, "{path}");
+            assert!(!html.contains("book-hero-card"), "{path}");
+        }
+        assert_eq!(get("/books/3").await.0, StatusCode::NOT_FOUND);
     }
     #[tokio::test]
     async fn hidden_book_never_reaches_public_pages() {

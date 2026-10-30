@@ -1,10 +1,25 @@
 //! Shared account router and handler forms.
 use super::*;
 
+/// Resolve actor from the session database, never client-supplied user IDs.
+pub(super) async fn session_user(
+    state: &AuthState,
+    headers: &HeaderMap,
+) -> Result<Option<i64>, StatusCode> {
+    let Some(token) = state.cookies.session_token(headers) else {
+        return Ok(None);
+    };
+    state
+        .accounts
+        .active_session_user(&session_token_digest(&token))
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
+}
+
 #[derive(Clone)]
 pub(super) struct AuthState {
-    pub(super) accounts: PgAccounts,
     pub(super) referrals: tor_referrals::repositories::PgReferrals,
+    pub(super) accounts: PgAccounts,
     pub(super) checkout: tor_commerce::repositories::checkout::PgCheckout,
     pub(super) paid_checkout_enabled: bool,
     pub(super) paid_reader_available: bool,
@@ -12,6 +27,8 @@ pub(super) struct AuthState {
     pub(super) progress: PgReadingProgress,
     pub(super) sync: PgReadingSync,
     pub(super) bookmarks: PgLibrary,
+    pub(super) demand: PgContinuationDemand,
+    pub(super) book_follows: tor_reading::repositories::PgBookFollows,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
     pub(super) cookies: CookiePolicy,

@@ -26,6 +26,7 @@ SCOPE_CALLS = {
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
+    "record_verified_continuation", "follow", "unfollow",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -126,7 +127,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body
@@ -168,6 +169,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
+        # Shared write helpers contain both calls; each route must prove its own.
+        if policy == "scoped" and entry["template"] == "/me/books/{id}/follow":
+            proof = {"follow"}
+        elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
+            proof = {"unfollow"}
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
