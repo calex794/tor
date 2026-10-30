@@ -198,7 +198,6 @@ jobs:
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test auth_postgres -- --ignored
-          cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
@@ -251,6 +250,15 @@ jobs:
         run: |
           cargo build -p tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: Line A credential and login audit PostgreSQL checks
+        run: |
+          cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |

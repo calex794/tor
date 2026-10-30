@@ -508,3 +508,11 @@ pub fn book_detail_with_chapters(
 
 #[cfg(test)]
 mod tests;
+
+mod profile_settings;
+pub use profile_settings::profile_settings;
+mod notification_settings;
+pub use notification_settings::delivery_preferences_page;
+
+mod password_reset;
+pub use password_reset::{reset_confirm_form, reset_request_form};
