@@ -134,7 +134,10 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .await
         .unwrap();
     }
+    // The first uncommitted G-08 page is not a reader-visible event.
     let revisions = PgStagedRevisions::new(pool.clone());
+    assert!(!revisions.set_read_state(follower, &v2_event, true).await.unwrap());
+
     assert!(
         revisions
             .latest(follower, None)
@@ -174,9 +177,32 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
     assert_eq!(page.items.len(), 1, "V1 must not duplicate the C-16 feed");
     assert_eq!(page.items[0].chapter_id, chapter);
     assert_eq!(page.items[0].version_no, 2);
+    assert!(!page.items[0].is_read);
     assert_eq!(page.next_cursor, None);
     assert!(!page.items[0].is_paid);
     assert_eq!(page.items[0].book_title, "Reader staged book");
+    assert!(revisions.set_read_state(follower, &v2_event, true).await.unwrap());
+    assert!(revisions.set_read_state(follower, &v2_event, true).await.unwrap());
+    assert!(revisions.latest(follower, None).await.unwrap().items[0].is_read);
+    assert!(!revisions.set_read_state(follower, &v1_event, true).await.unwrap());
+    assert_eq!(
+        revisions.set_read_state(follower, "bad-uuid", true).await,
+        Err(StagedRevisionError::Invalid)
+    );
+    let c16_marks: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM reader_follow_notification_reads
+         WHERE user_id=$1 AND chapter_id=$2",
+    )
+    .bind(follower)
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(c16_marks, 0, "V2 mark-read is not a C-16 chapter read");
+    assert!(revisions.set_read_state(follower, &v2_event, false).await.unwrap());
+    assert!(revisions.set_read_state(follower, &v2_event, false).await.unwrap());
+    assert!(!revisions.latest(follower, None).await.unwrap().items[0].is_read);
+
     assert!(!format!("{page:?}").contains("Private-notification-proof"));
     assert!(revisions
         .latest(outsider, None)
@@ -206,6 +232,8 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .items
         .is_empty());
 
+    assert!(!revisions.set_read_state(outsider, &v2_event, true).await.unwrap(),
+        "spoofed intent does not authorize an outsider");
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -217,6 +245,8 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .unwrap()
         .items
         .is_empty());
+    assert!(!revisions.set_read_state(follower, &v2_event, true).await.unwrap(),
+        "held books are not actionable");
     sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
         .bind(book)
         .execute(&pool)
@@ -281,6 +311,8 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
             .is_empty(),
         "a later revision must hide the stale V2 notification"
     );
+    assert!(!revisions.set_read_state(follower, &v2_event, true).await.unwrap(),
+        "V3 supersedes stale V2 intent");
     sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
         .bind(chapter)
         .bind(v2)
@@ -303,6 +335,8 @@ async fn staged_v2_is_private_and_disappears_when_old_hidden_or_unfollowed() {
         .unwrap()
         .items
         .is_empty());
+    assert!(!revisions.set_read_state(follower, &v2_event, true).await.unwrap(),
+        "unfollow prevents acknowledgment");
     sqlx::query(
         "INSERT INTO reader_book_follows(user_id,book_id,created_at)
          VALUES($1,$2,now()+interval '1 day')",
