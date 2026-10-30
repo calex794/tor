@@ -30,6 +30,7 @@ pub use cover_http::{
     router_with_postgres_reading_covers,
 };
 pub mod cover_worker;
+pub mod notification_worker;
 mod observability;
 mod operator_overview;
 mod operator_traces;
