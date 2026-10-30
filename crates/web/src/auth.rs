@@ -42,6 +42,7 @@ use tor_reading::{
 
 mod access_audit;
 mod account_form_http;
+mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
@@ -269,7 +270,7 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
-        .route("/me/books/{id}", get(author_book))
+        .route("/me/books/{id}", get(author_book_page::page))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
@@ -402,57 +403,6 @@ async fn create_book(
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn author_book(
-    State(state): State<AuthState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-) -> Response {
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    let book = match state.authoring.owned_book(actor, id).await {
-        Ok(Some(book)) => book,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let published = match state.authoring.owned_book_is_public(actor, id).await {
-        Ok(published) => published,
-        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let demand_count = match state.demand.current_count(id).await {
-        Ok(count) => count,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let chapters = match state.authoring.list_owned_chapters(actor, id).await {
-        Ok(chapters) => chapters,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let latest_cover = if let Some(jobs) = state.cover_jobs.as_ref() {
-        match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        }
-    } else {
-        None
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        author_chapter_pages::detail_with_covers_with_demand(
-            &book,
-            published,
-            &chapters,
-            &csrf,
-            state.cover_upload_enabled,
-            latest_cover.as_deref(),
-            demand_count,
-        ),
-        &cookies,
-    )
 }
 
 /// NEwBOO owner cover settings, restricted script; no inline scripts.
