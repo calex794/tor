@@ -305,6 +305,7 @@ jobs:
           cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs
