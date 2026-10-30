@@ -57,6 +57,7 @@ mod library_actions;
 mod library_page;
 mod login_limiter;
 mod paid_completion;
+mod password_change;
 mod private_reader;
 mod rankings;
 mod reply_read_state;
@@ -182,6 +183,10 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route(
+            "/me/settings/password",
+            get(password_change::page).post(password_change::submit),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(
