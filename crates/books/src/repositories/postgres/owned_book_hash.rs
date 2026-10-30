@@ -30,6 +30,17 @@ pub(super) fn payload_hash(book: &NewBook) -> [u8; 32] {
         hasher.update((book.description.len() as u64).to_be_bytes());
         hasher.update(book.description.as_bytes());
     }
+    // New alias fields affect idempotency without changing historical
+    // command hashes that did not carry alias metadata.
+    if !book.original_title.is_empty() || !book.alternative_titles.is_empty() {
+        hasher.update(b"book-title-aliases-v1");
+        for part in std::iter::once(book.original_title.as_str())
+            .chain(book.alternative_titles.iter().map(String::as_str))
+        {
+            hasher.update((part.len() as u64).to_be_bytes());
+            hasher.update(part.as_bytes());
+        }
+    }
     let digest: [u8; 32] = hasher.finalize().into();
 
     digest

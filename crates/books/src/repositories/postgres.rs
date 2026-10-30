@@ -5,6 +5,7 @@ mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
 mod owned_book_hash;
+mod title_suggestions;
 mod owned_chapter_pages;
 use crate::{
     domain::{Book, BookKey, Visibility},
@@ -226,6 +227,28 @@ impl PgAuthoring {
             }
             _ => AuthorError::Unavailable,
         })?;
+
+        // The trigger indexes the primary title. Persist source/alternative
+        // aliases in the SAME transaction as the draft and idempotency record.
+        for (kind, title) in std::iter::once(("original", &book.original_title))
+            .filter(|(_, title)| !title.is_empty())
+            .chain(
+                book.alternative_titles
+                    .iter()
+                    .map(|title| ("alternative", title)),
+            )
+        {
+            sqlx::query(
+                "INSERT INTO book_title_aliases (book_id, kind, title)
+                 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            )
+            .bind(book_id)
+            .bind(kind)
+            .bind(title)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        }
         sqlx::query(
             "UPDATE book_create_commands SET book_id=$3 WHERE user_id=$1 AND command_key=$2",
         )
