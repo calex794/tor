@@ -36,7 +36,7 @@ fn unique_email(tag: &str) -> String {
 async fn seed_code(pool: &PgPool, program: &str) -> (i64, String) {
     let owner: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'F09 fixture','fixture-only') RETURNING id",
+         VALUES($1,'F09 fixture','$argon2id$test') RETURNING id",
     )
     .bind(unique_email("owner"))
     .fetch_one(pool)
@@ -74,7 +74,7 @@ async fn register(pool: &PgPool, guest: Option<&[u8; 32]>, manual: Option<&str>)
         .register_with_session_referral(
             &unique_email("invited"),
             "F09 invited",
-            "fixture-password-not-for-login",
+            "$argon2id$test",
             &digest,
             NonZeroU32::new(3600).unwrap(),
             RegistrationReferral {
