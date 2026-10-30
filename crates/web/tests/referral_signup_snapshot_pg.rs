@@ -105,7 +105,18 @@ async fn f_09_snapshot_manual_survives_disabled_code() {
         .unwrap();
     let repo = PgReferrals::new(pool.clone());
     assert!(repo.finalize_one(subject).await.unwrap());
-    assert_eq!(asserted_referrer(&pool, subject).await, (owner, "manual_code_at_registration".into()));
+    assert_eq!(
+        asserted_referrer(&pool, subject).await,
+        (owner, "manual_code_at_registration".into())
+    );
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM referral_attributions WHERE subject_user_id=$1",
+    )
+    .bind(subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "active", "later disabling must not erase earned attribution");
     assert!(!repo.finalize_one(subject).await.unwrap());
 }
 
@@ -148,7 +159,18 @@ async fn f_09_snapshot_guest_survives_blocked_code_and_capture() {
         .await
         .unwrap();
     assert!(repo.finalize_one(subject).await.unwrap());
-    assert_eq!(asserted_referrer(&pool, subject).await, (owner, "guest_capture".into()));
+    assert_eq!(
+        asserted_referrer(&pool, subject).await,
+        (owner, "guest_capture".into())
+    );
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM referral_attributions WHERE subject_user_id=$1",
+    )
+    .bind(subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "blocked", "fraud flag must prevent a live referral");
     let valid_expiry: bool = sqlx::query_scalar(
         "SELECT a.attributed_at = o.registered_at
             AND a.expires_at = o.registered_at + INTERVAL '365 days'
