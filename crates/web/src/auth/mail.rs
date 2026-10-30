@@ -171,8 +171,17 @@ pub(super) async fn send(
     }
     let is_ajax = headers.get("x-requested-with").and_then(|x|x.to_str().ok()).is_some_and(|x|x.eq_ignore_ascii_case("fetch")||x.eq_ignore_ascii_case("xmlhttprequest"))
         || headers.get("accept").and_then(|x|x.to_str().ok()).is_some_and(|x|x.contains("application/json"));
+    // NEwBOO reads the first nonempty sanitized identity from headers then form.
+    // It never reinterprets a source HTML ID as a TOR JSON 43-character key.
+    let client_id = [
+        headers.get("idempotency-key").and_then(|h| h.to_str().ok()),
+        headers.get("x-idempotency-key").and_then(|h| h.to_str().ok()),
+        form.client_message_id.as_deref(),
+    ].into_iter().flatten()
+        .map(tor_social::domain::clean_html_client_id)
+        .find(|id| !id.is_empty());
     let mail = service(&state);
-    let result = if let Some(client_id) = form.client_message_id.as_deref().filter(|id| !id.trim().is_empty()) {
+    let result = if let Some(client_id) = client_id.as_deref() {
         mail.send_html(actor, id, &form.body, client_id, &generate_session_token()).await
     } else { match form.command_key.as_deref().filter(|key| !key.is_empty()) {
         Some(key) => mail.send(actor, id, &form.body, key).await,
