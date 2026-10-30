@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 95)  # Removed unsupported mail read-receipt action.
-        self.assertEqual(report["route_pairs"], 92)  # E-08: eight source-mail adapter routes.
+        self.assertEqual(report["route_pairs"], 93)  # E-08: eight source-mail adapter routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
