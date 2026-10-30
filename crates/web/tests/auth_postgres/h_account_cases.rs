@@ -34,13 +34,14 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
 
 /// F-09: an invalid manual code must keep the pending guest invitation and
 /// must not create an account before the visitor corrects the form.
-pub(super) async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str) {
+async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str, email: &str) {
     for (code, message) in [
         ("broken+code", "Некорректный код приглашения"),
         ("unknown_invite_2026", "Код приглашения не найден"),
     ] {
         let form = format!(
-            "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&manual_invite_code={code}&csrf_token={csrf}"
+            "email={}&display_name=CIReader&password=LongSecurePassword2026&manual_invite_code={code}&csrf_token={csrf}",
+            email.replace('@', "%40")
         );
         let response = send(app, request("POST", "/register", &form, cookies, ORIGIN)).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -51,10 +52,64 @@ pub(super) async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies:
         );
         let html = body_of(response).await;
         assert!(html.contains(message));
-        assert!(html.contains("value=\"tor_ci_account@example.com\""));
+        assert!(html.contains(&format!("value=\"{email}\"")));
         assert!(html.contains("name=\"csrf_token\""));
         assert!(!html.contains("value=\"LongSecurePassword2026\""));
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_http_invite_validation_and_consumed_guest_cookie() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
+    assert!(url.ends_with("/tor_ci"), "do not modify a production database");
+    let catalog = PgCatalog::connect(&url).await.expect("migrated PostgreSQL");
+    let reader = PgReader::new(catalog.pool().clone());
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
+    );
+    let page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let html = body_of(page).await;
+    let csrf = csrf_token(&html);
+    let guest = tor_accounts::services::security::generate_session_token();
+    let cookies = format!("{csrf_cookie}; tor-dev-guest={guest}");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("wall clock")
+        .as_nanos();
+    let email = format!("f09-http-{stamp}@example.invalid");
+
+    invalid_manual_invitation(&app, csrf, &cookies, &email).await;
+
+    // Retrying without the invalid manual code must succeed with the same
+    // guest identity; this also proves the failed POST did not create a user.
+    let form = format!(
+        "email={}&display_name=CIReader&password=LongSecurePassword2026&csrf_token={csrf}",
+        email.replace('@', "%40"),
+    );
+    let response = send(&app, request("POST", "/register", &form, &cookies, ORIGIN)).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/me");
+    assert!(cookie(&response, "tor-dev-session=").len() > 20);
+    assert_eq!(cookie(&response, "tor-dev-guest="), "tor-dev-guest=");
+    let cleared = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find(|value| value.to_str().unwrap_or("").starts_with("tor-dev-guest="))
+        .expect("explicit guest cookie expiration")
+        .to_str()
+        .unwrap();
+    assert!(cleared.contains("Max-Age=0"));
+    assert!(cleared.contains("SameSite=Lax"));
+    assert!(cleared.contains("HttpOnly"));
 }
 
 pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie: &str) {
