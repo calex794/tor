@@ -1,0 +1,1342 @@
+name: TOR integration CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  select:
+    uses: ./.github/workflows/ci-selection.yml
+    with:
+      caller: all
+  demo:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"rust":true}').rust) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Architecture boundaries
+        run: python3 tools/check_feature_layout.py
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Rust unit and HTTP integration
+        run: cargo test --workspace --all-targets
+      - name: Rust lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build release outside VPS
+        run: cargo build --release -p tor-web
+      - name: Real HTTP smoke (loopback only)
+        run: |
+          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 ./target/release/tor-web > "$RUNNER_TEMP/tor-demo.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3099/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3099/ > "$RUNNER_TEMP/tor-home.html"
+          grep -q 'Пандаолейт' "$RUNNER_TEMP/tor-home.html"
+          curl --fail --silent http://127.0.0.1:3099/api/v1/books > "$RUNNER_TEMP/tor-books.json"
+          grep -q 'Первое знакомство' "$RUNNER_TEMP/tor-books.json"
+          if grep -q 'Закрытый черновик' "$RUNNER_TEMP/tor-books.json"; then exit 1; fi
+          ! curl --fail --silent http://127.0.0.1:3099/books/3
+      - name: Upload server binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-demo-${{ github.sha }}
+          path: target/release/tor-web
+          if-no-files-found: error
+          retention-days: 7
+  postgres-runtime:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"postgres":true}').postgres) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Create isolated roles and database
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Feature boundary checks
+        run: python3 tools/check_feature_layout.py
+      # The Rust S0 suite owns automatic workspace fmt/test/Clippy for every main SHA.
+      # Preserve the full workspace baseline for standalone manual dispatches.
+      - name: Standalone manual workspace baseline
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Combined S3 feature Clippy
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
+      - name: Apply SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Reject app role as migrator and DDL writer
+        run: |
+          if DATABASE_URL="$TEST_DATABASE_URL" cargo run -p tor-migrations --bin tor-migrate; then exit 1; fi
+          if PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 -c 'CREATE TABLE forbidden (x int)'; then exit 1; fi
+      - name: Seed visible and hidden rows
+        run: |
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO books(id,source_identity,target_language,title,visibility)
+          VALUES (1,'ci:1','ru','TOR CI public','public'),
+                 (2,'ci:2','ru','TOR CI hidden','draft'),
+                 (3,'ci:3','ru','TOR CI held','public');
+          UPDATE books SET admin_hold=true WHERE id=3;
+          -- Author/genre fixtures cover public, hidden and held rows with identical metadata.
+          UPDATE books SET author_name='Жюль', genres=ARRAY['фэнтези','приключения']
+          WHERE id IN (1,2,3);
+          SQL
+      - name: Seed G-07/G-09 owned cover job fixtures
+        run: |
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO users(id,email_normalized,display_name,password_hash)
+          OVERRIDING SYSTEM VALUE
+          SELECT id,'cover-'||id||'@example.invalid','CI Cover Owner','$argon2id$test'
+            FROM generate_series(901,905) AS id;
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
+          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id
+            FROM generate_series(901,905) AS id;
+          SQL
+      - name: Seed published free and protected chapters
+        run: |
+          PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO chapters (id, book_id, chapter_no, title, visibility, access_level, price_amount, reader_released_at)
+          VALUES
+            (101, 1, 1, 'Начало истории', 'public', 'free', 0, NULL),
+            (102, 1, 2, 'Секретный черновик', 'draft', 'free', 0, NULL),
+            (103, 1, 3, 'Платная глава', 'public', 'paid', 250, NULL),
+            (104, 2, 1, 'Глава скрытой книги', 'public', 'free', 0, NULL),
+            (105, 3, 1, 'Глава заблокированной книги', 'public', 'free', 0, NULL),
+            (106, 1, 4, 'Запланированная глава', 'public', 'free', 0, now() + INTERVAL '1 day'),
+            (107, 1, 5, 'Глава на модерации', 'public', 'free', 0, NULL),
+            (108, 1, 6, 'Продолжение', 'public', 'free', 0, NULL);
+          UPDATE chapters SET admin_hold=true WHERE id=107;
+          INSERT INTO chapter_versions (id, chapter_id, version_no, body_markdown)
+          VALUES
+            (201, 101, 1, '**Первая строка** и <script>alert(1)</script>'),
+            (202, 102, 1, 'PRIVATE-DRAFT-MARKER'),
+            (203, 103, 1, 'PRIVATE-PAID-MARKER'),
+            (204, 104, 1, 'PRIVATE-BOOK-MARKER'),
+            (205, 105, 1, 'PRIVATE-HOLD-MARKER'),
+            (206, 106, 1, 'PRIVATE-FUTURE-MARKER'),
+            (207, 107, 1, 'PRIVATE-MODERATED-MARKER'),
+            (208, 108, 1, 'Текст следующей опубликованной главы');
+          INSERT INTO chapter_publications(chapter_id, version_id)
+          VALUES (101,201),(102,202),(103,203),(104,204),
+                 (105,205),(106,206),(107,207),(108,208);
+          SQL
+      - name: Advance explicit-ID fixture sequences as schema owner
+        run: |
+          # Explicit IDs in CI fixtures do not advance PostgreSQL sequences.
+          # Fix all seeded entities before running tests that INSERT default IDs.
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
+          SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
+          SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
+          SQL
+      - name: Database and HTTP integration
+        run: |
+          cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
+          cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
+          cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test ril_sqlx_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_registry_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test keyring_rotation_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_gc_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
+          cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
+          cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
+          cargo test -p tor-web --test cover_worker_pg -- --ignored
+          cargo test -p tor-books --test postgres_catalog -- --ignored
+          cargo test -p tor-search --test search_pg -- --ignored
+          cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
+          cargo test -p tor-search --test f03_unicode_pg -- --ignored
+          cargo test -p tor-books --test authoring_pg -- --ignored
+          cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
+          cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
+          cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
+          cargo test -p tor-accounts --lib a_b09_pg_user_tier -- --ignored --test-threads=1
+          cargo test -p tor-books --lib b_09_pg_book_tier -- --ignored --test-threads=1
+          cargo test -p tor-books --test seo_description_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test free_immediate_publish_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test chapter_release_pg -- --ignored
+          cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test postgres_reading -- --ignored
+          cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test progress_postgres -- --ignored
+          cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
+          cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test paid_completion_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
+          cargo test -p tor-reading --test library_postgres -- --ignored
+          cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
+          cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
+          cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test postgres_http -- --ignored
+          cargo test -p tor-web --test auth_postgres -- --ignored
+          cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
+          TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
+            cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
+
+      - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3098
+          TOR_AUTH_ENABLED: '1'
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
+        run: |
+          set -euo pipefail
+          cargo build -p tor-web
+          TOR_PAID_CHECKOUT_ENABLED=0 ./target/debug/tor-web > "$RUNNER_TEMP/tor-d04-disabled.log" 2>&1 &
+          disabled_pid=$!
+          enabled_pid=""
+          trap 'kill "$disabled_pid" "${enabled_pid:-}" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$disabled_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/tor-d04-disabled.log"; exit 1; fi
+          python3 tools/checkout_http_pg_smoke.py --mode disabled
+          kill "$disabled_pid"
+          wait "$disabled_pid" || true
+          TOR_PAID_CHECKOUT_ENABLED=1 ./target/debug/tor-web > "$RUNNER_TEMP/tor-d04-enabled.log" 2>&1 &
+          enabled_pid=$!
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$enabled_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/tor-d04-enabled.log"; exit 1; fi
+          python3 tools/checkout_http_pg_smoke.py --mode enabled
+      - name: I-11 PostgreSQL outage, restart and durable public data
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_restart_smoke.sh
+      - name: I-11 PostgreSQL 18 backup and clean restore drill
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          cargo build -p tor-web
+          bash tools/tor_pg_backup_restore_smoke.sh
+      - name: Line A credential and login audit PostgreSQL checks
+        run: |
+          cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
+      - name: D-04 diagnostic HTTP logs
+        if: failure()
+        run: |
+          tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
+          tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
+  migrations:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"migrations":true}').migrations) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-disposable-ci-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: tor-disposable-ci-only
+      PGCONNECT_TIMEOUT: '5'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Verify donor SQL blobs plus TOR cover schema, fresh and upgrade migrations
+        run: bash tests/postgres/verify-migrations.sh
+  reader-browser:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"reader_browser":true}').reader_browser) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-reader-ci-superuser
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-reader-ci-superuser
+      APP_URL: postgresql://tor_app:tor-reader-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATION_URL: postgresql://tor_migrator:tor-reader-ci-migrator@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL client and disposable roles
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-reader-ci-migrator';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-reader-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Real SQLx schema and public reading fixtures
+        run: |
+          DATABASE_URL="$MIGRATION_URL" cargo run -p tor-migrations --bin tor-migrate
+          PGPASSWORD=tor-reader-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO books(id,source_identity,target_language,title,visibility)
+          VALUES(1,'ci:visual:public','ru','Книга для браузерной приёмки','public'),
+                (2,'ci:visual:private','ru','Закрытая книга','draft');
+          INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
+          VALUES(101,1,1,'Начало истории','public','free',0),
+                (102,1,2,'Черновик','draft','free',0),
+                (103,1,3,'Платная глава','public','paid',250);
+          INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
+          VALUES(201,101,1,'**Первая строка** и <script>alert(1)</script>' || repeat('д', 1200)),
+                (202,102,1,'PRIVATE-DRAFT-MARKER'),
+                (203,103,1,'PRIVATE-PAID-MARKER');
+          INSERT INTO chapter_publications(chapter_id,version_id)
+          VALUES(101,201),(102,202),(103,203);
+          SQL
+          # Fixed-ID book fixtures require a sequence correction by the migrator role.
+          psql -X -v ON_ERROR_STOP=1 "$MIGRATION_URL" -c "SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), TRUE)"
+      - name: Build the real PostgreSQL-backed server
+        run: cargo build -p tor-web
+      - name: Install Chromium
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browse chapter, TOC, mobile layout and locked URLs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reader-shots"
+          TOR_AUTH_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3098 DATABASE_URL="$APP_URL" TOR_LISTEN_ADDR=127.0.0.1:3098 ./target/debug/tor-web > "$RUNNER_TEMP/tor-reader.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3098/readyz > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3098/readyz
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
+          TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
+          TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
+          TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
+          TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
+          node --check tools/batch_checkout_chromium_pg.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
+      - name: Preserve screenshots for visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-real-pg-reader-desktop-mobile
+          path: ${{ runner.temp }}/reader-shots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+  visual:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"visual":true}').visual) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build HTTP and isolated trace-store binaries
+        run: |
+          cargo build -p tor-web
+          cargo build -p tor-observability --bin tor-trace-store
+      - name: Install headless browser
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser layout checks and screenshots
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-shots" "$RUNNER_TEMP/tor-trace-private"
+          chmod 700 "$RUNNER_TEMP/tor-trace-private"
+          trace_socket="$RUNNER_TEMP/tor-trace-private/traces.sock"
+          ./target/debug/tor-trace-store serve "$RUNNER_TEMP/tor-trace-private/traces.sqlite3" "$trace_socket" > "$RUNNER_TEMP/trace-store.log" 2>&1 &
+          writer=$!
+          for i in $(seq 1 30); do
+            if test -S "$trace_socket"; then break; fi
+            sleep 1
+          done
+          test -S "$trace_socket"
+          export TOR_TEST_OPERATOR_PASSWORD="ci-only-random-fixture-operator-password-2026"
+          TOR_DEMO_MODE=1 TOR_LISTEN_ADDR=127.0.0.1:3099 TOR_OBS_OPERATOR_PASSWORD="$TOR_TEST_OPERATOR_PASSWORD" TOR_TRACE_STORE_SOCKET="$trace_socket" ./target/debug/tor-web > "$RUNNER_TEMP/tor.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" "$writer" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3099/readyz >/dev/null; then break; fi
+            sleep 1
+          done
+          TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/visual-smoke.cjs
+          TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/operator_trace_visual_smoke.cjs
+          TOR_SCREENSHOT_DIR="$RUNNER_TEMP/tor-shots" node tools/newboo_cover_visual_smoke.cjs
+      - name: Upload browser proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-responsive-screenshots
+          path: ${{ runner.temp }}/tor-shots/*.png
+          if-no-files-found: warn
+          retention-days: 10
+  author-cover:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_browser":true}').cover_browser) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-cover-browser-ci-superuser
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-cover-browser-ci-superuser
+      APP_URL: postgresql://tor_app:tor-cover-browser-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATION_URL: postgresql://tor_migrator:tor-cover-browser-ci-migrator@127.0.0.1:5432/tor_ci
+      TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+      TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Create disposable PostgreSQL roles and apply canonical migrations
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-cover-browser-ci-migrator';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-cover-browser-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATION_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Start checksum-verified MinIO on loopback
+        run: |
+          set -euo pipefail
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "$expected" = "$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-cover-minio"
+          MINIO_ROOT_USER="$TOR_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$TOR_TEST_S3_SECRET_KEY" \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-cover-minio" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/minio.log" 2>&1 &
+          ready=0
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = 1
+      - name: Prepare isolated reset test mailbox
+        run: |
+          mkdir -m 700 -p "$RUNNER_TEMP/account-reset-mail"
+          cat > "$RUNNER_TEMP/account-reset-sendmail" <<'PYMAIL'
+          #!/usr/bin/env python3
+          import hashlib, os, pathlib, sys
+          message = sys.stdin.read()
+          recipient = next(line[4:].strip() for line in message.splitlines() if line.startswith('To: '))
+          if not recipient.endswith('@example.invalid'):
+              sys.exit(2)
+          dest = pathlib.Path(os.environ['TOR_RESET_TEST_MAIL_DIR']) / hashlib.sha256(recipient.encode()).hexdigest()
+          fd = os.open(dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, 'w') as output:
+              output.write(message)
+          PYMAIL
+          chmod 700 "$RUNNER_TEMP/account-reset-sendmail"
+      - name: Create private test bucket using existing verified S3 provider test
+        run: |
+          cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
+      - name: Build real Rust server with private S3 enabled
+        run: cargo build -p tor-web --features s3-covers
+      - name: Install Chromium
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
+        env:
+          TOR_COVER_S3_BUCKET: tor-private-cover-ci
+          TOR_COVER_WORKER_ENABLED: '1'
+          TOR_AUTH_ENABLED: '1'
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
+          TOR_LISTEN_ADDR: 127.0.0.1:3098
+          DATABASE_URL: ${{ env.APP_URL }}
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: tor-cover-ci-user
+          AWS_SECRET_ACCESS_KEY: tor-cover-ci-secret-only
+          AWS_ENDPOINT_URL_S3: http://127.0.0.1:9000
+          AWS_EC2_METADATA_DISABLED: 'true'
+          TOR_COVER_BROWSER_SHOTS: ${{ runner.temp }}/cover-browser-shots
+          TOR_PASSWORD_RESET_ENABLED: '1'
+          TOR_RESET_SENDMAIL: ${{ runner.temp }}/account-reset-sendmail
+          TOR_RESET_MAIL_FROM: no-reply@example.invalid
+          TOR_RESET_TEST_MAIL_DIR: ${{ runner.temp }}/account-reset-mail
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOR_COVER_BROWSER_SHOTS"
+          ./target/debug/tor-web > "$RUNNER_TEMP/cover-web.log" 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/cover-web.log"; exit 1; fi
+          node tools/author_cover_pg_visual_smoke.cjs
+          node tools/account_line_browser.cjs
+          # The private bucket must stay inaccessible to anonymous browsers.
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
+          test "$code" = 403
+      - name: Diagnostic logs if the browser journey fails
+        if: failure()
+        run: |
+          tail -n 140 "$RUNNER_TEMP/minio.log" 2>/dev/null || true
+          tail -n 140 "$RUNNER_TEMP/cover-web.log" 2>/dev/null || true
+      - name: Save real browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-owner-cover-real-pg-s3-390-1440
+          path: ${{ runner.temp }}/cover-browser-shots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+  image:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"image":true}').image) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format G image crate
+        run: cargo fmt --package tor-ingest -- --check
+      - name: Real JPEG/PNG/WebP + adversarial unit tests
+        run: cargo test -p tor-ingest --all-targets
+      - name: Clippy G only
+        run: cargo clippy -p tor-ingest --all-targets -- -D warnings
+      - name: Compile S3 adapter (AWS SDK, no credentials)
+        run: cargo check -p tor-ingest --features s3
+  crypto:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"crypto":true}').crypto) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: TOR architecture boundaries
+        run: python3 tools/check_feature_layout.py
+      - name: Format storage and contracts
+        run: cargo fmt -p tor-storage -p tor-contracts -- --check
+      - name: Rust crypto and contracts negative tests
+        run: cargo test -p tor-storage -p tor-contracts --all-targets
+      - name: Clippy storage and contracts only
+        run: cargo clippy -p tor-storage -p tor-contracts --all-targets -- -D warnings
+      - name: Independent WebCrypto AES-GCM golden
+        run: node crates/storage/tests/crypto_webcrypto.mjs
+  s3-provider:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"storage_s3":true}').storage_s3) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Boundary and formatting
+        run: |
+          python3 tools/check_feature_layout.py
+          cargo fmt -p tor-storage -- --check
+      - name: Start verified upstream MinIO on 127.0.0.1
+        run: |
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
+          test "$actual" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-chapter-minio"
+          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-chapter-minio" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-chapter-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log"
+            exit 1
+          fi
+      - name: Test private PUT-if-absent, signed GET, anonymous deny, and actual hash
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
+        run: |
+          cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
+          cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
+          cargo clippy -p tor-storage --features s3 --all-targets -- -D warnings
+      - name: MinIO diagnostics without signed URL on failure
+        if: failure()
+        run: tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log" || true
+  s3-cover-build:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"cover_s3":true}').cover_s3) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-obs09-pg
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-obs09-pg
+      TEST_DATABASE_URL: postgresql://tor_app:tor-obs09-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-obs09-migrator@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile private S3 cover adapter without provider credentials
+        run: cargo check -p tor-web --features s3-covers
+      - name: Start upstream release of MinIO on loopback with SHA-256 verification
+        run: |
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
+          test "$actual" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-minio-data"
+          MINIO_ROOT_USER=tor-cover-ci-user MINIO_ROOT_PASSWORD=tor-cover-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-minio-data" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-cover-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log"
+            exit 1
+          fi
+      - name: Test signed S3 PUT HEAD GET, integrity and strict size bounds
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+        run: |
+          cargo fmt --all -- --check
+          cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
+          cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
+      - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-obs09-migrator';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-obs09-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO users(id,email_normalized,display_name,password_hash)
+          OVERRIDING SYSTEM VALUE VALUES
+          (950,'obs09-owner@example.invalid','Test cover owner','$argon2id$test');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
+          VALUES (950,'ci:obs09:950','ru','CI signed private cover','public',950);
+          SQL
+      - name: Run signed MinIO and restricted PG whole-cover user scenario
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-cover-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-cover-ci-secret-only
+        run: |
+          cargo test -p tor-web --features s3-covers --test cover_s3_pg -- --ignored --test-threads=1
+          cargo clippy -p tor-web --features s3-covers --test cover_s3_pg -- -D warnings
+      - name: Deny anonymous S3 access to actual PG-attached WebP cover
+        run: |
+          set -euo pipefail
+          key="$(PGPASSWORD=tor-obs09-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -A -t \
+            -c "SELECT v.storage_key FROM cover_variants v \
+                JOIN cover_variant_jobs j ON j.id=v.job_id \
+                WHERE j.book_id=950 AND j.status='done' AND v.variant_name='card'")"
+          [[ "$key" =~ ^staging/covers/variants/[A-Za-z0-9._/-]+$ ]]
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            "http://127.0.0.1:9000/tor-private-obs09-ci/$key")"
+          test "$status" = 403
+      - name: Assert direct anonymous URL cannot read the private cover
+        run: |
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
+          test "$code" = 403
+      - name: MinIO diagnostics on failure
+        if: failure()
+        run: tail -n 80 "$RUNNER_TEMP/tor-cover-minio.log" || true
+  f02-100k:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"search_load":true}').search_load) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-f02-ci-superuser
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-f02-ci-superuser
+      TEST_DATABASE_URL: postgresql://tor_app:tor-f02-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-f02-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Create isolated PostgreSQL database and roles
+        run: |
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-f02-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-f02-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply canonical SQLx migrations
+        run: DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Run isolated 100k keyset scan and actual PostgreSQL EXPLAIN
+        run: |
+          set -o pipefail
+          cargo test -p tor-search --test f02_load_pg -- --ignored --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/f02-pg100k-report.txt"
+      - name: A/B SQL plans on 100k mixed-visibility books
+        run: |
+          set -o pipefail
+          PGPASSWORD=tor-f02-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -c 'ANALYZE books'
+          PGPASSWORD=tor-f02-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tests/load/catalog_sql_profile.sql \
+            | tee "$RUNNER_TEMP/f02-taxonomy-100k-sql.txt"
+      - name: Preserve query plans and timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-f02-pg100k-explain
+          path: |
+            ${{ runner.temp }}/f02-pg100k-report.txt
+            ${{ runner.temp }}/f02-taxonomy-100k-sql.txt
+          if-no-files-found: warn
+          retention-days: 14
+  paid-private-e2e:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"paid_e2e":true}').paid_e2e) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Prepare disposable tor_ci with separate app/migrator privileges
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Start checksum-verified upstream MinIO on loopback
+        run: |
+          set -euo pipefail
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "$(printf '%s' "$expected" | wc -c)" -eq 64
+          actual=$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)
+          test "$actual" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-paid-minio"
+          MINIO_API_CORS_ALLOW_ORIGIN=http://127.0.0.1:3098 \
+          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-paid-minio" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-paid-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log"
+            exit 1
+          fi
+      - name: Install real Chromium before issuing short-lived S3 URLs
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Actual purchase, authenticated grant, private S3 and WebCrypto
+        env:
+          TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
+          TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
+          TOR_PAID_READER_SHOTS: ${{ runner.temp }}/tor-paid-reader-visual
+        run: |
+          set -euo pipefail
+          export TOR_PAID_GRANT_FIXTURE_PATH="$RUNNER_TEMP/paid-grant-e2e.json"
+          trap 'rm -f "$TOR_PAID_GRANT_FIXTURE_PATH"' EXIT
+          python3 tools/check_feature_layout.py
+          cargo fmt -p tor-web -- --check
+          node --check tools/paid_grant_webcrypto_e2e.mjs
+          node --check tools/paid_reader_minio_chromium_e2e.cjs
+          node --check tools/s035_contiguous_paid_browser.cjs
+          node --check tools/paid_reader_private_media_browser.cjs
+          TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
+          node tools/paid_grant_webcrypto_e2e.mjs
+          node tools/paid_reader_minio_chromium_e2e.cjs
+          node tools/paid_reader_private_media_browser.cjs
+      - name: Save masked real NEwBOO reader screenshots (1440/390, light/dark)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-s034-real-rust-reader-newboo-1440-390
+          path: ${{ runner.temp }}/tor-paid-reader-visual/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: MinIO diagnostics without signed credentials
+        if: failure()
+        run: tail -n 80 "$RUNNER_TEMP/tor-paid-minio.log" || true
+  sealed-remote-copy:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"backup_recovery":true}').backup_recovery) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      TOR_DR_S3_ENDPOINT: http://127.0.0.1:9010
+      TOR_DR_S3_ACCESS_KEY: tor-dr-ci-user
+      TOR_DR_S3_SECRET_KEY: tor-dr-ci-secret-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate repository boundaries and test-only helper syntax
+        run: |
+          python3 tools/check_feature_layout.py
+          bash -n tools/tor_dr_s3_backup_smoke.sh
+          node --check tools/tor_dr_archive_crypto.cjs
+      - name: Start pinned MinIO backup vault on loopback with verified SHA-256
+        run: |
+          set -euo pipefail
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          test "$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f1)" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-dr-vault-data"
+          MINIO_ROOT_USER=tor-dr-ci-user MINIO_ROOT_PASSWORD=tor-dr-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-dr-vault-data" \
+              --address 127.0.0.1:9010 --console-address 127.0.0.1:9011 \
+              > "$RUNNER_TEMP/tor-dr-vault-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9010/minio/health/ready >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 50 "$RUNNER_TEMP/tor-dr-vault-minio.log"
+            exit 1
+          fi
+      - name: Create disposable PostgreSQL roles, database and SQLx schema
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Build real TOR binary off VPS
+        run: cargo build -p tor-web
+      - name: Encrypted archive to independent MinIO, destroy local copy and restore
+        run: bash tools/tor_dr_s3_backup_smoke.sh
+      - name: Diagnostic service state without backup contents or keys
+        if: failure()
+        run: |
+          curl -fsS --max-time 3 http://127.0.0.1:9010/minio/health/ready || true
+          echo "TOR recovery CI failed; no secret, archive or database files are published"
+  purchased-v1-recovery:
+    needs: select
+    if: ${{ !cancelled() && (needs.select.result != 'success' || fromJSON(needs.select.outputs.suites || '{"purchased_recovery":true}').purchased_recovery) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: tor-ci-postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      GITHUB_ACTIONS: 'true'
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: tor-ci-postgres
+      TEST_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci
+      S334_RESTORED_DATABASE_URL: postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_s334_restore_ci
+      TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
+      TOR_TEST_S3_SECRET_KEY: tor-chapter-ci-secret-only
+      TOR_CONTENT_KEK_V1: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check test boundaries and formatting
+        run: |
+          python3 tools/check_feature_layout.py
+          bash -n tools/tor_s334_paid_restore_smoke.sh
+          node --check tools/tor_dr_archive_crypto.cjs
+          node --check tools/paid_grant_webcrypto_e2e.mjs
+          cargo fmt --all -- --check
+      - name: Prepare isolated PostgreSQL roles and SQLx schema
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'tor-ci-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'tor-ci-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE ALL ON DATABASE tor_ci FROM PUBLIC;
+          GRANT CONNECT ON DATABASE tor_ci TO tor_app;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
+            GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Start upstream checksum-verified private MinIO on loopback
+        run: |
+          set -euo pipefail
+          release=minio.linux-amd64.RELEASE.2025-09-07T16-13-09Z
+          url=https://github.com/minio/minio/releases/download/RELEASE.2025-09-07T16-13-09Z
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release" --output "$RUNNER_TEMP/$release"
+          curl --fail --location --silent --show-error --retry 3 \
+            "$url/$release.sha256sum" --output "$RUNNER_TEMP/$release.sha256sum"
+          expected=$(grep -Eo '[0-9a-f]{64}' "$RUNNER_TEMP/$release.sha256sum" | head -n 1)
+          test "${#expected}" -eq 64
+          test "$(sha256sum "$RUNNER_TEMP/$release" | cut -d ' ' -f 1)" = "$expected"
+          chmod 700 "$RUNNER_TEMP/$release"
+          mkdir -p "$RUNNER_TEMP/tor-s334-minio-data"
+          MINIO_ROOT_USER=tor-chapter-ci-user MINIO_ROOT_PASSWORD=tor-chapter-ci-secret-only \
+            nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-s334-minio-data" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              > "$RUNNER_TEMP/tor-s334-minio.log" 2>&1 &
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            tail -n 40 "$RUNNER_TEMP/tor-s334-minio.log"
+            exit 1
+          fi
+      - name: Create isolated recovery KEK, seed paid V1 and publish V2
+        run: |
+          set -euo pipefail
+          openssl rand -out "$RUNNER_TEMP/s334-content-kek.bin" 32
+          chmod 600 "$RUNNER_TEMP/s334-content-kek.bin"
+          cargo test -p tor-web --features s3-paid \
+            --test s334_paid_restore_pg_s3 s3_34_seed_paid_v1_and_publish_v2 \
+            -- --ignored --exact --test-threads=1
+      - name: Restore PostgreSQL, V1 ciphertext and KEK; decrypt through WebCrypto
+        run: |
+          set -euo pipefail
+          bash tools/tor_s334_paid_restore_smoke.sh
+      - name: Remove ephemeral recovery KEK and bearer grants
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/s334-content-kek.bin" \
+                "$RUNNER_TEMP/s334-state.json" "$RUNNER_TEMP/s334-webcrypto.json"
+      - name: MinIO health only on failure
+        if: failure()
+        run: curl -fsS --max-time 3 http://127.0.0.1:9000/minio/health/ready || true
+  ci-required:
+    needs:
+      - select
+      - demo
+      - postgres-runtime
+      - migrations
+      - reader-browser
+      - visual
+      - author-cover
+      - image
+      - crypto
+      - s3-provider
+      - s3-cover-build
+      - f02-100k
+      - paid-private-e2e
+      - sealed-remote-copy
+      - purchased-v1-recovery
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate PR selection and mandatory full-main acceptance
+        env:
+          TOR_CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 tools/verify_ci_gate.py

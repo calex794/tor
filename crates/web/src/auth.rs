@@ -40,6 +40,7 @@ use tor_reading::{
     },
 };
 
+mod access_audit;
 mod account_form_http;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -56,10 +57,17 @@ mod inbox;
 mod library_actions;
 mod library_page;
 mod login_limiter;
+mod notification_settings;
 mod paid_completion;
+mod password_change;
+mod password_reset;
 mod private_reader;
+mod profile_http;
 mod rankings;
 mod reply_read_state;
+mod reset_delivery;
+mod security_retention;
+mod settings_routes;
 mod sync_actions;
 mod types;
 use types::*;
@@ -131,6 +139,8 @@ fn router_inner(
     paid_reader_available: bool,
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
+    security_retention::start(accounts.clone());
+    let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -152,6 +162,10 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        reset_delivery,
+        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
+            accounts.pool().clone(),
+        ),
         accounts,
         checkout,
         paid_checkout_enabled,
@@ -173,6 +187,7 @@ fn router_inner(
     };
     let observation_state = state.clone();
     let app = Router::new()
+        .merge(settings_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -182,6 +197,10 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route(
+            "/me/settings/password",
+            get(password_change::page).post(password_change::submit),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(

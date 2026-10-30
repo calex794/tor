@@ -250,5 +250,39 @@ class RilGovernanceTests(unittest.TestCase):
         self.assert_detected("missing Origin+CSRF rejection")
 
 
+    def test_reset_request_cannot_lose_csrf_guard(self):
+        self.mutate("crates/web/src/auth/password_reset.rs", ".valid_csrf(", ".ignored_csrf(", start="pub(super) async fn request(")
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_reset_confirmation_cannot_lose_rate_limit(self):
+        self.mutate("crates/web/src/auth/password_reset.rs", "login_limiter::limit(", "removed_limiter(", start="pub(super) async fn confirm(")
+        self.assert_detected("missing distributed recovery rate limit")
+
+    def test_recovery_exception_is_restricted_to_two_reviewed_routes(self):
+        target = self.root / INVENTORY
+        data = json.loads(target.read_text())
+        row = next(r for r in data["routes"] if r["template"] == "/api/v1/me" and r["method"] == "PATCH")
+        row["policy"] = "recovery"
+        target.write_text(json.dumps(data))
+        self.assert_detected("recovery exception is not allowed here")
+    def test_delivery_preferences_save_is_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            ".set_delivery_preference(actor, mode)",
+            ".set_delivery_preference(mode)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_delivery_preferences_save_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notification_settings.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.unchecked_origin(&headers)",
+            start="pub(super) async fn save(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+
 if __name__ == "__main__":
     unittest.main()
