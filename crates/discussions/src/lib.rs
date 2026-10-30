@@ -9,4 +9,9 @@ pub mod domain {
 
 pub mod repositories {
     pub mod public_book_comments;
+    pub mod inbox;
+}
+
+pub mod services {
+    pub mod inbox;
 }
