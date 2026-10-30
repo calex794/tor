@@ -35,6 +35,7 @@ pub(super) struct AuthState {
     pub(super) staged_revisions: tor_reading::repositories::PgStagedRevisions,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
+    pub(super) achievements: tor_recommendations::repositories::PgAchievements,
     pub(super) cookies: CookiePolicy,
     pub(super) password_jobs: PasswordJobs,
     pub(super) ril_signer: Option<RilSubjectSigner>,

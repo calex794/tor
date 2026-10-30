@@ -1,4 +1,6 @@
 //! Private F-owned PostgreSQL records; never a public popularity projection.
+pub mod achievements;
+pub use achievements::{AchievementStoreError, PgAchievements, ReaderAchievements, ReaderBadge};
 mod book_stars;
 pub use book_stars::{BookStars, PgBookStars, StarKind, StarRatingError, StarTotal, UserStars};
 mod completion;
