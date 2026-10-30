@@ -393,6 +393,121 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     assert!(inbox_html.contains("Входящие обсуждения"));
     assert!(inbox_html.contains(&link));
     assert!(!inbox_html.contains("NEVER_COPY_THIS_SPOILER"));
+    assert!(inbox_html.contains("Ответить на сообщение"));
+    assert!(inbox_html.contains("name=\"parent_id\""));
+    let inline_key = inbox_html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    assert_eq!(inline_key.len(), 43);
+    let inline_form = format!(
+        "body=Inbox%20answer&parent_id={incoming_id}&command_key={inline_key}&csrf_token={csrf}&return_to=inbox"
+    );
+    let inline_path = format!("/books/{book}/comments");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &inline_path,
+            &cookies,
+            "https://evil.invalid",
+            &inline_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &inline_path,
+            &cookies,
+            ORIGIN,
+            &inline_form.replace("return_to=inbox", "return_to=https%3A%2F%2Fevil.invalid")
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    // A real Inbox form must retain all of the existing comment command guards.
+    for (cookie, form, expected) in [
+        (
+            format!("tor-dev-csrf={csrf}"),
+            inline_form.clone(),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            cookies.clone(),
+            inline_form.replace(&csrf, "forged"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            cookies.clone(),
+            inline_form.replace(&format!("&parent_id={incoming_id}"), ""),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            cookies.clone(),
+            inline_form.replace(
+                &format!("parent_id={incoming_id}"),
+                "parent_id=9223372036854775807",
+            ),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        assert_eq!(
+            call(&app, "POST", &inline_path, &cookie, ORIGIN, &form)
+                .await
+                .status(),
+            expected
+        );
+    }
+    for _ in 0..2 {
+        let response = call(&app, "POST", &inline_path, &cookies, ORIGIN, &inline_form).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(header::LOCATION).unwrap(),
+            "/me/inbox"
+        );
+    }
+    assert_eq!(
+        pg(&url, &format!("SELECT count(*) FROM discussion_comments WHERE parent_id={incoming_id} AND author_user_id={user}")).await,
+        "1"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &inline_path,
+            &cookies,
+            ORIGIN,
+            &inline_form.replace("Inbox%20answer", "Different%20answer")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    // A form opened before moderation must not bypass the fresh parent check.
+    pg(
+        &url,
+        &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={incoming_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "POST", &inline_path, &cookies, ORIGIN, &inline_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE discussion_comments SET visibility='visible' WHERE id={incoming_id}"),
+    )
+    .await;
     let json = html(call(&app, "GET", "/api/v1/me/inbox", &cookies, ORIGIN, "").await).await;
     let item: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(item["items"][0]["id"], incoming_id.to_string());
@@ -570,6 +685,11 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE parent_id={incoming_id}"),
     )
     .await;
     pg(

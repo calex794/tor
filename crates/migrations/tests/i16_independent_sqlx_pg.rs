@@ -1,4 +1,4 @@
-//! I-16: four *unchanged* source SQL blobs with provisional unique numbers.
+//! Isolated SQLx-only compatibility probe: I-16 plus five follow-on SQL blobs.
 //! This test only observes a disposable tor_test DB AFTER the exact main->I16
 //! SQLx migration upgrade and never applies migrations or writes money.
 use sqlx::postgres::PgPoolOptions;
@@ -35,6 +35,11 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
         (202610300018_i64, "account login events"),
         (202610300019_i64, "referral signup"),
         (202610300020_i64, "direct purchase edition upgrade"),
+        (202610300021_i64, "public catalog exact projection"),
+        (202610300022_i64, "archive share offers"),
+        (202610300023_i64, "e03 comment mentions"),
+        (202610300024_i64, "layer owner metadata"),
+        (202610300025_i64, "boosty subscription credits"),
     ];
     let installed: Vec<(i64, String, Vec<u8>, bool)> = sqlx::query_as(
         "SELECT version, description, checksum, success
@@ -46,8 +51,8 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
     assert_eq!(installed.len(), MIGRATOR.migrations.len());
     assert_eq!(
         MIGRATOR.migrations.len(),
-        53,
-        "43 merged-main + 10 Draft-only migrations"
+        58,
+        "43 merged-main + 10 I-16 Draft + 5 independent SQL migrations"
     );
     for (version, description) in required {
         let compiled = MIGRATOR
@@ -85,6 +90,16 @@ async fn i16_exact_parallel_migrations_applied_and_schema_present() {
          "SELECT to_regclass('public.reader_book_follows') IS NOT NULL"),
         ("E-03 reply read markers",
          "SELECT to_regclass('public.discussion_reply_reads') IS NOT NULL"),
+        ("PERF-233 exact catalog counters",
+         "SELECT to_regclass('public.public_catalog_statistics') IS NOT NULL"),
+        ("ARCHIVE-01 invitation offers",
+         "SELECT to_regclass('public.archive_share_offers') IS NOT NULL"),
+        ("E-03 comment mentions",
+         "SELECT to_regclass('public.discussion_comment_mentions') IS NOT NULL"),
+        ("D-05 Layer owner metadata",
+         "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='commerce_layers' AND column_name='metadata_revision')"),
+        ("D-10 Boosty credits",
+         "SELECT to_regclass('public.boosty_subscription_credits') IS NOT NULL"),
     ] {
         let exists: bool = sqlx::query_scalar(sql)
             .fetch_one(&pool)
