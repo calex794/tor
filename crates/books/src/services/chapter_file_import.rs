@@ -34,7 +34,8 @@ pub fn valid_filename(filename: &str) -> bool {
     !filename.is_empty()
         && filename.len() <= 128
         && !filename.chars().any(char::is_control)
-        && !filename.contains(['/', '\\'])
+        && !filename.contains('/')
+        && !filename.contains('\\')
         && (lower.ends_with(".txt") || lower.ends_with(".md"))
 }
 
