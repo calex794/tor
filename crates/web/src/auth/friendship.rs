@@ -36,7 +36,7 @@ fn redirect_to_source(state: &AuthState, headers: &HeaderMap) -> Response {
     private_response(Redirect::to(destination), &[])
 }
 
-async fn verified_actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {
+async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {
     session_user(state, headers).await?.ok_or(StatusCode::UNAUTHORIZED)
 }
 
@@ -46,7 +46,7 @@ pub(super) async fn request(
     headers: HeaderMap,
     Form(form): Form<ActionForm>,
 ) -> Response {
-    let actor = match verified_actor(&state, &headers).await {
+    let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
@@ -63,7 +63,7 @@ pub(super) async fn remove(
     headers: HeaderMap,
     Form(form): Form<ActionForm>,
 ) -> Response {
-    let actor = match verified_actor(&state, &headers).await {
+    let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
@@ -80,7 +80,7 @@ pub(super) async fn block(
     headers: HeaderMap,
     Form(form): Form<ActionForm>,
 ) -> Response {
-    let actor = match verified_actor(&state, &headers).await {
+    let actor = match actor(&state, &headers).await {
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
