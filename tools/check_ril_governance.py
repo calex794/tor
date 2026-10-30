@@ -28,7 +28,6 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
-    "active_role",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -36,6 +35,7 @@ OWNER_CALLS = {
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
+    "active_role",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
