@@ -157,8 +157,8 @@ jobs:
           cargo test -p tor-storage --features pg --test storage_paid_grant_pg -- --ignored --test-threads=1
           cargo test -p tor-storage --features pg --test storage_paid_asset_pg -- --ignored --test-threads=1
           cargo test -p tor-ingest --test cover_jobs_pg -- --ignored
-          cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-ingest --test notify_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-search --test search_pg -- --ignored
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
@@ -258,6 +258,7 @@ jobs:
           cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs

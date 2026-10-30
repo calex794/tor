@@ -6,11 +6,13 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
     account_error_page, login_form, my_account, my_account_with_follow_updates,
     password_change_form, registration_form, registration_form_with_error,
 };
+pub use session_security::active_sessions;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;

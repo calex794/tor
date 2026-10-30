@@ -20,6 +20,7 @@ SUITES = {
 
 # One automatic CI workflow executes all suites; legacy workflow files remain manual-only.
 CI_WORKFLOW = "tor-integration.yml"
+CI_REQUIRED_JOB = "ci-required"
 SUITE_JOB_IDS = {
     "rust": "demo",
     "postgres": "postgres-runtime",

@@ -5,7 +5,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from ci_test_map import CI_WORKFLOW, SUITE_JOB_IDS
+from ci_test_map import CI_REQUIRED_JOB, CI_WORKFLOW, SUITE_JOB_IDS
 from audit_release_candidate import (
     EvidenceError, collect, evaluate_ci, latest_push_runs, workflow_names,
 )
@@ -24,7 +24,7 @@ def fixtures():
             "status": "completed", "conclusion": "success",
             "created_at": "2026-10-29T00:00:00Z", "run_attempt": 1,
         })
-        names = (["select / select", *SUITE_JOB_IDS.values()]
+        names = (["select / select", *SUITE_JOB_IDS.values(), CI_REQUIRED_JOB]
                  if filename == CI_WORKFLOW else ["rules"])
         jobs[number] = [
             {"name": name, "status": "completed", "conclusion": "success"}
@@ -62,7 +62,7 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         expected, _, jobs = fixtures()
         self.assertEqual(set(expected.values()), {"rules.yml", CI_WORKFLOW})
         self.assertEqual(len(expected), 2)
-        self.assertEqual(len(jobs[2]), len(SUITE_JOB_IDS) + 1)
+        self.assertEqual(len(jobs[2]), len(SUITE_JOB_IDS) + 2)
 
     def test_every_real_suite_and_rules_is_required(self):
         expected, runs, jobs = fixtures()
@@ -82,10 +82,28 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
 
     def test_missing_one_suite_cannot_pass_a_green_wrapper(self):
         expected, runs, jobs = fixtures()
-        jobs[2].pop()
+        jobs[2].pop(-2)
         report = evaluate_ci(runs, jobs, SHA, expected)
         self.assertFalse(report["ci_complete"])
         self.assertIn("missing/unknown jobs", " ".join(report["blockers"]))
+
+    def test_missing_or_unsuccessful_required_gate_blocks_main(self):
+        for action in ("missing", "failed", "skipped", "pending"):
+            with self.subTest(action=action):
+                expected, runs, jobs = fixtures()
+                if action == "missing":
+                    jobs[2] = [job for job in jobs[2]
+                               if job["name"] != CI_REQUIRED_JOB]
+                else:
+                    gate = jobs[2][-1]
+                    if action == "failed":
+                        gate["conclusion"] = "failure"
+                    elif action == "skipped":
+                        gate["conclusion"] = "skipped"
+                    else:
+                        gate["status"] = "in_progress"
+                        gate["conclusion"] = None
+                self.assertFalse(evaluate_ci(runs, jobs, SHA, expected)["ci_complete"])
 
     def test_selector_only_success_cannot_hide_skipped_tests(self):
         expected, runs, jobs = fixtures()
@@ -113,7 +131,7 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
                                    ("completed", "failure")):
             with self.subTest(status=status, conclusion=conclusion):
                 expected, runs, jobs = fixtures()
-                jobs[2][-1] = {"name": jobs[2][-1]["name"],
+                jobs[2][-2] = {"name": jobs[2][-2]["name"],
                                "status": status, "conclusion": conclusion}
                 self.assertFalse(evaluate_ci(runs, jobs, SHA, expected)["ci_complete"])
 
@@ -121,7 +139,7 @@ class ReleaseCandidateAuditTests(unittest.TestCase):
         for action in ("unknown", "duplicate"):
             with self.subTest(action=action):
                 expected, runs, jobs = fixtures()
-                job = (dict(jobs[2][-1]) if action == "duplicate" else
+                job = (dict(jobs[2][-2]) if action == "duplicate" else
                        {"name": "unexpected-test", "status": "completed", "conclusion": "success"})
                 jobs[2].append(job)
                 self.assertFalse(evaluate_ci(runs, jobs, SHA, expected)["ci_complete"])
