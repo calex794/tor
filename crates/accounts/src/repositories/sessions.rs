@@ -51,8 +51,21 @@ impl PgAccounts {
         user_id: i64,
         current_digest: &[u8; 32],
         selected_id: &str,
+        expected_password_hash: &str,
     ) -> Result<Option<bool>, sqlx::Error> {
-        sqlx::query_scalar(
+        let mut tx = self.pool().begin().await?;
+        // Same lock order as password rotation. A credential changed between
+        // verification and revocation invalidates the request.
+        let current_hash: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM users WHERE id=$1 AND account_state='active' FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if current_hash.as_deref() != Some(expected_password_hash) {
+            return Ok(None);
+        }
+        let revoked = sqlx::query_scalar(
             r#"UPDATE sessions AS target SET revoked_at = now()
                WHERE target.user_id = $1 AND target.session_id::text = $2
                  AND target.revoked_at IS NULL AND target.expires_at > now()
@@ -66,7 +79,9 @@ impl PgAccounts {
         .bind(user_id)
         .bind(selected_id)
         .bind(current_digest.as_slice())
-        .fetch_optional(self.pool())
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(revoked)
     }
 }
