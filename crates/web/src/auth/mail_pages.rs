@@ -73,7 +73,7 @@ pub(super) fn conversation(
         if let Some(first) = page.items.first() {
             write!(
                 body,
-                "<a href=\"/mail/{id}?before_id={}\">Предыдущие сообщения</a>",
+                "<a id=\"mail-load-older\" href=\"/mail/{id}?before_id={}\" data-before-id=\"{}\">Предыдущие сообщения</a>",
                 first.id, first.id
             )
             .expect("mail cursor");
@@ -82,7 +82,7 @@ pub(super) fn conversation(
     if page.blocked {
         body.push_str("<p>Новые сообщения заблокированы.</p>");
     } else {
-        write!(body,"<form class=\"comments-form\" action=\"/mail/{id}/messages\" method=\"post\"><label for=\"mail-body\">Ваше сообщение</label><textarea class=\"ui-textarea comments-form__input\" id=\"mail-body\" name=\"body\" rows=\"3\" required></textarea><input type=\"hidden\" name=\"command_key\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--primary\" type=\"submit\">Отправить сообщение</button></form>",escape_html(key)).expect("mail form");
+        write!(body,"<form class=\"comments-form\" action=\"/mail/{id}/messages\" method=\"post\" data-mail-compose><label for=\"mail-body\">Ваше сообщение</label><textarea class=\"ui-textarea comments-form__input\" id=\"mail-body\" name=\"body\" data-mail-compose-textarea rows=\"3\" required></textarea><input type=\"hidden\" name=\"client_message_id\" value=\"\" data-mail-client-message-id><input type=\"hidden\" name=\"command_key\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--primary\" type=\"submit\" data-mail-compose-submit>Отправить сообщение</button><p id=\"mail-send-error\" role=\"alert\" hidden></p></form>",escape_html(key)).expect("mail form");
     }
     let (value, label) = if page.blocked_by_me {
         ("false", "Снять мою блокировку")
