@@ -1,6 +1,5 @@
 //! A-03: browser-only session ownership and explicit revocation.
 use super::AuthState;
-use tor_accounts::services::security::verify_password;
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, State},
@@ -9,6 +8,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::services::security::session_token_digest;
+use tor_accounts::services::security::verify_password;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,7 +74,11 @@ pub(super) async fn revoke(
     };
     let password = form.current_password;
     let verify_hash = expected.clone();
-    let valid = match state.password_jobs.run(move || verify_password(&password, &verify_hash)).await {
+    let valid = match state
+        .password_jobs
+        .run(move || verify_password(&password, &verify_hash))
+        .await
+    {
         Ok(valid) => valid,
         Err(status) => return private_response(status, &[]),
     };
@@ -83,7 +87,12 @@ pub(super) async fn revoke(
     }
     match state
         .accounts
-        .revoke_owned_session(user, &session_token_digest(&token), &form.session_id, &expected)
+        .revoke_owned_session(
+            user,
+            &session_token_digest(&token),
+            &form.session_id,
+            &expected,
+        )
         .await
     {
         Ok(Some(true)) => {
