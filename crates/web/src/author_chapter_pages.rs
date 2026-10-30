@@ -28,6 +28,7 @@ pub fn detail_with_covers(
     )
 }
 
+#[cfg(test)]
 pub fn detail_with_covers_with_demand(
     book: &OwnedBook,
     published: bool,

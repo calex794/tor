@@ -13,7 +13,7 @@ use serde::Deserialize;
 use tor_books::services::authoring::{AuthorError, OwnedChapterCursor};
 
 #[derive(Deserialize, Default)]
-struct AuthorBookQuery {
+pub(super) struct AuthorBookQuery {
     after: Option<String>,
 }
 
