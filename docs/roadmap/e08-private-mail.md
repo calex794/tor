@@ -58,7 +58,7 @@ CRLF/CR→LF нормализуются до сравнения HTML/JSON пов
 Сохранена отдельная directed-блокировка `social_user_blocks` из TOR.
 `crates/web/src/auth/friendship.rs` использует verified session actor, Origin/CSRF,
 отклонение подмены формой и относительный safe redirect.
-Кнопки представлены в mail и минимальном публичном профиле; тесты PG/HTTP и Chromium добавлены.
+Кнопки представлены в mail и минимальном публичном профиле; тесты PG/HTTP и Chromium добавлены. Исходный start из заблокированного публичного профиля теперь отвечает 303 на `/mail?error=blocked` и показывает сообщение, вместо сухого 403. У имени профиля добавлен индекс `users_display_name_lookup`; дубли имён всё ещё дают fail-closed 404.
 Это не доказательство паритета до фактических прогонов. Исходные friendship
 notifications, полный профиль и notification inbox ещё не перенесены.
 
