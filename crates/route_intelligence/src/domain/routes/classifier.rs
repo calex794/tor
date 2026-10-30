@@ -10,6 +10,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/"), "GET") => Some(0),
         (Some("/catalog"), "GET") => Some(1),
         (Some("/books/{id}"), "GET") => Some(2),
+        (Some("/books/{id}/stats"), "GET") => Some(101),
+        (Some("/books/{id}/stats/export.csv"), "GET") => Some(102),
         (Some("/reader/{id}"), "GET") => Some(3),
         (Some("/assets/site.css"), "GET") => Some(4),
         (Some("/healthz"), "GET") => Some(5),
