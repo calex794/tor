@@ -65,6 +65,17 @@ async function referralStats(page) {
       firstContext, 'referral.owner.' + unique + '@example.invalid', 'Первый'
     );
     const firstUrl = await invitationLink(first);
+    const aliasName = 'read-' + unique;
+    await first.goto(base + '/me/referrals');
+    await first.getByLabel('Тип короткой ссылки').selectOption('go');
+    await first.getByLabel('Короткое имя ссылки').fill(aliasName);
+    await first.getByRole('button', { name: 'Создать короткую ссылку' }).click();
+    await first.waitForURL(base + '/me/referrals');
+    const firstShort = await first.getByLabel('Ваша короткая ссылка').inputValue();
+    assert(firstShort === base + '/go/' + aliasName, 'incorrect /go vanity URL');
+    const firstReport = await referralStats(first);
+    assert(firstReport.invitation.short_url === firstShort,
+      'private API has no owner vanity link');
     const before = await referralStats(first);
     assert(before.active === 0 && before.invitation.url === firstUrl,
       'first invite missing from owner account');
@@ -89,6 +100,14 @@ async function referralStats(page) {
     );
     const secondUrl = await invitationLink(second);
     assert(secondUrl !== firstUrl, 'different accounts received identical links');
+    await second.goto(base + '/me/referrals');
+    await second.getByLabel('Тип короткой ссылки').selectOption('promo');
+    await second.getByLabel('Короткое имя ссылки').fill(aliasName);
+    await second.getByRole('button', { name: 'Создать короткую ссылку' }).click();
+    await second.waitForURL(base + '/me/referrals');
+    const secondShort = await second.getByLabel('Ваша короткая ссылка').inputValue();
+    assert(secondShort === base + '/promo/' + aliasName,
+      'identical aliases must stay isolated by prefix');
 
     // A visible book can collect a passive first-touch ref. A draft must not.
     const bookContext = await browser.newContext({
@@ -113,14 +132,14 @@ async function referralStats(page) {
     assert(afterBookSecond && afterBookSecond.value === bookCookie.value,
       'second book query referral overwrote first-touch cookie');
 
-    await visitor.goto(firstUrl);
-    assert(visitor.url() === base + '/register', 'first invitation did not reach signup');
+    await visitor.goto(firstShort);
+    assert(visitor.url() === base + '/register', 'first vanity alias did not reach signup');
     const firstCookie = (await visitorContext.cookies(base))
       .find(c => c.name === 'tor-dev-guest');
     assert(firstCookie && firstCookie.sameSite === 'Lax',
       'cross-site-compatible guest capture not persisted');
-    await visitor.goto(secondUrl);
-    assert(visitor.url() === base + '/register', 'second invitation did not reach signup');
+    await visitor.goto(secondShort);
+    assert(visitor.url() === base + '/register', 'second vanity alias did not reach signup');
     const afterSecond = (await visitorContext.cookies(base))
       .find(c => c.name === 'tor-dev-guest');
     assert(afterSecond && afterSecond.value === firstCookie.value,

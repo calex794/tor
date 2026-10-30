@@ -315,6 +315,111 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
         Some(owned.clone()),
     );
 
+    // Only the verified owner may bind one permanent /go or /promo alias.
+    let alias = format!("reader-{owner_id}-{stamp}");
+    let alias_form = format!("prefix=go&alias={alias}&csrf_token={token}");
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                &alias_form,
+                &own_csrf_cookie,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                "prefix=go&alias=bad-alias&csrf_token=wrong",
+                &own_cookies,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/me/referrals/alias",
+                &alias_form,
+                &own_cookies,
+                "https://evil.example",
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let browser_alias = send(
+        &app,
+        request("POST", "/me/referrals/alias", &alias_form, &own_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(browser_alias.status(), StatusCode::SEE_OTHER);
+    assert_eq!(browser_alias.headers()[header::LOCATION], "/me/referrals");
+    for _ in 0..2 {
+        assert_eq!(
+            send(
+                &app,
+                request("POST", "/api/v1/me/referrals/alias", &alias_form, &own_cookies, ORIGIN),
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                &format!("prefix=promo&alias=other-name&csrf_token={token}"),
+                &own_cookies,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                &format!("prefix=go&alias=me&csrf_token={token}"),
+                &own_cookies,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let alias_report = send(
+        &app,
+        request("GET", "/api/v1/me/referrals", "", &owner_session, ORIGIN),
+    )
+    .await;
+    let json = body_of(alias_report).await;
+    assert!(json.contains(&format!("{ORIGIN}/go/{alias}")));
+    assert!(!json.contains("subject_user_id"));
+
     let landing = send(
         &app,
         request("GET", &format!("/r/{}", owned.code), "", "", ORIGIN),
