@@ -4,15 +4,19 @@ use super::mail::unavailable;
 use crate::domain::MailError;
 use sqlx::{Postgres, Transaction};
 
+pub(super) struct NotificationEvent<'a> {
+    pub event_type: &'static str,
+    pub aggregate_kind: &'static str,
+    pub aggregate_id: i64,
+    pub actor: i64,
+    pub recipient: i64,
+    pub object_id: i64,
+    pub dedupe_key: Option<&'a str>,
+}
+
 pub(super) async fn queue(
     tx: &mut Transaction<'_, Postgres>,
-    event_type: &'static str,
-    aggregate_kind: &'static str,
-    aggregate_id: i64,
-    actor: i64,
-    recipient: i64,
-    object_id: i64,
-    dedupe_key: Option<&str>,
+    event: NotificationEvent<'_>,
 ) -> Result<(), MailError> {
     sqlx::query(
         "INSERT INTO outbox_events
@@ -22,13 +26,13 @@ pub(super) async fn queue(
                  ARRAY['user_notifications']::text[])
          ON CONFLICT(dedupe_key) DO NOTHING",
     )
-    .bind(event_type)
-    .bind(aggregate_kind)
-    .bind(aggregate_id)
-    .bind(dedupe_key)
-    .bind(actor)
-    .bind(recipient)
-    .bind(object_id)
+    .bind(event.event_type)
+    .bind(event.aggregate_kind)
+    .bind(event.aggregate_id)
+    .bind(event.dedupe_key)
+    .bind(event.actor)
+    .bind(event.recipient)
+    .bind(event.object_id)
     .execute(&mut **tx)
     .await
     .map_err(unavailable)?;

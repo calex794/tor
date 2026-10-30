@@ -115,13 +115,15 @@ impl PgFriendships {
         if let Some((kind, recipient)) = event {
             notification_events::queue(
                 &mut tx,
-                kind,
-                "social_friendship",
-                low,
-                actor,
-                recipient,
-                actor,
-                None,
+                notification_events::NotificationEvent {
+                    event_type: kind,
+                    aggregate_kind: "social_friendship",
+                    aggregate_id: low,
+                    actor,
+                    recipient,
+                    object_id: actor,
+                    dedupe_key: None,
+                },
             )
             .await?;
         }
@@ -155,13 +157,15 @@ impl PgFriendships {
         if was_friends {
             notification_events::queue(
                 &mut tx,
-                "social.friendship.removed",
-                "social_friendship",
-                actor.min(peer),
-                actor,
-                peer,
-                actor,
-                None,
+                notification_events::NotificationEvent {
+                    event_type: "social.friendship.removed",
+                    aggregate_kind: "social_friendship",
+                    aggregate_id: actor.min(peer),
+                    actor,
+                    recipient: peer,
+                    object_id: actor,
+                    dedupe_key: None,
+                },
             )
             .await?;
         }
