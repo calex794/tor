@@ -27,10 +27,12 @@ jobs:
         with:
           components: rustfmt
       - name: Exact source wiring in isolated checkout
-        run: python3 tools/rec13_integrate.py
+        run: |
+          python3 tools/rec13_integrate.py
+          python3 tools/rec13_harden.py
       - name: Canonical Rust formatting
         run: cargo fmt --all
-      - name: Publish source Git objects only (no ref update or deployment)
+      - name: Publish source blobs only (no ref update or deployment)
         env:
           GH_TOKEN: ${{ github.token }}
           REC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -38,7 +40,7 @@ jobs:
         run: python3 tools/rec13_publish_tree.py
   acceptance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18
@@ -67,7 +69,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Exact source wiring in isolated checkout
-        run: python3 tools/rec13_integrate.py
+        run: |
+          python3 tools/rec13_integrate.py
+          python3 tools/rec13_harden.py
       - name: Prepare isolated database
         run: |
           sudo apt-get update -qq
@@ -93,7 +97,10 @@ jobs:
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+      - name: Browser acceptance
+        run: bash tools/rec13_browser_acceptance.sh
       - name: Read-only source checks
+        if: always()
         run: |
           python3 tools/check_feature_layout.py
           python3 tools/check_ril_governance.py
@@ -106,6 +113,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rec-rustfmt-${{ github.event.pull_request.head.sha }}
-          path: ${{ runner.temp }}/rec-rustfmt.patch
+          name: rec-evidence-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/rec-rustfmt.patch
+            ${{ runner.temp }}/rec13-browser/shots/*.png
           retention-days: 1
