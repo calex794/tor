@@ -172,6 +172,20 @@
     },
     {
       "method": "GET",
+      "template": "/books/{id}/stats/export.csv",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stats_http::export",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/stats",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stats_http::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/books/{id}",
       "source": "crates/web/src/lib.rs",
       "handler": "book_detail",
