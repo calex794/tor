@@ -398,7 +398,7 @@ async fn e_02_e03_received_replies_are_private_live_references() {
         other => panic!("{other:?}"),
     };
     // E-03: Inbox uses the exact same canonical replies, read markers and actor guard.
-    let inbox = tor_discussions::services::inbox::InboxService::new(pool.clone());
+    let inbox = tor_discussions::services::inbox::InboxService::new(tor_discussions::repositories::inbox::PgInbox::new(pool.clone()));
     use tor_discussions::services::inbox::InboxFilter;
     let all = inbox.list(users[0], InboxFilter::All, None, 1).await.unwrap();
     assert_eq!(all.items.len(), 1);
