@@ -447,7 +447,7 @@
       "method": "GET",
       "template": "/users/{display_name}",
       "source": "crates/web/src/auth.rs",
-      "handler": "public_user_profile",
+      "handler": "public_profile::page",
       "policy": "public"
     },
     {
