@@ -153,14 +153,7 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        enqueue_chapter_published(
-            &mut tx,
-            input.book_id,
-            chapter_id,
-            version_id,
-            true,
-        )
-        .await?;
+        enqueue_chapter_published(&mut tx, input.book_id, chapter_id, version_id, true).await?;
         sqlx::query(
             "UPDATE chapter_save_commands SET chapter_id=$3,version_id=$4,saved_revision=1
              WHERE user_id=$1 AND command_key=$2",
