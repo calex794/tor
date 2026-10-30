@@ -6,7 +6,9 @@ Any settings change invalidates the pin and requires an admin re-review.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from fnmatch import fnmatchcase
+import re
 
 REPO = "calex794/tor"
 APP_ID = 15368  # GitHub Actions; no "any app" fallback
@@ -18,6 +20,29 @@ REQUIRED_RULES = {"pull_request", "required_status_checks", "deletion", "non_fas
 # policy edit blocks releases until the admin inspects bypasses again.
 REVIEWED_RULESET_ID = 26235453
 REVIEWED_RULESET_UPDATED = "2026-10-31T00:28:58.370+05:00"
+
+# GitHub can serialize the same ruleset updated_at in Z or an explicit
+# timezone offset. Pin the exact instant, not one textual representation.
+_RFC3339 = re.compile(r"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})\\Z")
+
+
+def _revision_instant(value: object) -> datetime | None:
+    if not isinstance(value, str) or not _RFC3339.fullmatch(value):
+        return None
+    try:
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return instant.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
+def same_ruleset_revision(first: object, second: object) -> bool:
+    """Require both well-formed aware timestamps representing the same instant."""
+    first_instant = _revision_instant(first)
+    second_instant = _revision_instant(second)
+    return (first_instant is not None and second_instant is not None
+            and first_instant == second_instant)
+
 
 
 def _ref_matches(ref: str) -> bool:
@@ -110,7 +135,7 @@ def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
         if bypass != []:
             return False
     elif (item["id"] != REVIEWED_RULESET_ID
-          or item.get("updated_at") != REVIEWED_RULESET_UPDATED
+          or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
           or item.get("source_type") != "Repository"):
         return False
 
@@ -174,7 +199,7 @@ def evaluate_branch_policy(
             reasons.append("bypass not disproved")
         elif item.get("bypass_actors") is None and (
             item.get("id") != REVIEWED_RULESET_ID
-            or item.get("updated_at") != REVIEWED_RULESET_UPDATED
+            or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
         ):
             reasons.append("unreviewed ruleset version or hidden bypass")
         else:
