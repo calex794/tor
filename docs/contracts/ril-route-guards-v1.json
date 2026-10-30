@@ -130,6 +130,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/newboo-chapter-import.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "chapter_import_assets::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/newboo-cover-picker.js",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::cover_picker_script",
@@ -252,6 +259,13 @@
       "template": "/me/books/{id}/chapters/illustrated",
       "source": "crates/web/src/author_chapter_images.rs",
       "handler": "show",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/import",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "chapter_import::page",
       "policy": "owner"
     },
     {
@@ -616,6 +630,20 @@
       "template": "/me/books/{id}/chapters/illustrated",
       "source": "crates/web/src/author_chapter_images.rs",
       "handler": "create",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/import-confirm",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "chapter_import::confirm",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/import-preview",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "chapter_import::preview",
       "policy": "owner"
     },
     {
