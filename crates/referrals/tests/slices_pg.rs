@@ -118,6 +118,143 @@ async fn f_09_pg_manual_codes_must_be_active() {
 
 #[tokio::test]
 #[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_decided_manual_survives_disabled_code() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let inviter = seed_user(&pool, "decided-manual-owner").await;
+    let subject = seed_user(&pool, "decided-manual-subject").await;
+    let code = seed_code(&pool, inviter, "reader_spend").await;
+    sqlx::query(
+        "INSERT INTO account_registration_referral_outbox(
+            user_id,manual_code,decided_at_registration,
+            decided_referral_code,decided_referrer_user_id,
+            decided_program_type,decided_source)
+         VALUES($1,$2,TRUE,$2,$3,'reader_spend','manual_code_at_registration')",
+    )
+    .bind(subject)
+    .bind(&code)
+    .bind(inviter)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE referral_codes SET status='disabled' WHERE code=$1")
+        .bind(&code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.finalize_one(subject).await.unwrap());
+    let (actual, status): (i64, String) = sqlx::query_as(
+        "SELECT referrer_user_id,status FROM referral_attributions WHERE subject_user_id=$1",
+    )
+    .bind(subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(actual, inviter);
+    assert_eq!(status, "active");
+    assert!(!repo.finalize_one(subject).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_decided_guest_keeps_owner_but_blocks_fraud() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let inviter = seed_user(&pool, "decided-guest-owner").await;
+    let subject = seed_user(&pool, "decided-guest-subject").await;
+    let code = seed_code(&pool, inviter, "creator_income").await;
+    let guest = guest_hash(inviter);
+    assert_eq!(
+        repo.capture(&guest, &code, "direct_ref_link", "/r/snapshot")
+            .await
+            .unwrap(),
+        CaptureResult::Saved
+    );
+    let capture_id: i64 = sqlx::query_scalar(
+        "SELECT id FROM referral_captures WHERE guest_hash=$1 AND status='active'",
+    )
+    .bind(guest.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO account_registration_referral_outbox(
+            user_id,guest_hash,decided_at_registration,
+            decided_referral_code,decided_referrer_user_id,decided_program_type,
+            decided_capture_id,decided_source)
+         VALUES($1,$2,TRUE,$3,$4,'creator_income',$5,'guest_capture')",
+    )
+    .bind(subject)
+    .bind(guest.as_slice())
+    .bind(&code)
+    .bind(inviter)
+    .bind(capture_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
+        .bind(&code)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE referral_captures SET status='blocked' WHERE id=$1")
+        .bind(capture_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.finalize_one(subject).await.unwrap());
+    let (actual, status, source): (i64, String, String) = sqlx::query_as(
+        "SELECT referrer_user_id,status,attribution_source
+         FROM referral_attributions WHERE subject_user_id=$1",
+    )
+    .bind(subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(actual, inviter);
+    assert_eq!(status, "blocked", "fraud block must not create active rights");
+    assert_eq!(source, "guest_capture");
+    assert!(!repo.finalize_one(subject).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_decided_empty_cannot_retroactively_claim_signup() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let inviter = seed_user(&pool, "empty-owner").await;
+    let subject = seed_user(&pool, "empty-subject").await;
+    let code = seed_code(&pool, inviter, "reader_spend").await;
+    let guest = guest_hash(subject);
+    sqlx::query(
+        "INSERT INTO account_registration_referral_outbox(
+            user_id,guest_hash,decided_at_registration) VALUES($1,$2,TRUE)",
+    )
+    .bind(subject)
+    .bind(guest.as_slice())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.capture(&guest, &code, "direct_ref_link", "/r/too-late")
+            .await
+            .unwrap(),
+        CaptureResult::Saved
+    );
+    assert!(!repo.finalize_one(subject).await.unwrap());
+    assert_eq!(attribution_count(&pool, subject).await, 0);
+    let result: String = sqlx::query_scalar(
+        "SELECT result FROM account_registration_referral_outbox WHERE user_id=$1",
+    )
+    .bind(subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(result, "unattributed");
+}
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
 async fn f_09_pg_first_capture_and_replay() {
     let pool = isolated_pool().await;
     let repo = PgReferrals::new(pool.clone());
