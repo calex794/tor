@@ -47,7 +47,12 @@ async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str, emai
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         assert!(
-            response.headers().get_all(header::SET_COOKIE).iter().next().is_none(),
+            response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .next()
+                .is_none(),
             "rejected signup must not reset the valid guest invitation"
         );
         let html = body_of(response).await;
@@ -62,7 +67,10 @@ async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str, emai
 #[ignore = "requires migrated PostgreSQL 18 tor_ci"]
 async fn f_09_http_invite_validation_and_consumed_guest_cookie() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
-    assert!(url.ends_with("/tor_ci"), "do not modify a production database");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "do not modify a production database"
+    );
     let catalog = PgCatalog::connect(&url).await.expect("migrated PostgreSQL");
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
