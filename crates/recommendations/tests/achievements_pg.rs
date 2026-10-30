@@ -13,34 +13,34 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
     sqlx::query(
         "INSERT INTO users(id,email_normalized,display_name,password_hash)
          OVERRIDING SYSTEM VALUE VALUES
-         (99701,'f12-reader-a@example.invalid','Reader A','$argon2id$fixture'),
-         (99702,'f12-reader-b@example.invalid','Reader B','$argon2id$fixture')",
+         (810201,'f12-reader-a@example.invalid','Reader A','$argon2id$fixture'),
+         (810202,'f12-reader-b@example.invalid','Reader B','$argon2id$fixture')",
     )
     .execute(&pool)
     .await
     .unwrap();
     sqlx::query(
         "INSERT INTO books(id,source_identity,target_language,title,visibility)
-         VALUES(99710,'ci:f12:book','ru','Тестовая книга','public')",
+         VALUES(810210,'ci:f12:book','ru','Тестовая книга','public')",
     )
     .execute(&pool)
     .await
     .unwrap();
     sqlx::query(
         "INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES(99720,99710,1,'Тестовая глава','public','free',0)",
+         VALUES(810220,810210,1,'Тестовая глава','public','free',0)",
     )
     .execute(&pool)
     .await
     .unwrap();
     sqlx::query(
         "INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
-         VALUES(99730,99720,1,'Проверенная глава')",
+         VALUES(810230,810220,1,'Проверенная глава')",
     )
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES(99720,99730)")
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES(810220,810230)")
         .execute(&pool)
         .await
         .unwrap();
@@ -48,7 +48,7 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
     let event_id: String = sqlx::query_scalar(
         "INSERT INTO reader_chapter_completions
            (user_id,book_id,chapter_id,first_version_id,source_event_id)
-         VALUES(99701,99710,99720,99730,gen_random_uuid())
+         VALUES(810201,810210,810220,810230,gen_random_uuid())
          RETURNING source_event_id::text",
     )
     .fetch_one(&pool)
@@ -58,11 +58,11 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
         "INSERT INTO outbox_events
            (id,event_type,schema_version,aggregate_kind,aggregate_id,
             dedupe_key,payload,required_consumers)
-         VALUES($1::uuid,'ChapterCompletedV1',1,'chapter',99720,
-                'ci:f12:chapter-completed:99701:99720',
+         VALUES($1::uuid,'ChapterCompletedV1',1,'chapter',810220,
+                'ci:f12:chapter-completed:810201:810220',
                 jsonb_build_object(
-                  'user_id',99701,'book_id',99710,'chapter_id',99720,
-                  'version_id',99730,'authority','C-verified-free-position'),
+                  'user_id',810201,'book_id',810210,'chapter_id',810220,
+                  'version_id',810230,'authority','C-verified-free-position'),
                 ARRAY['achievements-v1'])",
     )
     .bind(&event_id)
@@ -79,17 +79,17 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
     assert!(pending.contains(&event_id));
     assert!(repo.accept_completed_chapter(&event_id).await.unwrap());
     assert!(!repo.accept_completed_chapter(&event_id).await.unwrap());
-    let view = repo.snapshot(99701).await.unwrap();
+    let view = repo.snapshot(810201).await.unwrap();
     assert_eq!(view.completed_chapters, 1);
     assert_eq!(view.badges.len(), 6);
     assert_eq!(view.badges[0].definition.key, "reader_chapters_1");
     assert!(view.badges[0].unlocked_on.is_some());
     assert!(view.badges[1].unlocked_on.is_none());
-    assert!(repo.snapshot(99702).await.unwrap().badges[0]
+    assert!(repo.snapshot(810202).await.unwrap().badges[0]
         .unlocked_on
         .is_none());
     let actual_grants: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM user_achievement_grants WHERE user_id=99701")
+        sqlx::query_scalar("SELECT count(*) FROM user_achievement_grants WHERE user_id=810201")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -117,10 +117,10 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
         "INSERT INTO outbox_events
            (event_type,schema_version,aggregate_kind,aggregate_id,
             dedupe_key,payload,required_consumers)
-         VALUES('ChapterCompletedV1',1,'chapter',99720,
-                'ci:f12:forged:99701',jsonb_build_object(
-                  'user_id',99701,'book_id',99710,'chapter_id',99720,
-                  'version_id',99730,'authority','C-verified-free-position'),
+         VALUES('ChapterCompletedV1',1,'chapter',810220,
+                'ci:f12:forged:810201',jsonb_build_object(
+                  'user_id',810201,'book_id',810210,'chapter_id',810220,
+                  'version_id',810230,'authority','C-verified-free-position'),
                 ARRAY['achievements-v1'])
          RETURNING id::text",
     )
@@ -132,7 +132,7 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
         Err(AchievementStoreError::Invalid)
     ));
     let after: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM user_achievement_grants WHERE user_id=99701")
+        sqlx::query_scalar("SELECT count(*) FROM user_achievement_grants WHERE user_id=810201")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -144,11 +144,11 @@ async fn f_12_pg_completion_grants_once_and_forged_event_grants_nothing() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("DELETE FROM users WHERE id IN (99701,99702)")
+    sqlx::query("DELETE FROM users WHERE id IN (810201,810202)")
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("DELETE FROM books WHERE id=99710")
+    sqlx::query("DELETE FROM books WHERE id=810210")
         .execute(&pool)
         .await
         .unwrap();
