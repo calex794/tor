@@ -83,7 +83,14 @@ async fn a_07_stale_login_and_concurrent_password_rotation_fail_closed() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(event.0.as_deref(), Some(if won_a { "198.51.100.31" } else { "203.0.113.41" }));
+    assert_eq!(
+        event.0.as_deref(),
+        Some(if won_a {
+            "198.51.100.31"
+        } else {
+            "203.0.113.41"
+        })
+    );
     assert_eq!(event.1, if won_a { "firefox" } else { "chrome" });
     assert_eq!(event.2, "password_change");
     let audit = LoginAuditContext {
