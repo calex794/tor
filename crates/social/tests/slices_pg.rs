@@ -1,7 +1,7 @@
 //! Disposable PostgreSQL only. These exercise the same service as HTML/JSON.
 use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_social::{domain::MailError, repositories::mail::PgMail, services::MailService};
+use tor_social::{domain::MailError, repositories::{mail::PgMail, friendships::{FriendState, PgFriendships}}, services::MailService};
 
 async fn fixture() -> (PgPool, Vec<i64>) {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG");
@@ -305,5 +305,38 @@ async fn e_08_source_mailbox_activity_preview_and_scoped_cursor() {
             .last_message_at,
         "31.10.2026 01:30"
     );
+    cleanup(&pool, &u).await;
+}
+
+/// NEwBOO friend request: reciprocal intent accepts, block supersedes friendship.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_source_friendship_cross_request_and_block_serialization() {
+    let (pool, u) = fixture().await;
+    let (a, b) = (u[0], u[1]);
+    let friends = PgFriendships::new(pool.clone());
+    let mail = MailService::new(PgMail::new(pool.clone()));
+    assert_eq!(friends.state(a, b).await.unwrap(), FriendState::None);
+    let (one, two) = tokio::join!(friends.request(a, b), friends.request(b, a));
+    assert!(one.is_ok());
+    assert!(two.is_ok());
+    assert_eq!(friends.state(a, b).await.unwrap(), FriendState::Friends);
+    assert_eq!(friends.state(b, a).await.unwrap(), FriendState::Friends);
+    assert_eq!(friends.request(a, b).await.unwrap(), FriendState::Friends);
+    friends.remove(b, a).await.unwrap();
+    assert_eq!(friends.state(a, b).await.unwrap(), FriendState::None);
+    assert_eq!(friends.request(a, b).await.unwrap(), FriendState::Outgoing);
+    assert_eq!(friends.state(b, a).await.unwrap(), FriendState::Incoming);
+    mail.set_block(b, a, true).await.unwrap();
+    assert_eq!(friends.state(a, b).await.unwrap(), FriendState::BlockedMe);
+    assert_eq!(friends.state(b, a).await.unwrap(), FriendState::BlockedByMe);
+    assert_eq!(friends.request(a, b).await, Err(MailError::Blocked));
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM social_friendships WHERE user_low=$1 AND user_high=$2")
+        .bind(a.min(b)).bind(a.max(b)).fetch_one(&pool).await.unwrap();
+    assert_eq!(left, 0, "blocking deletes any existing accepted or pending friendship");
+    mail.set_block(a, b, false).await.unwrap();
+    assert_eq!(friends.request(a, b).await, Err(MailError::Blocked));
+    mail.set_block(b, a, false).await.unwrap();
+    assert_eq!(friends.state(a, b).await.unwrap(), FriendState::None);
     cleanup(&pool, &u).await;
 }
