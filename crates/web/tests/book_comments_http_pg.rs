@@ -400,15 +400,29 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
     assert_eq!(item["items"][0]["is_read"], false);
     assert!(!json.contains("NEVER_COPY_THIS_SPOILER"));
     assert_eq!(
-        call(&app, "GET", "/api/v1/me/inbox?filter=unknown", &cookies, ORIGIN, "")
-            .await
-            .status(),
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?filter=unknown",
+            &cookies,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
-        call(&app, "GET", "/api/v1/me/inbox?limit=51", &cookies, ORIGIN, "")
-            .await
-            .status(),
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?limit=51",
+            &cookies,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
     let read_path = format!("/me/replies/{incoming_id}/read-state");
@@ -451,12 +465,28 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         .await
         .contains("Отметить непрочитанным"));
     let read_inbox = html(
-        call(&app, "GET", "/api/v1/me/inbox?filter=read", &cookies, ORIGIN, "").await,
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?filter=read",
+            &cookies,
+            ORIGIN,
+            "",
+        )
+        .await,
     )
     .await;
     assert!(read_inbox.contains(&incoming_id.to_string()));
     assert!(!html(
-        call(&app, "GET", "/api/v1/me/inbox?filter=unread", &cookies, ORIGIN, "").await,
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?filter=unread",
+            &cookies,
+            ORIGIN,
+            ""
+        )
+        .await,
     )
     .await
     .contains(&format!("\"id\":\"{incoming_id}\"")));
