@@ -267,7 +267,11 @@ async fn d_05_pg_membership_identity_cannot_move_out_of_live_layer() {
     .bind(owner)
     .execute(&pool)
     .await;
-    assert!(moved.is_err(), "Layer member identity update must be rejected");
+    assert_eq!(
+        moved.unwrap_err().as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("23514"),
+        "reject at the Layer identity trigger, not just a foreign-key check"
+    );
     let swapped = sqlx::query(
         "UPDATE book_members SET user_id=$2 WHERE book_id=$1 AND user_id=$3",
     )
@@ -276,6 +280,10 @@ async fn d_05_pg_membership_identity_cannot_move_out_of_live_layer() {
     .bind(owner)
     .execute(&pool)
     .await;
-    assert!(swapped.is_err(), "Layer member actor update must be rejected");
+    assert_eq!(
+        swapped.unwrap_err().as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("23514"),
+        "reject actor identity mutation at the Layer guard"
+    );
     pool.close().await;
 }
