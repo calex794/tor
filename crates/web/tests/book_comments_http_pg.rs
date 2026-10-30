@@ -600,6 +600,7 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     )
     .await;
+    pg(&url, &format!("DELETE FROM discussion_comments WHERE parent_id={incoming_id}")).await;
     pg(
         &url,
         &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
