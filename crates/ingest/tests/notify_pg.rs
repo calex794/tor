@@ -633,7 +633,7 @@ async fn g_08_paid_publication_requires_verified_encrypted_object() {
     .unwrap();
     let version: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,'Платный текст остаётся вне уведомления') RETURNING id",
+         VALUES($1,1,'Платный текст') RETURNING id",
     )
     .bind(chapter)
     .fetch_one(&pool)
