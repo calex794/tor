@@ -45,6 +45,12 @@ impl CookiePolicy {
         self.cookie(self.guest_name(), token, 30 * 24 * 60 * 60, "Lax")
     }
 
+    pub(crate) fn cleared_guest_cookie(&self) -> String {
+        // A new account has consumed the guest invitation; do not carry it
+        // into a second account created later in the same browser.
+        self.cookie(self.guest_name(), "", 0, "Lax")
+    }
+
     fn csrf_name(&self) -> &'static str {
         if self.secure {
             "__Host-tor-csrf"
@@ -261,6 +267,16 @@ mod tests {
             assert_eq!(config.guest_token(&headers).as_deref(), Some(token.as_str()));
 
             // Authentication and CSRF never inherit the referral's Lax policy.
+            let cleared = config.cleared_guest_cookie();
+            assert!(cleared.contains("; Max-Age=0"));
+            assert!(cleared.contains("; SameSite=Lax"));
+            assert!(cleared.contains("; HttpOnly"));
+            if secure {
+                assert!(cleared.starts_with("__Host-tor-guest="));
+                assert!(cleared.contains("; Secure"));
+            } else {
+                assert!(cleared.starts_with("tor-dev-guest="));
+            }
             assert!(config.session_cookie(&token).contains("; SameSite=Strict"));
             assert!(config.csrf_token_cookie().1.contains("; SameSite=Strict"));
         }
