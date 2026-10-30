@@ -2,8 +2,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-// Fixture-only identity lookup. A source profile->mail click is still a parity
-// blocker and must not be replaced by an invented production recipient form.
+// Fixture-only identity lookup for participant ACL checks; start uses real profile click.
 function fixtureUser(email) {
   const db = process.env.TEST_DATABASE_URL || process.env.APP_URL || '';
   assert(db.endsWith('/tor_ci'), 'disposable mail fixture database required');
@@ -23,7 +22,7 @@ module.exports = async (browser, base, out) => {
         const context = await browser.newContext({ viewport: { width, height: 900 } });
         const page = await context.newPage();
         await page.goto(base + '/register');
-        await page.getByLabel('Отображаемое имя').fill('Почта ' + suffix);
+        await page.getByLabel('Отображаемое имя').fill('Почта ' + name + ' ' + suffix);
         await page.getByLabel('Электронная почта').fill(`mail.${name}.${suffix}@example.test`);
         await page.getByLabel('Пароль (12–128 символов)').fill('MailOnlyTestingPassword2026');
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
@@ -34,13 +33,11 @@ module.exports = async (browser, base, out) => {
         clients.push({ context, page, id });
       }
       const [a, b, c] = clients;
-      const token = (await a.context.cookies()).find(cookie => cookie.name.endsWith('csrf')).value;
-      const started = await a.context.request.post(base + '/mail/start/' + b.id, {
-        form: { csrf_token: token }, headers: { Origin: base }, maxRedirects: 0,
-      });
-      assert.equal(started.status(), 303);
-      const conversation = started.headers().location;
-      await a.page.goto(base + conversation);
+      // E2E profile entry: no fixture POST or invented recipient picker.
+      await a.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' b'));
+      await a.page.getByRole('button', { name: 'Почта', exact: true }).click();
+      await a.page.waitForURL('**/mail/*');
+      const conversation = new URL(a.page.url()).pathname;
       await b.page.goto(base + conversation); // Open empty transcript before first send.
       const marker = 'PRIVATE-MAIL-' + name;
       await a.page.getByLabel('Ваше сообщение', { exact: true }).fill(marker + '\n<img src=x onerror="window.mailXss=1"> /books/2');
@@ -100,7 +97,7 @@ module.exports = async (browser, base, out) => {
         await plain.waitForURL(base + conversation);
         assert((await plain.locator('#mail-messages').innerText()).includes('Без JavaScript ' + name));
       } finally { await noJs.close(); }
-      console.log(`E-08/S057 mail transport (profile entry pending) ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
+      console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
   }
 };
