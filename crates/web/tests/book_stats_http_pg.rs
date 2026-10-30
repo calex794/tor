@@ -202,9 +202,15 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(data.contains("\"'=2+3 Stats\""), "formula must not execute");
     assert!(data.contains("book,0,"));
     assert!(data.contains("gross_minor,completed,thanks"));
-    assert!(data.lines().any(|line| line.starts_with("book,0,") && line.ends_with(",1")));
-    assert!(data.lines().any(|line| line.starts_with("chapter,1,") && line.ends_with(",1")));
-    assert!(data.lines().any(|line| line.starts_with("daily,0,") && line.ends_with(",1")));
+    assert!(data
+        .lines()
+        .any(|line| |line| line.starts_with("book,0,") && line.ends_with(",1")));
+    assert!(data
+        .lines()
+        .any(|line| |line| line.starts_with("chapter,1,") && line.ends_with(",1")));
+    assert!(data
+        .lines()
+        .any(|line| |line| line.starts_with("daily,0,") && line.ends_with(",1")));
     let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later.status(), StatusCode::OK);
     let later_html = body(later).await;
