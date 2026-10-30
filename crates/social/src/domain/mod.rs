@@ -47,6 +47,12 @@ pub fn valid_key(key: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
 }
 
+/// Source HTML keys intentionally differ from TOR JSON command keys.
+pub fn valid_html_client_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
+}
+
 /// NEwBOO mail_service accepts nonempty stripped text without a 2000-character cap.
 pub fn clean_body(body: &str) -> Result<String, MailError> {
     // HTML textarea submissions use CRLF; JSON/FormData retries may use LF.
