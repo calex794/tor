@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 95);
+    assert_eq!(unique.len(), 96);
     let purchase = classify(Some("/api/v1/layers/{id}/purchase"), "POST");
     assert!(purchase.route_known);
     assert_eq!(purchase.product_area, ProductArea::Billing);
@@ -37,6 +37,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
         ProductArea::Dashboard
     );
     assert!(!classify(Some("/me/layers"), "POST").route_known);
+    assert_eq!(classify(Some("/me/layers/{layer_id}/metadata"), "POST").cost_class, CostClass::Write);
     assert_eq!(
         classify(Some("/me/replies/{id}/read-state"), "POST").product_area,
         ProductArea::Dashboard

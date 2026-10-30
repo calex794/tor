@@ -671,5 +671,13 @@
       "handler": "index",
       "policy": "owner"
     }
+    ,
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/metadata",
+      "source": "crates/web/src/auth/layer_create.rs",
+      "handler": "update_metadata",
+      "policy": "owner"
+    }
   ]
 }

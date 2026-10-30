@@ -2,7 +2,7 @@
 use super::{deny, layer_books, session_user, AuthState};
 use crate::{auth_cookies::private_response, author_pages, pages};
 use axum::{
-    extract::{Form, State},
+    extract::{Form, Path, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     routing::get,
@@ -23,10 +23,21 @@ pub(super) struct CreateForm {
     csrf_token: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MetadataForm {
+    title: String,
+    description: String,
+    status: String,
+    expected_revision: i64,
+    csrf_token: Option<String>,
+}
+
 pub(super) fn routes() -> Router<AuthState> {
     Router::new()
         .route("/me/layers", get(index))
         .route("/me/layers/new", get(page).post(create))
+        .route("/me/layers/{layer_id}/metadata", axum::routing::post(update_metadata))
 }
 
 /// Owner-only entry for S032; no payment, buyer data or public enumeration.
@@ -45,8 +56,53 @@ pub(super) async fn index(State(state): State<AuthState>, headers: HeaderMap) ->
     };
     let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
     match service.owned_layers(actor, 100).await {
-        Ok(layers) => private_response(author_pages::layers_index(&layers), &[]),
+        Ok(layers) => {
+            let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+            private_response(author_pages::layers_index_with_forms(&layers, &csrf), &cookies)
+        }
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+/// Status transitions use a separately versioned owner-only metadata CAS.
+pub(super) async fn update_metadata(
+    State(state): State<AuthState>,
+    Path(raw_layer): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<MetadataForm>,
+) -> Response {
+    if !layer_books::enabled() {
+        return deny(StatusCode::NOT_FOUND);
+    }
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(error) => return deny(error),
+    };
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    let (Ok(actor), Ok(layer)) = (PositiveId::new(actor), PositiveId::new(raw_layer)) else {
+        return deny(StatusCode::NOT_FOUND);
+    };
+    let service = LayerService::new(PgLayers::new(state.accounts.pool().clone()));
+    match service
+        .update_metadata_if_current(
+            actor,
+            layer,
+            form.expected_revision,
+            &form.title,
+            &form.description,
+            &form.status,
+        )
+        .await
+    {
+        Ok(()) => private_response(Redirect::to("/me/layers"), &[]),
+        Err(error) => deny(layer_books::status(error)),
     }
 }
 

@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 97)  # 95 route pairs, 97 reviewed bindings.
-        self.assertEqual(report["route_pairs"], 95)  # Layer/S035/C-15/E-03 plus owner index.
+        self.assertEqual(report["route_bindings"], 98)  # 96 route pairs, 98 reviewed bindings.
+        self.assertEqual(report["route_pairs"], 96)  # Layer/S035/C-15/E-03 plus owner metadata.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
