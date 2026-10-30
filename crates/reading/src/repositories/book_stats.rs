@@ -143,15 +143,13 @@ impl PgBookStats {
         if book_id <= 0 {
             return Ok(None);
         }
-        let Some(title): Option<String> = sqlx::query_scalar(
+        let title: Option<String> = sqlx::query_scalar(
             "SELECT title FROM books WHERE id=$1 AND NOT admin_hold AND NOT is_deleted",
         )
         .bind(book_id)
         .fetch_optional(&self.pool)
-        .await?
-        else {
-            return Ok(None);
-        };
+        .await?;
+        let Some(title) = title else { return Ok(None); };
         let totals = sqlx::query(
             "SELECT
                COALESCE((SELECT SUM(opens) FROM book_chapter_open_daily
