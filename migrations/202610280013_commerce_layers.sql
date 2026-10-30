@@ -210,6 +210,14 @@ CREATE TRIGGER b09_layer_owner_transfer_fence
 CREATE FUNCTION b09_layer_block_membership_changes()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    -- Identity is the membership key; moving it to another Book or user
+    -- must never bypass the canonical Book lock and Layer ownership fences.
+    IF TG_OP='UPDATE' AND
+       (NEW.book_id IS DISTINCT FROM OLD.book_id OR
+        NEW.user_id IS DISTINCT FROM OLD.user_id) THEN
+        RAISE EXCEPTION 'book membership identity is immutable'
+            USING ERRCODE='23514';
+    END IF;
     IF TG_OP='UPDATE' THEN
         IF NEW.role IS NOT DISTINCT FROM OLD.role
            AND NEW.is_active IS NOT DISTINCT FROM OLD.is_active THEN
@@ -236,7 +244,7 @@ END;
 $$;
 
 CREATE TRIGGER b09_layer_member_fence
-    BEFORE INSERT OR UPDATE OF role,is_active ON book_members
+    BEFORE INSERT OR UPDATE OF book_id,user_id,role,is_active ON book_members
     FOR EACH ROW EXECUTE FUNCTION b09_layer_block_membership_changes();
 
 
