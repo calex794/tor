@@ -20,8 +20,8 @@ impl PgLayers {
             return Err(LayerError::Invalid);
         }
         let rows = sqlx::query(
-            "SELECT id,title FROM commerce_layers
-             WHERE owner_user_id=$1 AND status='active'
+            "SELECT id,title,description,status,metadata_revision FROM commerce_layers
+             WHERE owner_user_id=$1
              ORDER BY id DESC LIMIT $2",
         )
         .bind(actor.get())
@@ -34,6 +34,13 @@ impl PgLayers {
                 Ok(OwnedLayerSummary {
                     layer_id: row.try_get("id").map_err(|_| LayerError::Unavailable)?,
                     title: row.try_get("title").map_err(|_| LayerError::Unavailable)?,
+                    description: row
+                        .try_get("description")
+                        .map_err(|_| LayerError::Unavailable)?,
+                    status: row.try_get("status").map_err(|_| LayerError::Unavailable)?,
+                    metadata_revision: row
+                        .try_get("metadata_revision")
+                        .map_err(|_| LayerError::Unavailable)?,
                 })
             })
             .collect()

@@ -36,6 +36,28 @@ impl LayerService {
     ) -> Result<Vec<OwnedLayerSummary>, LayerError> {
         self.repository.owned_layers(actor, limit).await
     }
+    /// Owner-scoped CAS of display metadata only; no changes to paid terms.
+    pub async fn update_metadata_if_current(
+        &self,
+        actor: PositiveId,
+        layer: PositiveId,
+        expected_revision: i64,
+        title: &str,
+        description: &str,
+        status: &str,
+    ) -> Result<(), LayerError> {
+        self.repository
+            .update_metadata_if_current(
+                actor,
+                layer,
+                expected_revision,
+                title,
+                description,
+                status,
+            )
+            .await
+    }
+
     /// The owner's current composition with a version for CAS removal.
     pub async fn current_books(
         &self,

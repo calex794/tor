@@ -53,6 +53,10 @@ pub struct LayerCheckoutCommand {
 pub struct OwnedLayerSummary {
     pub layer_id: i64,
     pub title: String,
+    pub description: String,
+    /// Owner-only state, not a paid entitlement: active, hidden, or blocked.
+    pub status: String,
+    pub metadata_revision: i64,
 }
 
 /// A read-only Layer picker entry. UI eligibility is advisory:
