@@ -389,7 +389,10 @@ impl PgReferrals {
                            WHERE id=$5 AND status='blocked'
                          ) THEN 'blocked' ELSE 'active' END
                      FROM account_registration_referral_outbox WHERE user_id=$2
-                     ON CONFLICT(program_type,subject_user_id) DO NOTHING",
+                     -- A capture is single-use even for legacy/replayed outbox.
+                     -- Conflict on the source capture must settle the second
+                     -- event as unattributed, not poison the retry worker.
+                     ON CONFLICT DO NOTHING",
                 )
                 .bind(&candidate.program)
                 .bind(user_id)

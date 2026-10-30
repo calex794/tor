@@ -680,3 +680,41 @@ async fn f_09_pg_alias_claim_is_idempotent_owned_and_cannot_be_reassigned() {
         None
     );
 }
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_legacy_outbox_cannot_credit_same_capture_twice() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let owner = seed_user(&pool, "once-owner").await;
+    let first_subject = seed_user(&pool, "once-first").await;
+    let second_subject = seed_user(&pool, "once-second").await;
+    let code = seed_code(&pool, owner, "reader_spend").await;
+    let hash = guest_hash(owner);
+    assert_eq!(
+        repo.capture(&hash, &code, "direct_ref_link", "/r/once")
+            .await
+            .unwrap(),
+        CaptureResult::Saved
+    );
+
+    // Legacy test rows intentionally lack a signup-time decision. They must
+    // still be idempotent if a stale guest bearer reaches two registrations.
+    enqueue(&pool, first_subject, Some(&hash), None).await;
+    enqueue(&pool, second_subject, Some(&hash), None).await;
+    assert!(repo.finalize_one(first_subject).await.unwrap());
+    assert!(!repo.finalize_one(second_subject).await.unwrap());
+    assert_eq!(attribution_count(&pool, first_subject).await, 1);
+    assert_eq!(attribution_count(&pool, second_subject).await, 0);
+    let (processed, result): (bool, String) = sqlx::query_as(
+        "SELECT processed_at IS NOT NULL,result
+         FROM account_registration_referral_outbox WHERE user_id=$1",
+    )
+    .bind(second_subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(processed, "a rejected replay must not leave an endless retry");
+    assert_eq!(result, "unattributed");
+    assert!(!repo.finalize_one(second_subject).await.unwrap());
+}
