@@ -2,7 +2,7 @@
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Form, State},
+    extract::{Form, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     Json,
@@ -10,10 +10,17 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tor_accounts::services::security::generate_session_token;
 use tor_referrals::repositories::postgres::ReferralOverview;
+use tor_reading::services::PublicReadingRepository;
 
 #[derive(Deserialize)]
 pub(super) struct CreateReferralForm {
     csrf_token: Option<String>,
+    book_id: Option<u64>,
+}
+
+#[derive(Default, Deserialize)]
+pub(super) struct ReferralPageQuery {
+    book: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -59,7 +66,11 @@ async fn overview(state: &AuthState, actor: i64) -> Result<ReferralOverview, Sta
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
-pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+pub(super) async fn page(
+    State(state): State<AuthState>,
+    Query(query): Query<ReferralPageQuery>,
+    headers: HeaderMap,
+) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
@@ -69,9 +80,17 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
         Ok(snapshot) => snapshot,
         Err(status) => return deny(status),
     };
+    // An arbitrary guessed book ID must not produce a link to a hidden title.
+    if let Some(id) = query.book {
+        match state.reader.public_book_page(id, 1, None).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return deny(StatusCode::NOT_FOUND),
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::referrals_page(&csrf, &state.cookies.origin, &snapshot),
+        pages::referrals_page(&csrf, &state.cookies.origin, &snapshot, query.book),
         &cookies,
     )
 }
@@ -106,7 +125,13 @@ pub(super) async fn create(
         Err(status) => return deny(status),
     };
     match create_for_actor(&state, actor).await {
-        Ok(()) => private_response(Redirect::to("/me/referrals"), &[]),
+        Ok(()) => {
+            let location = form.book_id
+                .and_then(tor_search::domain::seo_urls::BookUrl::from_id)
+                .map(|book| format!("/me/referrals?book={}", book.id()))
+                .unwrap_or_else(|| "/me/referrals".to_owned());
+            private_response(Redirect::to(&location), &[])
+        }
         Err(status) => deny(status),
     }
 }

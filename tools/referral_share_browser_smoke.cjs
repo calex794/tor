@@ -68,6 +68,14 @@ async function referralStats(page) {
     const before = await referralStats(first);
     assert(before.active === 0 && before.invitation.url === firstUrl,
       'first invite missing from owner account');
+    await first.goto(base + '/books/1');
+    const shareAction = first.getByRole('link', { name: 'Поделиться книгой' });
+    assert(await shareAction.isVisible(), 'published book is missing share action');
+    await shareAction.click();
+    await first.waitForURL(base + '/me/referrals?book=1');
+    const bookLink = await first.getByLabel('Ссылка для приглашения на книгу').inputValue();
+    assert(bookLink === base + '/books/1?ref=' + firstUrl.slice((base + '/r/').length),
+      'book share link does not contain owner's active referral code');
     const invalid = await first.request.post(base + '/api/v1/me/referrals', {
       form: { csrf_token: 'invalid' },
     });

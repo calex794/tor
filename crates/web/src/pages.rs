@@ -300,6 +300,13 @@ fn book_detail_body(
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
         .replace(
+            "<!--BOOK_REFERRAL_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
+                book.id
+            ),
+        )
+        .replace(
             "<!--BATCH_PURCHASE_ACTION-->",
             &if batch_enabled {
                 format!(

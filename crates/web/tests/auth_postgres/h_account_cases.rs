@@ -424,6 +424,19 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     }
     let (inviter, signed_in, first_code) = &owners[0];
     let (_, _, second_code) = &owners[1];
+    let owned_page = send(
+        &app,
+        request("GET", "/me/referrals?book=1", "", signed_in, ORIGIN),
+    ).await;
+    assert_eq!(owned_page.status(), StatusCode::OK);
+    let share_html = body_of(owned_page).await;
+    assert!(share_html.contains(&format!("{ORIGIN}/books/1?ref={first_code}")));
+    assert!(share_html.contains("id=\"book-referral-url\""));
+    let hidden_dashboard = send(
+        &app,
+        request("GET", "/me/referrals?book=2", "", signed_in, ORIGIN),
+    ).await;
+    assert_eq!(hidden_dashboard.status(), StatusCode::NOT_FOUND);
 
     // Aliases cannot redirect to untrusted targets, unknown aliases or reserved names.
     for path in ["/go/unknown-alias", "/promo/unknown-alias", "/go/admin"] {
