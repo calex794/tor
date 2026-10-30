@@ -345,7 +345,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         call(&app, "POST", &finish_path, "", ORIGIN, &finish_form)
             .await
             .status(),
-        StatusCode::UNAUTHORIZED
+        StatusCode::FORBIDDEN
     );
     assert_eq!(
         call(
@@ -360,27 +360,45 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    let unfinished = finish_form.replace(
-        &format!("char_offset={final_offset}"),
-        "char_offset=1",
-    );
+    let unfinished = finish_form.replace(&format!("char_offset={final_offset}"), "char_offset=1");
     assert_eq!(
-        call(&app, "POST", &finish_path, &reader_cookie, ORIGIN, &unfinished)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            ORIGIN,
+            &unfinished
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST,
         "middle-of-chapter progress must not count as completion"
     );
     assert_eq!(
-        call(&app, "POST", &finish_path, &reader_cookie, ORIGIN, &finish_form)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            ORIGIN,
+            &finish_form
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        call(&app, "POST", &finish_path, &reader_cookie, ORIGIN, &finish_form)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            ORIGIN,
+            &finish_form
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "replaying a stale completion revision cannot add another event"
     );
