@@ -56,6 +56,7 @@ mod login_limiter;
 mod mail;
 mod mail_api;
 mod mail_pages;
+mod friendship;
 mod paid_completion;
 mod private_reader;
 mod rankings;
@@ -181,6 +182,9 @@ fn router_inner(
         )
         .route("/me", get(me))
         .route("/users/{display_name}", get(public_user_profile))
+        .route("/users/{target_user_id}/friend", post(friendship::request))
+        .route("/users/{target_user_id}/unfriend", post(friendship::remove))
+        .route("/users/{target_user_id}/block", post(friendship::block))
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))
