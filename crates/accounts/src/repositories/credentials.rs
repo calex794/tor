@@ -29,7 +29,7 @@ impl PgAccounts {
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool().begin().await?;
         let current: Option<String> = sqlx::query_scalar(
-            "SELECT password_hash FROM users WHERE id = $1 FOR UPDATE",
+            "SELECT password_hash FROM users WHERE id = $1 AND account_state='active' FOR UPDATE",
         )
         .bind(user_id)
         .fetch_optional(&mut *tx)
@@ -82,7 +82,6 @@ impl PgAccounts {
         Ok(true)
     }
 
-
     /// Recheck the hash verified by Argon2 under the same lock used by rotation.
     /// A password verified before a rotation cannot mint a session afterwards.
     pub async fn insert_verified_session(
@@ -95,7 +94,7 @@ impl PgAccounts {
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool().begin().await?;
         let current: Option<String> = sqlx::query_scalar(
-            "SELECT password_hash FROM users WHERE id = $1 FOR UPDATE",
+            "SELECT password_hash FROM users WHERE id = $1 AND account_state='active' FOR UPDATE",
         )
         .bind(user_id)
         .fetch_optional(&mut *tx)

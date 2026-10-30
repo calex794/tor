@@ -6,7 +6,10 @@ use axum::{
     response::Response,
     Router,
 };
-use std::{net::SocketAddr, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
@@ -42,7 +45,9 @@ fn cookie(reply: &Response, name: &str) -> String {
         .iter()
         .find_map(|header| {
             let value = header.to_str().ok()?;
-            value.starts_with(name).then(|| value.split(';').next().unwrap().to_owned())
+            value
+                .starts_with(name)
+                .then(|| value.split(';').next().unwrap().to_owned())
         })
         .expect("session or CSRF Set-Cookie")
 }
@@ -68,7 +73,10 @@ async fn login(app: &Router, email: &str, password: &str) -> Response {
     assert_eq!(page.status(), StatusCode::OK);
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
     let markup = html(page).await;
-    let data = format!("email={email}&password={password}&csrf_token={}", csrf(&markup));
+    let data = format!(
+        "email={email}&password={password}&csrf_token={}",
+        csrf(&markup)
+    );
     send(app, request("POST", "/login", &data, &csrf_cookie, ORIGIN)).await
 }
 
@@ -97,7 +105,10 @@ async fn password_rotation_impl() {
         false,
         ORIGIN.to_owned(),
     );
-    let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let email = format!("a07{unique}%40example.invalid");
 
     let register_page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
@@ -110,7 +121,13 @@ async fn password_rotation_impl() {
     );
     let created = send(
         &app,
-        request("POST", "/register", &registration, &register_csrf_cookie, ORIGIN),
+        request(
+            "POST",
+            "/register",
+            &registration,
+            &register_csrf_cookie,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
@@ -146,14 +163,26 @@ async fn password_rotation_impl() {
 
     let missing_csrf = send(
         &app,
-        request("POST", "/me/settings/password", &change, &first_session, ORIGIN),
+        request(
+            "POST",
+            "/me/settings/password",
+            &change,
+            &first_session,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
 
     let foreign_origin = send(
         &app,
-        request("POST", "/me/settings/password", &change, &cookies, "https://evil.invalid"),
+        request(
+            "POST",
+            "/me/settings/password",
+            &change,
+            &cookies,
+            "https://evil.invalid",
+        ),
     )
     .await;
     assert_eq!(foreign_origin.status(), StatusCode::FORBIDDEN);
@@ -165,7 +194,12 @@ async fn password_rotation_impl() {
     )
     .await;
     assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(send(&app, request("GET", "/me", "", &second_session, ORIGIN)).await.status(), StatusCode::OK);
+    assert_eq!(
+        send(&app, request("GET", "/me", "", &second_session, ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK
+    );
 
     let rotated = send(
         &app,
@@ -183,7 +217,12 @@ async fn password_rotation_impl() {
         assert_eq!(declined.status(), StatusCode::SEE_OTHER);
         assert_eq!(declined.headers()[header::LOCATION], "/login");
     }
-    assert_eq!(send(&app, request("GET", "/me", "", &fresh_session, ORIGIN)).await.status(), StatusCode::OK);
+    assert_eq!(
+        send(&app, request("GET", "/me", "", &fresh_session, ORIGIN))
+            .await
+            .status(),
+        StatusCode::OK
+    );
 
     let replay = send(
         &app,

@@ -60,7 +60,7 @@ fn cookie(reply: &Response, prefix: &str) -> String {
         .to_owned()
 }
 
-async fn csrf(app: &Router, path: &str) -> (String, String) {
+async fn fetch_csrf(app: &Router, path: &str) -> (String, String) {
     let page = send(
         app,
         request("GET", path, "", "", [198, 51, 100, 3], "Test/1"),
@@ -106,7 +106,7 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
         .expect("wall clock")
         .as_nanos();
     let email = format!("audit-{nonce}@example.invalid");
-    let (csrf_cookie, csrf) = csrf(&app, "/register").await;
+    let (csrf_cookie, csrf) = fetch_csrf(&app, "/register").await;
     let registration = format!(
         "email=audit-{nonce}%40example.invalid&display_name=AuditReader&password=LongSecurePassword2026&csrf_token={csrf}"
     );
@@ -139,7 +139,7 @@ async fn access_audit_two_http_sessions_survive_failed_login_and_fake_forwarded_
         Some(user_id)
     );
 
-    let (csrf_cookie, csrf) = csrf(&app, "/login").await;
+    let (csrf_cookie, csrf) = fetch_csrf(&app, "/login").await;
     let invalid = format!("email=audit-{nonce}%40example.invalid&password=wrong&csrf_token={csrf}");
     let rejected = send(
         &app,

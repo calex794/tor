@@ -101,7 +101,7 @@ impl PgAccounts {
     ) -> Result<Option<StoredUser>, sqlx::Error> {
         let row = sqlx::query(
             "SELECT id, email_normalized, display_name, password_hash \
-             FROM users WHERE email_normalized = $1",
+             FROM users WHERE email_normalized = $1 AND account_state='active'",
         )
         .bind(normalized_email)
         .fetch_optional(&self.pool)
@@ -156,13 +156,10 @@ impl PgAccounts {
     }
 
     pub async fn active_session_user(&self, digest: &[u8; 32]) -> Result<Option<i64>, sqlx::Error> {
-        sqlx::query_scalar(
-            "SELECT user_id FROM sessions \
-             WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()",
-        )
-        .bind(digest.as_slice())
-        .fetch_optional(&self.pool)
-        .await
+        Ok(self
+            .session_actor(digest)
+            .await?
+            .map(|actor| actor.actor.user_id.get()))
     }
 
     /// Register and establish the first session atomically. A failed session
@@ -293,7 +290,8 @@ impl PgAccounts {
             "SELECT s.user_id, c.epoch FROM sessions s
                 JOIN ril_behavior_consents c ON c.user_id = s.user_id
              WHERE s.token_hash = $1 AND s.revoked_at IS NULL
-               AND s.expires_at > now() AND c.enabled = TRUE",
+               AND s.expires_at > now() AND c.enabled = TRUE
+               AND EXISTS (SELECT 1 FROM users u WHERE u.id=s.user_id AND u.account_state='active')",
         )
         .bind(token_digest.as_slice())
         .fetch_optional(&self.pool)

@@ -38,14 +38,19 @@ pub fn password_change(
     if current.is_empty() || current.len() > 512 {
         return Err("Укажите текущий пароль");
     }
+    password_reset(new_password, confirmation)?;
+    if new_password == current {
+        return Err("Новый пароль должен отличаться от текущего");
+    }
+    Ok(())
+}
+
+pub fn password_reset(new_password: &str, confirmation: &str) -> Result<(), &'static str> {
     if new_password != confirmation {
         return Err("Подтверждение нового пароля не совпадает");
     }
     if !(12..=128).contains(&new_password.chars().count()) || new_password.len() > 512 {
         return Err("Новый пароль должен содержать от 12 до 128 символов");
-    }
-    if new_password == current {
-        return Err("Новый пароль должен отличаться от текущего");
     }
     Ok(())
 }

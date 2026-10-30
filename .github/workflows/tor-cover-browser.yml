@@ -94,6 +94,22 @@ jobs:
             sleep 1
           done
           test "$ready" = 1
+      - name: Prepare isolated reset test mailbox
+        run: |
+          mkdir -m 700 -p "$RUNNER_TEMP/account-reset-mail"
+          cat > "$RUNNER_TEMP/account-reset-sendmail" <<'PYMAIL'
+          #!/usr/bin/env python3
+          import hashlib, os, pathlib, sys
+          message = sys.stdin.read()
+          recipient = next(line[4:].strip() for line in message.splitlines() if line.startswith('To: '))
+          if not recipient.endswith('@example.invalid'):
+              sys.exit(2)
+          dest = pathlib.Path(os.environ['TOR_RESET_TEST_MAIL_DIR']) / hashlib.sha256(recipient.encode()).hexdigest()
+          fd = os.open(dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, 'w') as output:
+              output.write(message)
+          PYMAIL
+          chmod 700 "$RUNNER_TEMP/account-reset-sendmail"
       - name: Create private test bucket using existing verified S3 provider test
         run: |
           cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
@@ -117,6 +133,10 @@ jobs:
           AWS_ENDPOINT_URL_S3: http://127.0.0.1:9000
           AWS_EC2_METADATA_DISABLED: 'true'
           TOR_COVER_BROWSER_SHOTS: ${{ runner.temp }}/cover-browser-shots
+          TOR_PASSWORD_RESET_ENABLED: '1'
+          TOR_RESET_SENDMAIL: ${{ runner.temp }}/account-reset-sendmail
+          TOR_RESET_MAIL_FROM: no-reply@example.invalid
+          TOR_RESET_TEST_MAIL_DIR: ${{ runner.temp }}/account-reset-mail
         run: |
           set -euo pipefail
           mkdir -p "$TOR_COVER_BROWSER_SHOTS"
@@ -130,6 +150,7 @@ jobs:
           done
           if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/cover-web.log"; exit 1; fi
           node tools/author_cover_pg_visual_smoke.cjs
+          node tools/account_line_browser.cjs
           # The private bucket must stay inaccessible to anonymous browsers.
           code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
