@@ -80,12 +80,18 @@ impl BoostyCreditRepository for PgBoostyCredits {
             let prior_fingerprint: Vec<u8> =
                 prior.try_get("charge_fingerprint").map_err(unavailable)?;
             let prior_ref: String = prior.try_get("wallet_reference").map_err(unavailable)?;
-            if prior.try_get::<i64, _>("provider_user_id").map_err(unavailable)?
+            if prior
+                .try_get::<i64, _>("provider_user_id")
+                .map_err(unavailable)?
                 != charge.provider_user_id()
                 || prior.try_get::<i64, _>("user_id").map_err(unavailable)? != user_id
-                || prior.try_get::<i64, _>("amount_minor").map_err(unavailable)?
+                || prior
+                    .try_get::<i64, _>("amount_minor")
+                    .map_err(unavailable)?
                     != charge.amount_minor()
-                || prior.try_get::<String, _>("charge_kind").map_err(unavailable)?
+                || prior
+                    .try_get::<String, _>("charge_kind")
+                    .map_err(unavailable)?
                     != charge.kind().as_str()
                 || prior_fingerprint.as_slice() != fingerprint
                 || prior_ref != reference
