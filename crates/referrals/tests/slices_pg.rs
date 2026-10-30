@@ -298,10 +298,10 @@ async fn f_09_pg_first_capture_and_replay() {
 
     // F owns the capture replay guard even after A spends the guest bearer.
     let capture_id: i64 = sqlx::query_scalar("SELECT id FROM referral_captures WHERE guest_hash=$1")
-    .bind(guest_hash.as_slice())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+        .bind(guest_hash.as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE referral_captures SET status='consumed' WHERE id=$1")
         .bind(capture_id)
         .execute(&pool)
@@ -325,10 +325,10 @@ async fn f_09_pg_first_capture_and_replay() {
         CaptureResult::Existing
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM referral_captures WHERE guest_hash=$1")
-    .bind(guest_hash.as_slice())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+        .bind(guest_hash.as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1, "consumed and blocked captures must not be recreated");
 }
 
