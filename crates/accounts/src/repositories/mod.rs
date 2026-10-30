@@ -1,5 +1,6 @@
 pub mod access_levels;
 pub mod auth_observations;
+pub mod auth_risk_signals;
 pub mod postgres;
 pub use postgres::PgAccounts;
 pub mod authority;
