@@ -428,18 +428,9 @@ fn make_router(
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
-        .route(
-            "/assets/newboo-paid-reader.mjs",
-            get(pages::paid_reader_script),
-        )
-        .route(
-            "/assets/newboo-cover-picker.js",
-            get(pages::cover_picker_script),
-        )
-        .route(
-            "/assets/newboo-chapter-import.js",
-            get(chapter_import_assets::script),
-        )
+        .route("/assets/newboo-paid-reader.mjs", get(pages::paid_reader_script))
+        .route("/assets/newboo-cover-picker.js", get(pages::cover_picker_script))
+        .route("/assets/newboo-chapter-import.js", get(chapter_import_assets::script))
         .route(
             "/assets/brand/pandaolate-header.png",
             get(pages::brand_logo),
