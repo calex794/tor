@@ -4,7 +4,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 import { Trend } from 'k6/metrics';
 
-const allowedRates = [25, 50, 100, 250, 300, 350, 400, 500];
+const allowedRates = [25, 50, 100, 200, 250, 300, 350, 400, 500];
 const rate = Number(__ENV.TARGET_RPS || '25');
 const seconds = Number(__ENV.STAGE_SECONDS || '15');
 const profile = __ENV.TOR_LOAD_PROFILE || 'mixed';

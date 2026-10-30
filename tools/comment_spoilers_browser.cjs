@@ -81,6 +81,67 @@ module.exports = async function checkSpoilers(browser, base, out) {
         await replyPage.screenshot({ path: path.join(out, `reply-${name}.png`), fullPage: true });
         const sizes = await replyPage.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
         assert(sizes[0] <= sizes[1] + 1, 'reply page no horizontal overflow');
+        const replyId = (await reply.getAttribute('id')).replace('comment-', '');
+        await page.goto(base + '/me');
+        const inbox = page.locator('section[aria-labelledby="me-replies-title"]');
+        const link = inbox.locator(`a[href$="#comment-${replyId}"]`);
+        assert.equal(await link.count(), 1, 'only parent author receives reply');
+        assert(!(await inbox.innerText()).includes('скрытый ответ'), 'no spoiler copy in dashboard');
+        await page.screenshot({ path: path.join(out, `received-replies-${name}.png`), fullPage: true });
+        await link.click();
+        await page.waitForURL(`**#comment-${replyId}`);
+        assert.equal(await page.locator(`#comment-${replyId}`).count(), 1);
+        // Complete the conversation through the private Inbox, using its real form.
+        await page.goto(base + '/me/inbox?filter=unread');
+        const received = page.locator('article.me-now-card').filter({
+          has: page.locator(`a[href$="#comment-${replyId}"]`),
+        });
+        assert.equal(await received.count(), 1);
+        assert(!(await received.innerText()).includes('скрытый ответ'), 'Inbox contains no body copy');
+        await received.locator('details.comment-reply > summary').click();
+        const responseMarker = 'INBOX-ANSWER-' + name;
+        await received.getByLabel('Ваш ответ', { exact: true }).fill(responseMarker + ' ||ответ из Inbox||');
+        const form = received.locator('form.comments-form');
+        const submitted = await form.evaluate(el => Object.fromEntries(new FormData(el)));
+        assert.equal(submitted.parent_id, replyId, 'reply targets the original canonical comment');
+        assert.equal(submitted.return_to, 'inbox');
+        await form.getByRole('button', { name: 'Отправить ответ', exact: true }).click();
+        await page.waitForURL(base + '/me/inbox');
+        const replay = await context.request.post(base + '/books/1/comments', {
+          form: submitted, headers: { Origin: base }, maxRedirects: 0,
+        });
+        assert.equal(replay.status(), 303, 'retry remains idempotent');
+        assert.equal(replay.headers().location, '/me/inbox');
+        const entry = page.locator('article.me-now-card').filter({
+          has: page.locator(`a[href$="#comment-${replyId}"]`),
+        });
+        await entry.getByRole('button', { name: 'Отметить прочитанным', exact: true }).click();
+        await page.waitForURL(base + '/me/inbox');
+        await page.goto(base + '/me/inbox?filter=read');
+        assert.equal(await page.locator(`a[href$="#comment-${replyId}"]`).count(), 1);
+        await page.screenshot({ path: path.join(out, `inbox-inline-${name}.png`), fullPage: true });
+        const inboxSizes = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+        assert(inboxSizes[0] <= inboxSizes[1] + 1, 'Inbox no horizontal overflow');
+        await entry.getByRole('button', { name: 'Отметить непрочитанным', exact: true }).click();
+        await page.waitForURL(base + '/me/inbox');
+        await page.goto(base + '/me/inbox?filter=unread');
+        assert.equal(await page.locator(`a[href$="#comment-${replyId}"]`).count(), 1);
+        await page.goto(base + '/books/1/comments');
+        const response = page.locator('.comment-card').filter({ hasText: responseMarker });
+        assert.equal(await response.count(), 1, 'resubmission must not duplicate the answer');
+        assert((await response.innerText()).includes(`Ответ на комментарий №${replyId}`));
+        assert.equal(await response.locator('.comment-spoiler__content').isVisible(), false);
+        const responseId = (await response.getAttribute('id')).replace('comment-', '');
+        await replyPage.goto(base + '/me/inbox');
+        const returned = replyPage.locator(`a[href$="#comment-${responseId}"]`);
+        assert.equal(await returned.count(), 1, 'answer returns to the author of the received reply');
+        assert(!(await replyPage.locator('main').innerText()).includes(responseMarker), 'no answer body copied');
+        await returned.click();
+        await replyPage.waitForURL(`**#comment-${responseId}`);
+        assert.equal(await replyPage.locator(`#comment-${responseId}`).count(), 1);
+        await replyPage.goto(base + '/me');
+        assert.equal(await replyPage.locator(`section[aria-labelledby="me-replies-title"] a[href$="#comment-${replyId}"]`).count(), 0, 'writer is not recipient');
+
       } finally {
         await responder.close();
       }

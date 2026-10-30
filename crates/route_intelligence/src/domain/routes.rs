@@ -8,28 +8,14 @@ use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 79] = [
+// Fixed-index route registry: keep compact entries stable for review.
+#[rustfmt::skip]
+const ROUTES: [RouteRegistration; 84] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
-    RouteRegistration::new(
-        "/reader/{id}",
-        "GET",
-        "/reader/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 3
-    RouteRegistration::new(
-        "/assets/site.css",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 4
+    RouteRegistration::new("/reader/{id}", "GET", "/reader/", Prefix, Page, Reading, Read), // 3
+    RouteRegistration::new("/assets/site.css", "GET", "/assets/", Exact, Static, System, Free), // 4
     RouteRegistration::new("/healthz", "GET", "/healthz/", Exact, Service, System, Free), // 5
     RouteRegistration::new("/readyz", "GET", "/readyz/", Exact, Service, System, Read), // 6
     RouteRegistration::new("/login", "GET", "/login/", Exact, Page, Auth, Read), // 7
@@ -46,15 +32,7 @@ const ROUTES: [RouteRegistration; 79] = [
         Read,
     ), // 11
     RouteRegistration::new("/me", "GET", "/me/", Exact, Page, Dashboard, Read), // 12
-    RouteRegistration::new(
-        "/me/library",
-        "GET",
-        "/me/library/",
-        Exact,
-        Page,
-        Reading,
-        Read,
-    ), // 13
+    RouteRegistration::new("/me/library", "GET", "/me/library/", Exact, Page, Reading, Read), // 13
     RouteRegistration::new("/read/{id}", "GET", "/read/", Prefix, Page, Reading, Read), // 14
     RouteRegistration::new(
         "/read/{id}/place",
@@ -69,15 +47,7 @@ const ROUTES: [RouteRegistration; 79] = [
     RouteRegistration::new("/me/books", "GET", "/me/", Exact, Page, Dashboard, Read), // 17
     RouteRegistration::new("/me/books", "POST", "/me/", Exact, Page, Dashboard, Write), // 18
     RouteRegistration::new("/me/books/new", "GET", "/me/", Exact, Page, Dashboard, Read), // 19
-    RouteRegistration::new(
-        "/me/books/{id}",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 20
+    RouteRegistration::new("/me/books/{id}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 20
     RouteRegistration::new(
         "/api/v1/books/{id}/toc",
         "GET",
@@ -592,6 +562,35 @@ const ROUTES: [RouteRegistration; 79] = [
         Reading,
         Write,
     ), // 78
+    RouteRegistration::new(
+        "/me/books/{id}/follow",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 79
+    RouteRegistration::new(
+        "/me/books/{id}/unfollow",
+        "POST",
+        "/me/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    ), // 80
+    RouteRegistration::new(
+        "/me/replies/{id}/read-state",
+        "POST",
+        "/me/replies/",
+        Prefix,
+        Page,
+        Dashboard,
+        Write,
+    ), // 81
+    RouteRegistration::new("/me/inbox", "GET", "/me/inbox/", Exact, Page, Dashboard, Read), // 82
+    RouteRegistration::new("/api/v1/me/inbox", "GET", "/api/v1/me/inbox/", Exact, Api, Dashboard, Read), // 83
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
