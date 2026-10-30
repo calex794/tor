@@ -160,8 +160,29 @@ impl PgPublicBookComments {
         }
         // Resolve structured IDs solely against visible participants of this book.
         // This prevents arbitrary user-id tokens from creating notifications.
-        let tokens = mentions::candidates(body);
-        let ids: Vec<i64> = tokens.iter().map(|token| token.user_id).collect();
+        let tokens = mentions::tokens(body);
+        let mut verified = Vec::new();
+        for token in &tokens {
+            match &token.key {
+                mentions::MentionKey::User(id) => verified.push((token.key.clone(), *id)),
+                mentions::MentionKey::Handle(handle) => {
+                    let matched = sqlx::query_scalar::<_, i64>(
+                        "SELECT h.user_id FROM discussion_mention_handles h
+                         WHERE h.handle=$1",
+                    )
+                    .bind(handle)
+                    .fetch_optional(&mut *tx)
+                    .await;
+                    match matched {
+                        Ok(Some(id)) => verified.push((token.key.clone(), id)),
+                        Ok(None) => (),
+                        Err(_) => return CreateResult::Unavailable,
+                    }
+                }
+                mentions::MentionKey::InvalidUserToken => (),
+            }
+        }
+        let ids: Vec<i64> = verified.iter().map(|(_, id)| *id).collect();
         let eligible = if ids.is_empty() {
             Vec::new()
         } else {
@@ -183,7 +204,13 @@ impl PgPublicBookComments {
             }
         };
         let eligible = eligible.into_iter().take(5).collect::<Vec<_>>();
-        let clean_body = mentions::canonicalize(body, &eligible);
+        let verified = verified
+            .into_iter()
+            .filter(|(_, id)| eligible.contains(id))
+            .collect::<Vec<_>>();
+        let resolved = mentions::canonicalize(body, &verified, actor_id);
+        let clean_body = resolved.canonical_body;
+        let eligible = resolved.recipients;
         // Serialize attempts with the same actor/key on the same PostgreSQL row.
         // A conflicting key must not silently return a different saved comment.
         let inserted = sqlx::query_scalar::<_, i64>(
