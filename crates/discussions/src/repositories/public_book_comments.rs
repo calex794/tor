@@ -210,7 +210,7 @@ impl PgPublicBookComments {
                  WHERE c.book_id=$1 AND c.visibility='visible'
                    AND c.chapter_id IS NULL AND c.version_id IS NULL
                    AND c.author_user_id=ANY($2) AND c.author_user_id<>$3
-                 ORDER BY c.author_user_id LIMIT 5",
+                 ORDER BY c.author_user_id",
             )
             .bind(book_id)
             .bind(&ids)
@@ -222,7 +222,6 @@ impl PgPublicBookComments {
                 Err(_) => return CreateResult::Unavailable,
             }
         };
-        let eligible = eligible.into_iter().take(5).collect::<Vec<_>>();
         let verified = verified
             .into_iter()
             .filter(|(_, id)| eligible.contains(id))

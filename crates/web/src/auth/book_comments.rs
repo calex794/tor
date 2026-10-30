@@ -97,6 +97,7 @@ pub(super) struct CommentForm {
     command_key: String,
     parent_id: Option<i64>,
     csrf_token: Option<String>,
+    return_to: Option<String>,
 }
 
 // Only our fixed markup is trusted; every user-controlled segment is escaped.
@@ -287,6 +288,13 @@ pub(super) async fn submit(
     if form.parent_id.is_some_and(|id| id <= 0) {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    // The Inbox may request one fixed local destination, never a client URL.
+    // No Inbox redirect is accepted for a root comment.
+    let redirect_to_inbox = match form.return_to.as_deref() {
+        None => false,
+        Some("inbox") if form.parent_id.is_some() => true,
+        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    };
     // Preserve existing root command hashes; reply identities include their parent.
     let payload = match form.parent_id {
         Some(parent) => format!("book:{book_id}\nreply:{parent}\n{}", body.as_str()),
@@ -305,10 +313,14 @@ pub(super) async fn submit(
         )
         .await
     {
-        CreateResult::Created(_) | CreateResult::Replayed(_) => private_response(
-            Redirect::to(&format!("/books/{book_id}/comments#comments")),
-            &[],
-        ),
+        CreateResult::Created(_) | CreateResult::Replayed(_) => {
+            let destination = if redirect_to_inbox {
+                "/me/inbox".to_owned()
+            } else {
+                format!("/books/{book_id}/comments#comments")
+            };
+            private_response(Redirect::to(&destination), &[])
+        }
         CreateResult::Conflict => deny(StatusCode::CONFLICT),
         CreateResult::NotFound => deny(StatusCode::NOT_FOUND),
         CreateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),

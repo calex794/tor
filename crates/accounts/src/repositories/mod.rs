@@ -1,3 +1,10 @@
 pub mod access_levels;
+pub mod auth_observations;
 pub mod postgres;
 pub use postgres::PgAccounts;
+pub mod authority;
+mod credentials;
+mod password_reset;
+pub mod profile;
+mod security_retention;
+pub mod sessions;

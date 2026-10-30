@@ -85,6 +85,8 @@ async function inspect(page, viewport, name) {
       await page.waitForURL(/\/chapters\/\d+\/edit$/);
       assert(await page.getByRole('heading', { name: 'Редактировать главу' }).isVisible(),
         viewport + ': missing draft editor');
+      assert(await page.locator('h1 a[href^="/reader/"]').count() === 0,
+        viewport + ': unpublished draft must not advertise an unreadable reader page');
       assert(await page.getByText('Редакция №1.').isVisible(),
         viewport + ': initial chapter revision missing');
       await page.getByLabel('Текст главы').fill('Обновлённая версия: **важная строка**.');
@@ -162,6 +164,17 @@ async function inspect(page, viewport, name) {
         viewport + ': published editor lacks immediate release explanation');
       assert(await page.getByRole('button', { name: 'Сохранить изменения' }).isVisible(),
         viewport + ': published free chapter editor has no Save');
+      // NEwBOO "В главу": in TOR the chapter title itself is clickable.
+      const linkedTitle = page.locator('h1 a.author-chapter-view-link');
+      assert(await linkedTitle.getAttribute('href') === '/reader/' + chapterId,
+        viewport + ': published chapter title does not lead to the real reader');
+      await linkedTitle.click();
+      await page.waitForURL(base + '/reader/' + chapterId);
+      assert(await page.getByText('PUBLIC B06 new').isVisible(),
+        viewport + ': title-to-reader navigation lost the published chapter');
+      await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/edit');
+      await inspect(page, viewport, 'published-editor-title-link');
       const release = await page.goto(base + '/me/books/' + bookId +
         '/chapters/' + chapterId + '/release');
       assert(release && release.status() === 404,

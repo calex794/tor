@@ -12,10 +12,10 @@
     const hide = () => { list.hidden = true; list.replaceChildren(); };
     field.addEventListener("input", () => {
       clearTimeout(timer);
+      const serial = ++current;
       const value = field.value.slice(0, field.selectionStart);
       const match = value.match(/(?:^|\s)@([\p{L}\p{N}_.-]{2,64})$/u);
       if (!match) { hide(); return; }
-      const serial = ++current;
       timer = setTimeout(async () => {
         try {
           const params = new URLSearchParams({ book_id: field.dataset.mentionBook, q: match[1] });
