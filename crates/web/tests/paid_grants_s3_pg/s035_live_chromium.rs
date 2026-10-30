@@ -2,6 +2,9 @@
 //! both separate encrypted editions through the actual Rust router and MinIO.
 //! Only disposable tor_ci, loopback, test sessions and ephemeral CI fixtures.
 use super::*;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+use std::{fs::OpenOptions, io::Write, path::Path};
 
 pub(super) struct Fixture<'a> {
     pub book: i64,

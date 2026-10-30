@@ -1,21 +1,37 @@
+//! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
-
 mod classifier;
 pub use classifier::classify;
-
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
-
-// Fixed-index route registry: keep compact entries stable for review.
+const L: &str = "/layers/";
+// Explicit route table is independently checked by RIL parity and guard CI.
+// Keep its reviewed compact entries under the repository's 600-line limit.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 84] = [
+const ROUTES: [RouteRegistration; 94] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
-    RouteRegistration::new("/reader/{id}", "GET", "/reader/", Prefix, Page, Reading, Read), // 3
-    RouteRegistration::new("/assets/site.css", "GET", "/assets/", Exact, Static, System, Free), // 4
+    RouteRegistration::new(
+        "/reader/{id}",
+        "GET",
+        "/reader/",
+        Prefix,
+        Page,
+        Reading,
+        Read,
+    ), // 3
+    RouteRegistration::new(
+        "/assets/site.css",
+        "GET",
+        "/assets/",
+        Exact,
+        Static,
+        System,
+        Free,
+    ), // 4
     RouteRegistration::new("/healthz", "GET", "/healthz/", Exact, Service, System, Free), // 5
     RouteRegistration::new("/readyz", "GET", "/readyz/", Exact, Service, System, Read), // 6
     RouteRegistration::new("/login", "GET", "/login/", Exact, Page, Auth, Read), // 7
@@ -32,7 +48,15 @@ const ROUTES: [RouteRegistration; 84] = [
         Read,
     ), // 11
     RouteRegistration::new("/me", "GET", "/me/", Exact, Page, Dashboard, Read), // 12
-    RouteRegistration::new("/me/library", "GET", "/me/library/", Exact, Page, Reading, Read), // 13
+    RouteRegistration::new(
+        "/me/library",
+        "GET",
+        "/me/library/",
+        Exact,
+        Page,
+        Reading,
+        Read,
+    ), // 13
     RouteRegistration::new("/read/{id}", "GET", "/read/", Prefix, Page, Reading, Read), // 14
     RouteRegistration::new(
         "/read/{id}/place",
@@ -47,7 +71,15 @@ const ROUTES: [RouteRegistration; 84] = [
     RouteRegistration::new("/me/books", "GET", "/me/", Exact, Page, Dashboard, Read), // 17
     RouteRegistration::new("/me/books", "POST", "/me/", Exact, Page, Dashboard, Write), // 18
     RouteRegistration::new("/me/books/new", "GET", "/me/", Exact, Page, Dashboard, Read), // 19
-    RouteRegistration::new("/me/books/{id}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 20
+    RouteRegistration::new(
+        "/me/books/{id}",
+        "GET",
+        "/me/",
+        Prefix,
+        Page,
+        Dashboard,
+        Read,
+    ), // 20
     RouteRegistration::new(
         "/api/v1/books/{id}/toc",
         "GET",
@@ -382,6 +414,7 @@ const ROUTES: [RouteRegistration; 84] = [
         ProductArea::Billing,
         Write,
     ), // 58
+    // Signed, scoped paid content grant. Performs PG rights checks and S3 HEAD.
     RouteRegistration::new(
         "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
         "POST",
@@ -508,91 +541,34 @@ const ROUTES: [RouteRegistration; 84] = [
         Reading,
         Write,
     ), // 72
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/illustrated",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 73
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/illustrated",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 74
-    RouteRegistration::new(
-        "/api/v1/purchases/batch",
-        "POST",
-        "/api/v1/purchases/",
-        Exact,
-        Api,
-        ProductArea::Billing,
-        Write,
-    ), // 75
-    RouteRegistration::new(
-        "/me/books/{id}/buy-chapters",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        ProductArea::Billing,
-        Read,
-    ), // 76
-    RouteRegistration::new(
-        "/me/books/{id}/buy-chapters",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        ProductArea::Billing,
-        Write,
-    ), // 77
-    RouteRegistration::new(
-        "/read/{id}/want-continuation",
-        "POST",
-        "/read/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 78
-    RouteRegistration::new(
-        "/me/books/{id}/follow",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 79
-    RouteRegistration::new(
-        "/me/books/{id}/unfollow",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 80
-    RouteRegistration::new(
-        "/me/replies/{id}/read-state",
-        "POST",
-        "/me/replies/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 81
+    RouteRegistration::new("/me/books/{id}/chapters/illustrated", "GET", "/me/", Prefix, Page, Dashboard, Read), // 73
+    RouteRegistration::new("/me/books/{id}/chapters/illustrated", "POST", "/me/", Prefix, Page, Dashboard, Write), // 74
+    // Preserve already-merged main route indexes 75-78 (S035 and C-15).
+    RouteRegistration::new("/api/v1/purchases/batch", "POST", "/api/v1/purchases/", Exact, Api, ProductArea::Billing, Write), // 75
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 76
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 77
+    RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 78
+    // Preserve already merged main C-15 follow route indexes 79 and 80.
+    RouteRegistration::new("/me/books/{id}/follow", "POST", "/me/", Prefix, Page, Reading, Write), // 79
+    RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 80
+    // Preserve the merged main E-03 route identity before unmerged Layer routes.
+    RouteRegistration::new("/me/replies/{id}/read-state", "POST", "/me/replies/", Prefix, Page, Dashboard, Write), // 81
+    // Preserve already-merged E-03 Inbox identities (82 and 83).
     RouteRegistration::new("/me/inbox", "GET", "/me/inbox/", Exact, Page, Dashboard, Read), // 82
     RouteRegistration::new("/api/v1/me/inbox", "GET", "/api/v1/me/inbox/", Exact, Api, Dashboard, Read), // 83
+    // Shift unmerged Layer routes without reclassifying main traffic history.
+    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 84
+    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 85
+    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 86
+    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 87
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 88
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 89
+    RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix, Page, Reading, Read), // 90
+    RouteRegistration::new("/layers/{layer_id}/buy", "POST", L, Prefix, Page, Reading, Write), // 91
+    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 92
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/open-confirmations", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 93
 ];
-
+/// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
 }
