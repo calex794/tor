@@ -603,6 +603,69 @@
       "source": "crates/web/src/auth.rs",
       "handler": "inbox::api",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/mail",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::index",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/start",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::start",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::conversation",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/read",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::read",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/block",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::block",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::get",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::post",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mail.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::script",
+      "policy": "public"
     }
   ]
 }

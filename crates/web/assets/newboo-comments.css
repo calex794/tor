@@ -466,3 +466,8 @@
     padding-left: 10px;
   }
 }
+
+/* E-08 messages are plain text, including literal links and line breaks. */
+.mail-message-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.mail-page .ui-button { white-space: normal; max-width: 100%; }

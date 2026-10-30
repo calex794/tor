@@ -48,6 +48,24 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_mail_block_cannot_lose_the_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            ".set_block(actor, page.peer_id, form.blocked)",
+            ".set_block(page.peer_id, form.blocked)",
+            start="pub(super) async fn block(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_mail_csrf_guard_removal_is_detected(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            "state.cookies.valid_csrf(headers, t)",
+            "state.cookies.valid_csrf_skip(headers, t)",
+            start="fn csrf(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",

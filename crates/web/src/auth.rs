@@ -53,6 +53,9 @@ mod continuation_demand;
 mod inbox;
 mod library_actions;
 mod login_limiter;
+mod mail;
+mod mail_api;
+mod mail_pages;
 mod paid_completion;
 mod private_reader;
 mod rankings;
@@ -177,6 +180,17 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/mail", get(mail::index))
+        .route("/mail/start", post(mail::start))
+        .route("/mail/{id}", get(mail::conversation))
+        .route("/mail/{id}/messages", post(mail::send))
+        .route("/mail/{id}/read", post(mail::read))
+        .route("/mail/{id}/block", post(mail::block))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
+        .route("/assets/mail.js", get(mail::script))
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(

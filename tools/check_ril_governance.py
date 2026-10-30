@@ -27,6 +27,7 @@ SCOPE_CALLS = {
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow",
+    "mailbox", "messages", "send", "send_to_peer", "start", "mark_read", "set_block",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -174,6 +175,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             proof = {"follow"}
         elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
             proof = {"unfollow"}
+        mail_calls = {
+            "mail::index": {"mailbox"}, "mail::start": {"start"},
+            "mail::conversation": {"messages"}, "mail::send": {"send"},
+            "mail::read": {"mark_read"}, "mail::block": {"set_block"},
+            "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
+        }
+        proof = mail_calls.get(entry["handler"], proof)
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:

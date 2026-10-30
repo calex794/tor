@@ -94,6 +94,15 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/replies/{id}/read-state"), "POST") => Some(81),
         (Some("/me/inbox"), "GET") => Some(82),
         (Some("/api/v1/me/inbox"), "GET") => Some(83),
+        (Some("/mail"), "GET") => Some(84),
+        (Some("/mail/start"), "POST") => Some(85),
+        (Some("/mail/{id}"), "GET") => Some(86),
+        (Some("/mail/{id}/messages"), "POST") => Some(87),
+        (Some("/mail/{id}/read"), "POST") => Some(88),
+        (Some("/mail/{id}/block"), "POST") => Some(89),
+        (Some("/api/v1/me/messages"), "GET") => Some(90),
+        (Some("/api/v1/me/messages"), "POST") => Some(91),
+        (Some("/assets/mail.js"), "GET") => Some(92),
         _ => None,
     };
     index

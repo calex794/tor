@@ -1,0 +1,68 @@
+-- E-08/S057 and the blocking subset of E-06. New, unused identity; no old SQL rewritten.
+CREATE TABLE social_conversations (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY CHECK(id > 0),
+  user_low BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_high BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CHECK(user_low < user_high AND created_by IN(user_low,user_high)),
+  UNIQUE(user_low, user_high)
+);
+CREATE INDEX social_conversations_low ON social_conversations(user_low, id DESC);
+CREATE INDEX social_conversations_creator_rate ON social_conversations(created_by,created_at);
+CREATE INDEX social_conversations_high ON social_conversations(user_high, id DESC);
+
+CREATE TABLE social_user_blocks (
+  blocker_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY(blocker_id, blocked_id),
+  CHECK(blocker_id <> blocked_id)
+);
+
+CREATE TABLE social_messages (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY CHECK(id > 0),
+  conversation_id BIGINT NOT NULL REFERENCES social_conversations(id) ON DELETE CASCADE,
+  sender_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL CHECK(char_length(body) BETWEEN 1 AND 2000 AND body = btrim(body)),
+  command_key TEXT NOT NULL CHECK(command_key ~ '^[A-Za-z0-9_-]{43}$'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(sender_id, command_key),
+  UNIQUE(conversation_id, id)
+);
+CREATE INDEX social_messages_page ON social_messages(conversation_id, id);
+CREATE INDEX social_messages_sender_rate ON social_messages(sender_id, created_at);
+
+CREATE TABLE social_mail_reads (
+  conversation_id BIGINT NOT NULL REFERENCES social_conversations(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  through_id BIGINT NOT NULL,
+  PRIMARY KEY(conversation_id, user_id),
+  FOREIGN KEY(conversation_id, through_id) REFERENCES social_messages(conversation_id, id) ON DELETE CASCADE
+);
+
+CREATE FUNCTION social_mail_identity_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'social_messages' AND TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'mail messages are immutable' USING ERRCODE='23514';
+  ELSIF TG_TABLE_NAME = 'social_conversations' THEN
+    IF ROW(NEW.user_low, NEW.user_high, NEW.created_by) IS DISTINCT FROM ROW(OLD.user_low, OLD.user_high, OLD.created_by) THEN
+      RAISE EXCEPTION 'mail participants are immutable' USING ERRCODE='23514';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'social_messages' THEN
+    IF NOT EXISTS(SELECT 1 FROM social_conversations c WHERE c.id=NEW.conversation_id AND NEW.sender_id IN(c.user_low,c.user_high)) THEN
+      RAISE EXCEPTION 'sender is not a mail participant' USING ERRCODE='23514';
+    END IF;
+  ELSE
+    IF NOT EXISTS(SELECT 1 FROM social_conversations c WHERE c.id=NEW.conversation_id AND NEW.user_id IN(c.user_low,c.user_high)) THEN
+      RAISE EXCEPTION 'reader is not a mail participant' USING ERRCODE='23514';
+    END IF;
+    IF TG_OP='UPDATE' AND (NEW.user_id<>OLD.user_id OR NEW.conversation_id<>OLD.conversation_id OR NEW.through_id<OLD.through_id) THEN
+      RAISE EXCEPTION 'mail read cursor cannot move backwards' USING ERRCODE='23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END; $$;
+CREATE TRIGGER social_conversation_identity BEFORE UPDATE ON social_conversations FOR EACH ROW EXECUTE FUNCTION social_mail_identity_guard();
+CREATE TRIGGER social_message_identity BEFORE INSERT OR UPDATE ON social_messages FOR EACH ROW EXECUTE FUNCTION social_mail_identity_guard();
+CREATE TRIGGER social_read_identity BEFORE INSERT OR UPDATE ON social_mail_reads FOR EACH ROW EXECUTE FUNCTION social_mail_identity_guard();
