@@ -171,13 +171,46 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "opened chapter is not a trusted completion"
     );
 
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO reader_chapter_completions
-             (user_id,book_id,chapter_id,first_version_id,source_event_id)
-             VALUES({reader},{book},{chapter},{version},gen_random_uuid())"
+    // First meaningful read must be created by the same real HTTP completion
+    // path as a returning reader; direct fixture SQL would hide a broken entry.
+    let first_finish = format!(
+        "csrf_token={csrf}&version_id={version}&block_index=1&char_offset={}&expected_revision=0",
+        "Первая глава".encode_utf16().count()
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/read/{chapter}/complete"),
+            &reader_cookie,
+            ORIGIN,
+            &first_finish
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions \\
+                 WHERE user_id={reader} AND chapter_id={chapter}"
+            )
         ),
+        "1",
+        "initial completion must be persisted before demand is enabled"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events \\
+                 WHERE event_type='ChapterCompletedV1' \\
+                   AND dedupe_key='chapter-completed:{reader}:{chapter}'"
+            )
+        ),
+        "1"
     );
 
     let ready = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
@@ -339,7 +372,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let final_offset = "C15 reader return".encode_utf16().count();
     let finish_path = format!("/read/{released}/complete");
     let finish_form = format!(
-        "csrf_token={csrf}&version_id={released_version}&block_index=1&char_offset={final_offset}&expected_revision=0"
+        "csrf_token={csrf}&version_id={released_version}&block_index=1&char_offset={final_offset}&expected_revision=1"
     );
     assert_eq!(
         call(&app, "POST", &finish_path, "", ORIGIN, &finish_form)
