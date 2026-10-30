@@ -72,22 +72,22 @@ pub(super) async fn page(
         "<section class=\"section\"><div class=\"container\"><h1>Статистика книги: {}</h1>\
          <p>Открытия глав: {} · Анонимные: {} · Авторизованные: {} · Уникальные \
          зарегистрированные читатели: {} · Повторные открытия: {}</p>\
-         <p>Покупки: {} · Оборот прямых покупок: {} ₽ · Завершено глав: {}</p>\
+         <p>Покупки: {} · Оборот прямых покупок: {} ₽ · Завершено глав: {} · Благодарностей: {}</p>\
          <p>Открытие страницы не доказывает прочтение. Авторские выплаты и комиссия здесь не рассчитаны.</p>\
          <p>Скачивание CSV соответствует выбранной странице глав.</p>\
          <h2>Главы</h2><table><thead><tr><th>Глава</th><th>Открытия</th>\
          <th>Уникальные зарегистрированные</th><th>Повторы</th><th>Покупки</th>\
-         <th>Оборот, ₽</th><th>Завершения</th></tr></thead><tbody>",
+         <th>Оборот, ₽</th><th>Завершения</th><th>Спасибо</th></tr></thead><tbody>",
         pages::escape_html(&data.title), data.opens, data.anonymous_opens,
         data.authenticated_opens, data.unique_registered, data.repeat_authenticated,
-        data.purchases, money(data.purchase_minor), data.completed,
+        data.purchases, money(data.purchase_minor), data.completed, data.thanks,
     );
     use std::fmt::Write;
     for row in &data.chapters {
         let _ = write!(
             body,
             "<tr><td>{}. {}</td><td>{}</td><td>{}</td>\
-            <td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             row.number,
             pages::escape_html(&row.title),
             row.opens,
@@ -95,7 +95,8 @@ pub(super) async fn page(
             row.repeat_authenticated,
             row.purchases,
             money(row.purchase_minor),
-            row.completed
+            row.completed,
+            row.thanks
         );
     }
     body.push_str("</tbody></table>");
@@ -152,6 +153,16 @@ pub(super) async fn page(
             chapter.count
         );
     }
+    body.push_str("</ol><h2>Топ 5 глав по благодарностям</h2><ol>");
+    for chapter in &data.top_by_thanks {
+        let _ = write!(
+            body,
+            "<li>Глава {}. {} — «Спасибо»: {}</li>",
+            chapter.number,
+            pages::escape_html(&chapter.title),
+            chapter.count
+        );
+    }
     body.push_str("</ol></div></section>");
     private_response(
         pages::layout("Статистика книги", "Личная статистика", &body),
@@ -183,11 +194,11 @@ pub(super) async fn export(
         Ok(data) => data,
         Err(response) => return *response,
     };
-    let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed\n");
+    let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed,thanks\n");
     use std::fmt::Write;
     let _ = writeln!(
         csv,
-        "book,0,{},{},{},{},{},{},{},{}",
+        "book,0,{},{},{},{},{},{},{},{},{}",
         csv_cell(&data.title),
         data.opens,
         data.anonymous_opens,
@@ -195,7 +206,8 @@ pub(super) async fn export(
         data.repeat_authenticated,
         data.purchases,
         data.purchase_minor,
-        data.completed
+        data.completed,
+        data.thanks
     );
     for row in &data.chapters {
         let _ = writeln!(
@@ -209,13 +221,14 @@ pub(super) async fn export(
             row.repeat_authenticated,
             row.purchases,
             row.purchase_minor,
-            row.completed
+            row.completed,
+            row.thanks
         );
     }
     for day in &data.daily {
         let _ = writeln!(
             csv,
-            "daily,0,{},{},0,{},0,{},{},0",
+            "daily,0,{},{},0,{},0,{},{},0,0",
             csv_cell(&day.day),
             day.opens,
             day.unique_first,
