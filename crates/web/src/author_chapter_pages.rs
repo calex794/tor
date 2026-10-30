@@ -2,7 +2,7 @@
 use axum::response::Html;
 use std::fmt::Write;
 use tor_books::services::authoring::{
-    ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterSummary, PendingChapter,
+    ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
 
 use crate::pages::{escape_html, layout};
@@ -36,6 +36,23 @@ pub fn detail_with_covers_with_demand(
     uploads_enabled: bool,
     latest_job: Option<&str>,
     demand_count: i64,
+) -> Html<String> {
+    detail_with_covers_with_demand_page(
+        book, published, chapters, csrf, uploads_enabled, latest_job, demand_count, None, false,
+    )
+}
+
+/// Owner-only, keyset-paged list. Public book pages retain their own TOC.
+pub fn detail_with_covers_with_demand_page(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+    uploads_enabled: bool,
+    latest_job: Option<&str>,
+    demand_count: i64,
+    next: Option<OwnedChapterCursor>,
+    has_previous_page: bool,
 ) -> Html<String> {
     let mut items = String::new();
     if chapters.is_empty() {
@@ -78,9 +95,26 @@ pub fn detail_with_covers_with_demand(
             .expect("write String");
         }
         items.push_str("</ol>");
-        if chapters.len() == 200 {
-            items.push_str("<p>Показаны первые 200 глав.</p>");
+    }
+    if has_previous_page || next.is_some() {
+        items.push_str("<nav class=\"chapter-toc__more\" aria-label=\"Страницы глав\">");
+        if has_previous_page {
+            write!(
+                &mut items,
+                "<a class=\"button button--small\" href=\"/me/books/{}\">К первым главам</a> ",
+                book.id
+            )
+            .expect("write String");
         }
+        if let Some(cursor) = next {
+            write!(
+                &mut items,
+                "<a class=\"button button--small\" href=\"/me/books/{}?after={}:{}\">Следующие главы</a>",
+                book.id, cursor.number, cursor.id
+            )
+            .expect("write String");
+        }
+        items.push_str("</nav>");
     }
 
     let status = if published {
@@ -131,7 +165,7 @@ pub fn detail_with_covers_with_demand(
     };
     let body = format!(
         r#"<section class="section auth-section"><div class="container"><div class="auth-card author-chapter-card">
-        <p class="eyebrow">Кабинет автора · книга №{}</p>
+        <p class="eyebrow">Личный кабинет · книга №{}</p>
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
         {demand_panel}
@@ -402,6 +436,36 @@ pub fn detail(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn b12_owner_pages_keep_navigation_for_long_books() {
+        let book = OwnedBook {
+            id: 42,
+            title: "Повесть".to_owned(),
+        };
+        let chapter = OwnedChapterSummary {
+            id: 501,
+            number: 501,
+            title: "<безопасная>".to_owned(),
+            access: ChapterAccess::Free,
+            published: true,
+        };
+        let page = detail_with_covers_with_demand_page(
+            &book,
+            true,
+            &[chapter],
+            "csrf",
+            false,
+            None,
+            0,
+            Some(OwnedChapterCursor { number: 501, id: 501 }),
+            true,
+        )
+        .0;
+        assert!(page.contains("/me/books/42?after=501:501"));
+        assert!(page.contains("К первым главам"));
+        assert!(page.contains("&lt;безопасная&gt;"));
+        assert!(!page.contains("Показаны первые 200 глав"));
+    }
     use super::*;
     #[test]
     fn paid_controls_only_appear_in_enabled_author_pages() {
