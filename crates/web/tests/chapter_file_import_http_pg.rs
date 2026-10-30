@@ -40,7 +40,11 @@ async fn call(
             .header(header::CONTENT_TYPE, "application/json");
     }
     let body = json.map_or_else(Body::empty, |value| Body::from(value.to_string()));
-    let response = app.clone().oneshot(request.body(body).unwrap()).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(request.body(body).unwrap())
+        .await
+        .unwrap();
     let status = response.status();
     let csp = response
         .headers()
@@ -148,38 +152,83 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
         "filename": "batch.txt", "text": source, "csrf_token": csrf,
     });
     assert_eq!(
-        call(&app, &preview_url, "POST", &owner_cookie, "https://attacker.invalid",
-             Some(preview_json.clone())).await.0,
+        call(
+            &app,
+            &preview_url,
+            "POST",
+            &owner_cookie,
+            "https://attacker.invalid",
+            Some(preview_json.clone())
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        call(&app, &preview_url, "POST", &owner_cookie, ORIGIN,
-             Some(json!({"filename":"batch.txt","text":source,"csrf_token":"wrong"})))
-            .await.0,
+        call(
+            &app,
+            &preview_url,
+            "POST",
+            &owner_cookie,
+            ORIGIN,
+            Some(json!({"filename":"batch.txt","text":source,"csrf_token":"wrong"}))
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        call(&app, &preview_url, "POST", &other_cookie, ORIGIN,
-             Some(preview_json.clone())).await.0,
+        call(
+            &app,
+            &preview_url,
+            "POST",
+            &other_cookie,
+            ORIGIN,
+            Some(preview_json.clone())
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND,
     );
     assert_eq!(
-        call(&app, &preview_url, "POST", "", ORIGIN, Some(preview_json.clone()))
-            .await.0,
+        call(
+            &app,
+            &preview_url,
+            "POST",
+            "",
+            ORIGIN,
+            Some(preview_json.clone())
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        call(&app, &preview_url, "POST", &owner_cookie, ORIGIN,
-             Some(json!({"filename":"batch.zip","text":source,"csrf_token":csrf})))
-            .await.0,
+        call(
+            &app,
+            &preview_url,
+            "POST",
+            &owner_cookie,
+            ORIGIN,
+            Some(json!({"filename":"batch.zip","text":source,"csrf_token":csrf}))
+        )
+        .await
+        .0,
         StatusCode::UNPROCESSABLE_ENTITY,
     );
     assert_eq!(
-        call(&app, &preview_url, "POST", &owner_cookie, ORIGIN,
-             Some(json!({"filename":"batch.txt",
+        call(
+            &app,
+            &preview_url,
+            "POST",
+            &owner_cookie,
+            ORIGIN,
+            Some(json!({"filename":"batch.txt",
                 "text":"Глава 1: Начало\nТекст\nГлава 1: Повтор\nТекст",
-                "csrf_token":csrf})))
-            .await.0,
+                "csrf_token":csrf}))
+        )
+        .await
+        .0,
         StatusCode::UNPROCESSABLE_ENTITY,
     );
 
@@ -202,8 +251,16 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
     confirm.insert("command_key".into(), json!(key));
     confirm.insert("fingerprint".into(), json!("tampered"));
     assert_eq!(
-        call(&app, &confirm_url, "POST", &owner_cookie, ORIGIN,
-             Some(Value::Object(confirm.clone()))).await.0,
+        call(
+            &app,
+            &confirm_url,
+            "POST",
+            &owner_cookie,
+            ORIGIN,
+            Some(Value::Object(confirm.clone()))
+        )
+        .await
+        .0,
         StatusCode::CONFLICT,
     );
     confirm.insert("fingerprint".into(), json!(fingerprint));
@@ -217,10 +274,7 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
     )
     .await;
     assert_eq!(saved.0, StatusCode::OK, "{}", saved.1);
-    assert_eq!(
-        serde_json::from_str::<Value>(&saved.1).unwrap()["saved"],
-        2
-    );
+    assert_eq!(serde_json::from_str::<Value>(&saved.1).unwrap()["saved"], 2);
     let replay = call(
         &app,
         &confirm_url,
@@ -240,7 +294,8 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
     // This HTTP test also proves a guest still receives 404 on the book.
     assert_eq!(
         call(&app, &format!("/books/{id}"), "GET", "", ORIGIN, None)
-            .await.0,
+            .await
+            .0,
         StatusCode::NOT_FOUND,
     );
     // A different command with a conflicting chapter number cannot leave
@@ -267,8 +322,16 @@ async fn h_09_owner_preview_and_confirm_are_private_and_replay_safe() {
         json!(serde_json::from_str::<Value>(&changed_preview.1).unwrap()["fingerprint"]),
     );
     assert_eq!(
-        call(&app, &confirm_url, "POST", &owner_cookie, ORIGIN,
-             Some(Value::Object(altered))).await.0,
+        call(
+            &app,
+            &confirm_url,
+            "POST",
+            &owner_cookie,
+            ORIGIN,
+            Some(Value::Object(altered))
+        )
+        .await
+        .0,
         StatusCode::CONFLICT,
     );
     pool.close().await;

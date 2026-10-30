@@ -64,7 +64,10 @@ fn heading(line: &str) -> Result<Option<(i32, String)>, ImportError> {
         return Ok(None);
     }
     let rest = rest.trim_start();
-    let digits = rest.bytes().take_while(|byte| byte.is_ascii_digit()).count();
+    let digits = rest
+        .bytes()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
     if digits == 0 {
         return Ok(None);
     }
@@ -208,8 +211,11 @@ mod tests {
 
     #[test]
     fn decorated_chapter_and_utf8_markdown() {
-        let chapters = parse_text("hello.md", "==== Глава 1 ====\nТекст\n# Глава 2: Второй\nДалее")
-            .unwrap();
+        let chapters = parse_text(
+            "hello.md",
+            "==== Глава 1 ====\nТекст\n# Глава 2: Второй\nДалее",
+        )
+        .unwrap();
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].title, "Глава 1");
         assert_eq!(chapters[1].number, 2);
@@ -219,12 +225,28 @@ mod tests {
     fn bad_files_and_chapters_fail_closed() {
         for (name, source, expected) in [
             ("bad.zip", "Глава 1: A\ntext", ImportError::InvalidFilename),
-            ("../bad.txt", "Глава 1: A\ntext", ImportError::InvalidFilename),
-            ("bad.txt", "Скрытая потеря\nГлава 1: A\ntext", ImportError::UnexpectedPreamble),
+            (
+                "../bad.txt",
+                "Глава 1: A\ntext",
+                ImportError::InvalidFilename,
+            ),
+            (
+                "bad.txt",
+                "Скрытая потеря\nГлава 1: A\ntext",
+                ImportError::UnexpectedPreamble,
+            ),
             ("bad.txt", "Глава 1:\nbody", ImportError::MissingTitle),
             ("bad.txt", "Глава 1: A\n", ImportError::EmptyBody),
-            ("bad.txt", "Глава 1: A\nbody\nГлава 1: B\nbody", ImportError::DuplicateNumber),
-            ("bad.txt", "Глава 1: A\nbad \u{fffd}", ImportError::InvalidEncoding),
+            (
+                "bad.txt",
+                "Глава 1: A\nbody\nГлава 1: B\nbody",
+                ImportError::DuplicateNumber,
+            ),
+            (
+                "bad.txt",
+                "Глава 1: A\nbad \u{fffd}",
+                ImportError::InvalidEncoding,
+            ),
         ] {
             assert_eq!(parse_text(name, source), Err(expected));
         }

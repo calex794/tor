@@ -124,14 +124,19 @@ pub(super) async fn page(
     };
     if published {
         return private_response(
-            (StatusCode::CONFLICT, "Импорт пока доступен только для черновика книги."),
+            (
+                StatusCode::CONFLICT,
+                "Импорт пока доступен только для черновика книги.",
+            ),
             &[],
         );
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
-    let mut response =
-        private_response(author_chapter_pages::import_chapters(id, &csrf, &key), &cookies);
+    let mut response = private_response(
+        author_chapter_pages::import_chapters(id, &csrf, &key),
+        &cookies,
+    );
     // Script is an external, static, same-origin file; no inline JavaScript.
     response.headers_mut().insert(
         "content-security-policy",
