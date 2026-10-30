@@ -64,6 +64,14 @@ module.exports = async (browser, base, out) => {
       await b.page.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
       await b.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
       await a.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
+      await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
+      await a.page.waitForURL(base + conversation);
+      await b.page.reload();
+      await b.page.getByRole('button', { name: 'Принять в друзья', exact: true }).click();
+      await b.page.waitForURL(base + conversation);
+      await a.page.reload();
+      assert.equal(await a.page.getByRole('button', { name: 'Удалить из друзей', exact: true }).count(), 1,
+        'friendship is accepted only on reciprocal request');
       await b.page.getByRole('button', { name: 'Заблокировать собеседника', exact: true }).click();
       await b.page.waitForURL(base + conversation);
       assert.equal(await b.page.getByLabel('Ваше сообщение', { exact: true }).count(), 0);
