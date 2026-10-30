@@ -212,7 +212,7 @@ pub(super) async fn export(
     for row in &data.chapters {
         let _ = writeln!(
             csv,
-            "chapter,{},{},{},{},{},{},{},{},{}",
+            "chapter,{},{},{},{},{},{},{},{},{},{}",
             row.number,
             csv_cell(&row.title),
             row.opens,
