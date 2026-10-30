@@ -64,7 +64,18 @@ pub(super) async fn grant_asset(
     .await;
     match result {
         Ok(grant) => {
+            let Some(version) = positive(&grant.version_id) else {
+                return deny(StatusCode::SERVICE_UNAVAILABLE);
+            };
             let mut response = private_response(Json(grant), &[]);
+            // Paid media are content exposure as well, not an exception.
+            if let Err(error) = state
+                .first_direct_grant
+                .record(actor_id, chapter_id, version, purchase_id, DirectGrantKind::Asset)
+                .await
+            {
+                return deny(status(error));
+            }
             response.headers_mut().insert(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("private, no-store"),

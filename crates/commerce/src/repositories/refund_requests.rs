@@ -14,6 +14,7 @@ pub enum DirectRefundRequestError {
     PolicyUnavailable,
     WindowExpired,
     Revoked,
+    AlreadyOpened,
     UnverifiedPurchase,
     AlreadyOpen,
     DuplicateKeyDifferentRequest,
@@ -160,6 +161,22 @@ impl PgDirectRefundRequests {
             .map_err(|_| DirectRefundRequestError::Unavailable)?;
         if buyer_debits != 1 || !source_shares {
             return Err(DirectRefundRequestError::UnverifiedPurchase);
+        }
+        // New statement AFTER the FOR UPDATE purchase lock ensures we see
+        // a competing signed grant that committed while we waited.
+        let first_grant: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM chapter_purchase_first_exposures e
+                 WHERE e.purchase_id=$1 AND e.user_id=$2
+               )",
+        )
+        .bind(purchase_id)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundRequestError::Unavailable)?;
+        if first_grant {
+            return Err(DirectRefundRequestError::AlreadyOpened);
         }
         let already_open: bool = sqlx::query_scalar(
             "SELECT EXISTS(

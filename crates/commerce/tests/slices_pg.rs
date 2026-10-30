@@ -858,3 +858,4 @@ async fn d_06_swap_quote_same_owner_other_book_and_no_money_changes() {
 }
 
 mod d06_refund_requests;
+mod d06_direct_exposure;

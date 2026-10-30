@@ -60,3 +60,22 @@ approved-policy purchase to verify request deduplication; this is a test
 fixture only, not an operational policy or a new checkout path. Real
 checkout remains strictly PolicyUnavailable. No refund money, creator
 reversals, paid-first-grant recording, swap execution or HTTP routes exist.
+
+## C-06 first protected grant (reused from #231)
+
+The direct purchase first-grant code and schema are taken from the existing
+[PR #231](https://github.com/calex794/tor/pull/231) rather than designing a
+second mechanism. Its D-owned `PgDirectFirstExposure` stores exactly one
+immutable row after successful encrypted grant assembly (both chapters and
+assets). The live HTTP handler returns no bearer URL if the tracking commit
+fails or the purchase is concurrently revoked. Extra grants cannot reset the
+first exposure timestamp. The request creator takes the same purchase lock
+and checks for first exposure using a fresh statement after lock acquisition.
+A known exposure rejects new refund requests; absence remains UNKNOWN for
+pre-cutover/historic purchases and never enables a finance approval.
+
+**Integration note:** the stacked #231/#237 branches contain overlapping
+files/migrations and must drop the duplicate direct slice when rebased to
+`main`. This PR does **not** import Layer grant logic or browser-render
+confirmation. The two mechanisms serve different duties: a first issued key
+is the conservative refund barrier; render confirmation is optional analytics.

@@ -16,6 +16,7 @@ pub enum DirectRefundGate {
     WindowExpired,
     SettlementUnverified,
     AlreadyRequested,
+    AlreadyOpened,
     FirstGrantBarrierUnavailable,
     Unavailable,
 }
@@ -115,10 +116,23 @@ impl PgDirectRefundPreflight {
         if read_flag("expired").is_none() || read_flag("already_requested").is_none() {
             return DirectRefundGate::Unavailable;
         }
-        // Main does NOT yet contain the trusted grant/first-open evidence from
-        // the separate C/D-06 draft stack. Missing events are UNKNOWN, not
-        // a guarantee that the purchased content was never accessed.
-        DirectRefundGate::FirstGrantBarrierUnavailable
+        let opened = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                 SELECT 1 FROM chapter_purchase_first_exposures e
+                 WHERE e.purchase_id=$1 AND e.user_id=$2
+               )",
+        )
+        .bind(purchase_id)
+        .bind(actor)
+        .fetch_one(&self.pool)
+        .await;
+        match opened {
+            Ok(true) => DirectRefundGate::AlreadyOpened,
+            // A missing row does NOT prove an unopened historic purchase:
+            // approval stays unavailable until a known first-grant cutover.
+            Ok(false) => DirectRefundGate::FirstGrantBarrierUnavailable,
+            Err(_) => DirectRefundGate::Unavailable,
+        }
     }
 
     /// UI-only price comparison. A valid quote MUST NOT be treated as
