@@ -190,16 +190,25 @@ impl PgReferrals {
             candidate
         };
 
+        // Keep the signup owner immutable, but a subsequently blocked code
+        // or capture must never become an active/payout-eligible attribution.
         let mut attributed = false;
         if let Some(candidate) = candidate {
             if candidate.referrer != user_id {
                 let affected = sqlx::query(
                     "INSERT INTO referral_attributions
                      (program_type,subject_user_id,referrer_user_id,referral_code,
-                      source_capture_id,attribution_source,attributed_at,expires_at)
+                      source_capture_id,attribution_source,attributed_at,expires_at,status)
                      SELECT $1,$2,$3,$4,$5,$6,registered_at,
                        CASE WHEN $1='creator_income'
-                         THEN registered_at + INTERVAL '365 days' ELSE NULL END
+                         THEN registered_at + INTERVAL '365 days' ELSE NULL END,
+                       CASE WHEN EXISTS(
+                           SELECT 1 FROM referral_codes
+                           WHERE code=$4 AND status='blocked'
+                         ) OR EXISTS(
+                           SELECT 1 FROM referral_captures
+                           WHERE id=$5 AND status='blocked'
+                         ) THEN 'blocked' ELSE 'active' END
                      FROM account_registration_referral_outbox WHERE user_id=$2
                      ON CONFLICT(program_type,subject_user_id) DO NOTHING",
                 )
