@@ -4,6 +4,7 @@
 pub mod domain;
 pub mod repositories {
     pub mod mail;
+    pub mod friendships;
     mod messages;
 }
 pub mod services;
