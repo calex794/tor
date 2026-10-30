@@ -67,6 +67,7 @@ mod password_change;
 mod password_reset;
 mod private_reader;
 mod profile_http;
+mod public_profile;
 mod rankings;
 mod reply_read_state;
 mod reset_delivery;
@@ -202,7 +203,7 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/users/{display_name}", get(public_user_profile))
+        .route("/users/{display_name}", get(public_profile::page))
         .route("/users/{target_user_id}/friend", post(friendship::request))
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))
@@ -343,68 +344,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         pages::my_account_with_follow_updates(&name, &csrf, &replies, unread),
         &cookies,
     )
-}
-
-async fn public_user_profile(
-    State(state): State<AuthState>,
-    Path(display_name): Path<String>,
-    headers: HeaderMap,
-) -> Response {
-    use sqlx::Row;
-    if display_name.is_empty() || display_name.chars().count() > 80 {
-        return deny(StatusCode::NOT_FOUND);
-    }
-    let rows = match sqlx::query("SELECT id, display_name FROM users WHERE display_name = $1 LIMIT 2")
-        .bind(&display_name)
-        .fetch_all(state.accounts.pool()).await {
-        Ok(rows) => rows,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    if rows.len() != 1 { return deny(StatusCode::NOT_FOUND); }
-    let recipient: i64 = rows[0].get("id");
-    let name: String = rows[0].get("display_name");
-    let visitor = match session_user(&state, &headers).await {
-        Ok(value) => value,
-        Err(status) => return deny(status),
-    };
-    let mut action = String::new();
-    let mut cookies = Vec::new();
-    if let Some(actor) = visitor.filter(|id| *id != recipient) {
-        use tor_social::repositories::friendships::{FriendState, PgFriendships};
-        let state_view = match PgFriendships::new(state.accounts.pool().clone())
-            .state(actor, recipient).await
-        {
-            Ok(value) => value,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        };
-        let (token, issued_cookies) = state.cookies.csrf_for_page(&headers);
-        cookies = issued_cookies;
-        let token = pages::escape_html(&token);
-        // The source shows mail on logged-in, non-self profiles.
-        // The server's block/send guard remains authoritative after a click.
-        action.push_str(&format!("<form method=\"post\" action=\"/mail/start/{recipient}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\" class=\"ui-button ui-button--ghost\">Почта</button></form>"));
-        let friend_action = match state_view {
-            FriendState::None => Some(("friend", "Добавить в друзья")),
-            FriendState::Incoming => Some(("friend", "Принять в друзья")),
-            FriendState::Friends => Some(("unfriend", "Удалить из друзей")),
-            _ => None,
-        };
-        if let Some((suffix, label)) = friend_action {
-            action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/{suffix}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">{label}</button></form>"));
-        } else if state_view == FriendState::Outgoing {
-            action.push_str("<p>Заявка уже отправлена.</p>");
-        } else {
-            action.push_str("<p>Действие недоступно: переписка заблокирована.</p>");
-        }
-        if !matches!(state_view, FriendState::BlockedByMe | FriendState::BlockedMe) {
-            action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/block\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">Заблокировать</button></form>"));
-        }
-    }
-    let html = pages::layout("Публичный профиль", "Профиль участника.", &format!(
-        "<section class=\"me-page\"><div class=\"container\"><h1>{}</h1>{action}</div></section>",
-        pages::escape_html(&name)
-    ));
-    private_response(html, &cookies)
 }
 
 /// Browser author workspace backed by the current PostgreSQL user session.
