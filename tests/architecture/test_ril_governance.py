@@ -59,17 +59,17 @@ class RilGovernanceTests(unittest.TestCase):
     def test_swapped_handler_is_not_authorized_by_old_policy(self):
         self.mutate(
             "crates/web/src/auth.rs",
-            '.route("/me/books/{id}", get(author_book))',
+            '.route("/me/books/{id}", get(author_book_page::page))',
             '.route("/me/books/{id}", get(new_author_book))',
         )
         self.assert_detected("route without reviewed security policy")
 
     def test_session_guard_removal_fails(self):
         self.mutate(
-            "crates/web/src/auth.rs",
+            "crates/web/src/auth/author_book_page.rs",
             "session_user(&state, &headers)",
             "unverified_user(&state, &headers)",
-            start="async fn author_book(",
+            start="pub(super) async fn page(",
         )
         self.assert_detected("missing verified PG session guard")
 
@@ -319,7 +319,6 @@ class RilGovernanceTests(unittest.TestCase):
             start="fn csrf(",
         )
         self.assert_detected("missing Origin+CSRF rejection")
-
 
 if __name__ == "__main__":
     unittest.main()
