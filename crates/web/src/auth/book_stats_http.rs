@@ -83,15 +83,6 @@ pub(super) async fn page(
         data.purchases, money(data.purchase_minor), data.completed,
     );
     use std::fmt::Write;
-    let export_url = match query.after.as_deref() {
-        Some(cursor) => format!("/books/{id}/stats/export.csv?after={cursor}"),
-        None => format!("/books/{id}/stats/export.csv"),
-    };
-    let _ = write!(
-        body,
-        "<p><a href=\"{}\">Скачать CSV этой страницы</a></p>",
-        pages::escape_html(&export_url)
-    );
     for row in &data.chapters {
         let _ = write!(
             body,
@@ -108,6 +99,16 @@ pub(super) async fn page(
         );
     }
     body.push_str("</tbody></table>");
+    let export_url = match query.after.as_deref() {
+        Some(cursor) => format!("/books/{id}/stats/export.csv?after={cursor}"),
+        None => format!("/books/{id}/stats/export.csv"),
+    };
+    let _ = write!(
+        body,
+        "<p><a href=\"{}\">Скачать CSV этой страницы</a></p>",
+        pages::escape_html(&export_url)
+    );
+
     if let Some(cursor) = &data.next_after {
         let _ = write!(
             body,
