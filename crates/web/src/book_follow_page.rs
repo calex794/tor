@@ -4,21 +4,25 @@
 use crate::auth_cookies::CookiePolicy;
 use axum::http::{HeaderMap, StatusCode};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
+use tor_books::repositories::postgres::PgAuthoring;
 use tor_reading::repositories::PgBookFollows;
 
 #[derive(Clone)]
 pub(super) struct FollowBookControl {
     accounts: PgAccounts,
     follows: PgBookFollows,
+    authoring: PgAuthoring,
     cookies: CookiePolicy,
 }
 
 impl FollowBookControl {
     pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
         let follows = PgBookFollows::new(accounts.pool().clone());
+        let authoring = PgAuthoring::new(accounts.pool().clone());
         Self {
             accounts,
             follows,
+            authoring,
             cookies: CookiePolicy { secure, origin },
         }
     }
@@ -29,12 +33,13 @@ impl FollowBookControl {
         &self,
         headers: &HeaderMap,
         book_id: u64,
-    ) -> Result<(String, Vec<String>), StatusCode> {
+    ) -> Result<(String, Vec<String>, bool), StatusCode> {
         let login = || {
             (
                 "<a class=\"ui-button ui-button--ghost\" href=\"/login\">Следить за книгой</a>"
                     .to_owned(),
                 Vec::new(),
+                false,
             )
         };
         let Some(token) = self.cookies.session_token(headers) else {
@@ -54,6 +59,14 @@ impl FollowBookControl {
             .is_following(user_id, book_id_sql)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        // B owns authorization. An authenticated session alone is not an
+        // authoring right. The public page was already visibility-checked.
+        let is_owner = self
+            .authoring
+            .owned_book(user_id, book_id_sql)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .is_some();
         let (csrf, cookies) = self.cookies.csrf_for_page(headers);
         let (action, label) = if following {
             ("unfollow", "Отписаться от книги")
@@ -63,8 +76,60 @@ impl FollowBookControl {
         let html = format!(
             "<form method=\"post\" action=\"/me/books/{book_id}/{action}\" class=\"book-hero-actions__follow\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{label}</button></form>"
         );
-        Ok((html, cookies))
+        Ok((html, cookies, is_owner))
     }
+}
+
+/// Inject controls only after the real PostgreSQL owner check. Markers are
+/// generated from public TOC numeric IDs, never from submitted HTML.
+fn personalize_book_detail(html: &str, book_id: u64, follow: &str, is_owner: bool) -> String {
+    let owner_actions = if is_owner {
+        format!(
+            "<nav class=\"book-owner-actions\" aria-label=\"Управление книгой\">\
+             <a class=\"ui-button ui-button--small\" href=\"/me/books/{book_id}/chapters/new\">Добавить главу</a>\
+             <a class=\"ui-button ui-button--ghost ui-button--small\" href=\"/me/books/{book_id}/description\">Аннотация</a>\
+             <a class=\"ui-button ui-button--ghost ui-button--small\" href=\"/me/books/{book_id}\">Управление книгой</a>\
+             </nav>"
+        )
+    } else {
+        String::new()
+    };
+    let content = html
+        .replace("<!--BOOK_FOLLOW_ACTION-->", follow)
+        .replace("<!--BOOK_OWNER_ACTIONS-->", &owner_actions);
+
+    // Remove all owner-only per-chapter markers for guests and other users.
+    // Do not put owner controls into an otherwise public cacheable page.
+    const PREFIX: &str = "<!--BOOK_OWNER_EDIT:";
+    const END: &str = "-->";
+    let mut output = String::with_capacity(content.len());
+    let mut input = content.as_str();
+    while let Some(start) = input.find(PREFIX) {
+        output.push_str(&input[..start]);
+        input = &input[start + PREFIX.len()..];
+        let Some(end) = input.find(END) else {
+            // A malformed internal placeholder cannot grant author actions.
+            return output;
+        };
+        let raw = &input[..end];
+        if is_owner
+            && raw.len() <= 20
+            && !raw.is_empty()
+            && raw.bytes().all(|value| value.is_ascii_digit())
+        {
+            if let Ok(chapter_id) = raw.parse::<u64>() {
+                if chapter_id > 0 {
+                    output.push_str(&format!(
+                        "<a class=\"ui-button ui-button--ghost ui-button--small\" \
+                         href=\"/me/books/{book_id}/chapters/{chapter_id}/edit\">Редактировать</a>"
+                    ));
+                }
+            }
+        }
+        input = &input[end + END.len()..];
+    }
+    output.push_str(input);
+    output
 }
 
 /// The public visibility gate runs before this function. Personal state is
@@ -77,14 +142,52 @@ pub(super) async fn attach(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     let Some(control) = control else {
-        return axum::response::Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", ""))
+        return axum::response::Html(personalize_book_detail(&html.0, book_id, "", false))
             .into_response();
     };
     match control.render(headers, book_id).await {
-        Ok((action, cookies)) => crate::auth_cookies::private_response(
-            axum::response::Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", &action)),
+        Ok((action, cookies, is_owner)) => crate::auth_cookies::private_response(
+            axum::response::Html(personalize_book_detail(&html.0, book_id, &action, is_owner)),
             &cookies,
         ),
         Err(status) => crate::auth_cookies::private_response(status, &[]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DETAIL: &str = "<!--BOOK_FOLLOW_ACTION--><!--BOOK_OWNER_ACTIONS-->\
+         <ol><li>Бесплатная<!--BOOK_OWNER_EDIT:12--></li>\
+         <li>Платная</li></ol>";
+
+    #[test]
+    fn owner_can_edit_public_free_chapters_directly_from_the_book() {
+        let html = personalize_book_detail(DETAIL, 77, "Следить", true);
+        assert!(html.contains("Следить"));
+        assert!(html.contains("/me/books/77/chapters/new"));
+        assert!(html.contains("/me/books/77/chapters/12/edit"));
+        assert!(html.contains("/me/books/77/description"));
+        assert!(!html.contains("<!--BOOK_OWNER_"));
+    }
+
+    #[test]
+    fn guest_and_non_owner_never_receive_authoring_links() {
+        for is_owner in [false] {
+            let html = personalize_book_detail(DETAIL, 77, "Следить", is_owner);
+            assert!(html.contains("Следить"));
+            assert!(!html.contains("/me/books/77"));
+            assert!(!html.contains("Редактировать"));
+            assert!(!html.contains("<!--BOOK_OWNER_"));
+        }
+    }
+
+    #[test]
+    fn malformed_internal_chapter_marker_is_not_an_author_link() {
+        let html =
+            personalize_book_detail("<!--BOOK_OWNER_EDIT:12%22onclick=alert(1)-->", 77, "", true);
+        assert!(!html.contains("/edit"));
+        assert!(!html.contains("onclick"));
     }
 }
