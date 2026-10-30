@@ -905,6 +905,7 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    let mut tx = pool.begin().await.unwrap();
     sqlx::query(
         "INSERT INTO chapter_purchase_share_snapshots
          (purchase_id,book_id,share_revision,gross_amount_minor)
@@ -913,7 +914,7 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     )
     .bind(purchase)
     .bind(book)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .unwrap();
     sqlx::query(
@@ -926,9 +927,10 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     )
     .bind(purchase)
     .bind(book)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .unwrap();
+    tx.commit().await.unwrap();
     sqlx::query("UPDATE reader_wallet_accounts SET balance_minor=700 WHERE user_id=$1")
         .bind(buyer)
         .execute(&pool)
