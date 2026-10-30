@@ -283,14 +283,8 @@ impl PgAuthoring {
                 if changed.rows_affected() != 1 {
                     return Err(AuthorError::Conflict);
                 }
-                enqueue_chapter_published(
-                    &mut tx,
-                    input.book_id,
-                    chapter_id,
-                    version_id,
-                    false,
-                )
-                .await?;
+                enqueue_chapter_published(&mut tx, input.book_id, chapter_id, version_id, false)
+                    .await?;
             }
             new_revision
         };

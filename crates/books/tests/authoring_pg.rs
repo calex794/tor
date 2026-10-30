@@ -220,7 +220,11 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(outbox, (1, true), "repeated book release must not enqueue again");
+    assert_eq!(
+        outbox,
+        (1, true),
+        "repeated book release must not enqueue again"
+    );
     let late_key = "n".repeat(43);
     let late_chapter = save_chapter(SaveChapterRequest {
         book_id: book_id as u64,

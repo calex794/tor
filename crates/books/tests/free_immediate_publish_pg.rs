@@ -118,13 +118,13 @@ async fn public_free_save_is_atomic_owner_only_visible_and_idempotent() {
     .unwrap();
     assert_eq!(
         envelope.0,
-        format!("chapter-published:{}:{}", saved.chapter_id, saved.version_id)
+        format!(
+            "chapter-published:{}:{}",
+            saved.chapter_id, saved.version_id
+        )
     );
     assert_eq!((envelope.1, envelope.2), (book, saved.version_id));
-    assert_eq!(
-        envelope.3,
-        vec!["search-index-v1", "subscription-inbox-v1"]
-    );
+    assert_eq!(envelope.3, vec!["search-index-v1", "subscription-inbox-v1"]);
     assert!(envelope.4, "published_at is part of the version envelope");
     let working: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
