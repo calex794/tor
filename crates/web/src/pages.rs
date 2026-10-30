@@ -8,6 +8,7 @@ use std::fmt::Write;
 mod account;
 mod layer_storefront;
 mod library;
+mod referrals;
 mod session_security;
 #[allow(unused_imports)] // The previous account renderer remains available to callers.
 pub use account::{
@@ -23,6 +24,7 @@ pub use library::{
     my_library, my_library_with_options, my_library_with_purchases, my_library_with_updates,
     LibraryCapabilities,
 };
+pub use referrals::referrals_page;
 pub use session_security::active_sessions;
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
@@ -119,10 +121,12 @@ fn book_detail_with_chapters_cover_internal(
             } else {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
+                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span>",
                     chapter.id, chapter.number
                 )
                 .expect("writing String");
+                write!(items, "<!--BOOK_OWNER_EDIT:{}--></li>", chapter.id)
+                    .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -312,6 +316,13 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace(
+            "<!--BOOK_REFERRAL_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
+                book.id
+            ),
+        )
         .replace(
             "<!--BATCH_PURCHASE_ACTION-->",
             &if batch_enabled {

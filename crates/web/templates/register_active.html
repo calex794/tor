@@ -17,6 +17,8 @@
         <label for="register-password">Пароль (12–128 символов)</label>
         <input id="register-password" name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="128" aria-describedby="register-password-hint">
         <p class="auth-form__help" id="register-password-hint">Минимум 12 символов, максимум 128.</p>
+        <label for="register-invite">Код приглашения (необязательно)</label>
+        <input id="register-invite" name="manual_invite_code" type="text" autocomplete="off" maxlength="64" value="">
         <button class="button" type="submit">Создать учётную запись</button>
       </form>
       <p class="auth-card__footer">Уже есть учётная запись? <a href="/login">Войти</a></p>

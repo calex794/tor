@@ -12,6 +12,7 @@ mod entries_core;
 mod entries_follow;
 mod entries_inbox;
 mod entries_layer;
+mod entries_referrals;
 mod entries_reply;
 pub use classifier::classify;
 
@@ -20,10 +21,11 @@ use entries_core::BASE_ROUTES;
 use entries_follow::FOLLOW_ROUTES;
 use entries_inbox::INBOX_ROUTES;
 use entries_layer::{LAYER_INDEX_ROUTES, LAYER_METADATA_ROUTES, LAYER_ROUTES};
+use entries_referrals::REFERRAL_ROUTES;
 use entries_reply::REPLY_ROUTES;
 
-const ROUTES: [RouteRegistration; 115] = {
-    let mut result = [BASE_ROUTES[0]; 115];
+const ROUTES: [RouteRegistration; 124] = {
+    let mut result = [BASE_ROUTES[0]; 124];
     let mut i = 0;
     while i < 79 {
         result[i] = BASE_ROUTES[i];
@@ -75,6 +77,11 @@ const ROUTES: [RouteRegistration; 115] = {
     while n < 14 {
         result[101 + n] = ACCOUNT_ROUTES[n];
         n += 1;
+    }
+    let mut referral = 0;
+    while referral < 9 {
+        result[115 + referral] = REFERRAL_ROUTES[referral];
+        referral += 1;
     }
     result
 };
