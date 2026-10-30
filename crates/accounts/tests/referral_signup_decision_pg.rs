@@ -104,7 +104,10 @@ async fn register(pool: &PgPool, guest: Option<&[u8; 32]>, manual: Option<&str>)
     .fetch_one(pool)
     .await
     .expect("persisted audited registration session");
-    assert_eq!(audited, 1, "every referral signup must audit its first session");
+    assert_eq!(
+        audited, 1,
+        "every referral signup must audit its first session"
+    );
     user_id
 }
 
@@ -392,6 +395,13 @@ async fn f_09_pg_disabled_manual_code_rolls_back_audited_signup_and_guest_claim(
         .fetch_one(&db)
         .await
         .unwrap();
-    assert_eq!((users, sessions), (0, 0), "failed signup must leave no account or audited session");
-    assert_eq!(status, "active", "rejected manual code must not consume the guest capture");
+    assert_eq!(
+        (users, sessions),
+        (0, 0),
+        "failed signup must leave no account or audited session"
+    );
+    assert_eq!(
+        status, "active",
+        "rejected manual code must not consume the guest capture"
+    );
 }
