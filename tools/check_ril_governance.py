@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
@@ -26,7 +26,8 @@ SCOPE_CALLS = {
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
-    "record_verified_continuation", "follow", "unfollow",
+    "record_verified_continuation", "follow", "unfollow", "set_read_state",
+    "delivery_preference", "set_delivery_preference",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -117,6 +118,12 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
+    if source == root / "crates/web/src/auth/settings_routes.rs":
+        # This router explicitly imports sibling account handlers with super::.
+        allowed = {"profile_http", "notification_settings", "password_reset", "password_change"}
+        if module not in allowed:
+            return root / "__unsupported_account_handler__"
+        return source.parent / f"{module}.rs"
     if source.name in {"lib.rs", "mod.rs"}:
         return source.parent / f"{module}.rs"
     return source.with_suffix("") / f"{module}.rs"
@@ -185,6 +192,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "StatusCode::FORBIDDEN" in evidence
         ):
             errors.append(f"{label}: missing Origin+CSRF rejection")
+    if policy == "recovery":
+        allowed = {("POST", "/forgot-password", "password_reset::request"),
+                   ("POST", "/reset-password", "password_reset::confirm")}
+        if (entry["method"], entry["template"], entry["handler"]) not in allowed:
+            errors.append(f"{label}: recovery exception is not allowed here")
+        if ("login_limiter::limit(" not in evidence
+                or len(re.findall(r"\bpermit_auth_attempt\s*\(", limiter)) < 2):
+            errors.append(f"{label}: missing distributed recovery rate limit")
     if policy == "entry":
         if entry["method"] != "POST" or entry["template"] not in {"/login", "/register"}:
             errors.append(f"{label}: entry exception only applies to login/register POST")

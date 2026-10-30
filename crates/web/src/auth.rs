@@ -7,7 +7,7 @@ use crate::{
     password_jobs::PasswordJobs,
 };
 use axum::{
-    extract::{DefaultBodyLimit, Form, Path, Query, State},
+    extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware,
     response::{Redirect, Response},
@@ -30,7 +30,7 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgLibrary, PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -40,6 +40,7 @@ use tor_reading::{
     },
 };
 
+mod access_audit;
 mod account_form_http;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -50,13 +51,23 @@ mod book_stars;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod follow_read_state;
+mod followed_purchase_links;
 mod inbox;
 mod library_actions;
+mod library_page;
 mod login_limiter;
+mod notification_settings;
 mod paid_completion;
+mod password_change;
+mod password_reset;
 mod private_reader;
+mod profile_http;
 mod rankings;
 mod reply_read_state;
+mod reset_delivery;
+mod security_retention;
+mod settings_routes;
 mod sync_actions;
 mod types;
 use types::*;
@@ -128,6 +139,8 @@ fn router_inner(
     paid_reader_available: bool,
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
+    security_retention::start(accounts.clone());
+    let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -139,6 +152,7 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -148,6 +162,10 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        reset_delivery,
+        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
+            accounts.pool().clone(),
+        ),
         accounts,
         checkout,
         paid_checkout_enabled,
@@ -158,6 +176,7 @@ fn router_inner(
         bookmarks,
         demand,
         book_follows,
+        follow_updates,
         reader,
         rankings,
         cookies,
@@ -168,6 +187,7 @@ fn router_inner(
     };
     let observation_state = state.clone();
     let app = Router::new()
+        .merge(settings_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -177,13 +197,21 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route(
+            "/me/settings/password",
+            get(password_change::page).post(password_change::submit),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(
             "/me/replies/{id}/read-state",
             post(reply_read_state::submit),
         )
-        .route("/me/library", get(my_library))
+        .route("/me/library", get(library_page::my_library))
+        .route(
+            "/me/updates/{id}/read-state",
+            post(follow_read_state::submit),
+        )
         .route("/me/rankings", get(rankings::page))
         .route(
             "/me/books/{id}/rate",
@@ -290,46 +318,15 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(replies) => replies,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_account(&name, &csrf, &replies), &cookies)
-}
-
-async fn my_library(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Query(query): Query<LibraryQuery>,
-) -> Response {
-    let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
-    };
-    let digest = session_token_digest(&token);
-    let user_id = match state.accounts.active_session_user(&digest).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let books = match state.progress.continue_reading(user_id).await {
-        Ok(books) => books,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let saved = match state
-        .bookmarks
-        .list_books(user_id, query.limit.unwrap_or(30), query.after)
-        .await
-    {
-        Ok(saved) => saved,
-        Err(tor_reading::services::library::LibraryError::Invalid) => {
-            return deny(StatusCode::BAD_REQUEST);
-        }
+    let unread = match state.follow_updates.unread_count_capped(user_id).await {
+        Ok(count) => count,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = if state.paid_reader_available {
-        pages::my_library_with_purchases(&books, &saved, &csrf, true)
-    } else {
-        pages::my_library(&books, &saved, &csrf)
-    };
-    private_response(page, &cookies)
+    private_response(
+        pages::my_account_with_follow_updates(&name, &csrf, &replies, unread),
+        &cookies,
+    )
 }
 
 /// Browser author workspace backed by the current PostgreSQL user session.

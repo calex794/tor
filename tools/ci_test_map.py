@@ -18,6 +18,26 @@ SUITES = {
     "purchased_recovery": ("tor-s334-restore.yml", ("tor-web", "tor-migrations")),
 }
 
+# One automatic CI workflow executes all suites; legacy workflow files remain manual-only.
+CI_WORKFLOW = "tor-integration.yml"
+CI_REQUIRED_JOB = "ci-required"
+SUITE_JOB_IDS = {
+    "rust": "demo",
+    "postgres": "postgres-runtime",
+    "migrations": "migrations",
+    "reader_browser": "reader-browser",
+    "visual": "visual",
+    "cover_browser": "author-cover",
+    "image": "image",
+    "crypto": "crypto",
+    "storage_s3": "s3-provider",
+    "cover_s3": "s3-cover-build",
+    "search_load": "f02-100k",
+    "paid_e2e": "paid-private-e2e",
+    "backup_recovery": "sealed-remote-copy",
+    "purchased_recovery": "purchased-v1-recovery",
+}
+
 # Deployment workflows contact the VPS: operator dispatch only, never automatic CI.
 MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
@@ -47,6 +67,7 @@ TEST_SUITES = {
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
+    "crates/ingest/tests/outbox_pg.rs": {"rust", "postgres"},
     "crates/storage/tests/crypto_webcrypto.mjs": {"crypto"},
     "crates/storage/tests/private_objects.rs": {"rust", "crypto"},
     "crates/storage/tests/s3_private_provider.rs": {"rust", "storage_s3"},
