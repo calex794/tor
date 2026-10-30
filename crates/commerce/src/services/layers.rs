@@ -47,14 +47,7 @@ impl LayerService {
         status: &str,
     ) -> Result<(), LayerError> {
         self.repository
-            .update_metadata_if_current(
-                actor,
-                layer,
-                expected_revision,
-                title,
-                description,
-                status,
-            )
+            .update_metadata_if_current(actor, layer, expected_revision, title, description, status)
             .await
     }
 

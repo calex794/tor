@@ -228,8 +228,15 @@ async fn d_05_pg_owner_metadata_hides_restores_without_mutating_paid_versions() 
         Err(LayerError::Invalid)
     );
     assert_eq!(
-        repo.update_metadata_if_current(id(owner), id(layer), 2, "Long", &"д".repeat(2001), "active")
-            .await,
+        repo.update_metadata_if_current(
+            id(owner),
+            id(layer),
+            2,
+            "Long",
+            &"д".repeat(2001),
+            "active"
+        )
+        .await,
         Err(LayerError::Invalid)
     );
 

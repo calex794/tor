@@ -37,7 +37,10 @@ fn registry_is_finite_and_classifies_each_declared_method() {
         ProductArea::Dashboard
     );
     assert!(!classify(Some("/me/layers"), "POST").route_known);
-    assert_eq!(classify(Some("/me/layers/{layer_id}/metadata"), "POST").cost_class, CostClass::Write);
+    assert_eq!(
+        classify(Some("/me/layers/{layer_id}/metadata"), "POST").cost_class,
+        CostClass::Write
+    );
     assert_eq!(
         classify(Some("/me/replies/{id}/read-state"), "POST").product_area,
         ProductArea::Dashboard

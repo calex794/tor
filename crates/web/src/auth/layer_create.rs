@@ -37,7 +37,10 @@ pub(super) fn routes() -> Router<AuthState> {
     Router::new()
         .route("/me/layers", get(index))
         .route("/me/layers/new", get(page).post(create))
-        .route("/me/layers/{layer_id}/metadata", axum::routing::post(update_metadata))
+        .route(
+            "/me/layers/{layer_id}/metadata",
+            axum::routing::post(update_metadata),
+        )
 }
 
 /// Owner-only entry for S032; no payment, buyer data or public enumeration.
@@ -58,7 +61,10 @@ pub(super) async fn index(State(state): State<AuthState>, headers: HeaderMap) ->
     match service.owned_layers(actor, 100).await {
         Ok(layers) => {
             let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-            private_response(author_pages::layers_index_with_forms(&layers, &csrf), &cookies)
+            private_response(
+                author_pages::layers_index_with_forms(&layers, &csrf),
+                &cookies,
+            )
         }
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
