@@ -103,16 +103,23 @@ async fn login(app: &Router, email: &str) -> String {
     cookie(&login, "tor-dev-session=")
 }
 
-async fn session_id(
-    pool: &sqlx::PgPool,
-    cookie: &str,
-) -> String {
+async fn session_id(accounts: &PgAccounts, cookie: &str) -> String {
     let token = cookie.split_once('=').expect("session cookie").1;
-    sqlx::query_scalar("SELECT session_id::text FROM sessions WHERE token_hash = $1")
-        .bind(session_token_digest(token).as_slice())
-        .fetch_one(pool)
+    let digest = session_token_digest(token);
+    let user_id = accounts
+        .active_session_user(&digest)
         .await
-        .expect("session UUID")
+        .expect("session lookup")
+        .expect("live session");
+    let sessions = accounts
+        .list_active_sessions(user_id, &digest)
+        .await
+        .expect("session list");
+    sessions
+        .into_iter()
+        .find(|session| session.current)
+        .expect("current session in own list")
+        .id
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -134,6 +141,7 @@ async fn run_case() {
     let reader = PgReader::new(pool.clone());
     let accounts = PgAccounts::from_pool(pool.clone());
     accounts.probe().await.expect("account schema");
+    let lookup = accounts.clone();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         reader,
@@ -150,9 +158,9 @@ async fn run_case() {
     let first = register(&app, &a, "OwnerA").await;
     let second = login(&app, &a).await;
     let foreign = register(&app, &b, "OwnerB").await;
-    let first_id = session_id(&pool, &first).await;
-    let second_id = session_id(&pool, &second).await;
-    let foreign_id = session_id(&pool, &foreign).await;
+    let first_id = session_id(&lookup, &first).await;
+    let second_id = session_id(&lookup, &second).await;
+    let foreign_id = session_id(&lookup, &foreign).await;
 
     let anon = send(
         &app,
