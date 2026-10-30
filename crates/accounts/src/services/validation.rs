@@ -81,7 +81,12 @@ mod tests {
         assert!(password_change("", "новый-длинный-пароль", "новый-длинный-пароль").is_err());
         assert!(password_change("old", "short", "short").is_err());
         assert!(password_change("old", "новый-длинный-пароль", "другой-пароль").is_err());
-        assert!(password_change("тот же длинный пароль", "тот же длинный пароль", "тот же длинный пароль").is_err());
+        assert!(password_change(
+            "тот же длинный пароль",
+            "тот же длинный пароль",
+            "тот же длинный пароль"
+        )
+        .is_err());
     }
 
     #[test]
