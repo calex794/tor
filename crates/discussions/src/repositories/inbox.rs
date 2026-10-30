@@ -58,15 +58,17 @@ impl PgInbox {
         .map_err(|_| ListCommentsError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(comment_id, book_id, book_title, is_read, created_at)| InboxEntry {
-                reply: ReceivedReply {
-                    comment_id,
-                    book_id,
-                    book_title,
-                    is_read,
+            .map(
+                |(comment_id, book_id, book_title, is_read, created_at)| InboxEntry {
+                    reply: ReceivedReply {
+                        comment_id,
+                        book_id,
+                        book_title,
+                        is_read,
+                    },
+                    created_at,
                 },
-                created_at,
-            })
+            )
             .collect())
     }
 }
