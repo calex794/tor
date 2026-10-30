@@ -188,7 +188,7 @@
       "method": "GET",
       "template": "/me/books/{id}",
       "source": "crates/web/src/auth.rs",
-      "handler": "author_book",
+      "handler": "author_book_page::page",
       "policy": "owner"
     },
     {
