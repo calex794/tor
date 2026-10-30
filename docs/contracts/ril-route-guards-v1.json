@@ -659,6 +659,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "referral_capture::promo",
       "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/me/referrals/alias",
+      "source": "crates/web/src/auth.rs",
+      "handler": "referral_alias::browser_create",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/referrals/alias",
+      "source": "crates/web/src/auth.rs",
+      "handler": "referral_alias::api_create",
+      "policy": "session"
     }
   ]
 }
