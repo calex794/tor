@@ -4109,12 +4109,29 @@
                           "created_at": {
                             "type": "string",
                             "format": "date-time"
+                          },
+                          "book_id": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$"
+                          },
+                          "book_title": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "is_read": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
                           "id",
                           "kind",
-                          "created_at"
+                          "created_at",
+                          "book_id",
+                          "book_title",
+                          "url",
+                          "is_read"
                         ]
                       }
                     },
