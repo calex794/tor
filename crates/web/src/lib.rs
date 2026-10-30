@@ -53,7 +53,6 @@ pub use paid_reader_router::{
 };
 mod password_jobs;
 pub mod ranking_consumer;
-pub mod social_notification_consumer;
 mod ril;
 mod worker_health;
 

@@ -1,3 +1,5 @@
+mod social_notification_consumer;
+
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -278,7 +280,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _ranking_consumer =
         pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
     let _social_notification_consumer =
-        pending_social_notifications.map(tor_web::social_notification_consumer::start);
+        pending_social_notifications.map(social_notification_consumer::start);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
