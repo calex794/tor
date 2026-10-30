@@ -153,6 +153,7 @@ fn router_inner(
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
+    let staged_revisions = tor_reading::repositories::PgStagedRevisions::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -177,6 +178,7 @@ fn router_inner(
         demand,
         book_follows,
         follow_updates,
+        staged_revisions,
         reader,
         rankings,
         cookies,
