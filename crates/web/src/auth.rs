@@ -56,6 +56,7 @@ mod book_description;
 mod book_follow_actions;
 mod book_stars;
 mod book_stats_http;
+mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
@@ -306,6 +307,10 @@ fn router_inner(
             get(book_description::edit).post(book_description::save),
         )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
+        .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
+        )
         .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
         .route("/read/{id}/complete", post(complete_chapter::complete))

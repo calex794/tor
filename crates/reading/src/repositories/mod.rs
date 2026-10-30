@@ -22,3 +22,6 @@ pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
 
 pub mod book_stats;
+
+pub mod chapter_thanks;
+pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};

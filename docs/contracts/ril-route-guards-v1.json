@@ -862,6 +862,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::follow_creator",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::submit",
+      "policy": "scoped"
     }
   ]
 }
