@@ -159,15 +159,33 @@ impl PgStagedRevisions {
             .into_iter()
             .map(|row| {
                 Ok(StagedRevision {
-                    book_id: row.try_get("book_id").map_err(|_| StagedRevisionError::Unavailable)?,
-                    chapter_id: row.try_get("chapter_id").map_err(|_| StagedRevisionError::Unavailable)?,
-                    book_title: row.try_get("book_title").map_err(|_| StagedRevisionError::Unavailable)?,
-                    chapter_title: row.try_get("chapter_title").map_err(|_| StagedRevisionError::Unavailable)?,
-                    chapter_no: row.try_get("chapter_no").map_err(|_| StagedRevisionError::Unavailable)?,
-                    version_no: row.try_get("version_no").map_err(|_| StagedRevisionError::Unavailable)?,
-                    is_paid: row.try_get("is_paid").map_err(|_| StagedRevisionError::Unavailable)?,
-                    staged_micros: row.try_get("staged_micros").map_err(|_| StagedRevisionError::Unavailable)?,
-                    event_id: row.try_get("event_id").map_err(|_| StagedRevisionError::Unavailable)?,
+                    book_id: row
+                        .try_get("book_id")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    chapter_id: row
+                        .try_get("chapter_id")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    book_title: row
+                        .try_get("book_title")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    chapter_title: row
+                        .try_get("chapter_title")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    chapter_no: row
+                        .try_get("chapter_no")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    version_no: row
+                        .try_get("version_no")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    is_paid: row
+                        .try_get("is_paid")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    staged_micros: row
+                        .try_get("staged_micros")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
+                    event_id: row
+                        .try_get("event_id")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
                 })
             })
             .collect::<Result<_, StagedRevisionError>>()?;
