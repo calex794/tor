@@ -572,6 +572,38 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     )
     .await;
+    // E-03: a selected participant without a public handle is addressed by ID,
+    // but must be validated server-side before creating an Inbox reference.
+    let discover_url = format!("/api/v1/social/mentions/discover?book_id={book}&q=Ot");
+    assert_eq!(
+        call(&app, "GET", &discover_url, "", ORIGIN, "")
+            .await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let candidates = html(call(&app, "GET", &discover_url, &cookies, ORIGIN, "").await).await;
+    assert!(candidates.contains(&format!("\"user_id\":{writer_id}")));
+    let mention_key = generate_session_token();
+    let mention_form = format!(
+        "body=Look%20%40%5Buser%3A{writer_id}%5D&command_key={mention_key}&csrf_token={csrf}"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", &comments_path, &cookies, ORIGIN, &mention_form)
+                .await.status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    let mention_id: i64 = pg(&url, &format!(
+        "SELECT id FROM discussion_comments WHERE book_id={book} AND command_key='{mention_key}'"
+    )).await.parse().unwrap();
+    assert_eq!(pg(&url, &format!(
+        "SELECT count(*) FROM discussion_comment_mentions WHERE comment_id={mention_id} AND recipient_user_id={writer_id}"
+    )).await, "1");
+    let notification = html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(notification.contains("\"kind\":\"mention\""));
+    assert!(notification.contains(&format!("\"id\":\"{mention_id}\"")));
+    assert!(!notification.contains("Look"));
+    pg(&url, &format!("DELETE FROM discussion_comments WHERE id={mention_id}")).await;
     pg(
         &url,
         &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
