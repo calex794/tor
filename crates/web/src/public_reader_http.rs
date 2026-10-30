@@ -40,16 +40,22 @@ pub(super) async fn reader_page(State(state): State<AppState>, Path(id): Path<u6
         let actor = match state.follow_control.as_ref() {
             Some(control) => match control.verified_reader(&headers).await {
                 Ok(actor) => actor,
-                Err(_) => return auth_cookies::private_response(
-                    pages::reader_with_login_link(&chapter, Some(id)), &[]),
+                Err(_) => {
+                    return auth_cookies::private_response(
+                        pages::reader_with_login_link(&chapter, Some(id)),
+                        &[],
+                    )
+                }
             },
             None => None,
         };
         if let Ok(chapter_id) = i64::try_from(id) {
-            if let Err(error) = tor_reading::repositories::book_stats::PgBookStats::new(
-                catalog.pool(),
-            ).record_open(chapter_id, actor).await {
-                tracing::warn!(?error, "anonymous book statistics open not recorded");
+            if let Err(error) =
+                tor_reading::repositories::book_stats::PgBookStats::new(catalog.pool())
+                    .record_open(chapter_id, actor)
+                    .await
+            {
+                tracing::warn!(?error, "book statistics open not recorded");
             }
         }
     }

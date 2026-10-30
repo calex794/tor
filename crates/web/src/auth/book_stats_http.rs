@@ -183,7 +183,7 @@ pub(super) async fn export(
         );
     }
     for day in &data.daily {
-        let _ = writeln!(csv,"daily,0,{}, {},0,{},{},0,{},0",
+        let _ = writeln!(csv,"daily,0,{},{},0,{},0,{},{},0",
             csv_cell(&day.day),day.opens,day.unique_first,
             day.purchases,day.purchase_minor);
     }

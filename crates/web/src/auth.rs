@@ -50,6 +50,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
+mod book_stats_http;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
