@@ -154,7 +154,7 @@ impl PgPublicBookComments {
         };
         let eligible = eligible.into_iter().take(5).collect::<Vec<_>>();
         let clean_body = mentions::canonicalize(body, &eligible);
-                // Serialize attempts with the same actor/key on the same PostgreSQL row.
+        // Serialize attempts with the same actor/key on the same PostgreSQL row.
         // A conflicting key must not silently return a different saved comment.
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO discussion_comments
@@ -277,15 +277,20 @@ impl PgPublicBookComments {
         let allowed = sqlx::query_scalar::<_, i64>(
             "SELECT reply.id
              FROM discussion_comments reply
-             JOIN discussion_comments parent ON parent.id=reply.parent_id
+             LEFT JOIN discussion_comments parent ON parent.id=reply.parent_id
+             LEFT JOIN discussion_comment_mentions mention
+               ON mention.comment_id=reply.id AND mention.recipient_user_id=$1
              JOIN books b ON b.id=reply.book_id
-             WHERE reply.id=$2 AND parent.author_user_id=$1
-               AND reply.author_user_id<>$1 AND parent.book_id=reply.book_id
-               AND parent.chapter_id IS NULL AND reply.chapter_id IS NULL
-               AND parent.version_id IS NULL AND reply.version_id IS NULL
-               AND parent.visibility='visible' AND reply.visibility='visible'
+             WHERE reply.id=$2
+               AND (parent.author_user_id=$1 OR mention.recipient_user_id IS NOT NULL)
+               AND reply.author_user_id<>$1
+               AND (parent.id IS NULL OR (parent.book_id=reply.book_id
+                 AND parent.chapter_id IS NULL AND parent.version_id IS NULL
+                 AND parent.visibility='visible'))
+               AND reply.chapter_id IS NULL AND reply.version_id IS NULL
+               AND reply.visibility='visible'
                AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-             FOR SHARE OF reply, parent, b",
+             FOR SHARE OF reply, b",
         )
         .bind(actor_id)
         .bind(reply_id)
