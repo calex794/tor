@@ -1,5 +1,6 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
+mod chapter_batch_import;
 mod chapter_edit;
 pub(crate) mod chapter_outbox;
 mod chapter_publish_free;

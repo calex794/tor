@@ -26,6 +26,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Read-only I-06 main ruleset proof on trusted push
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/check_one_click_release_ci.py \
+            --repo ${{ github.repository }} \
+            --sha "${{ github.sha }}" --policy-only
       - name: Enforce TOR feature-first boundaries
         run: python3 tools/check_feature_layout.py
       - name: Enforce executable TOR roadmap coverage

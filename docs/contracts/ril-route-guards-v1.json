@@ -806,6 +806,34 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_comments::discover_mentions",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/chapters/import",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "chapter_import::page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/import-preview",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "chapter_import::preview",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/import-confirm",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "chapter_import::confirm",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-chapter-import.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "chapter_import_assets::script",
+      "policy": "public"
     }
   ]
 }
