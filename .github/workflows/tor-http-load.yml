@@ -295,6 +295,15 @@ jobs:
             sleep 1
           done
           if [[ "$ready" != 1 ]]; then tail -n 80 "$RUNNER_TEMP/tor-load/purchase-contract/server.log"; exit 1; fi
+          # Earlier 10k/paid-fixture explicit IDs do not advance PostgreSQL
+          # identity sequences. Rebase them ONLY in this disposable database
+          # before the existing HTTP smoke creates auto-ID books/chapters.
+          [[ "$MIGRATOR_URL" == */tor_ci ]] || exit 1
+          psql -X -v ON_ERROR_STOP=1 "$MIGRATOR_URL" <<'SQL'
+          SELECT setval(pg_get_serial_sequence('books','id'),(SELECT MAX(id) FROM books),true);
+          SELECT setval(pg_get_serial_sequence('chapters','id'),(SELECT MAX(id) FROM chapters),true);
+          SELECT setval(pg_get_serial_sequence('chapter_versions','id'),(SELECT MAX(id) FROM chapter_versions),true);
+          SQL
           python3 tools/checkout_http_pg_smoke.py --mode enabled |
             tee "$RUNNER_TEMP/tor-load/purchase-contract/result.txt"
           {
