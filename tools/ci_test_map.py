@@ -68,6 +68,7 @@ TEST_SUITES = {
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
     "crates/ingest/tests/notify_pg.rs": {"rust", "postgres"},
+    "crates/reading/tests/staged_updates_pg.rs": {"rust", "postgres"},
     "crates/ingest/tests/outbox_pg.rs": {"rust", "postgres"},
     "crates/ingest/tests/notify_worker_pg.rs": {"rust", "postgres"},
     "crates/storage/tests/crypto_webcrypto.mjs": {"crypto"},

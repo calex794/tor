@@ -9,11 +9,22 @@ pub fn my_library_with_updates(
     csrf: &str,
     purchased_available: bool,
     checkout_enabled: bool,
-    updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
+    notifications: (
+        &tor_reading::repositories::follow_updates::FollowedReleasePage,
+        &tor_reading::repositories::staged_updates::StagedRevisionPage,
+    ),
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
+    let (updates, revisions) = notifications;
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(items, saved, csrf, purchased_available, &update_html)
+    let revision_html = revision_cards(revisions);
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        &format!("{update_html}{revision_html}"),
+    )
 }
 
 fn my_library_inner(
@@ -181,12 +192,95 @@ fn update_cards(
     )
 }
 
+/// V1 releases remain in C-16; only durably staged V2+ revisions appear here.
+fn revision_cards(
+    revisions: &tor_reading::repositories::staged_updates::StagedRevisionPage,
+) -> String {
+    if revisions.items.is_empty() {
+        return String::new();
+    }
+    let mut cards = String::new();
+    for item in &revisions.items {
+        let book = escape_html(&item.book_title);
+        let chapter = escape_html(&item.chapter_title);
+        let access = if item.is_paid {
+            "Платная редакция · доступ к тексту отдельно"
+        } else {
+            "Бесплатная редакция"
+        };
+        write!(
+            cards,
+            "<article class=\"library-card\"><div>\
+             <p class=\"eyebrow\">{access} · V{}</p>\
+             <h3>{book}</h3><p>Глава {}. {chapter}</p></div>\
+             <a class=\"button button--small\" href=\"/reader/{}\">Открыть главу</a>\
+             </article>",
+            item.version_no, item.chapter_no, item.chapter_id,
+        )
+        .expect("writing revision HTML");
+    }
+    let next = revisions
+        .next_cursor
+        .as_ref()
+        .map_or_else(String::new, |cursor| {
+            format!(
+                "<p><a href=\"/me/library?revisions_after={}#revised-chapters\">\
+             Ранее обновлённые редакции</a></p>",
+                cursor.encode()
+            )
+        });
+    format!(
+        "<section class=\"section\" id=\"revised-chapters\" \
+         aria-labelledby=\"revised-chapters-heading\">\
+         <h2 id=\"revised-chapters-heading\">Обновлённые редакции</h2>\
+         <p>Изменённые главы подписок. Подписка не даёт доступа к платному тексту.</p>\
+         <div class=\"library-grid\">{cards}</div>{next}</section>"
+    )
+}
+
 #[cfg(test)]
 mod update_tests {
     use super::*;
     use tor_reading::repositories::follow_updates::{
         FollowedRelease, FollowedReleasePage, UpdatesCursor,
     };
+    use tor_reading::repositories::staged_updates::{
+        RevisionCursor, StagedRevision, StagedRevisionPage,
+    };
+
+    #[test]
+    fn staged_revision_escapes_titles_and_leaks_no_paid_body() {
+        let page = StagedRevisionPage {
+            items: vec![StagedRevision {
+                book_id: 9,
+                chapter_id: 12,
+                book_title: "<script>unsafe</script>".into(),
+                chapter_title: "A & B".into(),
+                chapter_no: 3,
+                version_no: 2,
+                is_paid: true,
+                staged_micros: 1_800_000_000_123_456,
+                event_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
+            }],
+            next_cursor: Some(RevisionCursor {
+                staged_micros: 1_800_000_000_123_456,
+                event_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
+            }),
+        };
+        let html = revision_cards(&page);
+        assert!(html.contains("Обновлённые редакции"));
+        assert!(html.contains("&lt;script&gt;unsafe&lt;/script&gt;"));
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("A &amp; B"));
+        assert!(html.contains("href=\"/reader/12\""));
+        assert!(html.contains("revisions_after=1800000000123456."));
+        assert!(!html.contains("purchase_id="));
+        let empty = revision_cards(&StagedRevisionPage {
+            items: vec![],
+            next_cursor: None,
+        });
+        assert!(empty.is_empty(), "no duplicate C-16 first-release section");
+    }
 
     #[test]
     fn paid_update_is_escaped_and_points_to_enabled_checkout() {
