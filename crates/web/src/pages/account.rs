@@ -68,9 +68,36 @@ pub fn account_error_page(title: &str, message: &str, retry_registration: bool) 
 }
 
 pub fn my_account(name: &str, csrf: &str, replies: &[ReceivedReply]) -> Html<String> {
+    my_account_with_follow_updates(name, csrf, replies, 0)
+}
+
+/// Show a bounded private alert only for new, unacknowledged releases.
+pub fn my_account_with_follow_updates(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+) -> Html<String> {
+    let count = if unread >= 100 {
+        "99+".to_owned()
+    } else {
+        unread.to_string()
+    };
+    let alert = if unread == 0 {
+        String::new()
+    } else {
+        format!(
+            "<a class=\"me-now-item me-now-item--reading\" href=\"/me/library#new-chapters\" \
+             aria-label=\"Новые главы подписок: {count}\"><span class=\"me-now-item__copy\">\
+             <strong class=\"me-now-item__title\">Новые главы подписок: {count}</strong>\
+             <span class=\"me-now-item__text\">Бесплатные и платные продолжения ваших книг.</span>\
+             </span><span class=\"me-now-item__arrow\" aria-hidden=\"true\">→</span></a>"
+        )
+    };
     let content = include_str!("../../templates/me.html")
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
         .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf));
     // Only the authenticated private page changes its navigation.
     let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
@@ -141,6 +168,19 @@ mod tests {
         assert!(my_account("Reader", "csrf", &[])
             .0
             .contains("Ответов пока нет"));
+    }
+
+    #[test]
+    fn c_16_dashboard_links_to_unread_free_and_paid_release_updates() {
+        let html = my_account_with_follow_updates("Reader", "csrf", &[], 2).0;
+        assert!(html.contains("href=\"/me/library#new-chapters\""));
+        assert!(html.contains("Новые главы подписок: 2"));
+        assert!(html.contains("Бесплатные и платные"));
+        let big = my_account_with_follow_updates("Reader", "csrf", &[], 100).0;
+        assert!(big.contains("Новые главы подписок: 99+"));
+        assert!(!my_account_with_follow_updates("Reader", "csrf", &[], 0)
+            .0
+            .contains("href=\"/me/library#new-chapters\""));
     }
 
     #[test]
