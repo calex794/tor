@@ -289,6 +289,19 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert_eq!(call(&app, "POST", &send_path, &cookies[0], &html_client_form, &[]).await.status(), StatusCode::SEE_OTHER);
     assert_eq!(call(&app, "POST", &send_path, &cookies[0], &html_client_form.replace("Source", "Changed"), &[]).await.status(), StatusCode::SEE_OTHER);
     assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "2");
+    // No-JS HTML has no client identity: retry within five seconds reuses
+    // the original message, but the other sender's identical text is distinct.
+    let unkeyed = format!("body=NoJS+repeat&client_message_id=&csrf_token={}", csrf[0]);
+    for _ in 0..2 {
+        assert_eq!(call(&app, "POST", &send_path, &cookies[0], &unkeyed, &[]).await.status(), StatusCode::SEE_OTHER);
+    }
+    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "3");
+    let sender_b = format!("body=NoJS+repeat&client_message_id=&csrf_token={}", csrf[1]);
+    assert_eq!(call(&app, "POST", &send_path, &cookies[1], &sender_b, &[]).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "4");
+    let other_client = format!("body=Source%20B&client_message_id=html%3Atest.1&csrf_token={}", csrf[1]);
+    assert_eq!(call(&app, "POST", &send_path, &cookies[1], &other_client, &[]).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "5");
     let blocked = format!("blocked=true&csrf_token={}", csrf[1]);
     assert_eq!(
         call(
@@ -344,7 +357,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")
         )
         .await,
-        "2"
+        "5"
     );
     // A fresh HTTP router still reads the committed transcript from PostgreSQL.
     let catalog = PgCatalog::connect(&url).await.unwrap();
