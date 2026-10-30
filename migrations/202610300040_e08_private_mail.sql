@@ -19,6 +19,24 @@ CREATE TABLE social_user_blocks (
   CHECK(blocker_id <> blocked_id)
 );
 
+-- NEwBOO friendship requests: same pair/actor lock as mail block and send.
+-- Block remains directed in social_user_blocks; any block cancels friendship.
+CREATE TABLE social_friendships (
+  user_low BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_high BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requester_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('pending','accepted')),
+  action_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  accepted_at TIMESTAMPTZ,
+  PRIMARY KEY(user_low,user_high),
+  CHECK(user_low < user_high),
+  CHECK(requester_id IN(user_low,user_high) AND action_user_id IN(user_low,user_high)),
+  CHECK((status='pending' AND accepted_at IS NULL) OR (status='accepted' AND accepted_at IS NOT NULL))
+);
+CREATE INDEX social_friendships_high ON social_friendships(user_high, status);
+
 CREATE TABLE social_messages (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY CHECK(id > 0),
   conversation_id BIGINT NOT NULL REFERENCES social_conversations(id) ON DELETE CASCADE,
