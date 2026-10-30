@@ -13,6 +13,7 @@ use tor_discussions::repositories::public_book_comments::ReadStateResult;
 pub(super) struct ReplyReadStateForm {
     csrf_token: Option<String>,
     state: String,
+    return_to: Option<String>,
 }
 
 pub(super) async fn submit(
@@ -43,7 +44,14 @@ pub(super) async fn submit(
         state.accounts.pool().clone(),
     );
     match store.set_reply_read_state(actor, id, read).await {
-        ReadStateResult::Updated => private_response(Redirect::to("/me#me-replies-title"), &[]),
+        ReadStateResult::Updated => {
+            let path = if form.return_to.as_deref() == Some("inbox") {
+                "/me/inbox"
+            } else {
+                "/me#me-replies-title"
+            };
+            private_response(Redirect::to(path), &[])
+        },
         ReadStateResult::NotFound => deny(StatusCode::NOT_FOUND),
         ReadStateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
