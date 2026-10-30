@@ -86,7 +86,7 @@ async function referralStats(page) {
     await first.waitForURL(base + '/me/referrals?book=1');
     const bookLink = await first.getByLabel('Ссылка для приглашения на книгу').inputValue();
     assert(bookLink === base + '/books/1?ref=' + firstUrl.slice((base + '/r/').length),
-      'book share link does not contain owner's active referral code');
+      'book share link does not contain the active referral code');
     const invalid = await first.request.post(base + '/api/v1/me/referrals', {
       form: { csrf_token: 'invalid' },
     });

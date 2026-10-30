@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_accounts::services::security::generate_session_token;
-use tor_reading::services::PublicReadingRepository;
 use tor_referrals::repositories::postgres::ReferralOverview;
 
 #[derive(Deserialize)]
