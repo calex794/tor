@@ -308,25 +308,17 @@ async fn e_11_concurrent_sends_claims_admin_cursor_and_expiry() {
     assert_eq!(oldest.messages.len(), 3);
     assert!(!oldest.has_more);
     // Two accounts race to claim the same capability. Exactly one receives it.
+    let claim_a = Requester::User {
+        id: u[0],
+        guest: Some(hash),
+    };
+    let claim_b = Requester::User {
+        id: u[1],
+        guest: Some(hash),
+    };
     let (one, two) = tokio::join!(
-        service.messages(
-            &Requester::User {
-                id: u[0],
-                guest: Some(hash)
-            },
-            None,
-            None,
-            100
-        ),
-        service.messages(
-            &Requester::User {
-                id: u[1],
-                guest: Some(hash)
-            },
-            None,
-            None,
-            100
-        )
+        service.messages(&claim_a, None, None, 100),
+        service.messages(&claim_b, None, None, 100)
     );
     assert_ne!(one.is_ok(), two.is_ok());
     assert!(matches!(
