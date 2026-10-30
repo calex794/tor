@@ -45,6 +45,7 @@ pub(super) struct MailQuery {
     pub after_id: Option<i64>,
     pub before_id: Option<i64>,
     pub limit: Option<u16>,
+    pub error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +97,7 @@ pub(super) async fn index(
         };
         named.push((conversation, name));
     }
-    private_response(super::mail_pages::index(&named, limit), &[])
+    private_response(super::mail_pages::index(&named, limit, query.error.as_deref()), &[])
 }
 
 pub(super) async fn start(
@@ -114,6 +115,7 @@ pub(super) async fn start(
     }
     match service(&state).start(actor, peer_id).await {
         Ok(id) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
+        Err(MailError::Blocked) => private_response(Redirect::to("/mail?error=blocked"), &[]),
         Err(e) => deny(status(e)),
     }
 }
