@@ -592,3 +592,146 @@ async fn g_08_staging_rejects_superseded_and_expired_leases_without_writes() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "only disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn g_08_paid_publication_requires_verified_encrypted_object() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("isolated PG18");
+    assert!(url.ends_with("/tor_ci"), "never write production");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let nonce: i64 =
+        sqlx::query_scalar("SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let label = format!("paid-verified-{nonce}");
+    let (book, _, _) = fixture(&pool, &label).await;
+    let reader: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Paid follower','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("g08-paid-reader-{label}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_book_follows(user_id,book_id,created_at)
+         VALUES($1,$2,now()-interval '1 day')",
+    )
+    .bind(reader)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,2,'Новая платная глава','public','paid',19900) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'Платный текст остаётся вне уведомления') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_first_release_events(chapter_id,version_id)
+         VALUES($1,$2)",
+    )
+    .bind(chapter)
+    .bind(version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let event_id = published_event(&pool, &label, book, chapter, version, 0, true).await;
+    let recipients = PgNotificationRecipients::new(pool.clone());
+    assert!(
+        recipients.next_page(&event_id, None).await.unwrap().user_ids.is_empty(),
+        "unverified paid chapter cannot be offered in notification delivery"
+    );
+    let object_id: String = sqlx::query_scalar("SELECT gen_random_uuid()::text")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO storage_objects(
+           id,object_kind,bucket,object_key,state,size_bytes,
+           sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,
+           kek_id,object_nonce,object_aad,codec,verified_at,attached_at)
+         VALUES($1::text::uuid,'chapter','tor-private-chapter-ci',
+           'private/chapter-versions/' || $1::text || '.enc','attached',64,
+           decode(repeat('11',32),'hex'),
+           sha256(convert_to('Платный текст','UTF8')),
+           decode(repeat('22',48),'hex'),decode(repeat('33',12),'hex'),
+           'content-kek-v1',decode(repeat('44',12),'hex'),
+           convert_to('tor.encrypted.chapter.v1' || E'\n' || $2::text || E'\n' ||
+             $3::text || E'\n' || $1::text || E'\n' ||
+             encode(sha256(convert_to('Платный текст','UTF8')),'hex') || E'\n','UTF8'),
+           'gzip',now(),now())",
+    )
+    .bind(&object_id)
+    .bind(chapter)
+    .bind(version)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_versions SET storage_object_id=$2::text::uuid WHERE id=$1")
+        .bind(version)
+        .bind(&object_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_encrypted_release_events(chapter_id,version_id,storage_object_id)
+         VALUES($1,$2,$3::text::uuid)",
+    )
+    .bind(chapter)
+    .bind(version)
+    .bind(&object_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        recipients.next_page(&event_id, None).await.unwrap().user_ids,
+        vec![reader],
+        "verified paid chapter is an eligible release, without granting access"
+    );
+    sqlx::query(
+        "UPDATE outbox_events SET lease_epoch=1,lease_until=now()+interval '60 seconds'
+         WHERE id=$1::uuid",
+    )
+    .bind(&event_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let staged = recipients.stage_next(&event_id, 1).await.unwrap();
+    assert!(staged.complete);
+    assert_eq!(staged.newly_staged, 1);
+    let receipts: Vec<String> = sqlx::query_scalar(
+        "SELECT consumer FROM event_deliveries WHERE event_id=$1::uuid ORDER BY consumer",
+    )
+    .bind(&event_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipts, vec!["subscription-inbox-v1"]);
+    let delivered: Option<String> =
+        sqlx::query_scalar("SELECT delivered_at::text FROM outbox_events WHERE id=$1::uuid")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(delivered.is_none(), "search consumer has not completed");
+    pool.close().await;
+}
