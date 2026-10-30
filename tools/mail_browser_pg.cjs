@@ -128,7 +128,8 @@ module.exports = async (browser, base, out) => {
         const plain = await noJs.newPage();
         await plain.goto(base + conversation);
         await plain.getByLabel('Ваше сообщение', { exact: true }).fill('Без JavaScript ' + name);
-        await plain.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
+        // Native keyboard submit avoids smooth-scroll animation on a long transcript.
+        await plain.getByRole('button', { name: 'Отправить сообщение', exact: true }).press('Enter');
         await plain.waitForURL(base + conversation);
         assert((await plain.locator('#mail-messages').innerText()).includes('Без JavaScript ' + name));
       } finally { await noJs.close(); }
