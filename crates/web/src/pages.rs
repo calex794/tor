@@ -20,6 +20,7 @@ pub use layer_storefront::{
 #[allow(unused_imports)] // Legacy library APIs stay available for tests and other callers.
 pub use library::{
     my_library, my_library_with_options, my_library_with_purchases, my_library_with_updates,
+    LibraryCapabilities,
 };
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
