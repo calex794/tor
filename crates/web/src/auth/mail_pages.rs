@@ -74,7 +74,7 @@ pub(super) fn conversation(
             write!(
                 body,
                 "<a href=\"/mail/{id}?before_id={}\">Предыдущие сообщения</a>",
-                first.id
+                first.id, first.id
             )
             .expect("mail cursor");
         }
