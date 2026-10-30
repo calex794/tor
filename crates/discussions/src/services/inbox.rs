@@ -97,7 +97,10 @@ mod tests {
         assert_eq!(InboxFilter::parse(None), Ok(InboxFilter::All));
         assert_eq!(InboxFilter::parse(Some("unread")), Ok(InboxFilter::Unread));
         assert_eq!(InboxFilter::parse(Some("read")), Ok(InboxFilter::Read));
-        assert_eq!(InboxFilter::parse(Some("not-a-filter")), Err(ListCommentsError::Invalid));
+        assert_eq!(
+            InboxFilter::parse(Some("not-a-filter")),
+            Err(ListCommentsError::Invalid)
+        );
         assert_eq!(comment_url(4, 26), "/books/4/comments?after=27#comment-26");
     }
 }
