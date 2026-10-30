@@ -52,7 +52,11 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
         .await
         .unwrap();
     let repo = PgChapterThanks::new(pool.clone());
-    let before = repo.visible_free_summary(user, chapter).await.unwrap().unwrap();
+    let before = repo
+        .visible_free_summary(user, chapter)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(before.count, 0);
     assert!(!before.already_thanked);
     let (first, second) = tokio::join!(
@@ -66,7 +70,11 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
         repo.thank_visible_free(user, chapter).await.unwrap(),
         ThanksMutation::Repeated
     );
-    let after = repo.visible_free_summary(user, chapter).await.unwrap().unwrap();
+    let after = repo
+        .visible_free_summary(user, chapter)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(after.count, 1);
     assert!(after.already_thanked);
     let count: i64 = sqlx::query_scalar(
@@ -84,7 +92,11 @@ async fn c_thanks_pg_one_per_reader_chapter_concurrent_and_hidden() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(repo.visible_free_summary(user, chapter).await.unwrap().is_none());
+    assert!(repo
+        .visible_free_summary(user, chapter)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
         repo.thank_visible_free(user, chapter).await.unwrap(),
         ThanksMutation::NotVisible

@@ -44,8 +44,7 @@ pub(super) async fn page(
         _ => "",
     };
     let action = if info.already_thanked {
-        "<p>Вы уже поблагодарили за эту главу. Повторное нажатие не меняет счётчик.</p>"
-            .to_owned()
+        "<p>Вы уже поблагодарили за эту главу. Повторное нажатие не меняет счётчик.</p>".to_owned()
     } else {
         format!(
             "<form method=\"post\" action=\"/reader/{id}/thanks\">
