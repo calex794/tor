@@ -51,7 +51,7 @@ pub(super) async fn submit(
                 "/me#me-replies-title"
             };
             private_response(Redirect::to(path), &[])
-        },
+        }
         ReadStateResult::NotFound => deny(StatusCode::NOT_FOUND),
         ReadStateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
