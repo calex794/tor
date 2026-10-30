@@ -365,7 +365,13 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     );
     let browser_alias = send(
         &app,
-        request("POST", "/me/referrals/alias", &alias_form, &own_cookies, ORIGIN),
+        request(
+            "POST",
+            "/me/referrals/alias",
+            &alias_form,
+            &own_cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(browser_alias.status(), StatusCode::SEE_OTHER);
@@ -374,7 +380,13 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
         assert_eq!(
             send(
                 &app,
-                request("POST", "/api/v1/me/referrals/alias", &alias_form, &own_cookies, ORIGIN),
+                request(
+                    "POST",
+                    "/api/v1/me/referrals/alias",
+                    &alias_form,
+                    &own_cookies,
+                    ORIGIN
+                ),
             )
             .await
             .status(),
@@ -532,7 +544,8 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     let owned_page = send(
         &app,
         request("GET", "/me/referrals?book=1", "", signed_in, ORIGIN),
-    ).await;
+    )
+    .await;
     assert_eq!(owned_page.status(), StatusCode::OK);
     let share_html = body_of(owned_page).await;
     assert!(share_html.contains(&format!("{ORIGIN}/books/1?ref={first_code}")));
@@ -540,7 +553,8 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     let hidden_dashboard = send(
         &app,
         request("GET", "/me/referrals?book=2", "", signed_in, ORIGIN),
-    ).await;
+    )
+    .await;
     assert_eq!(hidden_dashboard.status(), StatusCode::NOT_FOUND);
 
     // Aliases cannot redirect to untrusted targets, unknown aliases or reserved names.

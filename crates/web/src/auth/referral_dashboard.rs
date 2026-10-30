@@ -9,8 +9,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_accounts::services::security::generate_session_token;
-use tor_referrals::repositories::postgres::ReferralOverview;
 use tor_reading::services::PublicReadingRepository;
+use tor_referrals::repositories::postgres::ReferralOverview;
 
 #[derive(Deserialize)]
 pub(super) struct CreateReferralForm {
@@ -46,7 +46,10 @@ fn report_data(overview: ReferralOverview, origin: &str) -> ReferralReport {
         let url = (owned.status == "active")
             .then(|| format!("{}/r/{}", origin.trim_end_matches('/'), owned.code));
         let short_url = if owned.status == "active" {
-            owned.alias_path_prefix.as_deref().zip(owned.alias.as_deref())
+            owned
+                .alias_path_prefix
+                .as_deref()
+                .zip(owned.alias.as_deref())
                 .map(|(prefix, alias)| format!("{}/{prefix}/{alias}", origin.trim_end_matches('/')))
         } else {
             None
@@ -100,7 +103,10 @@ pub(super) async fn page(
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
         pages::referrals_page(
-            &csrf, &state.cookies.origin, &snapshot, query.book,
+            &csrf,
+            &state.cookies.origin,
+            &snapshot,
+            query.book,
             query.alias_error.as_deref(),
         ),
         &cookies,
@@ -138,7 +144,8 @@ pub(super) async fn create(
     };
     match create_for_actor(&state, actor).await {
         Ok(()) => {
-            let location = form.book_id
+            let location = form
+                .book_id
                 .and_then(tor_search::domain::seo_urls::BookUrl::from_id)
                 .map(|book| format!("/me/referrals?book={}", book.id()))
                 .unwrap_or_else(|| "/me/referrals".to_owned());

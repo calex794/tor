@@ -57,7 +57,8 @@ pub fn referrals_page(
             )
         }
         (Some(_), _) => "<p class=\"ui-section-header__text\">\
-                         Сначала создайте активную реферальную ссылку.</p>".to_owned(),
+                         Сначала создайте активную реферальную ссылку.</p>"
+            .to_owned(),
         (None, _) => String::new(),
     };
     let alias_notice = match alias_error {
@@ -162,7 +163,14 @@ mod tests {
             blocked: 0,
             expired: 0,
         };
-        let html = referrals_page("csrf", "https://books.example/?x=<script>", &overview, None, None).0;
+        let html = referrals_page(
+            "csrf",
+            "https://books.example/?x=<script>",
+            &overview,
+            None,
+            None,
+        )
+        .0;
         assert!(html.contains("https://books.example/?x=&lt;script&gt;/r/r_example"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("Активных привязок: <strong>1</strong>"));
@@ -196,7 +204,14 @@ mod tests {
             blocked: 0,
             expired: 0,
         };
-        let html = referrals_page("csrf<secret>", "https://books.example", &overview, Some(15), None).0;
+        let html = referrals_page(
+            "csrf<secret>",
+            "https://books.example",
+            &overview,
+            Some(15),
+            None,
+        )
+        .0;
         assert!(html.contains("method=\"post\" action=\"/me/referrals\""));
         assert!(html.contains("name=\"csrf_token\" value=\"csrf&lt;secret&gt;\""));
         assert!(html.contains("Создать ссылку"));
@@ -218,9 +233,7 @@ mod tests {
             blocked: 0,
             expired: 0,
         };
-        let html = referrals_page(
-            "csrf", "https://books.example", &overview, Some(12), None
-        ).0;
+        let html = referrals_page("csrf", "https://books.example", &overview, Some(12), None).0;
         assert!(html.contains("id=\"book-referral-url\""));
         assert!(html.contains("https://books.example/books/12?ref=r_example"));
         assert!(!html.contains("subject_user_id"));

@@ -31,7 +31,9 @@ pub(super) async fn browser_create(
     Form(form): Form<ClaimAliasForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -61,7 +63,9 @@ pub(super) async fn api_create(
     Form(form): Form<ClaimAliasForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -86,10 +90,19 @@ mod tests {
 
     #[test]
     fn f_09_alias_claim_maps_conflicts_without_side_effects() {
-        assert_eq!(status_for_claim(AliasClaim::Invalid), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            status_for_claim(AliasClaim::Invalid),
+            StatusCode::BAD_REQUEST
+        );
         assert_eq!(status_for_claim(AliasClaim::Taken), StatusCode::CONFLICT);
         assert_eq!(status_for_claim(AliasClaim::Locked), StatusCode::CONFLICT);
-        assert_eq!(status_for_claim(AliasClaim::Unavailable), StatusCode::FORBIDDEN);
-        assert_eq!(status_for_claim(AliasClaim::Unchanged), StatusCode::NO_CONTENT);
+        assert_eq!(
+            status_for_claim(AliasClaim::Unavailable),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            status_for_claim(AliasClaim::Unchanged),
+            StatusCode::NO_CONTENT
+        );
     }
 }

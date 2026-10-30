@@ -59,9 +59,9 @@ mod login_limiter;
 mod paid_completion;
 mod private_reader;
 mod rankings;
+mod referral_alias;
 mod referral_capture;
 mod referral_dashboard;
-mod referral_alias;
 mod reply_read_state;
 mod sync_actions;
 mod types;
@@ -198,7 +198,10 @@ fn router_inner(
             get(referral_dashboard::api_get).post(referral_dashboard::api_create),
         )
         .route("/me/referrals/alias", post(referral_alias::browser_create))
-        .route("/api/v1/me/referrals/alias", post(referral_alias::api_create))
+        .route(
+            "/api/v1/me/referrals/alias",
+            post(referral_alias::api_create),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(

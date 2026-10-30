@@ -82,12 +82,14 @@ impl PgReferrals {
         .bind(owner_user_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(code, status, alias, alias_path_prefix)| OwnedReferralCode {
-            code,
-            status,
-            alias,
-            alias_path_prefix,
-        }))
+        Ok(row.map(
+            |(code, status, alias, alias_path_prefix)| OwnedReferralCode {
+                code,
+                status,
+                alias,
+                alias_path_prefix,
+            },
+        ))
     }
 
     /// A form retry or two simultaneous tabs must return the very same code.

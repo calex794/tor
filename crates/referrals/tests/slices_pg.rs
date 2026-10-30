@@ -3,7 +3,10 @@
 use sqlx::PgPool;
 use tor_referrals::{
     domain::{manual_code, valid_code},
-    repositories::{postgres::{AliasClaim, CaptureResult}, PgReferrals},
+    repositories::{
+        postgres::{AliasClaim, CaptureResult},
+        PgReferrals,
+    },
 };
 
 #[test]
@@ -618,24 +621,34 @@ async fn f_09_pg_alias_claim_is_idempotent_owned_and_cannot_be_reassigned() {
         .await
         .unwrap();
     assert_eq!(
-        repo.claim_reader_alias(owner, "go", "example-book").await.unwrap(),
+        repo.claim_reader_alias(owner, "go", "example-book")
+            .await
+            .unwrap(),
         AliasClaim::Created
     );
     assert_eq!(
-        repo.claim_reader_alias(owner, "go", "example-book").await.unwrap(),
+        repo.claim_reader_alias(owner, "go", "example-book")
+            .await
+            .unwrap(),
         AliasClaim::Unchanged
     );
     assert_eq!(
-        repo.claim_reader_alias(other, "go", "example-book").await.unwrap(),
+        repo.claim_reader_alias(other, "go", "example-book")
+            .await
+            .unwrap(),
         AliasClaim::Taken
     );
     assert_eq!(
-        repo.claim_reader_alias(other, "promo", "example-book").await.unwrap(),
+        repo.claim_reader_alias(other, "promo", "example-book")
+            .await
+            .unwrap(),
         AliasClaim::Created,
         "same alias may exist in two distinct prefix namespaces"
     );
     assert_eq!(
-        repo.claim_reader_alias(owner, "promo", "example-book").await.unwrap(),
+        repo.claim_reader_alias(owner, "promo", "example-book")
+            .await
+            .unwrap(),
         AliasClaim::Locked,
         "one code cannot be re-bound from /go to /promo"
     );
@@ -644,7 +657,9 @@ async fn f_09_pg_alias_claim_is_idempotent_owned_and_cannot_be_reassigned() {
         AliasClaim::Invalid
     );
     assert_eq!(
-        repo.resolve_active_alias("go", "example-book").await.unwrap(),
+        repo.resolve_active_alias("go", "example-book")
+            .await
+            .unwrap(),
         Some(format!("r_owner_{owner}"))
     );
     sqlx::query("UPDATE referral_codes SET status='blocked' WHERE owner_user_id=$1")
@@ -653,12 +668,15 @@ async fn f_09_pg_alias_claim_is_idempotent_owned_and_cannot_be_reassigned() {
         .await
         .unwrap();
     assert_eq!(
-        repo.claim_reader_alias(owner, "go", "example-book").await.unwrap(),
+        repo.claim_reader_alias(owner, "go", "example-book")
+            .await
+            .unwrap(),
         AliasClaim::Unavailable
     );
     assert_eq!(
-        repo.resolve_active_alias("go", "example-book").await.unwrap(),
+        repo.resolve_active_alias("go", "example-book")
+            .await
+            .unwrap(),
         None
     );
 }
-
