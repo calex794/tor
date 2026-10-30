@@ -354,7 +354,11 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
                AND (payload->>'version_id')::bigint={event_version}"
         ),
     );
-    assert_eq!(event_id.len(), 36, "author Save must atomically publish one B event");
+    assert_eq!(
+        event_id.len(),
+        36,
+        "author Save must atomically publish one B event"
+    );
     let safe_payload = pg(
         &url,
         &format!("SELECT payload::text FROM outbox_events WHERE id='{event_id}'::uuid"),

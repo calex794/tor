@@ -459,6 +459,13 @@
     },
     {
       "method": "GET",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/reader/{id}",
       "source": "crates/web/src/lib.rs",
       "handler": "reader_page",
@@ -819,6 +826,13 @@
       "template": "/read/{id}/want-continuation",
       "source": "crates/web/src/auth.rs",
       "handler": "continuation_demand::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::submit",
       "policy": "scoped"
     },
     {
