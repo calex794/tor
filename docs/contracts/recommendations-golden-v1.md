@@ -51,3 +51,9 @@
 | REC-M12 | G restart, outbox delayed, trusted RIL passport vs forged payload | 1 trusted rec event, 0 forged, previous generation remains on failed build |
 
 **Как исполнитель должен проверять:** (a) Rust pure unit для calc/limits/ties; (b) Python fixture на **реальном pinned исходнике** с freeze окружения; (c) PG projection/rollout + 2 actor, (d) S3/Chromium paid reader, (e) query plan/latency в малом VPS. CI прикладывает исходные значения/expected/Rust output/diff и SHA. Ручной оракул REC-M01 математически задан, но не заменяет запуск сложных правил Python (scenario weights, quality, tie). Не считать tests passed по описанию.
+
+## Проверяемый перенос REC-07 — 31.10.2026
+
+`tools/check_hybrid_parity.py` исполняет неизменённые снимки Python на указанном выше SHA; Git blob SHA и SHA-256 записаны в `tests/fixtures/newboo_hybrid/manifest.json`. Неигнорируемый Rust-тест `hybrid_parity` сравнивает все поля результата на 181 случае. Это проверка чистого scoring, не приёмка PG/HTTP/пяти поверхностей.
+
+Исправление REC-M08: старое `quality_score_by_book_id: 50` ошибочно трактовалось документным валидатором как готовый boost +50. В исходной функции raw quality 50 даёт +2 (`50 // 20`), а raw quality 1000 даёт +50. В fixture теперь raw quality 1000, ожидаемый итог 760 сохранён; валидатор применяет исходную формулу. Отдельный дифференциальный случай проверяет raw quality 50.
