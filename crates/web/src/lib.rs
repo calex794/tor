@@ -419,18 +419,19 @@ fn make_router(
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
     // This layer runs *after* book_detail has accepted public visibility.
-    let book_route = if let Some(control) = follow_control.clone() {
-        get(book_detail).layer(axum::middleware::from_fn_with_state(
+    let book_router = Router::new().route("/books/{id}", get(book_detail));
+    let book_router = if let Some(control) = follow_control.clone() {
+        book_router.route_layer(axum::middleware::from_fn_with_state(
             control,
             referral_book_http::capture,
         ))
     } else {
-        get(book_detail)
+        book_router
     };
     let mut app = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog_http::catalog))
-        .route("/books/{id}", book_route)
+        .merge(book_router)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
