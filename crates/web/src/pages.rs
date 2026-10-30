@@ -6,9 +6,9 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
-mod session_security;
 mod layer_storefront;
 mod library;
+mod session_security;
 #[allow(unused_imports)] // The previous account renderer remains available to callers.
 pub use account::{
     account_error_page, login_form, my_account, my_account_with_follow_updates,
