@@ -382,6 +382,13 @@
     },
     {
       "method": "GET",
+      "template": "/notifications",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/ops/overview",
       "source": "crates/web/src/lib.rs",
       "handler": "operator_overview::page",
@@ -735,6 +742,20 @@
       "template": "/me/updates/{id}/read-state",
       "source": "crates/web/src/auth.rs",
       "handler": "follow_read_state::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/{id}/read",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_one",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/read-all",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_all",
       "policy": "scoped"
     },
     {

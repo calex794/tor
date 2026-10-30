@@ -15,6 +15,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
+use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -302,6 +303,36 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             StatusCode::SEE_OTHER
         );
     }
+    // Real recipient-only notification projection, not an AJAX mail read receipt.
+    let notifications = PgNotifications::new(pool.clone());
+    for _ in 0..12 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 { break; }
+    }
+    let recipient_rows = notifications.list(users[1], None, 50).await.unwrap();
+    let new_mail: Vec<_> = recipient_rows.iter().filter(|r| r.kind == "mail").collect();
+    assert_eq!(new_mail.len(), 1, "HTML resend is one notification");
+    assert_eq!(new_mail[0].title, "Новое сообщение");
+    assert_eq!(new_mail[0].body, "Mail reader 0 написал вам");
+    let source_id = new_mail[0].id;
+    let list_html = text(call(&app, "GET", "/notifications", &cookies[1], "", &[]).await).await;
+    assert!(list_html.contains("Новое сообщение"));
+    assert!(list_html.contains("Mail reader 0 написал вам"));
+    assert!(!list_html.contains("PRIVATE\\n"));
+    assert_eq!(call(&app, "GET", "/notifications", "", "", &[]).await.status(),
+               StatusCode::SEE_OTHER);
+    let read_path = format!("/notifications/{source_id}/read");
+    assert_eq!(call(&app, "POST", &read_path, &cookies[2],
+        &format!("csrf_token={}", csrf[2]), &[]).await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(call(&app, "POST", &read_path, &cookies[1],
+        "csrf_token=forged", &[]).await.status(), StatusCode::FORBIDDEN);
+    assert_eq!(call(&app, "POST", &read_path, &cookies[1],
+        &format!("csrf_token={}", csrf[1]), &[]).await.status(), StatusCode::SEE_OTHER);
+    assert!(notifications.list(users[1], None, 50).await.unwrap().iter()
+        .find(|r| r.id == source_id).unwrap().is_read);
+    assert_eq!(call(&app, "POST", "/notifications/read-all", &cookies[1],
+        &format!("csrf_token={}", csrf[1]), &[]).await.status(), StatusCode::SEE_OTHER);
+    assert!(notifications.list(users[1], None, 50).await.unwrap()
+        .iter().all(|r| r.is_read));
     assert_eq!(
         call(
             &app,

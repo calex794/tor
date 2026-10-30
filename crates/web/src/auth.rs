@@ -62,6 +62,7 @@ mod mail;
 mod mail_api;
 mod mail_pages;
 mod notification_settings;
+mod notifications;
 mod paid_completion;
 mod password_change;
 mod password_reset;
@@ -193,7 +194,7 @@ fn router_inner(
     };
     let observation_state = state.clone();
     let app = Router::new()
-        .merge(settings_routes::router())
+        .merge(settings_routes::router().merge(notifications::router()))
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),

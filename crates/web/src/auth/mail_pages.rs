@@ -5,7 +5,7 @@ use tor_social::domain::{Conversation, MessagePage};
 use tor_social::repositories::friendships::FriendState;
 
 fn shell(body: &str) -> Html<String> {
-    layout("Личная почта","Личные диалоги и сообщения.",&format!("<section class=\"me-page mail-page\"><div class=\"container\"><nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item is-active\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item\" href=\"/me/inbox\">Обсуждения</a></nav>{body}</div></section>"))
+    layout("Личная почта","Личные диалоги и сообщения.",&format!("<section class=\"me-page mail-page\"><div class=\"container\"><nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item is-active\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item\" href=\"/me/inbox\">Обсуждения</a><a class=\"dashboard-nav__item\" href=\"/notifications\">Уведомления</a></nav>{body}</div></section>"))
 }
 
 pub(super) fn index(

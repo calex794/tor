@@ -1,4 +1,4 @@
-use super::mail::{blocked, pair_lock, unavailable, PgMail};
+use super::{mail::{blocked, pair_lock, unavailable, PgMail}, notification_events};
 use crate::domain::{MailError, Message, MessagePage, SentMessage};
 
 impl PgMail {
@@ -109,6 +109,12 @@ impl PgMail {
         // polling cursor cannot skip a later commit with an earlier message ID.
         let id = sqlx::query_scalar("INSERT INTO social_messages(conversation_id,sender_id,body,command_key,client_message_id) VALUES($1,$2,$3,$4,$5) RETURNING id")
             .bind(conversation).bind(actor).bind(body).bind(key).bind(client_id).fetch_one(&mut *tx).await.map_err(unavailable)?;
+        let recipient = if actor == low { high } else { low };
+        let dedupe = format!("tor-social:mail-message:{id}");
+        notification_events::queue(
+            &mut tx, "social.mail.created", "social_message",
+            id, actor, recipient, conversation, Some(&dedupe),
+        ).await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(SentMessage {
             id,

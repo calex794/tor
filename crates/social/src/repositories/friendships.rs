@@ -1,5 +1,5 @@
 //! E-06 friendship mechanics from NEwBOO; shares the E-08 pair-lock with mail.
-use super::mail::{blocked, foreign_or_unavailable, pair_lock, unavailable};
+use super::{mail::{blocked, foreign_or_unavailable, pair_lock, unavailable}, notification_events};
 use crate::domain::MailError;
 use sqlx::PgPool;
 
@@ -92,8 +92,10 @@ impl PgFriendships {
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
+        let mut event = None;
         let result = match row {
             None => {
+                event = Some(("social.friendship.requested", peer));
                 sqlx::query("INSERT INTO social_friendships(user_low,user_high,requester_id,status,action_user_id) VALUES($1,$2,$3,'pending',$3)")
                     .bind(low).bind(high).bind(actor).execute(&mut *tx).await.map_err(foreign_or_unavailable)?;
                 FriendState::Outgoing
@@ -101,11 +103,18 @@ impl PgFriendships {
             Some((status, _)) if status == "accepted" => FriendState::Friends,
             Some((_, requester)) if requester == actor => FriendState::Outgoing,
             Some(_) => {
+                event = Some(("social.friendship.accepted", peer));
                 sqlx::query("UPDATE social_friendships SET status='accepted',action_user_id=$3,accepted_at=clock_timestamp(),updated_at=clock_timestamp() WHERE user_low=$1 AND user_high=$2")
                     .bind(low).bind(high).bind(actor).execute(&mut *tx).await.map_err(unavailable)?;
                 FriendState::Friends
             }
         };
+        if let Some((kind, recipient)) = event {
+            notification_events::queue(
+                &mut tx, kind, "social_friendship", low,
+                actor, recipient, actor, None,
+            ).await?;
+        }
         tx.commit().await.map_err(unavailable)?;
         Ok(result)
     }
@@ -118,12 +127,27 @@ impl PgFriendships {
         if blocked(&mut tx, actor, peer).await? {
             return Err(MailError::Blocked);
         }
+        let was_friends: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM social_friendships
+             WHERE user_low=$1 AND user_high=$2 AND status='accepted')",
+        )
+        .bind(actor.min(peer))
+        .bind(actor.max(peer))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
         sqlx::query("DELETE FROM social_friendships WHERE user_low=$1 AND user_high=$2")
             .bind(actor.min(peer))
             .bind(actor.max(peer))
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
+        if was_friends {
+            notification_events::queue(
+                &mut tx, "social.friendship.removed", "social_friendship",
+                actor.min(peer), actor, peer, actor, None,
+            ).await?;
+        }
         tx.commit().await.map_err(unavailable)
     }
 }
