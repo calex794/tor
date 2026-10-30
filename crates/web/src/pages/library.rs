@@ -4,6 +4,7 @@ use axum::response::Html;
 use std::fmt::Write;
 
 /// Preserve existing D-05 library APIs while the new feed is enabled.
+#[allow(dead_code)] // Compatibility for existing Layer/paid-library callers.
 pub fn my_library(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
@@ -12,6 +13,7 @@ pub fn my_library(
     my_library_with_purchases(items, saved, csrf, false)
 }
 
+#[allow(dead_code)] // Compatibility for existing Layer/paid-library callers.
 pub fn my_library_with_purchases(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
@@ -21,6 +23,7 @@ pub fn my_library_with_purchases(
     my_library_with_options(items, saved, csrf, purchased_available, false)
 }
 
+#[allow(dead_code)] // Compatibility for existing Layer/paid-library callers.
 pub fn my_library_with_options(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
@@ -38,23 +41,35 @@ pub fn my_library_with_options(
     )
 }
 
+/// Explicit page capabilities: avoid three ambiguous positional booleans.
+#[derive(Clone, Copy)]
+pub struct LibraryCapabilities {
+    pub purchased_available: bool,
+    pub layers_available: bool,
+    pub checkout_enabled: bool,
+}
+
 pub fn my_library_with_updates(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
-    purchased_available: bool,
-    layers_available: bool,
-    checkout_enabled: bool,
+    capabilities: LibraryCapabilities,
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
-    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
+    let update_html = update_cards(
+        updates,
+        capabilities.checkout_enabled,
+        capabilities.purchased_available,
+        owned,
+        csrf,
+    );
     my_library_inner(
         items,
         saved,
         csrf,
-        purchased_available,
-        layers_available,
+        capabilities.purchased_available,
+        capabilities.layers_available,
         &update_html,
     )
 }
