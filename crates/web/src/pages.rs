@@ -95,7 +95,7 @@ fn book_detail_with_chapters_cover_internal(
             if chapter.is_paid {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge\">Платная · нужен доступ</span></li>",
+                    "<li class=\"chapter-toc__item chapter-toc__item--paid\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge\">Платная · нужен доступ</span>",
                     chapter.id, chapter.number
                 )
                 .expect("writing String");
