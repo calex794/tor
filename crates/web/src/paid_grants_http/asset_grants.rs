@@ -71,7 +71,13 @@ pub(super) async fn grant_asset(
             // Paid media are content exposure as well, not an exception.
             if let Err(error) = state
                 .first_direct_grant
-                .record(actor_id, chapter_id, version, purchase_id, DirectGrantKind::Asset)
+                .record(
+                    actor_id,
+                    chapter_id,
+                    version,
+                    purchase_id,
+                    DirectGrantKind::Asset,
+                )
                 .await
             {
                 return deny(status(error));

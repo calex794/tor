@@ -131,9 +131,7 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     assert_eq!(stored, 1);
     // Issuing the first protected key AFTER a pending request must disable
     // a new request; the original idempotent receipt remains unchanged.
-    use tor_commerce::repositories::direct_exposure::{
-        DirectGrantKind, PgDirectFirstExposure,
-    };
+    use tor_commerce::repositories::direct_exposure::{DirectGrantKind, PgDirectFirstExposure};
     PgDirectFirstExposure::new(pool.clone())
         .record(
             PositiveId::new(buyer).unwrap(),

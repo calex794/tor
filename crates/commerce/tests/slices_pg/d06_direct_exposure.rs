@@ -5,8 +5,7 @@ use tor_contracts::paid_delivery::DeliveryError;
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_first_protected_grant_records_exact_pinned_purchase_once() {
-    let (pool, actor, _, chapter, version) =
-        fixture("d06_direct_grant", 1000, 300).await;
+    let (pool, actor, _, chapter, version) = fixture("d06_direct_grant", 1000, 300).await;
     let purchase = PgCheckout::new(pool.clone())
         .checkout_once(&command(actor, chapter, version, 300, 'X'))
         .await
@@ -31,23 +30,43 @@ async fn d_06_first_protected_grant_records_exact_pinned_purchase_once() {
     assert_eq!(count(&pool).await, 0);
     assert_eq!(
         first
-            .record(id(actor+1), id(chapter), id(version), Some(id(purchase)),
-                    DirectGrantKind::Chapter)
+            .record(
+                id(actor + 1),
+                id(chapter),
+                id(version),
+                Some(id(purchase)),
+                DirectGrantKind::Chapter
+            )
             .await,
         Err(DeliveryError::Denied)
     );
     assert_eq!(
         first
-            .record(id(actor), id(chapter), id(version+1), Some(id(purchase)),
-                    DirectGrantKind::Chapter)
+            .record(
+                id(actor),
+                id(chapter),
+                id(version + 1),
+                Some(id(purchase)),
+                DirectGrantKind::Chapter
+            )
             .await,
         Err(DeliveryError::Denied)
     );
     let (a, b) = tokio::join!(
-        first.record(id(actor),id(chapter),id(version),Some(id(purchase)),
-                     DirectGrantKind::Chapter),
-        first.record(id(actor),id(chapter),id(version),Some(id(purchase)),
-                     DirectGrantKind::Asset)
+        first.record(
+            id(actor),
+            id(chapter),
+            id(version),
+            Some(id(purchase)),
+            DirectGrantKind::Chapter
+        ),
+        first.record(
+            id(actor),
+            id(chapter),
+            id(version),
+            Some(id(purchase)),
+            DirectGrantKind::Asset
+        )
     );
     assert_eq!(a, Ok(()));
     assert_eq!(b, Ok(()));
@@ -68,7 +87,7 @@ async fn d_06_first_protected_grant_records_exact_pinned_purchase_once() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(original,after);
+    assert_eq!(original, after);
     assert!(
         sqlx::query(
             "UPDATE chapter_purchase_first_exposures SET granted_at=now()
@@ -91,8 +110,15 @@ async fn d_06_first_protected_grant_records_exact_pinned_purchase_once() {
     .await
     .unwrap();
     assert_eq!(
-        first.record(id(actor),id(chapter),id(version),Some(id(purchase)),
-                     DirectGrantKind::Chapter).await,
+        first
+            .record(
+                id(actor),
+                id(chapter),
+                id(version),
+                Some(id(purchase)),
+                DirectGrantKind::Chapter
+            )
+            .await,
         Err(DeliveryError::Denied)
     );
     assert_eq!(count(&pool).await, 1);
