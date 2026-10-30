@@ -44,6 +44,8 @@ pub struct FollowedRelease {
     pub is_paid: bool,
     /// Minor RUB units (kopecks). Zero for free chapters.
     pub price_minor: i64,
+    /// Private per-reader acknowledgement, never inferred from page views.
+    pub is_read: bool,
     pub released_micros: i64,
 }
 
@@ -83,50 +85,18 @@ impl PgFollowUpdates {
         // Unpublished, held and future-released chapters remain invisible.
         // SQL pages the current reader only; there is no global 5k fan-out cap.
         let rows = sqlx::query(
-            "SELECT book.id AS book_id, book.title AS book_title,
-                    chapter.id AS chapter_id, chapter.title AS chapter_title,
-                    chapter.chapter_no AS chapter_number,
-                    chapter.access_level, chapter.price_amount AS price_minor,
-                    (EXTRACT(EPOCH FROM release.created_at) * 1000000)::bigint
-                        AS released_micros
-             FROM reader_book_follows AS follow
-             JOIN books AS book ON book.id=follow.book_id
-             JOIN chapters AS chapter ON chapter.book_id=book.id
-             JOIN chapter_first_release_events AS release
-               ON release.chapter_id=chapter.id
-             JOIN chapter_publications AS publication
-               ON publication.chapter_id=chapter.id
-             WHERE follow.user_id=$1
-               AND release.created_at>=follow.created_at
-               AND book.visibility='public'
-               AND NOT book.admin_hold AND NOT book.is_deleted
-               AND chapter.visibility='public'
-               AND (
-                    (chapter.access_level='free' AND chapter.price_amount=0)
-                    OR (
-                        chapter.access_level='paid' AND chapter.price_amount>0
-                        AND EXISTS (
-                            SELECT 1 FROM chapter_encrypted_release_events AS encrypted
-                            JOIN chapter_versions AS current_version
-                              ON current_version.chapter_id=encrypted.chapter_id
-                             AND current_version.id=encrypted.version_id
-                            JOIN storage_objects AS object
-                              ON object.id=encrypted.storage_object_id
-                             AND object.id=current_version.storage_object_id
-                            WHERE encrypted.chapter_id=chapter.id
-                              AND encrypted.version_id=publication.version_id
-                              AND object.state='attached'
-                              AND object.object_kind='chapter'
-                        )
-                    )
-               )
-               AND NOT chapter.admin_hold AND NOT chapter.is_deleted
-               AND (chapter.reader_released_at IS NULL
-                    OR chapter.reader_released_at<=now())
+            "SELECT release.book_id,release.book_title,release.chapter_id,
+                    release.chapter_title,release.chapter_number,
+                    release.access_level,release.price_minor,release.released_micros,
+                    (reads.read_at IS NOT NULL) AS is_read
+             FROM reader_followed_release_candidates AS release
+             LEFT JOIN reader_follow_notification_reads AS reads
+               ON reads.user_id=release.user_id
+              AND reads.chapter_id=release.chapter_id
+             WHERE release.user_id=$1
                AND ($2::bigint IS NULL OR
-                 ((EXTRACT(EPOCH FROM release.created_at) * 1000000)::bigint,
-                  release.chapter_id) < ($2::bigint,$3::bigint))
-             ORDER BY release.created_at DESC, release.chapter_id DESC
+                    (release.released_micros,release.chapter_id)<($2::bigint,$3::bigint))
+             ORDER BY release.released_at DESC,release.chapter_id DESC
              LIMIT 31",
         )
         .bind(actor)
@@ -161,6 +131,9 @@ impl PgFollowUpdates {
                     price_minor: row
                         .try_get("price_minor")
                         .map_err(|_| FollowUpdatesError::Unavailable)?,
+                    is_read: row
+                        .try_get("is_read")
+                        .map_err(|_| FollowUpdatesError::Unavailable)?,
                     released_micros: row
                         .try_get("released_micros")
                         .map_err(|_| FollowUpdatesError::Unavailable)?,
@@ -178,6 +151,50 @@ impl PgFollowUpdates {
             None
         };
         Ok(FollowedReleasePage { items, next_cursor })
+    }
+
+    /// Mark one visible release read/unread without changing the follow,
+    /// library, purchases or read progress. Returns false for an ineligible
+    /// chapter (including deleted, held and unpublished chapters).
+    pub async fn set_read_state(
+        &self,
+        actor: i64,
+        chapter_id: i64,
+        read: bool,
+    ) -> Result<bool, FollowUpdatesError> {
+        if actor <= 0 || chapter_id <= 0 {
+            return Err(FollowUpdatesError::Invalid);
+        }
+        let sql = if read {
+            "WITH eligible AS (
+                SELECT chapter_id FROM reader_followed_release_candidates
+                WHERE user_id=$1 AND chapter_id=$2
+             ), written AS (
+                INSERT INTO reader_follow_notification_reads(user_id,chapter_id)
+                SELECT $1,chapter_id FROM eligible
+                ON CONFLICT(user_id,chapter_id) DO UPDATE SET read_at=now()
+                RETURNING chapter_id
+             )
+             SELECT EXISTS(SELECT 1 FROM written)"
+        } else {
+            "WITH eligible AS (
+                SELECT chapter_id FROM reader_followed_release_candidates
+                WHERE user_id=$1 AND chapter_id=$2
+             ), removed AS (
+                DELETE FROM reader_follow_notification_reads AS reads
+                WHERE reads.user_id=$1 AND reads.chapter_id=$2
+                  AND EXISTS(SELECT 1 FROM eligible)
+                RETURNING reads.chapter_id
+             )
+             SELECT EXISTS(SELECT 1 FROM eligible)
+                AND (SELECT COUNT(*)>=0 FROM removed)"
+        };
+        sqlx::query_scalar::<_, bool>(sql)
+            .bind(actor)
+            .bind(chapter_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| FollowUpdatesError::Unavailable)
     }
 }
 
