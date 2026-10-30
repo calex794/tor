@@ -225,9 +225,11 @@ impl PgLayers {
         .map_err(|_| LayerError::Unavailable)?;
         if rows.is_empty()
             || rows.len() > 100
-            || rows.iter().any(|(_, _, held, deleted, revision, total, non_public)| {
-                *held || *deleted || *non_public || revision.is_none() || *total != 100
-            })
+            || rows
+                .iter()
+                .any(|(_, _, held, deleted, revision, total, non_public)| {
+                    *held || *deleted || *non_public || revision.is_none() || *total != 100
+                })
         {
             return Err(LayerError::Inaccessible);
         }
