@@ -224,6 +224,13 @@ jobs:
             echo "Invalid saved reader positions: $invalid_count" >&2
             exit 1
           fi
+          comment_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM discussion_comments WHERE book_id=1 AND body LIKE 'PERF252 LOAD reader %' AND visibility='visible'")"
+          printf '%s\n' "$comment_count" | tee "$RUNNER_TEMP/tor-load/progress/comments-count.txt"
+          if ! [[ "$comment_count" =~ ^[0-9]+$ ]] || (( comment_count < 1 )); then
+            echo "Expected persisted visible PERF-252 comments, got $comment_count" >&2
+            exit 1
+          fi
       - name: Diagnose 300-500 RPS and isolate expensive routes
         if: ${{ github.event_name == 'pull_request' || inputs.diagnostics }}
         env:
