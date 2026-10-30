@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 87); // C-17 registers GET and POST notification preferences.
+    assert_eq!(unique.len(), 99);
 }
 
 #[test]

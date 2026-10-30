@@ -116,9 +116,9 @@ mounted	E	E-05/E-06	DELETE	/users/{target_user_id}/subscribe	backend/app/web/rou
 mounted	A	A-02/A-09	GET	/__bp_honeypot/{trap_name:path}	backend/app/web/routes/honeypot.py	12	honeypot_trap	main:web_honeypot_router	semantic_review
 mounted	A	A-02/A-09	GET	/admin/security	backend/app/web/routes/admin_security.py	22	admin_security_page	facade:admin	semantic_review
 mounted	A	A-02/A-09	GET	/api/v1/auth/me	backend/app/api/v1/auth.py	836	api_me	main:auth_router	semantic_review
-mounted	A	A-02/A-09	GET	/auth/yandex/callback	backend/app/web/routes/auth.py	798	yandex_callback_page	main:web_auth_router	semantic_review
-mounted	A	A-02/A-09	GET	/auth/yandex/login	backend/app/web/routes/auth.py	733	yandex_login_page	main:web_auth_router	semantic_review
-mounted	A	A-02/A-09	GET	/auth/yandex/step-up	backend/app/web/routes/auth.py	762	yandex_step_up_page	main:web_auth_router	semantic_review
+frozen	-	A-08/S003 (заморожено)	GET	/auth/yandex/callback	backend/app/web/routes/auth.py	798	yandex_callback_page	main:web_auth_router	frozen
+frozen	-	A-08/S003 (заморожено)	GET	/auth/yandex/login	backend/app/web/routes/auth.py	733	yandex_login_page	main:web_auth_router	frozen
+frozen	-	A-08/S003 (заморожено)	GET	/auth/yandex/step-up	backend/app/web/routes/auth.py	762	yandex_step_up_page	main:web_auth_router	frozen
 mounted	A	A-02/A-09	GET	/login	backend/app/web/routes/auth.py	396	login_page	main:web_auth_router	path_mentioned
 mounted	A	A-06	GET	/me/settings	backend/app/web/routes/account_settings.py	162	account_settings_page	main:web_account_settings_router	semantic_review
 mounted	A	A-06	GET	/profiles	backend/app/web/routes/users.py	210	public_profiles_page	main:web_users_router	semantic_review

@@ -30,8 +30,7 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
-    PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -41,6 +40,7 @@ use tor_reading::{
     },
 };
 
+mod access_audit;
 mod account_form_http;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -59,9 +59,15 @@ mod library_page;
 mod login_limiter;
 mod notification_settings;
 mod paid_completion;
+mod password_change;
+mod password_reset;
 mod private_reader;
+mod profile_http;
 mod rankings;
 mod reply_read_state;
+mod reset_delivery;
+mod security_retention;
+mod settings_routes;
 mod sync_actions;
 mod types;
 use types::*;
@@ -133,6 +139,8 @@ fn router_inner(
     paid_reader_available: bool,
     paid_author: Option<Arc<dyn author_chapter_http::PaidChapterPublisher>>,
 ) -> Router {
+    security_retention::start(accounts.clone());
+    let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -145,7 +153,6 @@ fn router_inner(
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
-    let notification_preferences = PgNotificationPreferences::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -155,6 +162,10 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        reset_delivery,
+        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
+            accounts.pool().clone(),
+        ),
         accounts,
         checkout,
         paid_checkout_enabled,
@@ -166,7 +177,6 @@ fn router_inner(
         demand,
         book_follows,
         follow_updates,
-        notification_preferences,
         reader,
         rankings,
         cookies,
@@ -177,6 +187,7 @@ fn router_inner(
     };
     let observation_state = state.clone();
     let app = Router::new()
+        .merge(settings_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -187,8 +198,8 @@ fn router_inner(
         )
         .route("/me", get(me))
         .route(
-            "/me/notification-settings",
-            get(notification_settings::page).post(notification_settings::save),
+            "/me/settings/password",
+            get(password_change::page).post(password_change::submit),
         )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
