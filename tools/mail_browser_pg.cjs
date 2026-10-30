@@ -45,7 +45,7 @@ module.exports = async (browser, base, out) => {
       await form.locator('[name="client_message_id"]').evaluate((el, value) => { el.value = value; }, 'mail-replay-' + name);
       const submitted = await form.evaluate(el => Object.fromEntries(new FormData(el)));
       await form.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
-      await a.page.waitForURL(base + conversation);
+      await a.page.locator('.mail-message-body').filter({ hasText: marker }).waitFor({ timeout: 15000 });
       const replay = await a.context.request.post(base + conversation + '/messages', {
         form: submitted, headers: { Origin: base }, maxRedirects: 0,
       });
@@ -62,7 +62,7 @@ module.exports = async (browser, base, out) => {
         'NEwBOO mail has no manual read receipt action');
       await b.page.getByLabel('Ваше сообщение', { exact: true }).fill('Ответ ' + marker);
       await b.page.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
-      await b.page.waitForURL(base + conversation);
+      await b.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
       await a.page.locator('.mail-message-body').filter({ hasText: 'Ответ ' + marker }).waitFor({ timeout: 15000 });
       await b.page.getByRole('button', { name: 'Заблокировать собеседника', exact: true }).click();
       await b.page.waitForURL(base + conversation);
