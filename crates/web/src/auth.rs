@@ -308,10 +308,6 @@ fn router_inner(
     }
 }
 
-fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
-}
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
