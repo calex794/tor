@@ -98,6 +98,23 @@ async fn followed_page(app: &Router, cookies: &str) -> String {
     .expect("UTF-8")
 }
 
+async fn dashboard_page(app: &Router, cookies: &str) -> String {
+    let request = Request::builder()
+        .uri("/me")
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
 async fn book_page(app: &Router, book_id: i64, cookies: &str) -> String {
     let request = Request::builder()
         .uri(format!("/books/{book_id}"))
@@ -281,6 +298,12 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     assert!(first_feed.contains(&format!("/me/updates/{chapter}/read-state")));
     assert!(first_feed.contains("Отметить прочитанной"));
     assert!(followed_page(&app, &two).await.contains("Отметить прочитанной"));
+    assert!(dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
+    assert!(dashboard_page(&app, &two)
+        .await
+        .contains("Новые главы подписок: 1"));
 
     assert_eq!(
         read_state_post(&app, chapter, &one, "https://wrong.invalid", &csrf, "read").await,
@@ -306,6 +329,12 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
     }
     let first_read = followed_page(&app, &one).await;
     assert!(first_read.contains("Отметить непрочитанной"));
+    assert!(!dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
+    assert!(dashboard_page(&app, &two)
+        .await
+        .contains("Новые главы подписок: 1"));
     assert!(followed_page(&app, &two).await.contains("Отметить прочитанной"));
     assert_eq!(
         pg(
@@ -323,6 +352,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         StatusCode::SEE_OTHER
     );
     assert!(followed_page(&app, &one).await.contains("Отметить прочитанной"));
+    assert!(dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
     assert_eq!(
         pg(
             &url,
@@ -348,6 +380,9 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         StatusCode::NOT_FOUND,
         "unfollowed readers cannot change old notification markers"
     );
+    assert!(!dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
     let unsubscribed_page = book_page(&app, public, &one).await;
     assert!(unsubscribed_page.contains(&format!("action=\"/me/books/{public}/follow\"")));
     assert_eq!(
