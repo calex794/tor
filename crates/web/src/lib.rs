@@ -22,6 +22,7 @@ mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
 mod book_follow_page;
+mod chapter_import_assets;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
@@ -434,6 +435,10 @@ fn make_router(
         .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),
+        )
+        .route(
+            "/assets/newboo-chapter-import.js",
+            get(chapter_import_assets::script),
         )
         .route(
             "/assets/brand/pandaolate-header.png",
