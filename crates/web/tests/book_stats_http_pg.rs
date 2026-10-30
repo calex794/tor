@@ -133,6 +133,12 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     let data = body(csv).await;
     assert!(data.contains("\"'=2+3 Stats\""), "formula must not execute");
     assert!(data.contains("book,0,"));
+    let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
+    assert_eq!(later.status(), StatusCode::OK);
+    let later_html = body(later).await;
+    assert!(later_html.contains(&format!("/books/{book}/stats/export.csv?after=1:5")));
+    let later_csv = get(&app, &format!("{csv_path}?after=1:5"), Some(&owner_token)).await;
+    assert_eq!(later_csv.status(), StatusCode::OK);
     assert_eq!(
         get(&app, &format!("{page}?after=oops"), Some(&owner_token))
             .await

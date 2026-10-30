@@ -71,6 +71,11 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert!(report.chapters.iter().all(|c| c.unique_registered == 1));
     assert_eq!(report.chapters[0].opens, 3);
     assert_eq!(report.chapters[0].repeat_authenticated, 1);
+    assert_eq!(report.top_by_opens.first().map(|row| row.count), Some(3));
+    assert!(report.top_by_purchases.is_empty());
+    let next = repo.report(book, Some((5, chapter_ids[4]))).await.unwrap().unwrap();
+    assert_eq!(next.chapters.len(), 5);
+    assert!(next.chapters.iter().all(|chapter| chapter.number > 5));
     // Book holding must suppress further telemetry; history stays private for
     // moderation but the public reader must never start another open.
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
