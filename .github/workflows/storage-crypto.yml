@@ -1,8 +1,5 @@
 name: TOR private S3 crypto
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
