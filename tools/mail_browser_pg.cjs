@@ -44,7 +44,16 @@ module.exports = async (browser, base, out) => {
       const form = a.page.locator('form[data-mail-compose]');
       await form.locator('[name="client_message_id"]').evaluate((el, value) => { el.value = value; }, 'mail-replay-' + name);
       const submitted = await form.evaluate(el => Object.fromEntries(new FormData(el)));
+      // Fail with the actual network status and visible error, not a generic DOM timeout.
+      const sentResponse = a.page.waitForResponse(response =>
+        response.url().endsWith(conversation + '/messages') && response.request().method() === 'POST',
+      { timeout: 15000 });
       await form.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
+      const sendReply = await sentResponse;
+      assert.equal(sendReply.status(), 200, 'AJAX POST status; composer error: ' +
+        await a.page.locator('#mail-send-error').textContent());
+      assert.match(sendReply.request().headers()['content-type'] || '',
+        /^application\/x-www-form-urlencoded/i, 'Axum Form accepts URL-encoded AJAX, not multipart');
       await a.page.locator('.mail-message-body').filter({ hasText: marker }).waitFor({ timeout: 15000 });
       const replay = await a.context.request.post(base + conversation + '/messages', {
         form: submitted, headers: { Origin: base }, maxRedirects: 0,

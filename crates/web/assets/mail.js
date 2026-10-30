@@ -90,7 +90,8 @@
     error.hidden = true;
     try {
       const response = await fetch(form.action, {
-        method: 'POST', body: new FormData(form), credentials: 'same-origin',
+        // Axum Form<T> accepts URL-encoded form bodies; raw FormData would send multipart.
+        method: 'POST', body: new URLSearchParams(new FormData(form)), credentials: 'same-origin',
         headers: { Accept: 'application/json', 'X-Requested-With': 'fetch', 'Idempotency-Key': clientId.value }
       });
       if (!response.ok) throw new Error('http-' + response.status);
