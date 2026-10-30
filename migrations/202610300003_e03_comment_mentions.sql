@@ -16,3 +16,8 @@ CREATE TABLE discussion_comment_mentions (
 );
 CREATE INDEX discussion_mentions_recipient_comment
   ON discussion_comment_mentions(recipient_user_id, comment_id DESC);
+
+-- Keep exact original submission identity when canonicalising mention tokens.
+-- Existing comments have NULL and continue to compare their saved body.
+ALTER TABLE discussion_comments ADD COLUMN submitted_body_sha256 BYTEA
+  CHECK (submitted_body_sha256 IS NULL OR octet_length(submitted_body_sha256)=32);
