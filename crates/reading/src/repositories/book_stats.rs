@@ -34,6 +34,13 @@ pub struct DailyStats {
 }
 
 #[derive(Debug)]
+pub struct TopChapter {
+    pub number: i32,
+    pub title: String,
+    pub count: i64,
+}
+
+#[derive(Debug)]
 pub struct BookStatsReport {
     pub title: String,
     pub opens: i64,
@@ -46,6 +53,8 @@ pub struct BookStatsReport {
     pub completed: i64,
     pub chapters: Vec<ChapterStats>,
     pub daily: Vec<DailyStats>,
+    pub top_by_opens: Vec<TopChapter>,
+    pub top_by_purchases: Vec<TopChapter>,
     pub next_after: Option<String>,
 }
 
@@ -265,6 +274,48 @@ impl PgBookStats {
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        // Keep the ranking independent from the 100-chapter detail page.
+        let top_open_rows = sqlx::query(
+            "SELECT c.chapter_no AS number, c.title, SUM(d.opens)::BIGINT AS count
+             FROM book_chapter_open_daily d JOIN chapters c ON c.id=d.chapter_id
+             WHERE d.book_id=$1 AND NOT c.is_deleted
+             GROUP BY c.id,c.chapter_no,c.title
+             HAVING SUM(d.opens)>0
+             ORDER BY count DESC,c.chapter_no,c.id LIMIT 5",
+        )
+        .bind(book_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let top_by_opens = top_open_rows
+            .into_iter()
+            .map(|row| {
+                Ok(TopChapter {
+                    number: row.try_get("number")?,
+                    title: row.try_get("title")?,
+                    count: row.try_get("count")?,
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        let top_purchase_rows = sqlx::query(
+            "SELECT c.chapter_no AS number, c.title, COUNT(*)::BIGINT AS count
+             FROM chapter_purchase_facts p JOIN chapters c ON c.id=p.chapter_id
+             WHERE c.book_id=$1 AND NOT c.is_deleted
+             GROUP BY c.id,c.chapter_no,c.title
+             ORDER BY count DESC,c.chapter_no,c.id LIMIT 5",
+        )
+        .bind(book_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let top_by_purchases = top_purchase_rows
+            .into_iter()
+            .map(|row| {
+                Ok(TopChapter {
+                    number: row.try_get("number")?,
+                    title: row.try_get("title")?,
+                    count: row.try_get("count")?,
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
         Ok(Some(BookStatsReport {
             title,
             opens: totals.try_get("opens")?,
@@ -277,6 +328,8 @@ impl PgBookStats {
             completed: totals.try_get("completed")?,
             chapters,
             daily,
+            top_by_opens,
+            top_by_purchases,
             next_after,
         }))
     }

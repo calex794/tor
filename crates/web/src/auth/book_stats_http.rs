@@ -74,7 +74,7 @@ pub(super) async fn page(
          зарегистрированные читатели: {} · Повторные открытия: {}</p>\
          <p>Покупки: {} · Оборот прямых покупок: {} ₽ · Завершено глав: {}</p>\
          <p>Открытие страницы не доказывает прочтение. Авторские выплаты и комиссия здесь не рассчитаны.</p>\
-         <p><a href=\"/books/{id}/stats/export.csv\">Скачать CSV этой страницы</a></p>\
+         <p>Скачивание CSV соответствует выбранной странице глав.</p>\
          <h2>Главы</h2><table><thead><tr><th>Глава</th><th>Открытия</th>\
          <th>Уникальные зарегистрированные</th><th>Повторы</th><th>Покупки</th>\
          <th>Оборот, ₽</th><th>Завершения</th></tr></thead><tbody>",
@@ -83,6 +83,15 @@ pub(super) async fn page(
         data.purchases, money(data.purchase_minor), data.completed,
     );
     use std::fmt::Write;
+    let export_url = match query.after.as_deref() {
+        Some(cursor) => format!("/books/{id}/stats/export.csv?after={cursor}"),
+        None => format!("/books/{id}/stats/export.csv"),
+    };
+    let _ = write!(
+        body,
+        "<p><a href=\"{}\">Скачать CSV этой страницы</a></p>",
+        pages::escape_html(&export_url)
+    );
     for row in &data.chapters {
         let _ = write!(
             body,
@@ -122,7 +131,27 @@ pub(super) async fn page(
             money(row.purchase_minor)
         );
     }
-    body.push_str("</tbody></table></div></section>");
+    body.push_str("</tbody></table><h2>Топ 5 глав по открытиям</h2><ol>");
+    for chapter in &data.top_by_opens {
+        let _ = write!(
+            body,
+            "<li>Глава {}. {} — {} открытий</li>",
+            chapter.number,
+            pages::escape_html(&chapter.title),
+            chapter.count
+        );
+    }
+    body.push_str("</ol><h2>Топ 5 глав по покупкам</h2><ol>");
+    for chapter in &data.top_by_purchases {
+        let _ = write!(
+            body,
+            "<li>Глава {}. {} — {} покупок</li>",
+            chapter.number,
+            pages::escape_html(&chapter.title),
+            chapter.count
+        );
+    }
+    body.push_str("</ol></div></section>");
     private_response(
         pages::layout("Статистика книги", "Личная статистика", &body),
         &[],
@@ -157,7 +186,7 @@ pub(super) async fn export(
     use std::fmt::Write;
     let _ = writeln!(
         csv,
-        "book,0,{}, {},{},{},{},{},{},{}",
+        "book,0,{},{},{},{},{},{},{},{}",
         csv_cell(&data.title),
         data.opens,
         data.anonymous_opens,
@@ -170,7 +199,7 @@ pub(super) async fn export(
     for row in &data.chapters {
         let _ = writeln!(
             csv,
-            "chapter,{}, {},{},{},{},{},{},{},{}",
+            "chapter,{},{},{},{},{},{},{},{},{}",
             row.number,
             csv_cell(&row.title),
             row.opens,
@@ -214,6 +243,12 @@ mod tests {
         assert_eq!(csv_cell(" +SUM(A1)"), "\"' +SUM(A1)\"");
         assert_eq!(csv_cell("Тест \"книга\""), "\"Тест \"\"книга\"\"\"");
     }
+    #[test]
+    fn csv_cells_have_no_prefix_space() {
+        let line = format!("book,0,{},1", csv_cell("=1+1"));
+        assert_eq!(line, "book,0,\"'=1+1\",1");
+    }
+
     #[test]
     fn bounds_cursor() {
         assert_eq!(parse_after(Some("1:5")).unwrap(), Some((1, 5)));
