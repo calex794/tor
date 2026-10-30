@@ -13,19 +13,21 @@ pub(super) struct FollowBookControl {
     cookies: CookiePolicy,
 }
 
+/// Borrowed, authenticated router wiring; retain the original owned constructor elsewhere.
 pub(super) fn control(accounts: &PgAccounts, secure: bool, origin: &str) -> FollowBookControl {
-    let follows = PgBookFollows::new(accounts.pool().clone());
-    FollowBookControl {
-        accounts: accounts.clone(),
-        follows,
-        cookies: CookiePolicy {
-            secure,
-            origin: origin.to_owned(),
-        },
-    }
+    FollowBookControl::new(accounts.clone(), secure, origin.to_owned())
 }
 
 impl FollowBookControl {
+    pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
+        let follows = PgBookFollows::new(accounts.pool().clone());
+        Self {
+            accounts,
+            follows,
+            cookies: CookiePolicy { secure, origin },
+        }
+    }
+
     /// Only called after the public book visibility check succeeded.
     /// Anonymous readers see a login link, not a CSRF-less mutation form.
     pub(super) async fn render(
