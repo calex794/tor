@@ -105,4 +105,4 @@ pub(super) const LAYER_METADATA_ROUTES: [RouteRegistration; 1] = [RouteRegistrat
     Page,
     Dashboard,
     Write,
-)]; // 95
+)]; // 97
