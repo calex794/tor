@@ -81,6 +81,26 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
     .await
     .unwrap();
     assert_eq!(unknown, 1);
+    // A source probing many targets is diagnostic only; no account is blocked.
+    let spray_source = secret.source("203.0.113.4".parse().unwrap()).0;
+    for index in 0..16 {
+        let target = secret.target(&format!("unknown-{nonce}-{index}@example.invalid"));
+        accounts.record_auth_observation(&AuthAttemptObservation {
+            target_key: Some(target),
+            user_id: None,
+            source_key: Some(spray_source),
+            subnet_key: None,
+            agent: UserAgentFamily::Unknown,
+            outcome: AuthAttemptOutcome::UnknownAccount,
+        }).await.unwrap();
+    }
+    let signals = accounts.auth_risk_signals().await.unwrap();
+    assert!(signals.iter().any(|signal|
+        signal.category == "source_spray"
+            && signal.distinct_targets >= 16
+            && signal.unknown_accounts >= 16
+    ));
+    assert!(!signals.iter().any(|signal| signal.category == "distributed_target"));
     // Raw values must never occur in rows, including JSON-like debug strings.
     let unsafe_values: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM auth_login_observations WHERE
