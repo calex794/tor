@@ -52,6 +52,7 @@ mod checkout;
 mod complete_chapter;
 mod continuation_demand;
 mod follow_read_state;
+mod revision_read_state;
 mod followed_purchase_links;
 mod inbox;
 mod library_actions;
@@ -214,6 +215,10 @@ fn router_inner(
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
+        )
+        .route(
+            "/me/revisions/{id}/read-state",
+            post(revision_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
         .route(
