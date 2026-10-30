@@ -1,6 +1,6 @@
 //! Append-only E-03 canonical Inbox browser/JSON routes on reviewed IDs 94-95.
 use super::super::*;
-use CostClass::Read;
+use CostClass::CheapRead as Read;
 use ProductArea::Dashboard;
 use RouteMatchKind::Exact;
 use TrafficSurface::{Api, PublicPage as Page};
