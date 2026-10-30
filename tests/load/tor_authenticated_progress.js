@@ -5,12 +5,13 @@ import { Counter } from 'k6/metrics';
 const base = 'http://127.0.0.1:3089';
 const failures = new Counter('journey_failures');
 const completed = new Counter('journeys_written');
+const savedComments = new Counter('comments_written');
 export const options = {
   scenarios: { writers: {
     executor: 'constant-arrival-rate', rate: 25, timeUnit: '1s',
     duration: '60s', preAllocatedVUs: 32, maxVUs: 32,
   } },
-  thresholds: { checks: ['rate>0.99'], dropped_iterations: ['count==0'], journey_failures: ['count==0'] },
+  thresholds: { checks: ['rate>0.99'], dropped_iterations: ['count==0'], journey_failures: ['count==0'], comments_written: ['count>0'] },
 };
 function cookie(response, name) {
   const stored = response.cookies[name];
@@ -82,9 +83,8 @@ export default function (data) {
     failures.add(1);
     return;
   }
-  // Every fifth journey also loads the visible discussion page. Comment
-  // publication is tested separately; no synthetic bulk posts in this profile.
-  if (__ITER % 5 === 0) {
+  // Isolated test book: every fifth journey reads and publishes a comment.
+  if ((__ITER + __VU) % 5 === 0) {
     const discussion = http.get(base + '/books/1/comments', {
       headers,
       tags: { name: 'reader_discussion_list' },
@@ -93,6 +93,37 @@ export default function (data) {
       failures.add(1);
       return;
     }
+    // Use the real server-issued one-use command key from the HTML form.
+    const issuedKey = discussion.body.match(/name="command_key" value="([A-Za-z0-9_-]{43})"/);
+    if (!issuedKey) {
+      failures.add(1);
+      return;
+    }
+    const body = 'PERF252 LOAD reader ' + __VU + ' iteration ' + __ITER;
+    const posted = http.post(base + '/books/1/comments', {
+      body,
+      command_key: issuedKey[1],
+      csrf_token: user.csrfValue,
+    }, {
+      headers,
+      redirects: 0,
+      tags: { name: 'reader_comment_create' },
+    });
+    if (!check(posted, { 'comment created': r => r.status === 303 })) {
+      failures.add(1);
+      return;
+    }
+    const reloaded = http.get(base + '/books/1/comments', {
+      headers,
+      tags: { name: 'reader_comment_verify' },
+    });
+    if (!check(reloaded, {
+      'comment persisted in rendered list': r => r.status === 200 && r.body.includes(body),
+    })) {
+      failures.add(1);
+      return;
+    }
+    savedComments.add(1);
   }
   completed.add(1);
 }
