@@ -436,13 +436,7 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     // CI fixture: book #1 is public and book #2 is draft.
     let hidden = send(
         &app,
-        request(
-            "GET",
-            &format!("/books/2?ref={first_code}"),
-            "",
-            "",
-            ORIGIN,
-        ),
+        request("GET", &format!("/books/2?ref={first_code}"), "", "", ORIGIN),
     )
     .await;
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
@@ -458,13 +452,7 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     }
     let page = send(
         &app,
-        request(
-            "GET",
-            &format!("/books/1?ref={first_code}"),
-            "",
-            "",
-            ORIGIN,
-        ),
+        request("GET", &format!("/books/1?ref={first_code}"), "", "", ORIGIN),
     )
     .await;
     assert_eq!(page.status(), StatusCode::OK);
@@ -488,13 +476,7 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     assert!(next.headers().get(header::SET_COOKIE).is_none());
     let also = send(
         &app,
-        request(
-            "GET",
-            &format!("/r/{second_code}"),
-            "",
-            &guest,
-            ORIGIN,
-        ),
+        request("GET", &format!("/r/{second_code}"), "", &guest, ORIGIN),
     )
     .await;
     assert_eq!(also.status(), StatusCode::SEE_OTHER);
