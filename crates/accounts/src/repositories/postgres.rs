@@ -192,13 +192,70 @@ impl PgAccounts {
         .execute(&mut *transaction)
         .await?;
         if referral.guest_hash.is_some() || referral.manual_code.is_some() {
+            // Freeze the winner at the moment the account and session commit.
+            // Reading this information later loses valid invitations if a
+            // code is disabled or an earlier guest capture changes status.
+            let mut candidate = if let Some(code) = referral.manual_code {
+                sqlx::query(
+                    "SELECT code,owner_user_id,program_type,
+                            NULL::bigint AS capture_id,
+                            'manual_code_at_registration'::text AS source
+                     FROM referral_codes
+                     WHERE code=$1 AND status='active' AND owner_user_id<>$2
+                     FOR SHARE",
+                )
+                .bind(code)
+                .bind(user_id)
+                .fetch_optional(&mut *transaction)
+                .await?
+            } else {
+                None
+            };
+            if candidate.is_none() {
+                if let Some(hash) = referral.guest_hash {
+                    candidate = sqlx::query(
+                        "SELECT c.code,c.owner_user_id,c.program_type,
+                                r.id AS capture_id,'guest_capture'::text AS source
+                         FROM referral_captures r
+                         JOIN referral_codes c ON c.code=r.referral_code
+                         WHERE r.guest_hash=$1
+                           AND r.status IN ('active','expired','consumed')
+                           AND r.captured_at<=now() AND r.expires_at>now()
+                           AND c.status='active' AND c.owner_user_id<>$2
+                         ORDER BY r.captured_at ASC,r.id ASC
+                         LIMIT 1 FOR SHARE OF r,c",
+                    )
+                    .bind(hash.as_slice())
+                    .bind(user_id)
+                    .fetch_optional(&mut *transaction)
+                    .await?;
+                }
+            }
+            let (code, owner, program, capture, source) = match candidate {
+                Some(row) => (
+                    Some(row.try_get::<String, _>("code")?),
+                    Some(row.try_get::<i64, _>("owner_user_id")?),
+                    Some(row.try_get::<String, _>("program_type")?),
+                    row.try_get::<Option<i64>, _>("capture_id")?,
+                    Some(row.try_get::<String, _>("source")?),
+                ),
+                None => (None, None, None, None, None),
+            };
             sqlx::query(
-                "INSERT INTO account_registration_referral_outbox(user_id,guest_hash,manual_code) \
-                 VALUES($1,$2,$3)",
+                "INSERT INTO account_registration_referral_outbox(
+                    user_id,guest_hash,manual_code,decided_at_registration,
+                    decided_referral_code,decided_referrer_user_id,
+                    decided_program_type,decided_capture_id,decided_source
+                 ) VALUES($1,$2,$3,TRUE,$4,$5,$6,$7,$8)",
             )
             .bind(user_id)
             .bind(referral.guest_hash.map(|hash| hash.as_slice()))
             .bind(referral.manual_code)
+            .bind(code)
+            .bind(owner)
+            .bind(program)
+            .bind(capture)
+            .bind(source)
             .execute(&mut *transaction)
             .await?;
         }
