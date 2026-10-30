@@ -110,8 +110,7 @@ async fn public_cards(
 
 async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
     if let Some(catalog) = state.postgres {
-        // The F-04 repository filters draft/held/deleted rows before LIMIT.
-        // Do not label the original ascending demo catalogue as "newest".
+        // F-04 filters hidden rows before LIMIT; demo ascending order is not "newest".
         let repository = tor_search::repositories::showcases::PgShowcases::new(catalog.pool());
         let showcase = tor_search::services::showcases::RecentShowcases::new(&repository);
         let rows = showcase
