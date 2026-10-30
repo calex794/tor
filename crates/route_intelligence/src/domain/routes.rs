@@ -16,8 +16,8 @@ use entries_inbox::INBOX_ROUTES;
 use entries_layer::{LAYER_INDEX_ROUTES, LAYER_METADATA_ROUTES, LAYER_ROUTES};
 use entries_reply::REPLY_ROUTES;
 
-const ROUTES: [RouteRegistration; 98] = {
-    let mut result = [BASE_ROUTES[0]; 98];
+const ROUTES: [RouteRegistration; 101] = {
+    let mut result = [BASE_ROUTES[0]; 101];
     let mut i = 0;
     while i < 79 {
         result[i] = BASE_ROUTES[i];
@@ -38,6 +38,33 @@ const ROUTES: [RouteRegistration; 98] = {
     result[95] = INBOX_ROUTES[0];
     result[96] = INBOX_ROUTES[1];
     result[97] = LAYER_METADATA_ROUTES[0];
+    result[98] = RouteRegistration::new(
+        "/me/updates/{id}/read-state",
+        "POST",
+        "/me/updates/",
+        Prefix,
+        Page,
+        Reading,
+        Write,
+    );
+    result[99] = RouteRegistration::new(
+        "/me/settings/password",
+        "GET",
+        "/me/",
+        Exact,
+        Page,
+        Auth,
+        Read,
+    );
+    result[100] = RouteRegistration::new(
+        "/me/settings/password",
+        "POST",
+        "/me/",
+        Exact,
+        Page,
+        Auth,
+        Write,
+    );
     result
 };
 
