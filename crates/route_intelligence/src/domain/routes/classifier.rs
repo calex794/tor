@@ -103,6 +103,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/me/messages"), "POST") => Some(90),
         (Some("/assets/mail.js"), "GET") => Some(91),
         (Some("/users/{display_name}"), "GET") => Some(92),
+        (Some("/users/{target_user_id}/friend"), "POST") => Some(93),
+        (Some("/users/{target_user_id}/unfriend"), "POST") => Some(94),
+        (Some("/users/{target_user_id}/block"), "POST") => Some(95),
         _ => None,
     };
     index
