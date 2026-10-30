@@ -67,6 +67,7 @@ pub fn account_error_page(title: &str, message: &str, retry_registration: bool) 
     )
 }
 
+#[allow(dead_code)] // Legacy renderer retained for existing callers and snapshot tests.
 pub fn my_account(name: &str, csrf: &str, replies: &[ReceivedReply]) -> Html<String> {
     my_account_with_follow_updates(name, csrf, replies, 0)
 }
