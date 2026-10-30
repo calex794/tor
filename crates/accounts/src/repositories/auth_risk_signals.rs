@@ -53,7 +53,9 @@ impl PgAccounts {
                UNION ALL
                SELECT * FROM by_target WHERE bad_passwords+unknown_accounts >= 10
              ) signals
-             ORDER BY attempts DESC, category, key_hex LIMIT 50"
-        ).fetch_all(self.pool()).await
+             ORDER BY attempts DESC, category, key_hex LIMIT 50",
+        )
+        .fetch_all(self.pool())
+        .await
     }
 }
