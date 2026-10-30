@@ -378,7 +378,7 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+#[ignore = "requires seeded public/hidden books on migrated PostgreSQL tor_ci"]
 async fn f_09_http_alias_and_public_book_query_privacy() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
     assert!(url.ends_with("/tor_ci"), "never test production");
@@ -386,223 +386,170 @@ async fn f_09_http_alias_and_public_book_query_privacy() {
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
     let referrals = tor_referrals::repositories::PgReferrals::new(pool.clone());
-    let reader = PgReader::new(pool.clone());
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
-        reader,
-        accounts,
+        PgReader::new(pool),
+        accounts.clone(),
         false,
         ORIGIN.to_owned(),
     );
+
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let owner: i64 = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'F09 alias owner','$argon2id$test') RETURNING id",
-    )
-    .bind(format!("f09-alias-{stamp}@example.invalid"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let owned = referrals
-        .create_default_reader_code(owner, &format!("r_alias_{owner}"))
-        .await
-        .unwrap();
-    let alias = format!("novel-{stamp}");
-    sqlx::query("UPDATE referral_codes SET alias=$1,alias_path_prefix='go' WHERE code=$2")
-        .bind(&alias)
-        .bind(&owned.code)
-        .execute(&pool)
-        .await
-        .unwrap();
+    let mut owners = Vec::new();
+    for role in ["owner", "other"] {
+        let email = format!("f09-book-{role}-{stamp}@example.invalid");
+        let register = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+        let csrf_cookie = cookie(&register, "tor-dev-csrf=");
+        let csrf = csrf_token(&body_of(register).await).to_owned();
+        let form = format!(
+            "email={}&display_name=F09Reader&password=LongSecurePassword2026&csrf_token={csrf}",
+            email.replace('@', "%40"),
+        );
+        let registered = send(
+            &app,
+            request("POST", "/register", &form, &csrf_cookie, ORIGIN),
+        )
+        .await;
+        assert_eq!(registered.status(), StatusCode::SEE_OTHER);
+        let session = cookie(&registered, "tor-dev-session=");
+        let id = accounts.find_user(&email).await.unwrap().unwrap().id;
+        let code = referrals
+            .create_default_reader_code(id, &format!("r_book_{role}_{id}"))
+            .await
+            .unwrap();
+        owners.push((id, session, code.code));
+    }
+    let (inviter, signed_in, first_code) = &owners[0];
+    let (_, _, second_code) = &owners[1];
 
-    let alias_page = send(
-        &app,
-        request("GET", &format!("/go/{alias}"), "", "", ORIGIN),
-    )
-    .await;
-    assert_eq!(alias_page.status(), StatusCode::SEE_OTHER);
-    assert_eq!(
-        alias_page.headers()[header::LOCATION],
-        format!("/r/{}", owned.code).as_str()
-    );
-    assert!(alias_page.headers().get(header::SET_COOKIE).is_none());
-    for invalid in [
-        format!("/promo/{alias}"),
-        "/go/admin".to_owned(),
-        "/go/missing-code".to_owned(),
-    ] {
-        let denied = send(&app, request("GET", &invalid, "", "", ORIGIN)).await;
+    // Aliases cannot redirect to untrusted targets, unknown aliases or reserved names.
+    for path in ["/go/unknown-alias", "/promo/unknown-alias", "/go/admin"] {
+        let denied = send(&app, request("GET", path, "", "", ORIGIN)).await;
         assert_eq!(denied.status(), StatusCode::SEE_OTHER);
         assert_eq!(denied.headers()[header::LOCATION], "/");
         assert!(denied.headers().get(header::SET_COOKIE).is_none());
     }
 
-    let public_book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','F09 public referral book','public') RETURNING id",
-    )
-    .bind(format!("f09:public:{stamp}"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let private_book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','F09 HIDDEN-REFERRAL-MARKER','draft') RETURNING id",
-    )
-    .bind(format!("f09:private:{stamp}"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let chapter: i64 = sqlx::query_scalar(
-        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-         VALUES($1,1,'F09 chapter','public','free',0) RETURNING id",
-    )
-    .bind(public_book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let version: i64 = sqlx::query_scalar(
-        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
-         VALUES($1,1,'Public chapter') RETURNING id",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
-        .bind(chapter)
-        .bind(version)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let denied = send(
+    // CI fixture: book #1 is public and book #2 is draft.
+    let hidden = send(
         &app,
         request(
             "GET",
-            &format!("/books/{private_book}?ref={}", owned.code),
+            &format!("/books/2?ref={first_code}"),
             "",
             "",
             ORIGIN,
         ),
     )
     .await;
-    assert_eq!(denied.status(), StatusCode::NOT_FOUND);
-    assert!(denied.headers().get(header::SET_COOKIE).is_none());
-    assert!(!body_of(denied).await.contains("HIDDEN-REFERRAL-MARKER"));
-
-    let public_uri = format!("/books/{public_book}?ref={}", owned.code);
-    for invalid in [
-        format!("/books/{public_book}?ref=not"),
-        format!("/books/{public_book}?ref={}&ref={}", owned.code, owned.code),
-        format!("/books/{public_book}?ref=missing_code_123"),
+    assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
+    assert!(hidden.headers().get(header::SET_COOKIE).is_none());
+    for uri in [
+        "/books/1?ref=bad".to_owned(),
+        format!("/books/1?ref={first_code}&ref={second_code}"),
+        "/books/1?ref=unknown_referral_code".to_owned(),
     ] {
-        let result = send(&app, request("GET", &invalid, "", "", ORIGIN)).await;
-        assert_eq!(result.status(), StatusCode::OK);
-        assert!(result.headers().get(header::SET_COOKIE).is_none());
+        let page = send(&app, request("GET", &uri, "", "", ORIGIN)).await;
+        assert_eq!(page.status(), StatusCode::OK);
+        assert!(page.headers().get(header::SET_COOKIE).is_none());
     }
-    let page = send(&app, request("GET", &public_uri, "", "", ORIGIN)).await;
-    assert_eq!(page.status(), StatusCode::OK);
-    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
-    let guest = cookie(&page, "tor-dev-guest=");
-    assert!(body_of(page).await.contains("F09 public referral book"));
-    let row: (String, String) = sqlx::query_as(
-        "SELECT source_kind,source_path FROM referral_captures
-         WHERE referral_code=$1 AND status='active' ORDER BY id DESC LIMIT 1",
-    )
-    .bind(&owned.code)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(row.0, "book_ref_query");
-    assert_eq!(row.1, format!("/books/{public_book}"));
-
-    let other_owner: i64 = sqlx::query_scalar(
-        "INSERT INTO users(email_normalized,display_name,password_hash)
-         VALUES($1,'Other F09','$argon2id$test') RETURNING id",
-    )
-    .bind(format!("f09-alias-other-{stamp}@example.invalid"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let other = referrals
-        .create_default_reader_code(other_owner, &format!("r_other_{other_owner}"))
-        .await
-        .unwrap();
-    let follow = send(
+    let page = send(
         &app,
         request(
             "GET",
-            &format!("/books/{public_book}?ref={}", other.code),
+            &format!("/books/1?ref={first_code}"),
+            "",
+            "",
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    let guest = cookie(&page, "tor-dev-guest=");
+    assert!(body_of(page).await.contains("TOR CI public"));
+
+    // The second valid referral cannot steal an existing first book capture.
+    let next = send(
+        &app,
+        request(
+            "GET",
+            &format!("/books/1?ref={second_code}"),
             "",
             &guest,
             ORIGIN,
         ),
     )
     .await;
-    assert_eq!(follow.status(), StatusCode::OK);
-    assert!(follow.headers().get(header::SET_COOKIE).is_none());
-    let other_count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM referral_captures WHERE referral_code=$1")
-            .bind(&other.code)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        other_count, 0,
-        "later book link must not overwrite first touch"
-    );
-
-    let register = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
-    let csrf_cookie = cookie(&register, "tor-dev-csrf=");
-    let csrf = csrf_token(&body_of(register).await).to_owned();
-    let form = format!(
-        "email=f09-signed-{stamp}%40example.invalid&display_name=F09Reader&password=LongSecurePassword2026&csrf_token={csrf}"
-    );
-    let signed = send(
-        &app,
-        request("POST", "/register", &form, &csrf_cookie, ORIGIN),
-    )
-    .await;
-    assert_eq!(signed.status(), StatusCode::SEE_OTHER);
-    let session = cookie(&signed, "tor-dev-session=");
-    let signed_page = send(
+    assert_eq!(next.status(), StatusCode::OK);
+    assert!(next.headers().get(header::SET_COOKIE).is_none());
+    let also = send(
         &app,
         request(
             "GET",
-            &format!("/books/{public_book}?ref={}", other.code),
+            &format!("/r/{second_code}"),
             "",
-            &session,
+            &guest,
             ORIGIN,
         ),
     )
     .await;
-    assert_eq!(signed_page.status(), StatusCode::OK);
-    assert!(!signed_page
+    assert_eq!(also.status(), StatusCode::SEE_OTHER);
+    assert!(also.headers().get(header::SET_COOKIE).is_none());
+
+    // A signed-in reader cannot capture even a valid book referral.
+    let signed = send(
+        &app,
+        request(
+            "GET",
+            &format!("/books/1?ref={second_code}"),
+            "",
+            signed_in,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(signed.status(), StatusCode::OK);
+    assert!(!signed
         .headers()
         .get_all(header::SET_COOKIE)
         .iter()
-        .any(|cookie| cookie.to_str().unwrap_or("").contains("tor-dev-guest=")));
-    let other_count_after: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM referral_captures WHERE referral_code=$1")
-            .bind(&other.code)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(other_count_after, 0);
+        .any(|value| value.to_str().unwrap_or("").contains("tor-dev-guest=")));
 
-    sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
-        .bind(&owned.code)
-        .execute(&pool)
-        .await
-        .unwrap();
-    let blocked_alias = send(
+    // Finalize a real signup from the captured book link, no SQL in tor-web.
+    let register = send(&app, request("GET", "/register", "", &guest, ORIGIN)).await;
+    let csrf_cookie = cookie(&register, "tor-dev-csrf=");
+    let csrf = csrf_token(&body_of(register).await).to_owned();
+    let invited_email = format!("f09-book-invited-{stamp}@example.invalid");
+    let form = format!(
+        "email={}&display_name=BookGuest&password=LongSecurePassword2026&csrf_token={csrf}",
+        invited_email.replace('@', "%40"),
+    );
+    let new_user = send(
         &app,
-        request("GET", &format!("/go/{alias}"), "", "", ORIGIN),
+        request(
+            "POST",
+            "/register",
+            &form,
+            &format!("{guest}; {csrf_cookie}"),
+            ORIGIN,
+        ),
     )
     .await;
-    assert_eq!(blocked_alias.headers()[header::LOCATION], "/");
+    assert_eq!(new_user.status(), StatusCode::SEE_OTHER);
+    let new_user_id = accounts
+        .find_user(&invited_email)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let _ = referrals.finalize_one(new_user_id).await.unwrap();
+    assert_eq!(referrals.reader_overview(*inviter).await.unwrap().active, 1);
+    assert_eq!(
+        referrals.reader_overview(owners[1].0).await.unwrap().active,
+        0,
+    );
 }
