@@ -55,6 +55,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
+mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
@@ -235,6 +236,10 @@ fn router_inner(
         .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
         )
         .route(
             "/books/{id}/comments",
