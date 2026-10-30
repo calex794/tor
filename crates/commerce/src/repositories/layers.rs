@@ -371,6 +371,23 @@ impl PgLayers {
         if locked_books.is_empty() {
             return Err(LayerError::Inaccessible);
         }
+        // The public storefront refuses checkout when no Books are public.
+        // Enforce the same rule at the transaction boundary: a forged POST
+        // must not debit a wallet for an entirely unpublished Layer. These
+        // Book rows are already SHARE-locked, so visibility cannot race.
+        let public_books: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM commerce_layer_version_books vb
+             JOIN books b ON b.id=vb.book_id
+             WHERE vb.layer_version_id=$1 AND b.visibility='public'
+               AND NOT b.admin_hold AND NOT b.is_deleted",
+        )
+        .bind(cmd.version.get())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| LayerError::Unavailable)?;
+        if public_books == 0 {
+            return Err(LayerError::Inaccessible);
+        }
         let kind: String = offer
             .try_get("term_kind")
             .map_err(|_| LayerError::Unavailable)?;
