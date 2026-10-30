@@ -519,6 +519,8 @@ pub fn book_detail_with_chapters(
 mod tests;
 
 mod profile_settings;
+mod session_security;
+pub use session_security::active_sessions;
 pub use profile_settings::profile_settings;
 mod notification_settings;
 pub use notification_settings::delivery_preferences_page;

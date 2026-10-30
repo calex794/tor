@@ -70,6 +70,7 @@ mod referral_dashboard;
 mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
+mod session_security;
 mod settings_routes;
 mod sync_actions;
 mod types;
