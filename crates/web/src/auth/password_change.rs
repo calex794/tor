@@ -1,20 +1,23 @@
 //! A-07: HTML and JSON share one credential rotation command.
-use super::AuthState;
+use super::{access_audit, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
     pages,
 };
 use axum::{
-    extract::{Form, State},
+    extract::{ConnectInfo, Form, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
     Json,
 };
 use serde::Deserialize;
-use std::num::NonZeroU32;
-use tor_accounts::services::{
+use std::{net::SocketAddr, num::NonZeroU32};
+use tor_accounts::{
+    domain::access_audit::{LoginAuditContext, LoginEventKind},
+    services::{
     security::{generate_session_token, hash_password, session_token_digest, verify_password},
     validation::password_change,
+    },
 };
 
 #[derive(Deserialize)]
@@ -49,6 +52,7 @@ async fn rotate(
     headers: &HeaderMap,
     user_id: i64,
     form: PasswordChangeForm,
+    audit: LoginAuditContext,
 ) -> Result<String, (StatusCode, &'static str)> {
     password_change(
         &form.current_password,
@@ -106,6 +110,7 @@ async fn rotate(
             &replacement,
             &session_token_digest(&token),
             NonZeroU32::new(SESSION_AGE).unwrap(),
+            audit,
         )
         .await
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Повторите позже"))?;
@@ -122,6 +127,7 @@ async fn rotate(
 pub(super) async fn submit(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    peer: ConnectInfo<SocketAddr>,
     Form(form): Form<PasswordChangeForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
@@ -137,7 +143,8 @@ pub(super) async fn submit(
         Err(status) => return private_response(status, &[]),
     };
     let csrf = form.csrf_token.clone().unwrap_or_default();
-    match rotate(&state, &headers, actor, form).await {
+    let audit = access_audit::context(&headers, peer.0, LoginEventKind::PasswordChange);
+    match rotate(&state, &headers, actor, form, audit).await {
         Ok(token) => private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)]),
         Err((status, message)) => private_response(
             (status, pages::password_change_form(&csrf, Some(message))),
@@ -149,6 +156,7 @@ pub(super) async fn submit(
 pub(super) async fn api_submit(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    peer: ConnectInfo<SocketAddr>,
     Json(form): Json<ApiPasswordForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
@@ -181,7 +189,8 @@ pub(super) async fn api_submit(
         new_password: form.new_password,
         csrf_token: form.csrf_token,
     };
-    match rotate(&state, &headers, actor, command).await {
+    let audit = access_audit::context(&headers, peer.0, LoginEventKind::PasswordChange);
+    match rotate(&state, &headers, actor, command, audit).await {
         Ok(token) => private_response(
             StatusCode::NO_CONTENT,
             &[state.cookies.session_cookie(&token)],
