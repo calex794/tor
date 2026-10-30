@@ -81,5 +81,42 @@ class RoadmapTests(unittest.TestCase):
         self.mutate("tasks.tsv", "Перенести регистрацию:", "TODO Перенести регистрацию:")
         self.assertTrue(any("placeholder" in e for e in check(self.root)))
 
+    def edit_scenario_fields(self, code, **updates):
+        path = self.root / "docs" / "roadmap" / "scenarios.tsv"
+        rows = path.read_text(encoding="utf-8").splitlines()
+        header = next(row.split("\t") for row in rows if row.startswith("code\t"))
+        for index, row in enumerate(rows):
+            if row.startswith(code + "\t"):
+                values = row.split("\t")
+                for field, value in updates.items():
+                    values[header.index(field)] = value
+                rows[index] = "\t".join(values)
+                break
+        path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    def test_verified_behavior_can_be_limited_to_a_draft(self):
+        self.edit_scenario_fields("S035", rust_scope="draft")
+        self.assertEqual(check(self.root), [])
+
+    def test_verified_snapshot_requires_evidence_and_scope(self):
+        self.edit_scenario_fields("S035", rust_evidence_urls="", rust_scope="")
+        errors = check(self.root)
+        self.assertTrue(any("Rust status or scope" in e for e in errors))
+        self.assertTrue(any("Rust evidence URLs" in e for e in errors))
+
+    def test_missing_snapshot_date_and_revision_rejected(self):
+        self.edit_scenario_fields("S001", rust_checked_at="2026-02-30", rust_snapshot_sha="main")
+        errors = check(self.root)
+        self.assertTrue(any("Rust check date" in e for e in errors))
+        self.assertTrue(any("Rust main snapshot SHA" in e for e in errors))
+
+    def test_code_cannot_have_not_started_scope(self):
+        self.edit_scenario_fields("S002", rust_scope="not_started")
+        self.assertTrue(any("contradicts not_started" in e for e in check(self.root)))
+
+    def test_excluded_snapshot_cannot_claim_main(self):
+        self.edit_scenario_fields("S024", rust_scope="main")
+        self.assertTrue(any("excluded Rust status/scope" in e for e in check(self.root)))
+
 if __name__ == "__main__":
     unittest.main()
