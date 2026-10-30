@@ -264,7 +264,10 @@ mod tests {
                 header::COOKIE,
                 format!("{}={token}", config.guest_name()).parse().unwrap(),
             );
-            assert_eq!(config.guest_token(&headers).as_deref(), Some(token.as_str()));
+            assert_eq!(
+                config.guest_token(&headers).as_deref(),
+                Some(token.as_str())
+            );
 
             // Authentication and CSRF never inherit the referral's Lax policy.
             let cleared = config.cleared_guest_cookie();
