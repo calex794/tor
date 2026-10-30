@@ -68,13 +68,18 @@ jobs:
           ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public
             GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
           SQL
-      - name: Format and unit tests
+      - name: Feature boundary checks
+        run: python3 tools/check_feature_layout.py
+      # The Rust S0 suite owns automatic workspace fmt/test/Clippy for every main SHA.
+      # Preserve the full workspace baseline for standalone manual dispatches.
+      - name: Standalone manual workspace baseline
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          python3 tools/check_feature_layout.py
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
-          cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
+      - name: Combined S3 feature Clippy
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
