@@ -20,3 +20,5 @@ pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};
 
 pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
+
+pub mod book_stats;

@@ -86,6 +86,14 @@ pub(super) async fn complete(
                     Ok(_) | Err(RankingStoreError::Conflict) => {}
                     Err(_) => tracing::warn!("ranking delivery queued after completed chapter"),
                 }
+                if state
+                    .achievements
+                    .accept_completed_chapter(&event_id)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("achievement delivery queued after completed chapter");
+                }
             }
             private_response(Redirect::to("/me/rankings"), &[])
         }
