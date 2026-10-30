@@ -73,7 +73,3 @@ pub(super) struct NewBookForm {
     pub(super) csrf_token: Option<String>,
 }
 
-/// Shared private denial without introducing unscoped browser-side state.
-pub(super) fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
-}
