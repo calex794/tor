@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 import re
 import sys
 import tomllib
@@ -25,6 +26,8 @@ LANE_CRATES = {
 SUMMARY_TASKS = {"A-11", "B-16", "C-12", "D-13", "E-14", "F-14", "G-12", "H-12", "I-13"}
 TASK_RE = re.compile(r"^([A-I])-(\d{2})$")
 S_RE = re.compile(r"^S\d{3}$")
+RUST_STATUSES = {"Не сверено", "Не начат", "Частично", "Есть код", "Поведение сверено", "Исключено"}
+RUST_SCOPES = {"main", "draft", "mixed", "not_started", "excluded"}
 INVALID = re.compile(r"\b(TODO|TBD|TBC|FIXME)\b|проработать\s+потом|решить\s+позже", re.I)
 VAGUE_START = re.compile(r"^\s*(?:Сопоставить|Сверить|Зафиксировать|Выбрать|Согласовать|Проработать|Проверить|Собрать матрицу|Оформить)\b", re.I)
 
@@ -66,13 +69,39 @@ def check(root: Path = ROOT) -> list[str]:
     owners: dict[str, str] = {}
     for s in scenarios:
         code, owner = s.get("code", ""), s.get("owner", "")
+        status, scope = s.get("rust_status", ""), s.get("rust_scope", "")
+        if status not in RUST_STATUSES or scope not in RUST_SCOPES:
+            errors.append(f"{code}: missing/invalid Rust status or scope")
+        if None in s:
+            errors.append(f"{code}: extra TSV fields")
         if code in EXCLUDED:
+            if status != "Исключено" or scope != "excluded":
+                errors.append(f"{code}: excluded Rust status/scope changed")
             if owner != "-" or s.get("decision") != EXCLUDED[code]:
                 errors.append(f"{code}: excluded/frozen status or owner changed")
         elif owner not in LANE_TASK_COUNTS or owner == "H":
             errors.append(f"{code}: missing/invalid owning lane {owner}")
         else:
             owners[code] = owner
+        if code not in EXCLUDED:
+            if scope == "excluded" or status == "Исключено":
+                errors.append(f"{code}: active scenario marked excluded")
+            if (scope == "not_started") != (status == "Не начат"):
+                errors.append(f"{code}: Rust status contradicts not_started scope")
+            checked_at = s.get("rust_checked_at", "")
+            try:
+                datetime.date.fromisoformat(checked_at)
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", checked_at):
+                    raise ValueError("expected YYYY-MM-DD")
+            except ValueError:
+                errors.append(f"{code}: missing/invalid Rust check date")
+            if not re.fullmatch(r"[0-9a-f]{40}", s.get("rust_snapshot_sha", "")):
+                errors.append(f"{code}: missing/invalid Rust main snapshot SHA")
+            evidence = s.get("rust_evidence_urls", "").split(";")
+            if any(not url.startswith("https://github.com/") for url in evidence):
+                errors.append(f"{code}: missing/invalid Rust evidence URLs")
+            if not s.get("rust_gap", "").strip():
+                errors.append(f"{code}: missing Rust scope/remaining-work explanation")
         if not s.get("title") or not s.get("priority") or not s.get("acceptance"):
             errors.append(f"{code}: missing title/priority/acceptance")
         if not s.get("notion_scenario_url", "").startswith("https://app.notion.com/"):
