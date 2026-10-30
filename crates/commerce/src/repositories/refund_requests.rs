@@ -49,11 +49,7 @@ impl PgDirectRefundRequests {
         reason: &str,
     ) -> Result<RefundRequestReceipt, DirectRefundRequestError> {
         let reason = reason.trim();
-        if actor <= 0
-            || purchase_id <= 0
-            || reason.is_empty()
-            || reason.chars().count() > 2000
-        {
+        if actor <= 0 || purchase_id <= 0 || reason.is_empty() || reason.chars().count() > 2000 {
             return Err(DirectRefundRequestError::InvalidRequest);
         }
         let digest = request_digest(actor, purchase_id, reason);
@@ -123,7 +119,7 @@ impl PgDirectRefundRequests {
             let old_digest: Vec<u8> = prior
                 .try_get("request_digest")
                 .map_err(|_| DirectRefundRequestError::Unavailable)?;
-            if old_purchase != purchase_id || old_digest != digest {
+            if old_purchase != purchase_id || old_digest.as_slice() != digest.as_slice() {
                 return Err(DirectRefundRequestError::DuplicateKeyDifferentRequest);
             }
             return Ok(RefundRequestReceipt {
