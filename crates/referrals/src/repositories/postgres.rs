@@ -123,9 +123,8 @@ impl PgReferrals {
             let code: Option<String> = pending.try_get("decided_referral_code")?;
             if let Some(code) = code {
                 // CHECK constraints guarantee an all-or-nothing decision.
-                let missing = || sqlx::Error::Protocol(
-                    "incomplete committed referral decision".to_owned(),
-                );
+                let missing =
+                    || sqlx::Error::Protocol("incomplete committed referral decision".to_owned());
                 Some(ReferralCandidate {
                     code,
                     referrer: pending
@@ -228,7 +227,11 @@ impl PgReferrals {
              SET processed_at=now(),result=$2 WHERE user_id=$1",
         )
         .bind(user_id)
-        .bind(if attributed { "attributed" } else { "unattributed" })
+        .bind(if attributed {
+            "attributed"
+        } else {
+            "unattributed"
+        })
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
