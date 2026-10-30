@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use tor_accounts::{
     domain::normalize_email,
     services::{
-        security::{generate_session_token, hash_password, session_token_digest},
+        security::{generate_session_token, hash_password, session_token_digest, verify_password},
         validation::password_reset,
     },
 };
@@ -81,10 +81,9 @@ pub(super) async fn request(
                     )
                     .await,
                 Ok(true)
-            ) {
-                if !delivery.send(user.email_normalized, token, permit).await {
-                    eprintln!("TOR_RESET_DELIVERY_UNAVAILABLE");
-                }
+            ) && !delivery.send(user.email_normalized, token, permit).await
+            {
+                eprintln!("TOR_RESET_DELIVERY_UNAVAILABLE");
             }
         }
     });
@@ -146,14 +145,51 @@ pub(super) async fn confirm(
             &[],
         );
     }
-    let password = form.new_password;
-    let hash = match state
-        .password_jobs
-        .run(move || hash_password(&password).ok())
+    let stored_hash = match state
+        .accounts
+        .live_reset_password_hash(&session_token_digest(&form.token))
         .await
     {
         Ok(Some(hash)) => hash,
-        Ok(None) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+        Ok(None) => {
+            return private_response(
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    pages::reset_confirm_form(
+                        csrf,
+                        Some("Ссылка недействительна или устарела. Запросите новую."),
+                    ),
+                ),
+                &[],
+            )
+        }
+        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    };
+    let password = form.new_password;
+    let hash = match state
+        .password_jobs
+        .run(move || {
+            if verify_password(&password, &stored_hash) {
+                return Ok(None);
+            }
+            hash_password(&password).map(Some)
+        })
+        .await
+    {
+        Ok(Ok(Some(hash))) => hash,
+        Ok(Ok(None)) => {
+            return private_response(
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    pages::reset_confirm_form(
+                        csrf,
+                        Some("Новый пароль должен отличаться от текущего"),
+                    ),
+                ),
+                &[],
+            )
+        }
+        Ok(Err(_)) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
         Err(status) => return private_response(status, &[]),
     };
     match state

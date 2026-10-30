@@ -3,6 +3,25 @@ use super::PgAccounts;
 use crate::services::security::session_token_digest;
 
 impl PgAccounts {
+    /// Cheap proof lookup before scheduling any expensive password job.
+    /// Consumption still rechecks under locks after hashing.
+    pub async fn live_reset_password_hash(
+        &self,
+        digest: &[u8; 32],
+    ) -> Result<Option<String>, sqlx::Error> {
+        let row: Option<(String, Vec<u8>)> = sqlx::query_as(
+            "SELECT u.password_hash,t.credential_fingerprint FROM password_reset_tokens t
+             JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1
+             AND t.consumed_at IS NULL AND t.expires_at>now() AND u.account_state='active'",
+        )
+        .bind(digest.as_slice())
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(row.and_then(|(hash, fingerprint)| {
+            (fingerprint.as_slice() == session_token_digest(&hash).as_slice()).then_some(hash)
+        }))
+    }
+
     pub async fn issue_password_reset(
         &self,
         user_id: i64,
