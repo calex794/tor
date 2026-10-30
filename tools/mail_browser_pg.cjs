@@ -14,6 +14,19 @@ function fixtureUser(email) {
   return id;
 }
 
+function fixtureBook(visibility) {
+  assert(['public', 'draft'].includes(visibility));
+  const db = process.env.TEST_DATABASE_URL || process.env.APP_URL || '';
+  assert(db.endsWith('/tor_ci'), 'disposable mail book fixture required');
+  const nonce = require('node:crypto').randomUUID().replace(/-/g, '');
+  const title = visibility === 'public' ? 'Browser book <safe>' : 'BROWSER-SECRET-TITLE';
+  const statement = "INSERT INTO books(source_identity,target_language,title,visibility) VALUES('ci:e08:browser:"
+    + nonce + "','ru','" + title + "','" + visibility + "') RETURNING id";
+  const id = execFileSync('psql', ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1',
+    '--dbname', db, '--command', statement], { encoding: 'utf8' }).trim();
+  assert(/^[1-9][0-9]*$/.test(id), 'one book fixture ID');
+  return id;
+}
 module.exports = async (browser, base, out) => {
   for (const [name, width] of [['desktop', 1440], ['mobile', 390]]) {
     const clients = [];
@@ -126,6 +139,29 @@ module.exports = async (browser, base, out) => {
       assert.equal(await a.page.locator('.mail-message-body').filter({hasText: marker}).count(), 2);
       const messageIds = await a.page.locator('[data-message-id]').evaluateAll(els => els.map(e => e.dataset.messageId));
       assert.equal(new Set(messageIds).size, 55);
+      // Public numeric links become cards via the same ACL in AJAX, polling and SSR.
+      const publicBook = fixtureBook('public');
+      const hiddenBook = fixtureBook('draft');
+      await a.page.getByLabel('Ваше сообщение', { exact: true })
+        .fill('Card /books/' + publicBook + ' hidden /books/' + hiddenBook);
+      await a.page.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
+      await a.page.locator('[data-mail-book-preview="' + publicBook + '"]').waitFor({ timeout: 15000 });
+      await b.page.locator('[data-mail-book-preview="' + publicBook + '"]').waitFor({ timeout: 20000 });
+      await b.page.reload();
+      assert.equal(await b.page.locator('[data-mail-book-preview="' + publicBook + '"]').count(), 1);
+      assert.equal(await b.page.locator('a[href="/books/' + hiddenBook + '"]').count(), 0);
+      assert.equal((await b.page.locator('#mail-messages').innerText()).includes('BROWSER-SECRET-TITLE'), false);
+      assert.equal((await b.page.locator('[data-mail-book-preview="' + publicBook + '"]').innerText()).includes('Browser book <safe>'), true);
+      const projected = await b.context.request.get(base + '/api/v1/me/messages?conversation_id=' + conversationId);
+      assert.equal(projected.status(), 200);
+      const projectedMessages = (await projected.json()).messages;
+      const bookMessage = projectedMessages.find(item => item.text.includes('/books/' + publicBook));
+      assert(bookMessage, 'book link must occur in visible conversation');
+      assert.equal(bookMessage.book_previews.length, 1);
+      assert.equal(bookMessage.book_previews[0].url, '/books/' + publicBook);
+      assert.equal(bookMessage.book_previews[0].cover_url, '');
+      assert(bookMessage.body_without_book_links.includes('/books/' + hiddenBook));
+      assert.equal((await c.context.request.get(base + conversation)).status(), 404, 'third user is still denied');
       await a.page.getByRole('button', { name: 'Добавить в друзья', exact: true }).click();
       await a.page.waitForURL(base + conversation);
       await b.page.reload();
