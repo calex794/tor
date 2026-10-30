@@ -211,6 +211,12 @@ class RilGovernanceTests(unittest.TestCase):
             "state.book_follows.follow(book_id)",
             start="async fn write(",
         )
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.book_follows.unfollow(actor, book_id)",
+            "state.book_follows.unfollow(book_id)",
+            start="async fn write(",
+        )
         self.assert_detected("missing actor-bound scoped repository call")
 
     def test_unfollow_write_requires_actor_bound_repository_call(self):
