@@ -41,6 +41,7 @@ use tor_reading::{
 };
 
 mod access_audit;
+mod auth_observation;
 mod account_form_http;
 mod batch_checkout_browser;
 mod behavior_consent;
