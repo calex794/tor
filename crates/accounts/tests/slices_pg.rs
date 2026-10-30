@@ -92,6 +92,14 @@ async fn a_07_reset_expiry_replay_parallel_consumption_and_credential_binding() 
         .issue_password_reset(user, "$argon2id$fixture", &token)
         .await
         .unwrap());
+    assert_eq!(
+        accounts
+            .live_reset_password_hash(&token)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("$argon2id$fixture")
+    );
     let (a, b) = tokio::join!(
         accounts.consume_password_reset(&token, "$argon2id$new-a"),
         accounts.consume_password_reset(&token, "$argon2id$new-b")
@@ -102,6 +110,11 @@ async fn a_07_reset_expiry_replay_parallel_consumption_and_credential_binding() 
         .consume_password_reset(&token, "$argon2id$replay")
         .await
         .unwrap());
+    assert!(accounts
+        .live_reset_password_hash(&token)
+        .await
+        .unwrap()
+        .is_none());
     let hash = accounts
         .password_hash_for_user(user)
         .await
@@ -114,6 +127,11 @@ async fn a_07_reset_expiry_replay_parallel_consumption_and_credential_binding() 
         .unwrap();
     sqlx::query("UPDATE password_reset_tokens SET created_at=now()-INTERVAL '2 hours',expires_at=now()-INTERVAL '1 hour' WHERE token_hash=$1")
         .bind(expired.as_slice()).execute(accounts.pool()).await.unwrap();
+    assert!(accounts
+        .live_reset_password_hash(&expired)
+        .await
+        .unwrap()
+        .is_none());
     assert!(!accounts
         .consume_password_reset(&expired, "$argon2id$expired")
         .await
@@ -128,6 +146,11 @@ async fn a_07_reset_expiry_replay_parallel_consumption_and_credential_binding() 
         .execute(accounts.pool())
         .await
         .unwrap();
+    assert!(accounts
+        .live_reset_password_hash(&stale)
+        .await
+        .unwrap()
+        .is_none());
     assert!(!accounts
         .consume_password_reset(&stale, "$argon2id$stale")
         .await

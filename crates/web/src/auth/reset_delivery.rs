@@ -102,4 +102,37 @@ mod tests {
             assert!(!safe_mailbox(value));
         }
     }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_07_unresponsive_mail_handoff_is_killed_and_capacity_recovers() {
+        use std::os::unix::fs::PermissionsExt;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let command = std::env::temp_dir().join(format!("tor-reset-mta-{nonce}"));
+        std::fs::write(
+            &command,
+            "#!/usr/bin/python3\nimport time\ntime.sleep(60)\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let delivery = ResetDelivery {
+            command: command.clone(),
+            from: "noreply@example.invalid".into(),
+            origin: "http://127.0.0.1:3098".into(),
+            permits: Arc::new(Semaphore::new(1)),
+        };
+        let permit = delivery.reserve().unwrap();
+        assert!(delivery.reserve().is_none());
+        let started = Instant::now();
+        assert!(
+            !delivery
+                .send("reader@example.invalid".into(), "test-token".into(), permit)
+                .await
+        );
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(delivery.reserve().is_some());
+        std::fs::remove_file(command).unwrap();
+    }
 }

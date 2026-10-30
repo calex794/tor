@@ -50,8 +50,8 @@ async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revis
     let pool = sqlx::PgPool::connect(&url).await.unwrap();
     let accounts = PgAccounts::from_pool(pool.clone());
     let app = tor_web::router_with_postgres_reading_auth(
-        tor_books::repositories::PgCatalog::from_pool(pool.clone()),
-        tor_reading::repositories::PgReader::from_pool(pool.clone()),
+        tor_books::repositories::PgCatalog::new(pool.clone()),
+        tor_reading::repositories::PgReader::new(pool.clone()),
         accounts.clone(),
         false,
         ORIGIN.into(),
