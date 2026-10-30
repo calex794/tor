@@ -20,3 +20,6 @@ pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};
 
 pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
+
+pub mod chapter_thanks;
+pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};
