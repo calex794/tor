@@ -27,13 +27,23 @@ impl FollowBookControl {
         }
     }
 
-    /// Read-only identity lookup for the public free reader. Never trust a
-    /// user id from headers; this verifies the active A session in PostgreSQL.
-    pub(super) async fn verified_reader(&self, headers: &HeaderMap) -> Result<Option<i64>, StatusCode> {
+    /// Reuse the verified account session and cookie origin for public book capture.
+    /// Keep referral writes in F-owned repositories, never the public HTML renderer.
+    pub(super) fn browser_context(&self) -> (&PgAccounts, &CookiePolicy) {
+        (&self.accounts, &self.cookies)
+    }
+
+    /// Resolve a reader from the verified active account session only.
+    pub(super) async fn verified_reader(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<Option<i64>, StatusCode> {
         let Some(token) = self.cookies.session_token(headers) else {
             return Ok(None);
         };
-        self.accounts.active_session_user(&session_token_digest(&token)).await
+        self.accounts
+            .active_session_user(&session_token_digest(&token))
+            .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
     }
 

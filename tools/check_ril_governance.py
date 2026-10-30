@@ -28,6 +28,7 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
+    "active_role",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -35,7 +36,6 @@ OWNER_CALLS = {
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
-    "active_role",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -124,6 +124,12 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
         if module not in allowed:
             return root / "__unsupported_account_handler__"
+        return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/referral_routes.rs":
+        # Only these three sibling handlers may be bound through the F-09 router.
+        allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
+        if module not in allowed:
+            return root / "__unsupported_referral_handler__"
         return source.parent / f"{module}.rs"
     if source.name in {"lib.rs", "mod.rs"}:
         return source.parent / f"{module}.rs"
