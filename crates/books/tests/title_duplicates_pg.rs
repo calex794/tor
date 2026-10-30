@@ -107,13 +107,11 @@ async fn b_19_title_suggestions_are_indexed_private_and_non_blocking() {
     .unwrap();
     assert!(authors.create_owned_book(other, &different).await.is_ok());
 
-    let row = sqlx::query(
-        "SELECT source_identity, target_language FROM books WHERE id=$1",
-    )
-    .bind(id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let row = sqlx::query("SELECT source_identity, target_language FROM books WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(row.get::<String, _>("target_language"), "ru");
     assert!(row.get::<String, _>("source_identity").contains("b19:"));
     pool.close().await;

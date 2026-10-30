@@ -50,9 +50,9 @@ pub(crate) fn auth_observation_dropped() -> u64 {
 mod account_form_http;
 mod author_book_page;
 mod batch_checkout_browser;
-mod book_create_duplicate;
 mod behavior_consent;
 mod book_comments;
+mod book_create_duplicate;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
@@ -277,7 +277,10 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
-        .route("/me/books/check", post(book_create_duplicate::check_book_title))
+        .route(
+            "/me/books/check",
+            post(book_create_duplicate::check_book_title),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route(
             "/me/books/{id}/description",
@@ -399,12 +402,13 @@ async fn create_book(
         },
     )
     .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    .and_then(|book| tor_books::services::title_duplicates::with_title_aliases(
-        book,
-        form.original_title.as_deref().unwrap_or(""),
-        form.alternative_titles.as_deref().unwrap_or(""),
-    ))
-    {
+    .and_then(|book| {
+        tor_books::services::title_duplicates::with_title_aliases(
+            book,
+            form.original_title.as_deref().unwrap_or(""),
+            form.alternative_titles.as_deref().unwrap_or(""),
+        )
+    }) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
@@ -417,7 +421,6 @@ async fn create_book(
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 
 /// NEwBOO owner cover settings, restricted script; no inline scripts.
 async fn cover_settings(

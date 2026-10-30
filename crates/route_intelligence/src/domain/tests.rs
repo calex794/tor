@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 110);
+    assert_eq!(unique.len(), 111);
 }
 
 #[test]
@@ -65,6 +65,10 @@ fn public_private_and_write_routes_are_distinct() {
     );
     assert_eq!(
         classify(Some("/me/books"), "POST").cost_class,
+        CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/books/check"), "POST").cost_class,
         CostClass::Write
     );
     assert_eq!(classify(Some("/me/books/{id}"), "GET").route_family, "/me/");

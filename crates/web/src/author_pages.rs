@@ -60,13 +60,28 @@ pub fn review_new_book(
 ) -> Html<String> {
     let mut form_html = include_str!("../templates/author_new_book.html").to_owned();
     let fields = [
-        ("<!--CSRF_TOKEN-->", form.csrf_token.as_deref().unwrap_or("")),
+        (
+            "<!--CSRF_TOKEN-->",
+            form.csrf_token.as_deref().unwrap_or(""),
+        ),
         ("<!--COMMAND_KEY-->", form.command_key.as_str()),
         ("<!--BOOK_TITLE-->", form.title.as_str()),
-        ("<!--BOOK_ORIGINAL-->", form.original_title.as_deref().unwrap_or("")),
-        ("<!--BOOK_ALTERNATIVES-->", form.alternative_titles.as_deref().unwrap_or("")),
-        ("<!--BOOK_AUTHOR-->", form.author_name.as_deref().unwrap_or("")),
-        ("<!--BOOK_DESCRIPTION-->", form.description.as_deref().unwrap_or("")),
+        (
+            "<!--BOOK_ORIGINAL-->",
+            form.original_title.as_deref().unwrap_or(""),
+        ),
+        (
+            "<!--BOOK_ALTERNATIVES-->",
+            form.alternative_titles.as_deref().unwrap_or(""),
+        ),
+        (
+            "<!--BOOK_AUTHOR-->",
+            form.author_name.as_deref().unwrap_or(""),
+        ),
+        (
+            "<!--BOOK_DESCRIPTION-->",
+            form.description.as_deref().unwrap_or(""),
+        ),
         ("<!--BOOK_GENRES-->", form.genres.as_deref().unwrap_or("")),
         ("<!--BOOK_TAGS-->", form.tags.as_deref().unwrap_or("")),
         ("<!--BOOK_FANDOMS-->", form.fandoms.as_deref().unwrap_or("")),
@@ -77,11 +92,17 @@ pub fn review_new_book(
     }
     let mut list = String::new();
     if candidates.is_empty() {
-        list.push_str("<p>Похожих доступных книг не найдено. Это не гарантия отсутствия дубля.</p>");
+        list.push_str(
+            "<p>Похожих доступных книг не найдено. Это не гарантия отсутствия дубля.</p>",
+        );
     } else {
         list.push_str("<p>Проверьте найденные книги: похожее название не обязательно означает одно произведение.</p><ul>");
         for candidate in candidates {
-            let match_kind = if candidate.exact { "совпадение названия" } else { "похожее название" };
+            let match_kind = if candidate.exact {
+                "совпадение названия"
+            } else {
+                "похожее название"
+            };
             write!(
                 &mut list,
                 "<li><a href=\"/books/{}\">{}</a> (язык: {}; {})</li>",
@@ -100,7 +121,11 @@ pub fn review_new_book(
         "<!--BOOK_CREATE_BUTTON-->",
         "<button class=\"button\" type=\"submit\" formaction=\"/me/books\">Создать книгу после проверки</button>",
     );
-    layout("Проверка названия книги", "Перед созданием проверьте возможные совпадения.", &form_html)
+    layout(
+        "Проверка названия книги",
+        "Перед созданием проверьте возможные совпадения.",
+        &form_html,
+    )
 }
 
 #[cfg(test)]

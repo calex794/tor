@@ -7,10 +7,9 @@ pub(super) async fn check_book_title(
     Form(form): Form<NewBookForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(
-            &headers,
-            form.csrf_token.as_deref().unwrap_or(""),
-        )
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -38,11 +37,13 @@ pub(super) async fn check_book_title(
         },
     )
     .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    .and_then(|book| tor_books::services::title_duplicates::with_title_aliases(
-        book,
-        form.original_title.as_deref().unwrap_or(""),
-        form.alternative_titles.as_deref().unwrap_or(""),
-    ));
+    .and_then(|book| {
+        tor_books::services::title_duplicates::with_title_aliases(
+            book,
+            form.original_title.as_deref().unwrap_or(""),
+            form.alternative_titles.as_deref().unwrap_or(""),
+        )
+    });
     if valid.is_err() {
         return deny(StatusCode::BAD_REQUEST);
     }
