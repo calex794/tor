@@ -260,6 +260,7 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .await
         .unwrap()
         .items
+        .iter()
         .any(|item| item.chapter_id == paid && !item.is_read));
 
     assert!(!releases
