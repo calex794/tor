@@ -85,6 +85,7 @@ TEST_SUITES = {
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
     "tools/author_chapter_visual_smoke.cjs": {"reader_browser"},
+    "tools/chapter_file_import_browser.cjs": {"reader_browser"},
     "tools/search_visual_smoke.cjs": {"reader_browser"},
     "tools/ranking_visual_smoke.cjs": {"reader_browser"},
     "tools/author_cover_pg_visual_smoke.cjs": {"cover_browser"},
