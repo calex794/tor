@@ -248,3 +248,34 @@ async fn d_05_picker_lists_only_single_active_owner_books_and_rechecks_on_add() 
     );
     pool.close().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_05_pg_membership_identity_cannot_move_out_of_live_layer() {
+    let (pool, repo, owner, collaborator, book) = setup("member-identity-fence").await;
+    let layer = repo.create_layer(id(owner), "Membership fence").await.unwrap();
+    repo.add_book(id(owner), id(layer), id(book)).await.unwrap();
+    let unrelated = own_book(&pool, collaborator, "member-identity-unrelated").await;
+    // A direct DML update of the primary-key identity must not migrate
+    // active membership out of Layer without taking the Book row lock.
+    let moved = sqlx::query(
+        "UPDATE book_members SET book_id=$2 WHERE book_id=$1 AND user_id=$3",
+    )
+    .bind(book)
+    .bind(unrelated)
+    .bind(owner)
+    .execute(&pool)
+    .await;
+    assert!(moved.is_err(), "Layer member identity update must be rejected");
+    let swapped = sqlx::query(
+        "UPDATE book_members SET user_id=$2 WHERE book_id=$1 AND user_id=$3",
+    )
+    .bind(book)
+    .bind(collaborator)
+    .bind(owner)
+    .execute(&pool)
+    .await;
+    assert!(swapped.is_err(), "Layer member actor update must be rejected");
+    pool.close().await;
+}
