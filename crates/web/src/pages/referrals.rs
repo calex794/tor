@@ -8,6 +8,7 @@ pub fn referrals_page(
     origin: &str,
     overview: &ReferralOverview,
     book_id: Option<u64>,
+    alias_error: Option<&str>,
 ) -> Html<String> {
     let invitation = match &overview.default_code {
         Some(owned) if owned.status == "active" => {
@@ -59,6 +60,55 @@ pub fn referrals_page(
                          Сначала создайте активную реферальную ссылку.</p>".to_owned(),
         (None, _) => String::new(),
     };
+    let alias_notice = match alias_error {
+        Some("invalid") => "<p role=\"alert\">Недопустимое короткое имя или тип ссылки.</p>",
+        Some("taken") => "<p role=\"alert\">Короткое имя уже занято.</p>",
+        Some("locked") => "<p role=\"alert\">Опубликованный короткий адрес изменить нельзя.</p>",
+        Some("unavailable") => "<p role=\"alert\">Сначала нужен активный код приглашения.</p>",
+        _ => "",
+    };
+    let alias_panel = match &overview.default_code {
+        Some(code) if code.status == "active" => {
+            match (code.alias_path_prefix.as_deref(), code.alias.as_deref()) {
+                (Some(prefix), Some(alias)) => {
+                    let url = format!("{}/{prefix}/{alias}", origin.trim_end_matches('/'));
+                    format!(
+                        "<section class=\"me-section\" aria-label=\"Короткая ссылка\">\
+                         <h2 class=\"ui-section-header__title\">Короткая ссылка</h2>\
+                         <label for=\"referral-short-url\">Ваш неизменяемый адрес</label>\
+                         <input class=\"ui-input\" type=\"text\" id=\"referral-short-url\" \
+                         aria-label=\"Ваша короткая ссылка\" readonly value=\"{}\">\
+                         <p class=\"ui-section-header__text\">Адрес привязан к коду навсегда. \
+                         Изменить его после публикации нельзя.</p></section>",
+                        escape_html(&url)
+                    )
+                }
+                _ => format!(
+                    "<section class=\"me-section\" aria-label=\"Создать короткую ссылку\">\
+                     <h2 class=\"ui-section-header__title\">Короткая ссылка</h2>{alias_notice}\
+                     <form method=\"post\" action=\"/me/referrals/alias\">\
+                       <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
+                       <label for=\"referral-alias-prefix\">Тип короткой ссылки</label>\
+                       <select id=\"referral-alias-prefix\" name=\"prefix\">\
+                         <option value=\"go\">/go/</option>\
+                         <option value=\"promo\">/promo/</option>\
+                       </select>\
+                       <label for=\"referral-alias\">Короткое имя ссылки</label>\
+                       <input id=\"referral-alias\" class=\"ui-input\" type=\"text\" name=\"alias\" \
+                         required minlength=\"3\" maxlength=\"64\" \
+                         pattern=\"[a-z0-9][a-z0-9-]{{2,63}}\" \
+                         autocomplete=\"off\" placeholder=\"kniga-2026\">\
+                       <button type=\"submit\" class=\"ui-button ui-button--primary\">\
+                         Создать короткую ссылку</button>\
+                     </form>\
+                     <p class=\"ui-section-header__text\">Выбор окончательный. \
+                       Регистрация по ссылке не обещает вознаграждение.</p></section>",
+                    escape_html(csrf)
+                ),
+            }
+        }
+        _ => String::new(),
+    };
     let body = format!(
         "<section class=\"me-page\"><div class=\"container\">\
            <nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\">\
@@ -72,6 +122,7 @@ pub fn referrals_page(
            </div></header>\
            <section class=\"me-section\" aria-label=\"Реферальная ссылка\">{invitation}</section>\
            {book_share}\
+           {alias_panel}\
            <section class=\"me-section\" aria-label=\"Атрибуция регистраций\">\
              <h2 class=\"ui-section-header__title\">Атрибуция</h2>\
              <p>Активных привязок: <strong>{}</strong></p>\
@@ -111,7 +162,7 @@ mod tests {
             blocked: 0,
             expired: 0,
         };
-        let html = referrals_page("csrf", "https://books.example/?x=<script>", &overview, None).0;
+        let html = referrals_page("csrf", "https://books.example/?x=<script>", &overview, None, None).0;
         assert!(html.contains("https://books.example/?x=&lt;script&gt;/r/r_example"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("Активных привязок: <strong>1</strong>"));
@@ -129,6 +180,7 @@ mod tests {
                 ..overview
             },
             Some(1),
+            None,
         )
         .0;
         assert!(!hidden.contains("id=\"referral-url\""));
@@ -144,7 +196,7 @@ mod tests {
             blocked: 0,
             expired: 0,
         };
-        let html = referrals_page("csrf<secret>", "https://books.example", &overview, Some(15)).0;
+        let html = referrals_page("csrf<secret>", "https://books.example", &overview, Some(15), None).0;
         assert!(html.contains("method=\"post\" action=\"/me/referrals\""));
         assert!(html.contains("name=\"csrf_token\" value=\"csrf&lt;secret&gt;\""));
         assert!(html.contains("Создать ссылку"));
@@ -167,10 +219,31 @@ mod tests {
             expired: 0,
         };
         let html = referrals_page(
-            "csrf", "https://books.example", &overview, Some(12)
+            "csrf", "https://books.example", &overview, Some(12), None
         ).0;
         assert!(html.contains("id=\"book-referral-url\""));
         assert!(html.contains("https://books.example/books/12?ref=r_example"));
         assert!(!html.contains("subject_user_id"));
+        assert!(html.contains("name=\"alias\""));
+        assert!(html.contains("name=\"prefix\""));
+    }
+
+    #[test]
+    fn f_09_immutable_alias_is_visible_without_new_creation_form() {
+        let overview = ReferralOverview {
+            default_code: Some(OwnedReferralCode {
+                code: "r_example".to_owned(),
+                status: "active".to_owned(),
+                alias: Some("summer-reads".to_owned()),
+                alias_path_prefix: Some("promo".to_owned()),
+            }),
+            active: 0,
+            under_review: 0,
+            blocked: 0,
+            expired: 0,
+        };
+        let html = referrals_page("csrf", "https://books.example", &overview, None, None).0;
+        assert!(html.contains("https://books.example/promo/summer-reads"));
+        assert!(!html.contains("action=\"/me/referrals/alias\""));
     }
 }
