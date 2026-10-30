@@ -22,20 +22,34 @@ use tor_discussions::{
 
 pub(super) async fn mention_script() -> Response {
     private_response(
-        ([(axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-         include_str!("../../assets/mentions.js")).into_response(),
+        (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/javascript; charset=utf-8",
+            )],
+            include_str!("../../assets/mentions.js"),
+        )
+            .into_response(),
         &[],
     )
 }
 
 #[derive(Deserialize)]
-pub(super) struct MentionsQuery { book_id: i64, q: String }
+pub(super) struct MentionsQuery {
+    book_id: i64,
+    q: String,
+}
 
 #[derive(Serialize)]
-struct MentionOption { user_id: i64, label: String }
+struct MentionOption {
+    user_id: i64,
+    label: String,
+}
 
 #[derive(Serialize)]
-struct MentionOptions { items: Vec<MentionOption> }
+struct MentionOptions {
+    items: Vec<MentionOption>,
+}
 
 pub(super) async fn discover_mentions(
     State(state): State<AuthState>,
@@ -48,15 +62,26 @@ pub(super) async fn discover_mentions(
         Err(status) => return deny(status),
     };
     let repo = PgPublicBookComments::new(state.accounts.pool().clone());
-    match repo.mention_candidates(actor, query.book_id, &query.q).await {
-        Ok(items) => private_response(Json(MentionOptions {
-            items: items.into_iter().map(|item| MentionOption {
-                user_id: item.user_id,
-                label: item.display_name,
-            }).collect(),
-        }).into_response(), &[]),
-        Err(tor_discussions::repositories::public_book_comments::ListCommentsError::Invalid) =>
-            deny(StatusCode::BAD_REQUEST),
+    match repo
+        .mention_candidates(actor, query.book_id, &query.q)
+        .await
+    {
+        Ok(items) => private_response(
+            Json(MentionOptions {
+                items: items
+                    .into_iter()
+                    .map(|item| MentionOption {
+                        user_id: item.user_id,
+                        label: item.display_name,
+                    })
+                    .collect(),
+            })
+            .into_response(),
+            &[],
+        ),
+        Err(tor_discussions::repositories::public_book_comments::ListCommentsError::Invalid) => {
+            deny(StatusCode::BAD_REQUEST)
+        }
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
