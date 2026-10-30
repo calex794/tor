@@ -1,6 +1,9 @@
 //! A-07: authenticated password rotation without retaining old sessions.
 use super::AuthState;
-use crate::{auth_cookies::{private_response, SESSION_AGE}, pages};
+use crate::{
+    auth_cookies::{private_response, SESSION_AGE},
+    pages,
+};
 use axum::{
     extract::{Form, State},
     http::{HeaderMap, StatusCode},
@@ -44,9 +47,9 @@ pub(super) async fn submit(
     Form(form): Form<PasswordChangeForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(
-            &headers, form.csrf_token.as_deref().unwrap_or(""),
-        )
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
@@ -68,9 +71,19 @@ pub(super) async fn submit(
         return error(StatusCode::BAD_REQUEST, message, csrf);
     }
     let attempt_key = session_token_digest(&format!("auth:password-change:{user_id}"));
-    match state.accounts.permit_auth_attempt(&attempt_key, 8, 600).await {
+    match state
+        .accounts
+        .permit_auth_attempt(&attempt_key, 8, 600)
+        .await
+    {
         Ok(true) => {}
-        Ok(false) => return error(StatusCode::TOO_MANY_REQUESTS, "Слишком много попыток. Повторите позже.", csrf),
+        Ok(false) => {
+            return error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Слишком много попыток. Повторите позже.",
+                csrf,
+            )
+        }
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
     let stored_hash = match state.accounts.password_hash_for_user(user_id).await {
@@ -81,28 +94,47 @@ pub(super) async fn submit(
     let expected_hash = stored_hash.clone();
     let old_password = form.current_password;
     let new_password = form.new_password;
-    let new_hash = match state.password_jobs.run(move || {
-        if !verify_password(&old_password, &stored_hash) {
-            return None;
-        }
-        hash_password(&new_password).ok()
-    }).await {
+    let new_hash = match state
+        .password_jobs
+        .run(move || {
+            if !verify_password(&old_password, &stored_hash) {
+                return None;
+            }
+            hash_password(&new_password).ok()
+        })
+        .await
+    {
         Ok(Some(hash)) => hash,
-        Ok(None) => return error(StatusCode::UNAUTHORIZED, "Не удалось изменить пароль. Проверьте текущий пароль.", csrf),
+        Ok(None) => {
+            return error(
+                StatusCode::UNAUTHORIZED,
+                "Не удалось изменить пароль. Проверьте текущий пароль.",
+                csrf,
+            )
+        }
         Err(status) => return private_response(status, &[]),
     };
     let token = generate_session_token();
-    let updated = state.accounts.rotate_password_and_sessions(
-        user_id,
-        &session_token_digest(&session_token),
-        &expected_hash,
-        &new_hash,
-        &session_token_digest(&token),
-        NonZeroU32::new(SESSION_AGE).expect("session TTL"),
-    ).await;
+    let updated = state
+        .accounts
+        .rotate_password_and_sessions(
+            user_id,
+            &session_token_digest(&session_token),
+            &expected_hash,
+            &new_hash,
+            &session_token_digest(&token),
+            NonZeroU32::new(SESSION_AGE).expect("session TTL"),
+        )
+        .await;
     match updated {
         Ok(true) => {}
-        Ok(false) => return error(StatusCode::CONFLICT, "Сеанс или пароль уже изменён. Войдите снова.", csrf),
+        Ok(false) => {
+            return error(
+                StatusCode::CONFLICT,
+                "Сеанс или пароль уже изменён. Войдите снова.",
+                csrf,
+            )
+        }
         Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     }
     // Counter reset failure never restores a revoked password/session.
