@@ -77,6 +77,7 @@ fn render_index(books: &[OwnedBook], layers: Option<&[OwnedLayerSummary]>) -> Ht
     layout("Мои книги", "Ваши книги из PostgreSQL.", &content)
 }
 
+#[cfg(test)]
 pub fn layers_index(layers: &[OwnedLayerSummary]) -> Html<String> {
     layers_index_with_forms(layers, "")
 }
