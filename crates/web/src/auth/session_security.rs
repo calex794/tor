@@ -1,5 +1,6 @@
 //! A-03: browser-only session ownership and explicit revocation.
 use super::AuthState;
+use tor_accounts::services::security::verify_password;
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, State},
@@ -13,6 +14,7 @@ use tor_accounts::services::security::session_token_digest;
 #[serde(deny_unknown_fields)]
 pub(super) struct RevokeForm {
     session_id: String,
+    current_password: String,
     csrf_token: Option<String>,
 }
 
@@ -57,9 +59,31 @@ pub(super) async fn revoke(
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(StatusCode::UNAUTHORIZED, &[]);
     };
+    if form.current_password.is_empty() || form.current_password.len() > 512 {
+        return private_response(StatusCode::BAD_REQUEST, &[]);
+    }
+    let attempts = session_token_digest(&format!("auth:revoke-session:{user}"));
+    match state.accounts.permit_auth_attempt(&attempts, 8, 600).await {
+        Ok(true) => {}
+        Ok(false) => return private_response(StatusCode::TOO_MANY_REQUESTS, &[]),
+        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
+    let expected = match state.accounts.password_hash_for_user(user).await {
+        Ok(Some(hash)) => hash,
+        _ => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    };
+    let password = form.current_password;
+    let verify_hash = expected.clone();
+    let valid = match state.password_jobs.run(move || verify_password(&password, &verify_hash)).await {
+        Ok(valid) => valid,
+        Err(status) => return private_response(status, &[]),
+    };
+    if !valid {
+        return private_response(StatusCode::UNAUTHORIZED, &[]);
+    }
     match state
         .accounts
-        .revoke_owned_session(user, &session_token_digest(&token), &form.session_id)
+        .revoke_owned_session(user, &session_token_digest(&token), &form.session_id, &expected)
         .await
     {
         Ok(Some(true)) => {
