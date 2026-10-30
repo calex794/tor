@@ -8,6 +8,7 @@ use axum::{
     response::{Redirect, Response},
 };
 use serde::Deserialize;
+use tor_accounts::services::security::session_token_digest;
 use tor_reading::repositories::{PgChapterThanks, ThanksMutation};
 
 #[derive(Default, Deserialize)]
@@ -90,6 +91,16 @@ pub(super) async fn submit(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
+    // NEwBOO chapter_thanks: 20 attempts/minute per verified account.
+    // A PostgreSQL counter makes the guard shared across web processes.
+    let key = session_token_digest(&format!("action:chapter_thanks:user:{actor}"));
+    let allowed = match state.accounts.permit_auth_attempt(&key, 20, 60).await {
+        Ok(allowed) => allowed,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !allowed {
+        return deny(StatusCode::TOO_MANY_REQUESTS);
+    }
     let repo = PgChapterThanks::new(state.accounts.pool().clone());
     match repo.thank_visible_free(actor, id).await {
         Ok(ThanksMutation::NotVisible) => deny(StatusCode::NOT_FOUND),
