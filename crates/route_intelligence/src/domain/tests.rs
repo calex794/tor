@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 98);
+    assert_eq!(unique.len(), 101);
     let purchase = classify(Some("/api/v1/layers/{id}/purchase"), "POST");
     assert!(purchase.route_known);
     assert_eq!(purchase.product_area, ProductArea::Billing);
@@ -68,6 +68,18 @@ fn public_private_and_write_routes_are_distinct() {
     assert_eq!(
         classify(Some("/read/{id}/want-continuation"), "POST").cost_class,
         CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/settings/password"), "POST").cost_class,
+        CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/settings/password"), "GET").product_area,
+        ProductArea::Auth
+    );
+    assert_eq!(
+        classify(Some("/me/updates/{id}/read-state"), "POST").product_area,
+        ProductArea::Reading
     );
     let get = classify(Some("/login"), "GET");
     let post = classify(Some("/login"), "POST");

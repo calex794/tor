@@ -8,14 +8,20 @@ use std::fmt::Write;
 mod account;
 mod layer_storefront;
 mod library;
+#[allow(unused_imports)] // The previous account renderer remains available to callers.
 pub use account::{
-    account_error_page, login_form, my_account, registration_form, registration_form_with_error,
+    account_error_page, login_form, my_account, my_account_with_follow_updates,
+    password_change_form, registration_form, registration_form_with_error,
 };
 pub use layer_storefront::{
     offer_page as layer_offer_page, purchase_error as layer_purchase_error,
     purchased_page as purchased_layers_page,
 };
-pub use library::{my_library, my_library_with_options, my_library_with_purchases};
+#[allow(unused_imports)] // Legacy library APIs stay available for tests and other callers.
+pub use library::{
+    my_library, my_library_with_options, my_library_with_purchases, my_library_with_updates,
+    LibraryCapabilities,
+};
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
 mod reader_private;
