@@ -607,18 +607,26 @@ async fn d_05_pg_draft_only_layer_cannot_debit_wallet() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let layer = repo.create_layer(id(owner), "Unpublished Layer").await.unwrap();
-    let version = repo.add_book(id(owner), id(layer), id(draft)).await.unwrap();
-    let offered = repo.publish_offer(id(owner), id(layer), 125, false).await.unwrap();
+    let layer = repo
+        .create_layer(id(owner), "Unpublished Layer")
+        .await
+        .unwrap();
+    let version = repo
+        .add_book(id(owner), id(layer), id(draft))
+        .await
+        .unwrap();
+    let offered = repo
+        .publish_offer(id(owner), id(layer), 125, false)
+        .await
+        .unwrap();
 
     // The public UI suppresses its buy button when no Book is published.
     // The same restriction must hold for a direct, authenticated JSON POST.
-    let card = tor_commerce::repositories::layer_storefront::storefront(
-        &pool, layer, Some(buyer),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let card =
+        tor_commerce::repositories::layer_storefront::storefront(&pool, layer, Some(buyer))
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(card.public_book_count, 0);
     assert!(card.public_books.is_empty());
     assert_eq!(
