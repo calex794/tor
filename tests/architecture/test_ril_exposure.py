@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 89)  # C-17 adds two protected notification settings routes.
-        self.assertEqual(report["route_pairs"], 85)  # C-16 adds one distinct reader notification route.
+        self.assertEqual(report["route_pairs"], 87)  # C-17 adds two distinct settings method/route pairs.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
