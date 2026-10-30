@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 85);
+    assert_eq!(unique.len(), 87);
 }
 
 #[test]
@@ -29,6 +29,14 @@ fn public_private_and_write_routes_are_distinct() {
     assert_eq!(
         classify(Some("/read/{id}/want-continuation"), "POST").cost_class,
         CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/settings/password"), "POST").cost_class,
+        CostClass::Write
+    );
+    assert_eq!(
+        classify(Some("/me/settings/password"), "GET").product_area,
+        ProductArea::Auth
     );
     let get = classify(Some("/login"), "GET");
     let post = classify(Some("/login"), "POST");
