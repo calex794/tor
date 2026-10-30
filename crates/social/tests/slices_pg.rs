@@ -420,10 +420,7 @@ async fn e_08_notifications_outbox_once_on_replay_and_block() {
     assert!(notifications.list(a, None, 50).await.unwrap().is_empty());
     assert!(notifications.list(c, None, 50).await.unwrap().is_empty());
     assert_eq!(notifications.deliver_pending(1).await.unwrap(), 0);
-    assert_eq!(
-        notifications.mark_read(c, mail_rows[0].id).await.unwrap(),
-        false
-    );
+    assert!(!notifications.mark_read(c, mail_rows[0].id).await.unwrap());
     assert!(notifications.mark_read(b, mail_rows[0].id).await.unwrap());
     assert!(notifications.mark_read(b, mail_rows[0].id).await.unwrap());
 

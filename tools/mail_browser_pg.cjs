@@ -61,6 +61,42 @@ module.exports = async (browser, base, out) => {
       assert.equal(replay.status(), 303);
       await b.page.locator('.mail-message-body').filter({ hasText: marker }).waitFor({ timeout: 15000 });
       assert.equal(await b.page.locator('[data-message-id]').count(), 1, 'polling and retry deliver one canonical message');
+      // An actual browser recipient gets one in-app notification. This is
+      // separate from the NEwBOO mail read state; retries create no duplicates.
+      await b.page.goto(base + '/notifications');
+      let notificationReady = false;
+      for (let attempt = 0; attempt < 18; attempt++) {
+        await b.page.reload();
+        if (await b.page.locator('[data-notification-kind="mail"]').count() === 1) {
+          notificationReady = true;
+          break;
+        }
+        await b.page.waitForTimeout(650);
+      }
+      assert(notificationReady, 'mail notification must arrive via the durable outbox consumer');
+      const notification = b.page.locator('[data-notification-kind="mail"]');
+      const notificationText = await notification.innerText();
+      assert(notificationText.includes('Новое сообщение'), 'recipient notification title');
+      assert(!notificationText.includes(marker), 'notification must never disclose the message body');
+      const notificationId = await notification.getAttribute('data-notification-id');
+      assert(/^\d+$/.test(notificationId), 'notification id');
+      await c.page.goto(base + '/notifications');
+      assert.equal(await c.page.locator('[data-notification-kind="mail"]').count(), 0,
+        'unrelated account has no access to the recipient feed');
+      const cCsrf = await c.page.locator('form[action="/notifications/read-all"] [name="csrf_token"]').inputValue();
+      const deniedRead = await c.context.request.post(base + '/notifications/' + notificationId + '/read', {
+        form: { csrf_token: cCsrf }, headers: { Origin: base }, maxRedirects: 0,
+      });
+      assert.equal(deniedRead.status(), 404, 'another logged-in user cannot mark recipient notification read');
+      const bCsrf = await b.page.locator('form[action="/notifications/read-all"] [name="csrf_token"]').inputValue();
+      const wrongOrigin = await b.context.request.post(base + '/notifications/' + notificationId + '/read', {
+        form: { csrf_token: bCsrf }, headers: { Origin: 'https://attacker.invalid' }, maxRedirects: 0,
+      });
+      assert.equal(wrongOrigin.status(), 403, 'notification mark-read rejects cross-origin requests');
+      await notification.getByRole('button', { name: 'Отметить прочитанным' }).click();
+      await b.page.waitForURL('**/notifications');
+      assert((await b.page.locator('[data-notification-id="' + notificationId + '"]').innerText()).includes('Прочитано'));
+      await b.page.goto(base + conversation);
       assert.equal(await b.page.locator('#mail-messages img, #mail-messages script').count(), 0);
       assert.equal(await b.page.evaluate(() => window.mailXss), undefined);
       assert.equal(await b.page.locator('#mail-messages a[href="/books/2"]').count(), 0, 'no hidden-book preview');
