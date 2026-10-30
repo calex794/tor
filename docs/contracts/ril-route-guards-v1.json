@@ -663,6 +663,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "reply_read_state::submit",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/inbox",
+      "source": "crates/web/src/auth.rs",
+      "handler": "inbox::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/inbox",
+      "source": "crates/web/src/auth.rs",
+      "handler": "inbox::api",
+      "policy": "session"
     }
   ]
 }
