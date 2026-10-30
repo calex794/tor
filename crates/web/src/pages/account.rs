@@ -145,8 +145,16 @@ fn render_my_account(
             "<!--READER_ACHIEVEMENTS-->",
             &reader_achievements(achievements),
         );
-    // Only the authenticated private page changes its navigation.
-    let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
+    private_account_layout("Мой кабинет", "Учётная запись и личный кабинет.", &content)
+}
+
+/// Switch public navigation to the authenticated account shell.
+pub(super) fn private_account_layout(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
     Html(
         html.0
             .replace(

@@ -26,6 +26,7 @@ mod book_follow_page;
 mod catalog_http;
 pub mod cover_delivery;
 mod cover_http;
+mod referral_book_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,
@@ -54,9 +55,9 @@ pub use paid_reader_router::{
 };
 mod password_jobs;
 pub mod ranking_consumer;
+pub mod referral_consumer;
 mod ril;
 mod worker_health;
-
 #[derive(Clone)]
 struct AppState {
     books: Arc<dyn PublicBookRepository>,
@@ -67,7 +68,6 @@ struct AppState {
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
-
 async fn health() -> &'static str {
     "ok"
 }
@@ -418,10 +418,21 @@ fn make_router(
     follow_control: Option<book_follow_page::FollowBookControl>,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
+    // Only real authenticated PG routers may capture referral book query links.
+    // This layer runs *after* book_detail has accepted public visibility.
+    let book_router = Router::new().route("/books/{id}", get(book_detail));
+    let book_router = if let Some(control) = follow_control.clone() {
+        book_router.route_layer(axum::middleware::from_fn_with_state(
+            control,
+            referral_book_http::capture,
+        ))
+    } else {
+        book_router
+    };
     let mut app = Router::new()
         .route("/", get(homepage))
         .route("/catalog", get(catalog_http::catalog))
-        .route("/books/{id}", get(book_detail))
+        .merge(book_router)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
@@ -482,5 +493,4 @@ fn make_router(
 }
 
 #[cfg(test)]
-#[path = "lib_tests.rs"]
 mod tests;

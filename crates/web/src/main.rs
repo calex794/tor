@@ -100,6 +100,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
     > = None;
+    let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -113,6 +114,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 pending_achievements_consumer = Some(
                     tor_recommendations::repositories::PgAchievements::new(pool.clone()),
                 );
+                pending_referral_consumer =
+                    Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
@@ -281,6 +284,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
     let _achievements_consumer = pending_achievements_consumer
         .map(tor_web::achievement_consumer::start_achievements_consumer);
+    // Registrations and their outbox facts were committed atomically.
+    // Replay pending facts after restart; only the authenticated PG runtime runs this.
+    let _referral_consumer =
+        pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

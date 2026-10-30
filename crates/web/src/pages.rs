@@ -6,6 +6,7 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
@@ -13,6 +14,7 @@ pub use account::{
     my_account_with_follow_updates, password_change_form, registration_form,
     registration_form_with_error,
 };
+pub use referrals::referrals_page;
 pub use session_security::active_sessions;
 mod reader_private;
 #[allow(unused_imports)]
@@ -302,6 +304,13 @@ fn book_detail_body(
         .replace("<!--BOOK_CREDITS-->", &credits)
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
+        .replace(
+            "<!--BOOK_REFERRAL_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
+                book.id
+            ),
+        )
         .replace(
             "<!--BATCH_PURCHASE_ACTION-->",
             &if batch_enabled {
