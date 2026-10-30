@@ -454,7 +454,10 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     assert!(!updated_library.contains("Updated free text V2"));
 
     let action = format!("/me/revisions/{v2_event}/read-state");
-    assert!(updated_library.contains(&action), "V2 has an explicit read control");
+    assert!(
+        updated_library.contains(&action),
+        "V2 has an explicit read control"
+    );
     let read_form = format!("state=read&csrf_token={csrf}");
     assert_eq!(
         send(&app, "POST", &action, &read_form, None, &csrf, ORIGIN)
@@ -463,78 +466,163 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        send(&app, "POST", &action, &read_form, Some(&follower_token), &csrf, "https://evil.example")
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            &read_form,
+            Some(&follower_token),
+            &csrf,
+            "https://evil.example"
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        send(&app, "POST", &action, "state=read&csrf_token=bad", Some(&follower_token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            "state=read&csrf_token=bad",
+            Some(&follower_token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        send(&app, "POST", &action, "state=invalid", Some(&follower_token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            "state=invalid",
+            Some(&follower_token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
     );
     assert_eq!(
-        send(&app, "POST", &action, &read_form, Some(&token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            &read_form,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND,
         "the author is not a subscriber",
     );
     assert_eq!(
-        send(&app, "POST", &action, &read_form, Some(&follower_token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            &read_form,
+            Some(&follower_token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        send(&app, "POST", &action, &read_form, Some(&follower_token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            &read_form,
+            Some(&follower_token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER,
         "repeating mark-read is idempotent",
     );
     let (status, seen) = send(
-        &app, "GET", "/me/library", "", Some(&follower_token), &csrf, ORIGIN,
-    ).await;
+        &app,
+        "GET",
+        "/me/library",
+        "",
+        Some(&follower_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(seen.contains("Просмотрено"));
     assert!(seen.contains("name=\"state\" value=\"unread\""));
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT read_at IS NOT NULL FROM notification_event_recipient_intents
+        pg(
+            &url,
+            &format!(
+                "SELECT read_at IS NOT NULL FROM notification_event_recipient_intents
              WHERE event_id='{v2_event}'::uuid AND user_id={follower}"
-        )),
+            )
+        ),
         "t",
     );
     let unread_form = format!("state=unread&csrf_token={csrf}");
     assert_eq!(
-        send(&app, "POST", &action, &unread_form, Some(&follower_token), &csrf, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &action,
+            &unread_form,
+            Some(&follower_token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::SEE_OTHER,
     );
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT read_at IS NULL FROM notification_event_recipient_intents
+        pg(
+            &url,
+            &format!(
+                "SELECT read_at IS NULL FROM notification_event_recipient_intents
              WHERE event_id='{v2_event}'::uuid AND user_id={follower}"
-        )),
+            )
+        ),
         "t",
     );
     let (status, unread_page) = send(
-        &app, "GET", "/me/library", "", Some(&follower_token), &csrf, ORIGIN,
-    ).await;
+        &app,
+        "GET",
+        "/me/library",
+        "",
+        Some(&follower_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(unread_page.contains("name=\"state\" value=\"read\""));
     assert_eq!(
-        send(&app, "POST", "/me/revisions/bad-uuid/read-state", &read_form,
-             Some(&follower_token), &csrf, ORIGIN).await.0,
+        send(
+            &app,
+            "POST",
+            "/me/revisions/bad-uuid/read-state",
+            &read_form,
+            Some(&follower_token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::BAD_REQUEST,
     );
 

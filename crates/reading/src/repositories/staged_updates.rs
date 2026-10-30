@@ -193,7 +193,6 @@ impl PgStagedRevisions {
         .map_err(|_| StagedRevisionError::Unavailable)?;
         Ok(changed)
     }
-
 }
 
 #[cfg(test)]

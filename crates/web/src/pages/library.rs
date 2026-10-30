@@ -287,7 +287,8 @@ mod update_tests {
         assert!(!html.contains("<script>"));
         assert!(html.contains("A &amp; B"));
         assert!(html.contains("href=\"/reader/12\""));
-        assert!(html.contains("action=\"/me/revisions/01234567-89ab-cdef-0123-456789abcdef/read-state\""));
+        assert!(html
+            .contains("action=\"/me/revisions/01234567-89ab-cdef-0123-456789abcdef/read-state\""));
         assert!(html.contains("name=\"csrf_token\" value=\"csrf-token\""));
         assert!(html.contains("name=\"state\" value=\"read\""));
         assert!(html.contains("Отметить прочитанной"));
@@ -298,10 +299,13 @@ mod update_tests {
         assert!(read_html.contains("Просмотрено"));
         assert!(html.contains("revisions_after=1800000000123456."));
         assert!(!html.contains("purchase_id="));
-        let empty = revision_cards(&StagedRevisionPage {
-            items: vec![],
-            next_cursor: None,
-        }, "csrf-token");
+        let empty = revision_cards(
+            &StagedRevisionPage {
+                items: vec![],
+                next_cursor: None,
+            },
+            "csrf-token",
+        );
         assert!(empty.is_empty(), "no duplicate C-16 first-release section");
     }
 

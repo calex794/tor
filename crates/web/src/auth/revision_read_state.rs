@@ -39,7 +39,11 @@ pub(super) async fn submit(
         "unread" => false,
         _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    match state.staged_revisions.set_read_state(actor, &id, read).await {
+    match state
+        .staged_revisions
+        .set_read_state(actor, &id, read)
+        .await
+    {
         Ok(true) => private_response(Redirect::to("/me/library#revised-chapters"), &[]),
         Ok(false) => deny(StatusCode::NOT_FOUND),
         Err(StagedRevisionError::Invalid) => deny(StatusCode::BAD_REQUEST),
