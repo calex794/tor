@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 115);
+    assert_eq!(unique.len(), 124);
     let purchase = classify(Some("/api/v1/layers/{id}/purchase"), "POST");
     assert!(purchase.route_known);
     assert_eq!(purchase.product_area, ProductArea::Billing);

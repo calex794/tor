@@ -71,6 +71,8 @@ mod tests {
             tag: None,
             fandom: None,
             cursor: Some("private-cursor-should-not-survive"),
+            previous_cursor: None,
+            page_number: 2,
             sort,
             total: Some(7),
             options: None,

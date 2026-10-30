@@ -125,6 +125,15 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/account-reset.js"), "GET") => Some(112),
         (Some("/me/security/sessions"), "GET") => Some(113),
         (Some("/me/security/sessions"), "POST") => Some(114),
+        (Some("/r/{code}"), "GET") => Some(115),
+        (Some("/me/referrals"), "GET") => Some(116),
+        (Some("/me/referrals"), "POST") => Some(117),
+        (Some("/api/v1/me/referrals"), "GET") => Some(118),
+        (Some("/api/v1/me/referrals"), "POST") => Some(119),
+        (Some("/go/{alias}"), "GET") => Some(120),
+        (Some("/promo/{alias}"), "GET") => Some(121),
+        (Some("/me/referrals/alias"), "POST") => Some(122),
+        (Some("/api/v1/me/referrals/alias"), "POST") => Some(123),
         _ => None,
     };
     index

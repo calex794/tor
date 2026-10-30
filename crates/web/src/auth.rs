@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    auth_cookies::{private_response, CookiePolicy},
+    auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
@@ -41,7 +41,14 @@ use tor_reading::{
 };
 
 mod access_audit;
+mod auth_observation;
+
+/// Count dropped diagnostics; this never changes authentication decisions.
+pub(crate) fn auth_observation_dropped() -> u64 {
+    auth_observation::dropped_count()
+}
 mod account_form_http;
+mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
@@ -71,6 +78,10 @@ mod password_reset;
 mod private_reader;
 mod profile_http;
 mod rankings;
+mod referral_alias;
+mod referral_capture;
+mod referral_dashboard;
+mod referral_routes;
 mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
@@ -170,6 +181,7 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
         notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
             accounts.pool().clone(),
@@ -198,6 +210,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(referral_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -280,7 +293,7 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
-        .route("/me/books/{id}", get(author_book))
+        .route("/me/books/{id}", get(author_book_page::page))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
@@ -312,9 +325,6 @@ fn router_inner(
     } else {
         app
     }
-}
-fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
 }
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
@@ -434,57 +444,6 @@ async fn create_book(
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn author_book(
-    State(state): State<AuthState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-) -> Response {
-    let actor = match session_user(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    let book = match state.authoring.owned_book(actor, id).await {
-        Ok(Some(book)) => book,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let published = match state.authoring.owned_book_is_public(actor, id).await {
-        Ok(published) => published,
-        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let demand_count = match state.demand.current_count(id).await {
-        Ok(count) => count,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let chapters = match state.authoring.list_owned_chapters(actor, id).await {
-        Ok(chapters) => chapters,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let latest_cover = if let Some(jobs) = state.cover_jobs.as_ref() {
-        match jobs.latest_for_author(id, actor).await {
-            Ok(latest) => latest,
-            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-        }
-    } else {
-        None
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        author_chapter_pages::detail_with_covers_with_demand(
-            &book,
-            published,
-            &chapters,
-            &csrf,
-            state.cover_upload_enabled,
-            latest_cover.as_deref(),
-            demand_count,
-        ),
-        &cookies,
-    )
 }
 
 /// NEwBOO owner cover settings, restricted script; no inline scripts.

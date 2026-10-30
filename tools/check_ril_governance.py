@@ -128,6 +128,12 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/referral_routes.rs":
+        # Only these three sibling handlers may be bound through the F-09 router.
+        allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
+        if module not in allowed:
+            return root / "__unsupported_referral_handler__"
+        return source.parent / f"{module}.rs"
     if source.name in {"lib.rs", "mod.rs"}:
         return source.parent / f"{module}.rs"
     return source.with_suffix("") / f"{module}.rs"
