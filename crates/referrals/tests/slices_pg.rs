@@ -3,7 +3,7 @@
 use sqlx::PgPool;
 use tor_referrals::{
     domain::{manual_code, valid_code},
-    repositories::{postgres::CaptureResult, PgReferrals},
+    repositories::{postgres::{AliasClaim, CaptureResult}, PgReferrals},
 };
 
 #[test]
@@ -603,3 +603,62 @@ async fn f_09_pg_alias_resolves_only_correct_prefix_and_active_code() {
         None
     );
 }
+
+#[tokio::test]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_pg_alias_claim_is_idempotent_owned_and_cannot_be_reassigned() {
+    let pool = isolated_pool().await;
+    let repo = PgReferrals::new(pool.clone());
+    let owner = seed_user(&pool, "claim-owner").await;
+    let other = seed_user(&pool, "claim-other").await;
+    repo.create_default_reader_code(owner, &format!("r_owner_{owner}"))
+        .await
+        .unwrap();
+    repo.create_default_reader_code(other, &format!("r_other_{other}"))
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.claim_reader_alias(owner, "go", "example-book").await.unwrap(),
+        AliasClaim::Created
+    );
+    assert_eq!(
+        repo.claim_reader_alias(owner, "go", "example-book").await.unwrap(),
+        AliasClaim::Unchanged
+    );
+    assert_eq!(
+        repo.claim_reader_alias(other, "go", "example-book").await.unwrap(),
+        AliasClaim::Taken
+    );
+    assert_eq!(
+        repo.claim_reader_alias(other, "promo", "example-book").await.unwrap(),
+        AliasClaim::Created,
+        "same alias may exist in two distinct prefix namespaces"
+    );
+    assert_eq!(
+        repo.claim_reader_alias(owner, "promo", "example-book").await.unwrap(),
+        AliasClaim::Locked,
+        "one code cannot be re-bound from /go to /promo"
+    );
+    assert_eq!(
+        repo.claim_reader_alias(owner, "go", "me").await.unwrap(),
+        AliasClaim::Invalid
+    );
+    assert_eq!(
+        repo.resolve_active_alias("go", "example-book").await.unwrap(),
+        Some(format!("r_owner_{owner}"))
+    );
+    sqlx::query("UPDATE referral_codes SET status='blocked' WHERE owner_user_id=$1")
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        repo.claim_reader_alias(owner, "go", "example-book").await.unwrap(),
+        AliasClaim::Unavailable
+    );
+    assert_eq!(
+        repo.resolve_active_alias("go", "example-book").await.unwrap(),
+        None
+    );
+}
+

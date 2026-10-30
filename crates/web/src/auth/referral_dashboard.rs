@@ -185,6 +185,8 @@ mod tests {
             default_code: Some(OwnedReferralCode {
                 code: "r_abc123".to_owned(),
                 status: "active".to_owned(),
+                alias: None,
+                alias_path_prefix: None,
             }),
             active: 2,
             under_review: 0,

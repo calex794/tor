@@ -18,6 +18,19 @@ pub enum CaptureResult {
 pub struct OwnedReferralCode {
     pub code: String,
     pub status: String,
+    pub alias: Option<String>,
+    pub alias_path_prefix: Option<String>,
+}
+
+/// One default code may have at most one immutable vanity alias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AliasClaim {
+    Created,
+    Unchanged,
+    Invalid,
+    Taken,
+    Locked,
+    Unavailable,
 }
 
 /// Only aggregate counters, never invited identities, emails, or money.
@@ -62,14 +75,19 @@ impl PgReferrals {
         &self,
         owner_user_id: i64,
     ) -> Result<Option<OwnedReferralCode>, sqlx::Error> {
-        let row = sqlx::query_as::<_, (String, String)>(
-            "SELECT code,status FROM referral_codes
+        let row = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
+            "SELECT code,status,alias,alias_path_prefix FROM referral_codes
              WHERE owner_user_id=$1 AND program_type='reader_spend' AND is_default=TRUE",
         )
         .bind(owner_user_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(code, status)| OwnedReferralCode { code, status }))
+        Ok(row.map(|(code, status, alias, alias_path_prefix)| OwnedReferralCode {
+            code,
+            status,
+            alias,
+            alias_path_prefix,
+        }))
     }
 
     /// A form retry or two simultaneous tabs must return the very same code.
@@ -122,6 +140,58 @@ impl PgReferrals {
             blocked,
             expired,
         })
+    }
+
+    /// A reader can reserve a single alias for their own active default code.
+    /// The binding is permanent: changing it would let a former link's readers
+    /// resolve to a different sponsor. Concurrent claims fail deterministically.
+    pub async fn claim_reader_alias(
+        &self,
+        owner_user_id: i64,
+        prefix: &str,
+        alias: &str,
+    ) -> Result<AliasClaim, sqlx::Error> {
+        if !matches!(prefix, "go" | "promo") || !crate::domain::valid_alias(alias) {
+            return Ok(AliasClaim::Invalid);
+        }
+        let claimed: Option<String> = match sqlx::query_scalar(
+            "UPDATE referral_codes SET alias_path_prefix=$2,alias=$3
+             WHERE owner_user_id=$1 AND program_type='reader_spend'
+               AND is_default=TRUE AND status='active' AND alias IS NULL
+             RETURNING code",
+        )
+        .bind(owner_user_id)
+        .bind(prefix)
+        .bind(alias)
+        .fetch_optional(&self.pool)
+        .await
+        {
+            Ok(claimed) => claimed,
+            Err(sqlx::Error::Database(error))
+                if error.constraint() == Some("referral_codes_alias") =>
+            {
+                return Ok(AliasClaim::Taken);
+            }
+            Err(error) => return Err(error),
+        };
+        if claimed.is_some() {
+            return Ok(AliasClaim::Created);
+        }
+        let Some(current) = self.default_reader_code(owner_user_id).await? else {
+            return Ok(AliasClaim::Unavailable);
+        };
+        if current.status != "active" {
+            return Ok(AliasClaim::Unavailable);
+        }
+        if current.alias.as_deref() == Some(alias)
+            && current.alias_path_prefix.as_deref() == Some(prefix)
+        {
+            Ok(AliasClaim::Unchanged)
+        } else if current.alias.is_some() {
+            Ok(AliasClaim::Locked)
+        } else {
+            Ok(AliasClaim::Unavailable)
+        }
     }
 
     /// An alias only points to an active code and never directly captures identity.

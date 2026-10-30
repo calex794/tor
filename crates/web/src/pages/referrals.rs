@@ -103,6 +103,8 @@ mod tests {
             default_code: Some(OwnedReferralCode {
                 code: "r_example".to_owned(),
                 status: "active".to_owned(),
+                alias: None,
+                alias_path_prefix: None,
             }),
             active: 1,
             under_review: 0,
@@ -121,6 +123,8 @@ mod tests {
                 default_code: Some(OwnedReferralCode {
                     code: "r_example".to_owned(),
                     status: "blocked".to_owned(),
+                    alias: None,
+                    alias_path_prefix: None,
                 }),
                 ..overview
             },
@@ -154,6 +158,8 @@ mod tests {
             default_code: Some(OwnedReferralCode {
                 code: "r_example".to_owned(),
                 status: "active".to_owned(),
+                alias: None,
+                alias_path_prefix: None,
             }),
             active: 1,
             under_review: 0,
