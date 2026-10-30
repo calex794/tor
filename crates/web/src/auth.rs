@@ -52,6 +52,7 @@ mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
+mod book_create_duplicate;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
@@ -82,7 +83,7 @@ mod session_security;
 mod settings_routes;
 mod sync_actions;
 mod types;
-use types::*;
+pub(crate) use types::*;
 pub(crate) fn router(
     accounts: PgAccounts,
     reader: PgReader,
@@ -276,6 +277,10 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
+        .route(
+            "/me/books/check",
+            post(book_create_duplicate::check_book_title),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route(
             "/me/books/{id}/description",
@@ -397,7 +402,13 @@ async fn create_book(
         },
     )
     .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    {
+    .and_then(|book| {
+        tor_books::services::title_duplicates::with_title_aliases(
+            book,
+            form.original_title.as_deref().unwrap_or(""),
+            form.alternative_titles.as_deref().unwrap_or(""),
+        )
+    }) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };

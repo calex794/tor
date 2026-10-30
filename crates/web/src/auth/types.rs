@@ -62,14 +62,16 @@ pub(super) struct LibraryQuery {
 }
 
 #[derive(Deserialize)]
-pub(super) struct NewBookForm {
-    pub(super) title: String,
-    pub(super) target_language: String,
-    pub(super) author_name: Option<String>,
-    pub(super) description: Option<String>,
-    pub(super) genres: Option<String>,
-    pub(super) tags: Option<String>,
-    pub(super) fandoms: Option<String>,
-    pub(super) command_key: String,
-    pub(super) csrf_token: Option<String>,
+pub(crate) struct NewBookForm {
+    pub(crate) title: String,
+    pub(crate) target_language: String,
+    pub(crate) original_title: Option<String>,
+    pub(crate) alternative_titles: Option<String>,
+    pub(crate) author_name: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) genres: Option<String>,
+    pub(crate) tags: Option<String>,
+    pub(crate) fandoms: Option<String>,
+    pub(crate) command_key: String,
+    pub(crate) csrf_token: Option<String>,
 }

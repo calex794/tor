@@ -124,6 +124,9 @@ mod tests {
 /// Owner-scoped authoring validation (B-01/B-03).
 pub mod authoring;
 
+/// B-19: bounded possible-duplicate warnings before book creation.
+pub mod title_duplicates;
+
 /// B-09/S030: deny unsafe ownership transfers until verified A/B/D/B-10 guards exist.
 pub mod owner_transfer_policy;
 
