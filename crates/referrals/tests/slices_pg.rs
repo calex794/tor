@@ -324,11 +324,13 @@ async fn f_09_pg_first_capture_and_replay() {
             .unwrap(),
         CaptureResult::Existing
     );
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM referral_captures WHERE guest_hash=$1")
-        .bind(guest_hash.as_slice())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM referral_captures WHERE guest_hash=$1",
+    )
+    .bind(guest_hash.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(count, 1, "consumed and blocked captures must not be recreated");
 }
 
