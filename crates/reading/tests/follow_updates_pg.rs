@@ -88,14 +88,17 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .unwrap();
         chapter_ids.push(chapter);
     }
-    // The follow is after chapter 1 (33 s ago), before chapter 2 (32 s ago).
-    // Use the midpoint of the one-second interval, not an equality boundary.
+    // Reference one immutable release timestamp, not now() in a later
+    // statement: slow CI can cross the half-second boundary during setup.
+    // Chapter 2 is at least one second after chapter 1 in the fixture.
     sqlx::query(
         "INSERT INTO reader_book_follows(user_id,book_id,created_at)
-         VALUES ($1,$2,now() - interval '32.5 seconds')",
+         SELECT $1,$2,created_at + interval '0.5 seconds'
+         FROM chapter_first_release_events WHERE chapter_id=$3",
     )
     .bind(reader)
     .bind(book)
+    .bind(chapter_ids[0])
     .execute(&pool)
     .await
     .unwrap();
