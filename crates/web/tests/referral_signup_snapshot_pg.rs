@@ -1,7 +1,10 @@
 //! F-09: signup-time referral decisions must survive delayed outbox replay.
 //! These cases use the real account transaction and a disposable PostgreSQL 18.
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
 use sqlx::PgPool;
+use std::{
+    num::NonZeroU32,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::{postgres::RegistrationReferral, PgAccounts},
     services::security::{generate_session_token, session_token_digest},
@@ -84,7 +87,13 @@ async fn asserted_referrer(pool: &PgPool, subject: i64) -> (i64, String) {
 async fn f_09_snapshot_manual_survives_disabled_code() {
     let pool = test_pool().await;
     let (owner, code) = inviter(&pool, "manual", "reader_spend").await;
-    let subject = register(&PgAccounts::from_pool(pool.clone()), "manual-user", None, Some(&code)).await;
+    let subject = register(
+        &PgAccounts::from_pool(pool.clone()),
+        "manual-user",
+        None,
+        Some(&code),
+    )
+    .await;
     let saved: (bool, String, i64, String) = sqlx::query_as(
         "SELECT decided_at_registration,decided_referral_code,
                 decided_referrer_user_id,decided_source
@@ -133,7 +142,13 @@ async fn f_09_snapshot_guest_survives_blocked_code_and_capture() {
             .unwrap(),
         CaptureResult::Saved,
     );
-    let subject = register(&PgAccounts::from_pool(pool.clone()), "guest-user", Some(&hash), None).await;
+    let subject = register(
+        &PgAccounts::from_pool(pool.clone()),
+        "guest-user",
+        Some(&hash),
+        None,
+    )
+    .await;
     let saved: (bool, String, String, i64) = sqlx::query_as(
         "SELECT decided_at_registration,decided_referral_code,
                 decided_source,decided_capture_id
@@ -254,7 +269,13 @@ async fn f_09_snapshot_rejects_click_after_account_creation() {
     let (owner, code) = inviter(&pool, "late", "reader_spend").await;
     let hash = session_token_digest(&generate_session_token());
     let repo = PgReferrals::new(pool.clone());
-    let subject = register(&PgAccounts::from_pool(pool.clone()), "pre-click", Some(&hash), None).await;
+    let subject = register(
+        &PgAccounts::from_pool(pool.clone()),
+        "pre-click",
+        Some(&hash),
+        None,
+    )
+    .await;
     let stored: (bool, Option<String>) = sqlx::query_as(
         "SELECT decided_at_registration,decided_referral_code
          FROM account_registration_referral_outbox WHERE user_id=$1",
