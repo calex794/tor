@@ -1,4 +1,4 @@
-//! A-07: authenticated password rotation without retaining old sessions.
+//! A-07: HTML and JSON share one credential rotation command.
 use super::AuthState;
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
@@ -8,6 +8,7 @@ use axum::{
     extract::{Form, State},
     http::{HeaderMap, StatusCode},
     response::{Redirect, Response},
+    Json,
 };
 use serde::Deserialize;
 use std::num::NonZeroU32;
@@ -17,10 +18,19 @@ use tor_accounts::services::{
 };
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PasswordChangeForm {
     current_password: String,
     new_password: String,
     confirm_password: String,
+    csrf_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ApiPasswordForm {
+    current_password: String,
+    new_password: String,
     csrf_token: Option<String>,
 }
 
@@ -34,11 +44,79 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
     private_response(pages::password_change_form(&csrf, None), &cookies)
 }
 
-fn error(status: StatusCode, message: &str, csrf: &str) -> Response {
-    private_response(
-        (status, pages::password_change_form(csrf, Some(message))),
-        &[],
+async fn rotate(
+    state: &AuthState,
+    headers: &HeaderMap,
+    user_id: i64,
+    form: PasswordChangeForm,
+) -> Result<String, (StatusCode, &'static str)> {
+    password_change(
+        &form.current_password,
+        &form.new_password,
+        &form.confirm_password,
     )
+    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    let session = state
+        .cookies
+        .session_token(headers)
+        .ok_or((StatusCode::UNAUTHORIZED, "Войдите снова"))?;
+    let key = session_token_digest(&format!("auth:password-change:{user_id}"));
+    let permitted = state
+        .accounts
+        .permit_auth_attempt(&key, 8, 600)
+        .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Повторите позже"))?;
+    if !permitted {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Слишком много попыток. Повторите позже.",
+        ));
+    }
+    let hash = state
+        .accounts
+        .password_hash_for_user(user_id)
+        .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Повторите позже"))?
+        .ok_or((StatusCode::UNAUTHORIZED, "Войдите снова"))?;
+    let expected = hash.clone();
+    let old = form.current_password;
+    let new = form.new_password;
+    let replacement = state
+        .password_jobs
+        .run(move || {
+            if verify_password(&old, &hash) {
+                hash_password(&new).ok()
+            } else {
+                None
+            }
+        })
+        .await
+        .map_err(|status| (status, "Повторите позже"))?
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "Не удалось изменить пароль. Проверьте текущий пароль.",
+        ))?;
+    let token = generate_session_token();
+    let updated = state
+        .accounts
+        .rotate_password_and_sessions(
+            user_id,
+            &session_token_digest(&session),
+            &expected,
+            &replacement,
+            &session_token_digest(&token),
+            NonZeroU32::new(SESSION_AGE).unwrap(),
+        )
+        .await
+        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Повторите позже"))?;
+    if !updated {
+        return Err((
+            StatusCode::CONFLICT,
+            "Сеанс или пароль уже изменён. Войдите снова.",
+        ));
+    }
+    let _ = state.accounts.clear_auth_attempt(&key).await;
+    Ok(token)
 }
 
 pub(super) async fn submit(
@@ -53,91 +131,69 @@ pub(super) async fn submit(
     {
         return private_response(StatusCode::FORBIDDEN, &[]);
     }
-    let Some(user_id) = (match super::session_user(&state, &headers).await {
-        Ok(actor) => actor,
+    let actor = match super::session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return private_response(status, &[]),
-    }) else {
-        return private_response(Redirect::to("/login"), &[]);
     };
-    let Some(session_token) = state.cookies.session_token(&headers) else {
-        return private_response(StatusCode::UNAUTHORIZED, &[]);
-    };
-    let csrf = form.csrf_token.as_deref().unwrap_or("");
-    if let Err(message) = password_change(
-        &form.current_password,
-        &form.new_password,
-        &form.confirm_password,
-    ) {
-        return error(StatusCode::BAD_REQUEST, message, csrf);
+    let csrf = form.csrf_token.clone().unwrap_or_default();
+    match rotate(&state, &headers, actor, form).await {
+        Ok(token) => private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)]),
+        Err((status, message)) => private_response(
+            (status, pages::password_change_form(&csrf, Some(message))),
+            &[],
+        ),
     }
-    let attempt_key = session_token_digest(&format!("auth:password-change:{user_id}"));
-    match state
-        .accounts
-        .permit_auth_attempt(&attempt_key, 8, 600)
-        .await
+}
+
+pub(super) async fn api_submit(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Json(form): Json<ApiPasswordForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
-        Ok(true) => {}
-        Ok(false) => {
-            return error(
-                StatusCode::TOO_MANY_REQUESTS,
-                "Слишком много попыток. Повторите позже.",
-                csrf,
-            )
-        }
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    let stored_hash = match state.accounts.password_hash_for_user(user_id).await {
-        Ok(Some(hash)) => hash,
-        Ok(None) => return private_response(StatusCode::UNAUTHORIZED, &[]),
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-    };
-    let expected_hash = stored_hash.clone();
-    let old_password = form.current_password;
-    let new_password = form.new_password;
-    let new_hash = match state
-        .password_jobs
-        .run(move || {
-            if !verify_password(&old_password, &stored_hash) {
-                return None;
-            }
-            hash_password(&new_password).ok()
-        })
-        .await
-    {
-        Ok(Some(hash)) => hash,
+        return super::profile_http::api_error(
+            StatusCode::FORBIDDEN,
+            "CSRF_REQUIRED",
+            "Обновите страницу настроек",
+        );
+    }
+    let actor = match super::session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
         Ok(None) => {
-            return error(
+            return super::profile_http::api_error(
                 StatusCode::UNAUTHORIZED,
-                "Не удалось изменить пароль. Проверьте текущий пароль.",
-                csrf,
+                "AUTH_REQUIRED",
+                "Войдите снова",
             )
         }
-        Err(status) => return private_response(status, &[]),
+        Err(status) => {
+            return super::profile_http::api_error(status, "UNAVAILABLE", "Повторите позже")
+        }
     };
-    let token = generate_session_token();
-    let updated = state
-        .accounts
-        .rotate_password_and_sessions(
-            user_id,
-            &session_token_digest(&session_token),
-            &expected_hash,
-            &new_hash,
-            &session_token_digest(&token),
-            NonZeroU32::new(SESSION_AGE).expect("session TTL"),
-        )
-        .await;
-    match updated {
-        Ok(true) => {}
-        Ok(false) => {
-            return error(
-                StatusCode::CONFLICT,
-                "Сеанс или пароль уже изменён. Войдите снова.",
-                csrf,
-            )
-        }
-        Err(_) => return private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    let command = PasswordChangeForm {
+        current_password: form.current_password,
+        confirm_password: form.new_password.clone(),
+        new_password: form.new_password,
+        csrf_token: form.csrf_token,
+    };
+    match rotate(&state, &headers, actor, command).await {
+        Ok(token) => private_response(
+            StatusCode::NO_CONTENT,
+            &[state.cookies.session_cookie(&token)],
+        ),
+        Err((status, message)) => super::profile_http::api_error(
+            if status == StatusCode::BAD_REQUEST {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                status
+            },
+            "PASSWORD_CHANGE_DENIED",
+            message,
+        ),
     }
-    // Counter reset failure never restores a revoked password/session.
-    let _ = state.accounts.clear_auth_attempt(&attempt_key).await;
-    private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
 }

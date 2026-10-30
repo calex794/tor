@@ -6,6 +6,7 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod session_security;
 mod layer_storefront;
 mod library;
 #[allow(unused_imports)] // The previous account renderer remains available to callers.
@@ -22,6 +23,7 @@ pub use library::{
     my_library, my_library_with_options, my_library_with_purchases, my_library_with_updates,
     LibraryCapabilities,
 };
+pub use session_security::active_sessions;
 mod reader_layer;
 pub use reader_layer::layer_reader_shell;
 mod reader_private;
@@ -534,3 +536,11 @@ pub fn book_detail_with_chapters(
 
 #[cfg(test)]
 mod tests;
+
+mod profile_settings;
+pub use profile_settings::profile_settings;
+mod notification_settings;
+pub use notification_settings::delivery_preferences_page;
+
+mod password_reset;
+pub use password_reset::{reset_confirm_form, reset_request_form};

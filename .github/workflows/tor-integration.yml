@@ -303,6 +303,16 @@ jobs:
         run: |
           cargo build -p tor-web
           bash tools/tor_pg_backup_restore_smoke.sh
+      - name: Line A credential and login audit PostgreSQL checks
+        run: |
+          cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1
+          cargo test -p tor-accounts --test slices_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_settings_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1
+          cargo test -p tor-reading --test notification_preferences_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test account_access_audit_pg -- --ignored --test-threads=1
       - name: D-04 diagnostic HTTP logs
         if: failure()
         run: |
@@ -584,6 +594,22 @@ jobs:
             sleep 1
           done
           test "$ready" = 1
+      - name: Prepare isolated reset test mailbox
+        run: |
+          mkdir -m 700 -p "$RUNNER_TEMP/account-reset-mail"
+          cat > "$RUNNER_TEMP/account-reset-sendmail" <<'PYMAIL'
+          #!/usr/bin/env python3
+          import hashlib, os, pathlib, sys
+          message = sys.stdin.read()
+          recipient = next(line[4:].strip() for line in message.splitlines() if line.startswith('To: '))
+          if not recipient.endswith('@example.invalid'):
+              sys.exit(2)
+          dest = pathlib.Path(os.environ['TOR_RESET_TEST_MAIL_DIR']) / hashlib.sha256(recipient.encode()).hexdigest()
+          fd = os.open(dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+          with os.fdopen(fd, 'w') as output:
+              output.write(message)
+          PYMAIL
+          chmod 700 "$RUNNER_TEMP/account-reset-sendmail"
       - name: Create private test bucket using existing verified S3 provider test
         run: |
           cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
@@ -607,6 +633,10 @@ jobs:
           AWS_ENDPOINT_URL_S3: http://127.0.0.1:9000
           AWS_EC2_METADATA_DISABLED: 'true'
           TOR_COVER_BROWSER_SHOTS: ${{ runner.temp }}/cover-browser-shots
+          TOR_PASSWORD_RESET_ENABLED: '1'
+          TOR_RESET_SENDMAIL: ${{ runner.temp }}/account-reset-sendmail
+          TOR_RESET_MAIL_FROM: no-reply@example.invalid
+          TOR_RESET_TEST_MAIL_DIR: ${{ runner.temp }}/account-reset-mail
         run: |
           set -euo pipefail
           mkdir -p "$TOR_COVER_BROWSER_SHOTS"
@@ -620,6 +650,7 @@ jobs:
           done
           if [ "$ready" != 1 ]; then cat "$RUNNER_TEMP/cover-web.log"; exit 1; fi
           node tools/author_cover_pg_visual_smoke.cjs
+          node tools/account_line_browser.cjs
           # The private bucket must stay inaccessible to anonymous browsers.
           code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:9000/tor-private-cover-ci/staging/covers/variants/provider-card.webp)
@@ -1304,3 +1335,31 @@ jobs:
       - name: MinIO health only on failure
         if: failure()
         run: curl -fsS --max-time 3 http://127.0.0.1:9000/minio/health/ready || true
+  ci-required:
+    needs:
+      - select
+      - demo
+      - postgres-runtime
+      - migrations
+      - reader-browser
+      - visual
+      - author-cover
+      - image
+      - crypto
+      - s3-provider
+      - s3-cover-build
+      - f02-100k
+      - paid-private-e2e
+      - sealed-remote-copy
+      - purchased-v1-recovery
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate PR selection and mandatory full-main acceptance
+        env:
+          TOR_CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 tools/verify_ci_gate.py
