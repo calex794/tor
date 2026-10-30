@@ -34,24 +34,40 @@ impl PgFriendships {
     pub async fn state(&self, actor: i64, peer: i64) -> Result<FriendState, MailError> {
         Self::check(actor, peer)?;
         let my_block: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM social_user_blocks WHERE blocker_id=$1 AND blocked_id=$2)"
-        ).bind(actor).bind(peer).fetch_one(&self.pool).await.map_err(unavailable)?;
+            "SELECT EXISTS(SELECT 1 FROM social_user_blocks WHERE blocker_id=$1 AND blocked_id=$2)",
+        )
+        .bind(actor)
+        .bind(peer)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(unavailable)?;
         if my_block {
             return Ok(FriendState::BlockedByMe);
         }
         let their_block: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM social_user_blocks WHERE blocker_id=$2 AND blocked_id=$1)"
-        ).bind(actor).bind(peer).fetch_one(&self.pool).await.map_err(unavailable)?;
+            "SELECT EXISTS(SELECT 1 FROM social_user_blocks WHERE blocker_id=$2 AND blocked_id=$1)",
+        )
+        .bind(actor)
+        .bind(peer)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(unavailable)?;
         if their_block {
             return Ok(FriendState::BlockedMe);
         }
         let row = sqlx::query_as::<_, (String, i64)>(
-            "SELECT status,requester_id FROM social_friendships WHERE user_low=$1 AND user_high=$2"
-        ).bind(actor.min(peer)).bind(actor.max(peer))
-            .fetch_optional(&self.pool).await.map_err(unavailable)?;
+            "SELECT status,requester_id FROM social_friendships WHERE user_low=$1 AND user_high=$2",
+        )
+        .bind(actor.min(peer))
+        .bind(actor.max(peer))
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(unavailable)?;
         Ok(match row {
             Some((state, _)) if state == "accepted" => FriendState::Friends,
-            Some((state, requester)) if state == "pending" && requester == actor => FriendState::Outgoing,
+            Some((state, requester)) if state == "pending" && requester == actor => {
+                FriendState::Outgoing
+            }
             Some((state, _)) if state == "pending" => FriendState::Incoming,
             _ => FriendState::None,
         })
@@ -69,14 +85,19 @@ impl PgFriendships {
         let low = actor.min(peer);
         let high = actor.max(peer);
         let row = sqlx::query_as::<_, (String, i64)>(
-            "SELECT status,requester_id FROM social_friendships WHERE user_low=$1 AND user_high=$2"
-        ).bind(low).bind(high).fetch_optional(&mut *tx).await.map_err(unavailable)?;
+            "SELECT status,requester_id FROM social_friendships WHERE user_low=$1 AND user_high=$2",
+        )
+        .bind(low)
+        .bind(high)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
         let result = match row {
             None => {
                 sqlx::query("INSERT INTO social_friendships(user_low,user_high,requester_id,status,action_user_id) VALUES($1,$2,$3,'pending',$3)")
                     .bind(low).bind(high).bind(actor).execute(&mut *tx).await.map_err(foreign_or_unavailable)?;
                 FriendState::Outgoing
-            },
+            }
             Some((status, _)) if status == "accepted" => FriendState::Friends,
             Some((_, requester)) if requester == actor => FriendState::Outgoing,
             Some(_) => {
@@ -98,8 +119,11 @@ impl PgFriendships {
             return Err(MailError::Blocked);
         }
         sqlx::query("DELETE FROM social_friendships WHERE user_low=$1 AND user_high=$2")
-            .bind(actor.min(peer)).bind(actor.max(peer))
-            .execute(&mut *tx).await.map_err(unavailable)?;
+            .bind(actor.min(peer))
+            .bind(actor.max(peer))
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
         tx.commit().await.map_err(unavailable)
     }
 }

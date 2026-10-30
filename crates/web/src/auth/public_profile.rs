@@ -15,7 +15,11 @@ pub(super) async fn page(
     if display_name.is_empty() || display_name.chars().count() > 80 {
         return deny(StatusCode::NOT_FOUND);
     }
-    let (recipient, name) = match state.accounts.public_profile_by_display_name(&display_name).await {
+    let (recipient, name) = match state
+        .accounts
+        .public_profile_by_display_name(&display_name)
+        .await
+    {
         Ok(Some(row)) => row,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -29,7 +33,8 @@ pub(super) async fn page(
     if let Some(actor) = visitor.filter(|id| *id != recipient) {
         use tor_social::repositories::friendships::{FriendState, PgFriendships};
         let state_view = match PgFriendships::new(state.accounts.pool().clone())
-            .state(actor, recipient).await
+            .state(actor, recipient)
+            .await
         {
             Ok(value) => value,
             Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -53,13 +58,20 @@ pub(super) async fn page(
         } else {
             action.push_str("<p>Действие недоступно: переписка заблокирована.</p>");
         }
-        if !matches!(state_view, FriendState::BlockedByMe | FriendState::BlockedMe) {
+        if !matches!(
+            state_view,
+            FriendState::BlockedByMe | FriendState::BlockedMe
+        ) {
             action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/block\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">Заблокировать</button></form>"));
         }
     }
-    let html = pages::layout("Публичный профиль", "Профиль участника.", &format!(
+    let html = pages::layout(
+        "Публичный профиль",
+        "Профиль участника.",
+        &format!(
         "<section class=\"me-page\"><div class=\"container\"><h1>{}</h1>{action}</div></section>",
         pages::escape_html(&name)
-    ));
+    ),
+    );
     private_response(html, &cookies)
 }

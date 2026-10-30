@@ -104,10 +104,22 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let index_html = text(index).await;
     assert!(!index_html.contains("Номер получателя"));
     assert!(!index_html.contains("data-mail-user"));
-    let profile = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    let profile = text(
+        call(
+            &app,
+            "GET",
+            "/users/Mail%20reader%201",
+            &cookies[0],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(profile.contains("action=\"/mail/start/"));
     assert!(profile.contains(">Почта</button>"));
-    let guest_profile = text(call(&app, "GET", "/users/Mail%20reader%201", "", "", &[]).await).await;
+    let guest_profile =
+        text(call(&app, "GET", "/users/Mail%20reader%201", "", "", &[]).await).await;
     assert!(!guest_profile.contains(">Почта</button>"));
     let start_path = format!("/mail/start/{}", users[1]);
     let start = format!("csrf_token={}", csrf[0]);
@@ -141,24 +153,130 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let request_friend = format!("/users/{}/friend", users[1]);
     let accept_friend = format!("/users/{}/friend", users[0]);
     let remove_friend = format!("/users/{}/unfriend", users[1]);
-    assert_eq!(call(&app, "POST", &request_friend, &cookies[0], &start, &[]).await.status(), StatusCode::SEE_OTHER);
-    let outgoing = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert_eq!(
+        call(&app, "POST", &request_friend, &cookies[0], &start, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let outgoing = text(
+        call(
+            &app,
+            "GET",
+            "/users/Mail%20reader%201",
+            &cookies[0],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(outgoing.contains("Заявка уже отправлена"));
-    let incoming = text(call(&app, "GET", "/users/Mail%20reader%200", &cookies[1], "", &[]).await).await;
+    let incoming = text(
+        call(
+            &app,
+            "GET",
+            "/users/Mail%20reader%200",
+            &cookies[1],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(incoming.contains("Принять в друзья"));
     let accept = format!("csrf_token={}", csrf[1]);
-    assert_eq!(call(&app, "POST", &accept_friend, &cookies[1], &accept, &[]).await.status(), StatusCode::SEE_OTHER);
-    let accepted = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert_eq!(
+        call(&app, "POST", &accept_friend, &cookies[1], &accept, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let accepted = text(
+        call(
+            &app,
+            "GET",
+            "/users/Mail%20reader%201",
+            &cookies[0],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(accepted.contains("Удалить из друзей"));
-    assert_eq!(call(&app, "POST", &remove_friend, &cookies[0], &start, &[]).await.status(), StatusCode::SEE_OTHER);
-    let removed = text(call(&app, "GET", "/users/Mail%20reader%201", &cookies[0], "", &[]).await).await;
+    assert_eq!(
+        call(&app, "POST", &remove_friend, &cookies[0], &start, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let removed = text(
+        call(
+            &app,
+            "GET",
+            "/users/Mail%20reader%201",
+            &cookies[0],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(removed.contains("Добавить в друзья"));
-    assert_eq!(call(&app, "POST", &request_friend, &cookies[0], &start, &[("origin","https://attacker.invalid")]).await.status(), StatusCode::FORBIDDEN);
-    assert_eq!(call(&app, "POST", &request_friend, &cookies[0], "csrf_token=forged", &[]).await.status(), StatusCode::FORBIDDEN);
-    assert_eq!(call(&app, "POST", &request_friend, &cookies[2], &format!("csrf_token={}", csrf[2]), &[]).await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &request_friend,
+            &cookies[0],
+            &start,
+            &[("origin", "https://attacker.invalid")]
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &request_friend,
+            &cookies[0],
+            "csrf_token=forged",
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &request_friend,
+            &cookies[2],
+            &format!("csrf_token={}", csrf[2]),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
     // No browser-supplied actor field can reassign the verified session identity.
-    assert_eq!(call(&app, "POST", &request_friend, &cookies[0],
-        &format!("csrf_token={}&actor_id={}", csrf[0], users[2]), &[]).await.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &request_friend,
+            &cookies[0],
+            &format!("csrf_token={}&actor_id={}", csrf[0], users[2]),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
 
     let response = call(&app, "POST", &start_path, &cookies[0], &start, &[]).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -309,22 +427,92 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         "body=Source%20HTML%20identity&client_message_id=html%3Atest.1&csrf_token={}",
         csrf[0]
     );
-    assert_eq!(call(&app, "POST", &send_path, &cookies[0], &html_client_form, &[]).await.status(), StatusCode::SEE_OTHER);
-    assert_eq!(call(&app, "POST", &send_path, &cookies[0], &html_client_form.replace("Source", "Changed"), &[]).await.status(), StatusCode::SEE_OTHER);
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "2");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &send_path,
+            &cookies[0],
+            &html_client_form,
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &send_path,
+            &cookies[0],
+            &html_client_form.replace("Source", "Changed"),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")
+        )
+        .await,
+        "2"
+    );
     // No-JS HTML has no client identity: retry within five seconds reuses
     // the original message, but the other sender's identical text is distinct.
     let unkeyed = format!("body=NoJS+repeat&client_message_id=&csrf_token={}", csrf[0]);
     for _ in 0..2 {
-        assert_eq!(call(&app, "POST", &send_path, &cookies[0], &unkeyed, &[]).await.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            call(&app, "POST", &send_path, &cookies[0], &unkeyed, &[])
+                .await
+                .status(),
+            StatusCode::SEE_OTHER
+        );
     }
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "3");
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")
+        )
+        .await,
+        "3"
+    );
     let sender_b = format!("body=NoJS+repeat&client_message_id=&csrf_token={}", csrf[1]);
-    assert_eq!(call(&app, "POST", &send_path, &cookies[1], &sender_b, &[]).await.status(), StatusCode::SEE_OTHER);
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "4");
-    let other_client = format!("body=Source%20B&client_message_id=html%3Atest.1&csrf_token={}", csrf[1]);
-    assert_eq!(call(&app, "POST", &send_path, &cookies[1], &other_client, &[]).await.status(), StatusCode::SEE_OTHER);
-    assert_eq!(pg(&url, &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")).await, "5");
+    assert_eq!(
+        call(&app, "POST", &send_path, &cookies[1], &sender_b, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")
+        )
+        .await,
+        "4"
+    );
+    let other_client = format!(
+        "body=Source%20B&client_message_id=html%3Atest.1&csrf_token={}",
+        csrf[1]
+    );
+    assert_eq!(
+        call(&app, "POST", &send_path, &cookies[1], &other_client, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_messages WHERE conversation_id={id}")
+        )
+        .await,
+        "5"
+    );
     let blocked = format!("blocked=true&csrf_token={}", csrf[1]);
     assert_eq!(
         call(
@@ -341,8 +529,12 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     );
     let blocked_start = call(&app, "POST", &start_path, &cookies[0], &start, &[]).await;
     assert_eq!(blocked_start.status(), StatusCode::SEE_OTHER);
-    assert_eq!(blocked_start.headers()[header::LOCATION], "/mail?error=blocked");
-    let mailbox_error = text(call(&app, "GET", "/mail?error=blocked", &cookies[0], "", &[]).await).await;
+    assert_eq!(
+        blocked_start.headers()[header::LOCATION],
+        "/mail?error=blocked"
+    );
+    let mailbox_error =
+        text(call(&app, "GET", "/mail?error=blocked", &cookies[0], "", &[]).await).await;
     assert!(mailbox_error.contains("Переписка заблокирована"));
     assert_eq!(
         call(&app, "POST", &send_path, &cookies[0], &form, &[])

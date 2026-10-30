@@ -28,7 +28,8 @@ fn csrf(state: &AuthState, headers: &HeaderMap, value: Option<&str>) -> Result<(
 fn redirect_to_source(state: &AuthState, headers: &HeaderMap) -> Response {
     // Only relative paths under existing profile/mail pages are accepted.
     // A forged Referer must never turn a successful POST into an open redirect.
-    let destination = headers.get(header::REFERER)
+    let destination = headers
+        .get(header::REFERER)
         .and_then(|h| h.to_str().ok())
         .and_then(|value| value.strip_prefix(state.cookies.origin.as_str()))
         .filter(|path| path.starts_with("/users/") || path.starts_with("/mail/"))
@@ -37,7 +38,9 @@ fn redirect_to_source(state: &AuthState, headers: &HeaderMap) -> Response {
 }
 
 async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {
-    session_user(state, headers).await?.ok_or(StatusCode::UNAUTHORIZED)
+    session_user(state, headers)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 
 pub(super) async fn request(
@@ -50,8 +53,13 @@ pub(super) async fn request(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    if let Err(status) = csrf(&state, &headers, form.csrf_token.as_deref()) { return deny(status); }
-    match PgFriendships::new(state.accounts.pool().clone()).request(actor, peer).await {
+    if let Err(status) = csrf(&state, &headers, form.csrf_token.as_deref()) {
+        return deny(status);
+    }
+    match PgFriendships::new(state.accounts.pool().clone())
+        .request(actor, peer)
+        .await
+    {
         Ok(_) => redirect_to_source(&state, &headers),
         Err(e) => deny(super::mail::status(e)),
     }
@@ -67,8 +75,13 @@ pub(super) async fn remove(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    if let Err(status) = csrf(&state, &headers, form.csrf_token.as_deref()) { return deny(status); }
-    match PgFriendships::new(state.accounts.pool().clone()).remove(actor, peer).await {
+    if let Err(status) = csrf(&state, &headers, form.csrf_token.as_deref()) {
+        return deny(status);
+    }
+    match PgFriendships::new(state.accounts.pool().clone())
+        .remove(actor, peer)
+        .await
+    {
         Ok(()) => redirect_to_source(&state, &headers),
         Err(e) => deny(super::mail::status(e)),
     }
@@ -84,9 +97,12 @@ pub(super) async fn block(
         Ok(actor) => actor,
         Err(status) => return deny(status),
     };
-    if let Err(status) = csrf(&state, &headers, form.csrf_token.as_deref()) { return deny(status); }
+    if let Err(status) = csrf(&state, &headers, form.csrf_token.as_deref()) {
+        return deny(status);
+    }
     match MailService::new(PgMail::new(state.accounts.pool().clone()))
-        .set_block(actor, peer, true).await
+        .set_block(actor, peer, true)
+        .await
     {
         Ok(()) => redirect_to_source(&state, &headers),
         Err(e) => deny(super::mail::status(e)),

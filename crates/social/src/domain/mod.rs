@@ -50,12 +50,15 @@ pub fn valid_key(key: &str) -> bool {
 /// Source HTML keys intentionally differ from TOR JSON command keys.
 pub fn valid_html_client_id(id: &str) -> bool {
     (1..=128).contains(&id.len())
-        && id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
 }
 
 /// Match the NEwBOO HTML/header helper: strip disallowed characters, truncate to 128.
 pub fn clean_html_client_id(raw: &str) -> String {
-    raw.trim().chars()
+    raw.trim()
+        .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '-' | '_' | '.' | ':'))
         .take(128)
         .collect()

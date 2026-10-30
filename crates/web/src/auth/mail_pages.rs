@@ -8,7 +8,11 @@ fn shell(body: &str) -> Html<String> {
     layout("Личная почта","Личные диалоги и сообщения.",&format!("<section class=\"me-page mail-page\"><div class=\"container\"><nav class=\"dashboard-nav\" aria-label=\"Разделы кабинета\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item is-active\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item\" href=\"/me/inbox\">Обсуждения</a></nav>{body}</div></section>"))
 }
 
-pub(super) fn index(rows: &[(Conversation, String)], limit: u16, error: Option<&str>) -> Html<String> {
+pub(super) fn index(
+    rows: &[(Conversation, String)],
+    limit: u16,
+    error: Option<&str>,
+) -> Html<String> {
     // Source index is a conversation selector, not a numeric-recipient composer.
     let mut body = String::from("<header class=\"ui-page-header\"><div><h1 class=\"ui-page-header__title\">Почта</h1><p>Выберите переписку</p></div></header><section class=\"me-section\" aria-label=\"Переписки\">");
     if error == Some("blocked") {

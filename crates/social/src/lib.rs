@@ -3,8 +3,8 @@
 
 pub mod domain;
 pub mod repositories {
-    pub mod mail;
     pub mod friendships;
+    pub mod mail;
     mod messages;
 }
 pub mod services;

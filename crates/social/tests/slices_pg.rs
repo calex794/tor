@@ -1,7 +1,14 @@
 //! Disposable PostgreSQL only. These exercise the same service as HTML/JSON.
 use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_social::{domain::MailError, repositories::{mail::PgMail, friendships::{FriendState, PgFriendships}}, services::MailService};
+use tor_social::{
+    domain::MailError,
+    repositories::{
+        friendships::{FriendState, PgFriendships},
+        mail::PgMail,
+    },
+    services::MailService,
+};
 
 async fn fixture() -> (PgPool, Vec<i64>) {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG");
@@ -331,9 +338,18 @@ async fn e_08_source_friendship_cross_request_and_block_serialization() {
     assert_eq!(friends.state(a, b).await.unwrap(), FriendState::BlockedMe);
     assert_eq!(friends.state(b, a).await.unwrap(), FriendState::BlockedByMe);
     assert_eq!(friends.request(a, b).await, Err(MailError::Blocked));
-    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM social_friendships WHERE user_low=$1 AND user_high=$2")
-        .bind(a.min(b)).bind(a.max(b)).fetch_one(&pool).await.unwrap();
-    assert_eq!(left, 0, "blocking deletes any existing accepted or pending friendship");
+    let left: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM social_friendships WHERE user_low=$1 AND user_high=$2",
+    )
+    .bind(a.min(b))
+    .bind(a.max(b))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        left, 0,
+        "blocking deletes any existing accepted or pending friendship"
+    );
     mail.set_block(a, b, false).await.unwrap();
     assert_eq!(friends.request(a, b).await, Err(MailError::Blocked));
     mail.set_block(b, a, false).await.unwrap();

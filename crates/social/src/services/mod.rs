@@ -1,4 +1,6 @@
-use crate::domain::{clean_body, valid_html_client_id, valid_key, Conversation, MailError, MessagePage, SentMessage};
+use crate::domain::{
+    clean_body, valid_html_client_id, valid_key, Conversation, MailError, MessagePage, SentMessage,
+};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -32,7 +34,14 @@ pub trait MailRepository: Send + Sync {
         body: &str,
         receipt_key: &str,
     ) -> Result<SentMessage, MailError>;
-    async fn send_html(&self, actor: i64, conversation: i64, body: &str, client_id: &str, key: &str) -> Result<SentMessage, MailError>;
+    async fn send_html(
+        &self,
+        actor: i64,
+        conversation: i64,
+        body: &str,
+        client_id: &str,
+        key: &str,
+    ) -> Result<SentMessage, MailError>;
     async fn set_block(&self, actor: i64, peer: i64, blocked: bool) -> Result<(), MailError>;
 }
 
@@ -118,9 +127,20 @@ impl<R: MailRepository> MailService<R> {
             .await
     }
 
-    pub async fn send_html(&self, actor: i64, conversation: i64, body: &str, client_id: &str, key: &str) -> Result<SentMessage, MailError> {
-        if actor <= 0 || conversation <= 0 || !valid_html_client_id(client_id) || !valid_key(key) { return Err(MailError::Invalid); }
-        self.repo.send_html(actor, conversation, &clean_body(body)?, client_id, key).await
+    pub async fn send_html(
+        &self,
+        actor: i64,
+        conversation: i64,
+        body: &str,
+        client_id: &str,
+        key: &str,
+    ) -> Result<SentMessage, MailError> {
+        if actor <= 0 || conversation <= 0 || !valid_html_client_id(client_id) || !valid_key(key) {
+            return Err(MailError::Invalid);
+        }
+        self.repo
+            .send_html(actor, conversation, &clean_body(body)?, client_id, key)
+            .await
     }
 
     pub async fn send_to_peer(

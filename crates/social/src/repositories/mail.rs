@@ -125,8 +125,11 @@ impl PgMail {
         if value {
             // Source block supersedes pending/accepted friendship atomically.
             sqlx::query("DELETE FROM social_friendships WHERE user_low=$1 AND user_high=$2")
-                .bind(actor.min(peer)).bind(actor.max(peer))
-                .execute(&mut *tx).await.map_err(unavailable)?;
+                .bind(actor.min(peer))
+                .bind(actor.max(peer))
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
             sqlx::query("INSERT INTO social_user_blocks(blocker_id,blocked_id) VALUES($1,$2) ON CONFLICT DO NOTHING")
                 .bind(actor).bind(peer).execute(&mut *tx).await.map_err(foreign_or_unavailable)?;
         } else {
@@ -186,8 +189,16 @@ impl MailRepository for PgMail {
         self.send_command(actor, conversation, body, receipt_key, true, None)
             .await
     }
-    async fn send_html(&self, actor: i64, conversation: i64, body: &str, client_id: &str, key: &str) -> Result<SentMessage, MailError> {
-        self.send_command(actor, conversation, body, key, false, Some(client_id)).await
+    async fn send_html(
+        &self,
+        actor: i64,
+        conversation: i64,
+        body: &str,
+        client_id: &str,
+        key: &str,
+    ) -> Result<SentMessage, MailError> {
+        self.send_command(actor, conversation, body, key, false, Some(client_id))
+            .await
     }
     async fn set_block(&self, actor: i64, peer: i64, value: bool) -> Result<(), MailError> {
         self.block_command(actor, peer, value).await

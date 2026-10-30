@@ -53,14 +53,14 @@ mod complete_chapter;
 mod continuation_demand;
 mod follow_read_state;
 mod followed_purchase_links;
-mod inbox;
-mod mail;
-mod mail_api;
-mod mail_pages;
 mod friendship;
+mod inbox;
 mod library_actions;
 mod library_page;
 mod login_limiter;
+mod mail;
+mod mail_api;
+mod mail_pages;
 mod notification_settings;
 mod paid_completion;
 mod password_change;
@@ -212,7 +212,10 @@ fn router_inner(
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
-        .route("/api/v1/me/messages", get(mail_api::get).post(mail_api::post))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
         .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",

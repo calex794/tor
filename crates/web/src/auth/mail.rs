@@ -97,7 +97,10 @@ pub(super) async fn index(
         };
         named.push((conversation, name));
     }
-    private_response(super::mail_pages::index(&named, limit, query.error.as_deref()), &[])
+    private_response(
+        super::mail_pages::index(&named, limit, query.error.as_deref()),
+        &[],
+    )
 }
 
 pub(super) async fn start(
@@ -149,7 +152,8 @@ pub(super) async fn conversation(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let friends = tor_social::repositories::friendships::PgFriendships::new(state.accounts.pool().clone());
+    let friends =
+        tor_social::repositories::friendships::PgFriendships::new(state.accounts.pool().clone());
     let friend_state = match friends.state(actor, page.peer_id).await {
         Ok(value) => value,
         Err(e) => return deny(status(e)),
@@ -176,27 +180,42 @@ pub(super) async fn send(
     if let Err(s) = csrf(&state, &headers, form.csrf_token.as_deref()) {
         return deny(s);
     }
-    let is_ajax = headers.get("x-requested-with").and_then(|x|x.to_str().ok()).is_some_and(|x|x.eq_ignore_ascii_case("fetch")||x.eq_ignore_ascii_case("xmlhttprequest"))
-        || headers.get("accept").and_then(|x|x.to_str().ok()).is_some_and(|x|x.contains("application/json"));
+    let is_ajax = headers
+        .get("x-requested-with")
+        .and_then(|x| x.to_str().ok())
+        .is_some_and(|x| {
+            x.eq_ignore_ascii_case("fetch") || x.eq_ignore_ascii_case("xmlhttprequest")
+        })
+        || headers
+            .get("accept")
+            .and_then(|x| x.to_str().ok())
+            .is_some_and(|x| x.contains("application/json"));
     // NEwBOO reads the first nonempty sanitized identity from headers then form.
     // It never reinterprets a source HTML ID as a TOR JSON 43-character key.
     let client_id = [
         headers.get("idempotency-key").and_then(|h| h.to_str().ok()),
-        headers.get("x-idempotency-key").and_then(|h| h.to_str().ok()),
+        headers
+            .get("x-idempotency-key")
+            .and_then(|h| h.to_str().ok()),
         form.client_message_id.as_deref(),
-    ].into_iter().flatten()
-        .map(tor_social::domain::clean_html_client_id)
-        .find(|id| !id.is_empty());
+    ]
+    .into_iter()
+    .flatten()
+    .map(tor_social::domain::clean_html_client_id)
+    .find(|id| !id.is_empty());
     let mail = service(&state);
     let result = if let Some(client_id) = client_id.as_deref() {
-        mail.send_html(actor, id, &form.body, client_id, &generate_session_token()).await
-    } else { match form.command_key.as_deref().filter(|key| !key.is_empty()) {
-        Some(key) => mail.send(actor, id, &form.body, key).await,
-        None => {
-            mail.send_unkeyed(actor, id, &form.body, &generate_session_token())
-                .await
+        mail.send_html(actor, id, &form.body, client_id, &generate_session_token())
+            .await
+    } else {
+        match form.command_key.as_deref().filter(|key| !key.is_empty()) {
+            Some(key) => mail.send(actor, id, &form.body, key).await,
+            None => {
+                mail.send_unkeyed(actor, id, &form.body, &generate_session_token())
+                    .await
+            }
         }
-    }};
+    };
     match result {
         Ok(sent) if is_ajax => {
             // Retrieve the committed canonical row, including timestamp and replay identity.
@@ -213,7 +232,7 @@ pub(super) async fn send(
                 "created_at_display":message.created_at_display
             }});
             private_response(axum::Json(payload), &[])
-        },
+        }
         Ok(_) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
         Err(e) => deny(status(e)),
     }
