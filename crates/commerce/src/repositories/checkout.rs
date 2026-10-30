@@ -75,7 +75,10 @@ impl CheckoutRepository for PgCheckout {
         .fetch_one(&mut *tx)
         .await
         .map_err(unavailable)?;
-        if prior.try_get::<Option<String>, _>("archive_offer_token").map_err(unavailable)?.is_some()
+        if prior
+            .try_get::<Option<String>, _>("archive_offer_token")
+            .map_err(unavailable)?
+            .is_some()
             || prior.try_get::<i64, _>("chapter_id").map_err(unavailable)? != chapter
             || prior
                 .try_get::<i64, _>("expected_version_id")

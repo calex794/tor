@@ -44,7 +44,8 @@ impl PgCheckout {
         .bind(sender).bind(purchase_id).bind(recipient)
         .fetch_optional(&self.pool).await.map_err(|_| CheckoutError::Unavailable)?;
         row.ok_or(CheckoutError::Inaccessible)?
-            .try_get("token").map_err(|_| CheckoutError::Unavailable)
+            .try_get("token")
+            .map_err(|_| CheckoutError::Unavailable)
     }
 
     /// Full D wallet debit + historical version + share snapshot in one PG commit.
@@ -54,14 +55,18 @@ impl PgCheckout {
         offer_token: &str,
         command: &PurchaseCommand,
     ) -> Result<PurchaseReceipt, CheckoutError> {
-        let actor=command.actor_id.get();
-        let chapter=command.edition.chapter_id.get();
-        let version=command.edition.version_id.get();
-        let price=command.expected_price.get();
-        if actor<=0 || command.wallet_id.get()!=actor || price<=0 {
+        let actor = command.actor_id.get();
+        let chapter = command.edition.chapter_id.get();
+        let version = command.edition.version_id.get();
+        let price = command.expected_price.get();
+        if actor <= 0 || command.wallet_id.get() != actor || price <= 0 {
             return Err(CheckoutError::Inaccessible);
         }
-        let mut tx=self.pool.begin().await.map_err(|_| CheckoutError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CheckoutError::Unavailable)?;
         let offer=sqlx::query(
             "SELECT o.sender_user_id,o.sender_purchase_id,o.chapter_id,o.version_id,
                     o.quoted_price_minor,b.id AS book_id,st.current_revision AS share_revision
@@ -91,13 +96,24 @@ impl PgCheckout {
         ).bind(offer_token).bind(actor).bind(chapter).bind(version).bind(price)
         .fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?
         .ok_or(CheckoutError::Inaccessible)?;
-        let book:i64=offer.try_get("book_id").map_err(|_| CheckoutError::Unavailable)?;
-        let revision:i64=offer.try_get("share_revision").map_err(|_| CheckoutError::Unavailable)?;
-        let total:i64=sqlx::query_scalar(
+        let book: i64 = offer
+            .try_get("book_id")
+            .map_err(|_| CheckoutError::Unavailable)?;
+        let revision: i64 = offer
+            .try_get("share_revision")
+            .map_err(|_| CheckoutError::Unavailable)?;
+        let total: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(share_percent),0)::BIGINT FROM revenue_share_assignments
              WHERE book_id=$1 AND revision=$2",
-        ).bind(book).bind(revision).fetch_one(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
-        if total!=100 {return Err(CheckoutError::Unavailable);}
+        )
+        .bind(book)
+        .bind(revision)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?;
+        if total != 100 {
+            return Err(CheckoutError::Unavailable);
+        }
         // The command key is global across BOTH purchase pathways.
         let claimed=sqlx::query_scalar::<_,i64>(
             "INSERT INTO chapter_purchase_commands
@@ -106,59 +122,126 @@ impl PgCheckout {
              ON CONFLICT(user_id,command_key) DO NOTHING RETURNING user_id",
         ).bind(actor).bind(command.idempotency_key.as_str()).bind(chapter).bind(version)
         .bind(price).bind(offer_token).fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
-        let prior=sqlx::query(
+        let prior = sqlx::query(
             "SELECT chapter_id,expected_version_id,expected_price_minor,purchase_id,
                     archive_offer_token::text AS archive_offer_token
              FROM chapter_purchase_commands WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
-        ).bind(actor).bind(command.idempotency_key.as_str()).fetch_one(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
-        if prior.try_get::<i64,_>("chapter_id").map_err(|_| CheckoutError::Unavailable)?!=chapter
-            || prior.try_get::<i64,_>("expected_version_id").map_err(|_| CheckoutError::Unavailable)?!=version
-            || prior.try_get::<i64,_>("expected_price_minor").map_err(|_| CheckoutError::Unavailable)?!=price
-            || prior.try_get::<Option<String>,_>("archive_offer_token").map_err(|_| CheckoutError::Unavailable)?.as_deref()!=Some(offer_token)
-        {return Err(CheckoutError::DuplicateKeyDifferentRequest);}
+        )
+        .bind(actor)
+        .bind(command.idempotency_key.as_str())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?;
+        if prior
+            .try_get::<i64, _>("chapter_id")
+            .map_err(|_| CheckoutError::Unavailable)?
+            != chapter
+            || prior
+                .try_get::<i64, _>("expected_version_id")
+                .map_err(|_| CheckoutError::Unavailable)?
+                != version
+            || prior
+                .try_get::<i64, _>("expected_price_minor")
+                .map_err(|_| CheckoutError::Unavailable)?
+                != price
+            || prior
+                .try_get::<Option<String>, _>("archive_offer_token")
+                .map_err(|_| CheckoutError::Unavailable)?
+                .as_deref()
+                != Some(offer_token)
+        {
+            return Err(CheckoutError::DuplicateKeyDifferentRequest);
+        }
         if claimed.is_none() {
-            let id:i64=prior.try_get::<Option<i64>,_>("purchase_id").map_err(|_| CheckoutError::Unavailable)?
+            let id: i64 = prior
+                .try_get::<Option<i64>, _>("purchase_id")
+                .map_err(|_| CheckoutError::Unavailable)?
                 .ok_or(CheckoutError::Unavailable)?;
-            let row=sqlx::query(
+            let row = sqlx::query(
                 "SELECT p.amount_minor,e.balance_after_minor
                  FROM chapter_purchase_facts p JOIN reader_wallet_entries e
                    ON e.purchase_id=p.id AND e.user_id=p.user_id AND e.kind='chapter_purchase'
                  JOIN archive_purchase_sources source ON source.purchase_id=p.id
                  WHERE p.id=$1 AND p.user_id=$2 AND source.offer_token=$3::uuid",
-            ).bind(id).bind(actor).bind(offer_token).fetch_one(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
-            let answer=receipt(id,chapter,version,row.try_get("amount_minor").map_err(|_| CheckoutError::Unavailable)?,
-                row.try_get("balance_after_minor").map_err(|_| CheckoutError::Unavailable)?,true)?;
+            )
+            .bind(id)
+            .bind(actor)
+            .bind(offer_token)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| CheckoutError::Unavailable)?;
+            let answer = receipt(
+                id,
+                chapter,
+                version,
+                row.try_get("amount_minor")
+                    .map_err(|_| CheckoutError::Unavailable)?,
+                row.try_get("balance_after_minor")
+                    .map_err(|_| CheckoutError::Unavailable)?,
+                true,
+            )?;
             tx.commit().await.map_err(|_| CheckoutError::Unavailable)?;
             return Ok(answer);
         }
         let balance=sqlx::query_scalar::<_,i64>(
             "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1 AND currency='RUB' FOR UPDATE",
         ).bind(actor).fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?.unwrap_or(0);
-        if sqlx::query_scalar::<_,i64>(
+        if sqlx::query_scalar::<_, i64>(
             "SELECT purchase_id FROM library_purchased_chapters WHERE user_id=$1 AND chapter_id=$2",
-        ).bind(actor).bind(chapter).fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?.is_some()
-        {return Err(CheckoutError::AlreadyOwned);}
-        if balance<price {return Err(CheckoutError::InsufficientBalance);}
-        let after=sqlx::query_scalar::<_,i64>(
+        )
+        .bind(actor)
+        .bind(chapter)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?
+        .is_some()
+        {
+            return Err(CheckoutError::AlreadyOwned);
+        }
+        if balance < price {
+            return Err(CheckoutError::InsufficientBalance);
+        }
+        let after = sqlx::query_scalar::<_, i64>(
             "UPDATE reader_wallet_accounts SET balance_minor=balance_minor-$2
              WHERE user_id=$1 AND currency='RUB' AND balance_minor>=$2 RETURNING balance_minor",
-        ).bind(actor).bind(price).fetch_optional(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?
-          .ok_or(CheckoutError::InsufficientBalance)?;
-        let settlement=format!("wallet:{actor}:{}",command.idempotency_key.as_str());
-        let id=sqlx::query_scalar::<_,i64>(
+        )
+        .bind(actor)
+        .bind(price)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?
+        .ok_or(CheckoutError::InsufficientBalance)?;
+        let settlement = format!("wallet:{actor}:{}", command.idempotency_key.as_str());
+        let id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO chapter_purchase_facts
                (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
              VALUES($1,$2,$3,$4,$5,'RUB') RETURNING id",
-        ).bind(actor).bind(chapter).bind(version).bind(&settlement).bind(price)
-        .fetch_one(&mut *tx).await.map_err(|e|{
-            if e.as_database_error().and_then(|d|d.code()).as_deref()==Some("23505") {
+        )
+        .bind(actor)
+        .bind(chapter)
+        .bind(version)
+        .bind(&settlement)
+        .bind(price)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23505") {
                 CheckoutError::AlreadyOwned
-            }else{CheckoutError::Unavailable}
+            } else {
+                CheckoutError::Unavailable
+            }
         })?;
         sqlx::query(
             "INSERT INTO chapter_purchase_share_snapshots
                 (purchase_id,book_id,share_revision,gross_amount_minor) VALUES($1,$2,$3,$4)",
-        ).bind(id).bind(book).bind(revision).bind(price).execute(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
+        )
+        .bind(id)
+        .bind(book)
+        .bind(revision)
+        .bind(price)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?;
         sqlx::query(
             "INSERT INTO chapter_purchase_share_lines(purchase_id,user_id,share_percent)
              SELECT $1,user_id,share_percent FROM revenue_share_assignments WHERE book_id=$2 AND revision=$3",
@@ -170,12 +253,17 @@ impl PgCheckout {
         .execute(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
         sqlx::query(
             "INSERT INTO archive_purchase_sources(purchase_id,offer_token) VALUES($1,$2::uuid)",
-        ).bind(id).bind(offer_token).execute(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
+        )
+        .bind(id)
+        .bind(offer_token)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| CheckoutError::Unavailable)?;
         sqlx::query(
             "UPDATE chapter_purchase_commands SET purchase_id=$3 WHERE user_id=$1 AND command_key=$2",
         ).bind(actor).bind(command.idempotency_key.as_str()).bind(id)
         .execute(&mut *tx).await.map_err(|_| CheckoutError::Unavailable)?;
         tx.commit().await.map_err(|_| CheckoutError::Unavailable)?;
-        receipt(id,chapter,version,price,after,false)
+        receipt(id, chapter, version, price, after, false)
     }
 }
