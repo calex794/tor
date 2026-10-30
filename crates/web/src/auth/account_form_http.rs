@@ -240,16 +240,32 @@ pub(super) async fn login(
     }
     let email = match rules::login(&form.email, &form.password) {
         Ok(email) => email,
-        Err(_) => { observed.report(auth_observation::Outcome::InvalidForm, None); return invalid_credentials(); },
+        Err(_) => {
+            observed.report(auth_observation::Outcome::InvalidForm, None);
+            return invalid_credentials();
+        }
     };
     let audit = source;
     let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
         Ok(key) => key,
-        Err(status) => { observed.report(if status == StatusCode::TOO_MANY_REQUESTS { auth_observation::Outcome::RateLimited } else { auth_observation::Outcome::Unavailable }, None); return auth_limit_error(status, false); },
+        Err(status) => {
+            observed.report(
+                if status == StatusCode::TOO_MANY_REQUESTS {
+                    auth_observation::Outcome::RateLimited
+                } else {
+                    auth_observation::Outcome::Unavailable
+                },
+                None,
+            );
+            return auth_limit_error(status, false);
+        }
     };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
-        Err(_) => { observed.report(auth_observation::Outcome::Unavailable, None); return login_storage_error(LoginOutcome::LookupUnavailable); },
+        Err(_) => {
+            observed.report(auth_observation::Outcome::Unavailable, None);
+            return login_storage_error(LoginOutcome::LookupUnavailable);
+        }
     };
     let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
@@ -280,10 +296,23 @@ pub(super) async fn login(
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
             return response;
         }
-        Err(_) => { observed.report(auth_observation::Outcome::Unavailable, stored.as_ref().map(|u| u.id)); return login_storage_error(LoginOutcome::PasswordWorkerUnavailable); },
+        Err(_) => {
+            observed.report(
+                auth_observation::Outcome::Unavailable,
+                stored.as_ref().map(|u| u.id),
+            );
+            return login_storage_error(LoginOutcome::PasswordWorkerUnavailable);
+        }
     };
     if !verified {
-        observed.report(if stored.is_some() { auth_observation::Outcome::BadPassword } else { auth_observation::Outcome::UnknownAccount }, stored.as_ref().map(|u| u.id));
+        observed.report(
+            if stored.is_some() {
+                auth_observation::Outcome::BadPassword
+            } else {
+                auth_observation::Outcome::UnknownAccount
+            },
+            stored.as_ref().map(|u| u.id),
+        );
         return invalid_credentials();
     }
     let Some(user) = stored else {
@@ -308,8 +337,14 @@ pub(super) async fn login(
         .await
     {
         Ok(true) => {}
-        Ok(false) => { observed.report(auth_observation::Outcome::Unavailable, Some(user.id)); return invalid_credentials(); },
-        Err(_) => { observed.report(auth_observation::Outcome::Unavailable, Some(user.id)); return login_storage_error(LoginOutcome::SessionUnavailable); },
+        Ok(false) => {
+            observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
+            return invalid_credentials();
+        }
+        Err(_) => {
+            observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
+            return login_storage_error(LoginOutcome::SessionUnavailable);
+        }
     }
     // No next parameter is accepted: redirects always stay on this site.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
