@@ -1,7 +1,7 @@
 //! E-02 first database slice: public book comments only.
 //! This repository never grants reading rights and never exposes chapter comments.
-use sqlx::PgPool;
 use crate::domain::mentions;
+use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct PgPublicBookComments {
@@ -56,11 +56,19 @@ pub struct MentionCandidate {
 impl PgPublicBookComments {
     /// Only active participants of this one visible book, never global user search.
     pub async fn mention_candidates(
-        &self, actor_id: i64, book_id: i64, query: &str,
+        &self,
+        actor_id: i64,
+        book_id: i64,
+        query: &str,
     ) -> Result<Vec<MentionCandidate>, ListCommentsError> {
         let q = query.trim();
-        if actor_id <= 0 || book_id <= 0 || q.chars().count() < 2
-            || q.chars().count() > 64 || q.contains('%') || q.contains('_') {
+        if actor_id <= 0
+            || book_id <= 0
+            || q.chars().count() < 2
+            || q.chars().count() > 64
+            || q.contains('%')
+            || q.contains('_')
+        {
             return Err(ListCommentsError::Invalid);
         }
         let rows = sqlx::query_as::<_, (i64, String)>(
@@ -73,9 +81,19 @@ impl PgPublicBookComments {
                AND u.id<>$2 AND lower(u.display_name) LIKE lower($3) || '%'
              GROUP BY u.id,u.display_name ORDER BY lower(u.display_name),u.id LIMIT 20",
         )
-        .bind(book_id).bind(actor_id).bind(q)
-        .fetch_all(&self.pool).await.map_err(|_| ListCommentsError::Unavailable)?;
-        Ok(rows.into_iter().map(|(user_id,display_name)| MentionCandidate { user_id, display_name }).collect())
+        .bind(book_id)
+        .bind(actor_id)
+        .bind(q)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| ListCommentsError::Unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|(user_id, display_name)| MentionCandidate {
+                user_id,
+                display_name,
+            })
+            .collect())
     }
 
     pub fn new(pool: PgPool) -> Self {
@@ -198,7 +216,8 @@ impl PgPublicBookComments {
             .bind(&ids)
             .bind(actor_id)
             .fetch_all(&mut *tx)
-            .await {
+            .await
+            {
                 Ok(ids) => ids,
                 Err(_) => return CreateResult::Unavailable,
             }
@@ -264,7 +283,8 @@ impl PgPublicBookComments {
                 .bind(recipient)
                 .execute(&mut *tx)
                 .await
-                .is_err() {
+                .is_err()
+                {
                     return CreateResult::Unavailable;
                 }
             }
