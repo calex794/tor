@@ -6,6 +6,9 @@ edition.workspace = true
 [dependencies]
 sha2 = "0.10"
 sqlx.workspace = true
+serde.workspace = true
+rand = "0.8"
+base64 = "0.22"
 
 [dev-dependencies]
 tokio.workspace = true

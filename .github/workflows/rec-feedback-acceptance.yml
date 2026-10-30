@@ -4,42 +4,36 @@ on:
     paths:
       - '.github/workflows/rec-feedback-acceptance.yml'
       - 'crates/recommendations/**'
-      - 'crates/web/src/recommendation*'
-      - 'crates/web/tests/recommendation*'
+      - 'crates/reading/**'
+      - 'crates/web/**'
       - 'migrations/*rec_*'
-      - 'tools/rec_*'
 permissions:
   contents: read
 concurrency:
   group: rec-feedback-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  source:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+  acceptance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Reproducible source bundle
-        run: |
-          git fetch origin pull/309/head:refs/heads/source-rec309 pull/320/head:refs/heads/source-rec320 pull/326/head:refs/heads/source-rec326
-          git bundle create "$RUNNER_TEMP/tor-source.bundle" --all
-          sha256sum "$RUNNER_TEMP/tor-source.bundle" > "$RUNNER_TEMP/tor-source.bundle.sha256"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rec-source-${{ github.event.pull_request.head.sha }}
-          path: |
-            ${{ runner.temp }}/tor-source.bundle
-            ${{ runner.temp }}/tor-source.bundle.sha256
-          retention-days: 1
-          if-no-files-found: error
-  offline-tools:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.title, 'WIP') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-ci-only
+      TEST_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,22 +41,38 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Offline Cargo source cache and compiler (no environment or credentials)
+      - uses: Swatinem/rust-cache@v2
+      - name: Prepare isolated database
         run: |
-          cargo fetch
-          cp Cargo.lock "$RUNNER_TEMP/Cargo.lock"
-          tar -C "$HOME/.cargo" -czf "$RUNNER_TEMP/cargo-registry.tar.gz" registry
-          toolchain="$(rustc --print sysroot)"
-          tar -C "$toolchain" -czf "$RUNNER_TEMP/rust-compiler.tar.gz" bin lib libexec
-          docker run --rm -v "$RUNNER_TEMP:/out" postgres:18 sh -c 'tar -czf /out/pg18-runtime.tar.gz /usr/lib/postgresql/18 /usr/share/postgresql/18 /usr/lib/x86_64-linux-gnu'
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply real SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Unit and PostgreSQL acceptance
+        run: |
+          cargo test -p tor-recommendations --all-targets
+          cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+      - name: Formatting evidence
+        if: always()
+        run: |
+          cargo fmt --all
+          git diff -- '*.rs' > "$RUNNER_TEMP/rec-rustfmt.patch"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: rec-offline-tools-${{ github.event.pull_request.head.sha }}
-          path: |
-            ${{ runner.temp }}/cargo-registry.tar.gz
-            ${{ runner.temp }}/rust-compiler.tar.gz
-            ${{ runner.temp }}/pg18-runtime.tar.gz
-            ${{ runner.temp }}/Cargo.lock
-          compression-level: 0
+          name: rec-rustfmt-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/rec-rustfmt.patch
           retention-days: 1
-          if-no-files-found: error
