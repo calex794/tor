@@ -169,7 +169,7 @@ impl MailRepository for PgMail {
         body: &str,
         key: &str,
     ) -> Result<SentMessage, MailError> {
-        self.send_command(actor, conversation, body, key, false)
+        self.send_command(actor, conversation, body, key, false, None)
             .await
     }
     async fn send_unkeyed(
@@ -179,8 +179,11 @@ impl MailRepository for PgMail {
         body: &str,
         receipt_key: &str,
     ) -> Result<SentMessage, MailError> {
-        self.send_command(actor, conversation, body, receipt_key, true)
+        self.send_command(actor, conversation, body, receipt_key, true, None)
             .await
+    }
+    async fn send_html(&self, actor: i64, conversation: i64, body: &str, client_id: &str, key: &str) -> Result<SentMessage, MailError> {
+        self.send_command(actor, conversation, body, key, false, Some(client_id)).await
     }
     async fn set_block(&self, actor: i64, peer: i64, value: bool) -> Result<(), MailError> {
         self.block_command(actor, peer, value).await
