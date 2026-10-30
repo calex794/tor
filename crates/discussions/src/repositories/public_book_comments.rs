@@ -237,8 +237,8 @@ impl PgPublicBookComments {
         // A conflicting key must not silently return a different saved comment.
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO discussion_comments
-               (author_user_id,book_id,body,command_key,command_hash,visibility,parent_id)
-             VALUES ($1,$2,$3,$4,$5,'visible',$6)
+               (author_user_id,book_id,body,command_key,command_hash,visibility,parent_id,submitted_body_sha256)
+             VALUES ($1,$2,$3,$4,$5,'visible',$6,sha256(convert_to($7,'UTF8')))
              ON CONFLICT (author_user_id,command_key) DO NOTHING
              RETURNING id",
         )
@@ -248,27 +248,29 @@ impl PgPublicBookComments {
         .bind(command_key)
         .bind(payload_hash)
         .bind(parent_id)
+        .bind(body)
         .fetch_optional(&mut *tx)
         .await;
         let result = match inserted {
             Ok(Some(id)) => CreateResult::Created(id),
             Ok(None) => {
-                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String, Option<i64>)>(
-                    "SELECT id,book_id,command_hash,body,parent_id FROM discussion_comments
+                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String, Option<i64>, bool)>(
+                    "SELECT id,book_id,command_hash,body,parent_id,
+                       (submitted_body_sha256=sha256(convert_to($3,'UTF8'))) AS same_submission
+                     FROM discussion_comments
                      WHERE author_user_id=$1 AND command_key=$2 AND book_id IS NOT NULL",
                 )
                 .bind(actor_id)
                 .bind(command_key)
+                .bind(body)
                 .fetch_optional(&mut *tx)
                 .await;
                 match original {
-                    Ok(Some((id, original_book, hash, old_body, old_parent)))
+                    Ok(Some((id, original_book, hash, old_body, old_parent, same_submission)))
                         if original_book == book_id
                             && hash == payload_hash
                             && old_parent == parent_id
-                            && (old_body == clean_body
-                                || (mentions::tokens(body).iter().any(|t| matches!(t.key, mentions::MentionKey::User(_) | mentions::MentionKey::Handle(_)))
-                                    && mentions::tokens(&old_body).iter().any(|t| matches!(t.key, mentions::MentionKey::User(_))))) =>
+                            && (same_submission || old_body == clean_body) =>
                     {
                         CreateResult::Replayed(id)
                     }
