@@ -122,6 +122,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/security/sessions"), "POST") => Some(109),
         (Some("/assets/mentions.js"), "GET") => Some(110),
         (Some("/api/v1/social/mentions/discover"), "GET") => Some(111),
+        (Some("/me/revisions/{id}/read-state"), "POST") => Some(112),
         _ => None,
     };
     index

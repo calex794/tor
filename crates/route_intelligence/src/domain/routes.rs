@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 112] = [
+const ROUTES: [RouteRegistration; 113] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -122,6 +122,7 @@ const ROUTES: [RouteRegistration; 112] = [
     RouteRegistration::new("/me/security/sessions", "POST", "/me/", Exact, Page, Auth, Write), // 109
     RouteRegistration::new("/assets/mentions.js", "GET", "/assets/", Exact, Static, System, Read), // 110
     RouteRegistration::new("/api/v1/social/mentions/discover", "GET", "/api/v1/social/", Exact, Api, Dashboard, Read), // 111
+    RouteRegistration::new("/me/revisions/{id}/read-state", "POST", "/me/revisions/", Prefix, Page, Reading, Write), // 112
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
