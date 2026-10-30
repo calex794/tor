@@ -13,6 +13,7 @@ use tor_books::{
     services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
 };
 use tor_reading::{repositories::PgReader, services::ReadingError};
+pub mod achievement_consumer;
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
