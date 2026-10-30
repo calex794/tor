@@ -13,8 +13,8 @@ pub use account::{
     account_error_page, login_form, my_account, my_account_with_follow_updates,
     password_change_form, registration_form, registration_form_with_error,
 };
-pub use session_security::active_sessions;
 pub use referrals::referrals_page;
+pub use session_security::active_sessions;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
