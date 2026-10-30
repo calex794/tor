@@ -46,11 +46,32 @@ CREATE TABLE account_registration_referral_outbox (
     guest_hash BYTEA CHECK (guest_hash IS NULL OR octet_length(guest_hash) = 32),
     manual_code TEXT CHECK (manual_code IS NULL OR (char_length(manual_code) BETWEEN 6 AND 64
         AND manual_code ~ '^[A-Za-z0-9_-]+$')),
+    -- An immutable decision from the account/session transaction. Never
+    -- recompute a live code status when recovering a committed registration.
+    -- Legacy/test handoffs without a decision retain the old recovery path.
+    decided_at_registration BOOLEAN NOT NULL DEFAULT FALSE,
+    decided_referral_code TEXT REFERENCES referral_codes(code) ON DELETE RESTRICT,
+    decided_referrer_user_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+    decided_program_type TEXT
+        CHECK (decided_program_type IN ('reader_spend','creator_income')),
+    decided_capture_id BIGINT REFERENCES referral_captures(id) ON DELETE RESTRICT,
+    decided_source TEXT
+        CHECK (decided_source IN ('guest_capture','manual_code_at_registration')),
     registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     processed_at TIMESTAMPTZ,
     result TEXT CHECK (result IS NULL OR result IN ('attributed', 'unattributed')),
     CHECK (guest_hash IS NOT NULL OR manual_code IS NOT NULL),
-    CHECK ((processed_at IS NULL) = (result IS NULL))
+    CHECK ((processed_at IS NULL) = (result IS NULL)),
+    CHECK (
+        (decided_referral_code IS NULL AND decided_referrer_user_id IS NULL
+            AND decided_program_type IS NULL AND decided_capture_id IS NULL
+            AND decided_source IS NULL)
+        OR
+        (decided_at_registration AND decided_referral_code IS NOT NULL
+            AND decided_referrer_user_id IS NOT NULL
+            AND decided_program_type IS NOT NULL AND decided_source IS NOT NULL)
+    ),
+    CHECK (decided_capture_id IS NULL OR decided_source='guest_capture')
 );
 CREATE INDEX account_registration_referral_outbox_pending
     ON account_registration_referral_outbox(registered_at, user_id)
