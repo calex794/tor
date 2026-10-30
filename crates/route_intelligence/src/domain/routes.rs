@@ -22,15 +22,7 @@ const ROUTES: [RouteRegistration; 87] = [
     RouteRegistration::new("/login", "POST", "/login/", Exact, Page, Auth, Write), // 8
     RouteRegistration::new("/register", "GET", "/register/", Exact, Page, Auth, Read), // 9
     RouteRegistration::new("/register", "POST", "/register/", Exact, Page, Auth, Write), // 10
-    RouteRegistration::new(
-        "/api/v1/books",
-        "GET",
-        "/api/v1/books/",
-        Exact,
-        Api,
-        Catalog,
-        Read,
-    ), // 11
+    RouteRegistration::new("/api/v1/books", "GET", "/api/v1/books/", Exact, Api, Catalog, Read), // 11
     RouteRegistration::new("/me", "GET", "/me/", Exact, Page, Dashboard, Read), // 12
     RouteRegistration::new("/me/library", "GET", "/me/library/", Exact, Page, Reading, Read), // 13
     RouteRegistration::new("/read/{id}", "GET", "/read/", Prefix, Page, Reading, Read), // 14
