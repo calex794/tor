@@ -67,6 +67,7 @@ mod library_page;
 mod login_limiter;
 mod mail;
 mod mail_api;
+mod mail_book_previews;
 mod mail_pages;
 mod notification_settings;
 mod notifications;

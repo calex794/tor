@@ -35,7 +35,7 @@
 | В просмотренных mail routes/service/repository/templates/JS нет отдельной кнопки read receipt и mail unread cursor | Придуманные UI, `/mail/{id}/read`, unread DTO, таблица/триггер `social_mail_reads` и service/repository команды удалены. Чтение текста и notification unread — разные вещи. План E-08 уточнён по исходнику. |
 | Block через friendship actions: `templates/mail/detail.html`, `social/services/friendship_service.py`, `routes/mail.py` | Двусторонний запрет новых сообщений и независимость блокировок есть. Добавлены POST `/users/{id}/friend`, `/users/{id}/unfriend`, `/users/{id}/block`, состояния pending/accepted, встречное принятие, кнопки в профиле и mail, общий pair-lock c mail. Направленная блокировка остаётся TOR-адаптацией; notify/outbox реализованы в Draft отдельным срезом, их интеграционный CI ещё проверяется; полный исходный friendship UX остаётся открытым. |
 | Новое сообщение создаёт адресатам notification, повтор не создаёт новую: `services/mail_service.py:762–786` | В Draft добавлены source event в общей `outbox_events` внутри транзакции отправки, idempotent `event_deliveries` projection, закрытая `/notifications` и отметки о прочтении; ручных mail read receipts нет. PostgreSQL runtime предыдущего среза прошёл, Chromium notification check нового среза ожидает CI. Полные исходные preferences/tabs не перенесены. |
-| Исходные book previews, групповые комнаты, admin mail | **Не перенесено**. Для preview необходим исходный ACL книги; закрытый текст/название не резолвится до подтверждения права. Полный модуль почты не закрыт. |
+| Исходные book previews, групповые комнаты, admin mail | **Частично в следующем P0-срезе, CI ещё не подтверждён:** канонические numeric book IDs через B public catalog; HTML, AJAX receipt, JSON poll и older используют общую проекцию. Draft/held/deleted остаются plain text. Legacy aliases, actor-authorized private previews, group/admin mail ещё не перенесены. |
 
 ## Разрешённые технические адаптации и открытые разрывы
 
@@ -110,3 +110,7 @@ fallback и сортировку/превью по активности. Browser
 на объединённом HEAD эти дополнительные проверки ещё ожидают CI.
 Прежние 30/30 checks на `09ca74fd` относятся к прежнему поведению и не принимают
 новую ревизию или соответствие NEwBOO. Новый результат фиксируется на точном SHA PR.
+
+## P0: public book previews after 8499082f (CI pending)
+
+Source: NEwBOO mail_book_previews.py, 3 refs/message, 40 refs/page. Unscoped include_hidden=true fallback is forbidden. TOR resolves canonical numeric IDs only via B-owned GetPublicBook, requiring public visibility and rejecting moderation hold/deleted. Cover URL requires B-owned public cover slot. Unresolved links remain plaintext. HTML, AJAX receipt, JSON polling and older pagination use one projection. Tests cover parser/escaping, PG public/draft/held, AJAX and third actor. Slug/legacy aliases, per-actor private book ACL, group/admin mail, public profile identity and preferences remain unimplemented. Retained ledger check, CI on final SHA and independent review remain release gates. Draft must not merge.

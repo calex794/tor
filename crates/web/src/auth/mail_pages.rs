@@ -60,6 +60,7 @@ pub(super) fn conversation(
     actor: i64,
     id: i64,
     page: &MessagePage,
+    enriched: &[super::mail_book_previews::PreviewedText],
     peer_name: &str,
     csrf: &str,
     friend_state: FriendState,
@@ -68,13 +69,25 @@ pub(super) fn conversation(
     let peer_name = escape_html(peer_name);
     let last = page.items.last().map_or(0, |m| m.id);
     let mut body=format!("<header class=\"ui-page-header\"><div><h1 class=\"ui-page-header__title\">{}</h1><p><a href=\"/mail\">Все диалоги</a></p></div></header><section class=\"me-section\"><p id=\"mail-status\" role=\"status\"></p><div id=\"mail-messages\" data-conversation=\"{id}\" data-last-id=\"{last}\" data-actor=\"{actor}\" data-peer-name=\"{peer_name}\" aria-live=\"polite\">",peer_name);
-    for m in &page.items {
+    for (index, m) in page.items.iter().enumerate() {
         let sender = if m.sender_id == actor {
             "Вы"
         } else {
             &peer_name
         };
-        write!(body,"<article class=\"me-now-card\" data-message-id=\"{}\"><strong>{sender}</strong><p class=\"mail-message-body\">{}</p><time>{}</time></article>",m.id,escape_html(&m.body),escape_html(&m.created_at_display)).expect("mail message");
+        let view = enriched.get(index);
+        let body_text = view.map_or(m.body.as_str(), |p| p.body_without_book_links.as_str());
+        write!(body,"<article class=\"me-now-card\" data-message-id=\"{}\"><strong>{sender}</strong><p class=\"mail-message-body\">{}</p>",m.id,escape_html(body_text)).expect("mail message");
+        if let Some(view) = view {
+            for preview in &view.book_previews {
+                write!(body,"<a class=\"mail-book-preview\" data-mail-book-preview=\"{}\" href=\"{}\">",escape_html(&preview.book_ref),escape_html(&preview.url)).expect("mail preview link");
+                if !preview.cover_url.is_empty() {
+                    write!(body,"<img src=\"{}\" alt=\"\" loading=\"lazy\">",escape_html(&preview.cover_url)).expect("mail preview cover");
+                }
+                write!(body,"<span>{}</span></a>",escape_html(&preview.title)).expect("mail preview title");
+            }
+        }
+        write!(body,"<time>{}</time></article>",escape_html(&m.created_at_display)).expect("mail message time");
     }
     body.push_str("</div>");
     if page.has_more {
@@ -131,10 +144,33 @@ mod tests {
             blocked_by_me: false,
             has_more: false,
         };
-        let html = conversation(1, 1, &page, "Peer <safe>", "csrf", FriendState::None).0;
+        let html = conversation(1, 1, &page, &[], "Peer <safe>", "csrf", FriendState::None).0;
         assert!(html.contains("&lt;img onerror=alert(1)&gt;"));
         assert!(!html.contains("<img onerror"));
         assert!(!html.contains("name=\"command_key\""));
         assert!(!html.contains("href=\"/books/secret"));
+    }
+
+    #[test]
+    fn e08_preview_title_is_escaped_in_server_rendering() {
+        let page = MessagePage {
+            items: vec![tor_social::domain::Message {
+                id: 10, sender_id: 2, body: "/books/12".into(),
+                created_at: "now".into(), created_at_display: "now".into(),
+            }],
+            peer_id: 2, blocked: false, blocked_by_me: false, has_more: false,
+        };
+        let view = super::super::mail_book_previews::PreviewedText {
+            body_without_book_links: String::new(),
+            book_previews: vec![super::super::mail_book_previews::MailBookPreview {
+                book_ref: "12".into(), title: "<img onerror=alert(1)>".into(),
+                url: "/books/12".into(), display_url: "/book/12".into(),
+                cover_url: String::new(),
+            }],
+        };
+        let html = conversation(1, 1, &page, &[view], "Peer", "csrf", FriendState::None).0;
+        assert!(html.contains("&lt;img onerror=alert(1)&gt;"));
+        assert!(html.contains("data-mail-book-preview=\"12\""));
+        assert!(!html.contains("<img onerror="));
     }
 }

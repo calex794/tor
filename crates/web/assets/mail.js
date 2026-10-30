@@ -18,11 +18,31 @@
     sender.textContent = String(message.sender_id) === list.dataset.actor ? 'Вы' : list.dataset.peerName;
     const body = document.createElement('p');
     body.className = 'mail-message-body';
-    body.textContent = message.text;
+    body.textContent = message.body_without_book_links ?? message.text;
+    article.append(sender, body);
+    for (const preview of (Array.isArray(message.book_previews) ? message.book_previews : [])) {
+      // Defense in depth: only canonical same-origin metadata is actionable.
+      if (!/^\/books\/[1-9]\d*$/.test(preview.url) || !/^[1-9]\d*$/.test(preview.book_ref)) continue;
+      const link = document.createElement('a');
+      link.className = 'mail-book-preview';
+      link.dataset.mailBookPreview = preview.book_ref;
+      link.href = preview.url;
+      if (/^\/covers\/[1-9]\d*\/card\.webp$/.test(preview.cover_url || '')) {
+        const cover = document.createElement('img');
+        cover.src = preview.cover_url;
+        cover.alt = '';
+        cover.loading = 'lazy';
+        link.append(cover);
+      }
+      const title = document.createElement('span');
+      title.textContent = preview.title;
+      link.append(title);
+      article.append(link);
+    }
     const time = document.createElement('time');
     time.dateTime = message.created_at;
     time.textContent = message.created_at_display;
-    article.append(sender, body, time);
+    article.append(time);
     return article;
   };
   function add(messages, prepend = false) {

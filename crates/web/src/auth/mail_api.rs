@@ -46,6 +46,8 @@ struct Message {
     id: String,
     sender_id: String,
     text: String,
+    body_without_book_links: String,
+    book_previews: Vec<super::mail_book_previews::MailBookPreview>,
     created_at: String,
     created_at_display: String,
 }
@@ -98,6 +100,7 @@ pub(super) async fn get(
             Ok(p) => p,
             Err(e) => return deny(status(e)),
         };
+        let enriched = super::mail_book_previews::enrich(&state, &page.items).await;
         let result = MessagePage {
             newest_message_id: page.items.last().map(|m| m.id.to_string()),
             oldest_message_id: page.items.first().map(|m| m.id.to_string()),
@@ -106,10 +109,13 @@ pub(super) async fn get(
             messages: page
                 .items
                 .into_iter()
-                .map(|m| Message {
+                .zip(enriched)
+                .map(|(m, view)| Message {
                     id: m.id.to_string(),
                     sender_id: m.sender_id.to_string(),
                     text: m.body,
+                    body_without_book_links: view.body_without_book_links,
+                    book_previews: view.book_previews,
                     created_at: m.created_at,
                     created_at_display: m.created_at_display,
                 })

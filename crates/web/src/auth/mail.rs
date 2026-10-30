@@ -158,9 +158,10 @@ pub(super) async fn conversation(
         Ok(value) => value,
         Err(e) => return deny(status(e)),
     };
+    let enriched = super::mail_book_previews::enrich(&state, &page.items).await;
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        super::mail_pages::conversation(actor, id, &page, &peer_name, &csrf, friend_state),
+        super::mail_pages::conversation(actor, id, &page, &enriched, &peer_name, &csrf, friend_state),
         &cookies,
     );
     response.headers_mut().insert("content-security-policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"));
@@ -226,10 +227,14 @@ pub(super) async fn send(
             let Some(message) = page.items.into_iter().find(|m| m.id == sent.id) else {
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
+            let enriched = super::mail_book_previews::enrich(&state, std::slice::from_ref(&message)).await;
+            let view = &enriched[0];
             let payload = serde_json::json!({"ok":true,"message":{
                 "id": message.id.to_string(), "sender_id":message.sender_id.to_string(),
                 "text":message.body, "created_at":message.created_at,
-                "created_at_display":message.created_at_display
+                "created_at_display":message.created_at_display,
+                "body_without_book_links": &view.body_without_book_links,
+                "book_previews": &view.book_previews
             }});
             private_response(axum::Json(payload), &[])
         }

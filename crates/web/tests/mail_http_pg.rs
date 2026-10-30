@@ -687,6 +687,54 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             .await
             .contains("PRIVATE\n&lt;script&gt;")
     );
+    // B ACL must produce a preview only for a published, non-held book.
+    let public: i64 = pg(&url, &format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES('ci:e08:public:{nonce}','ru','Visible <safe>','public') RETURNING id"
+    )).await.parse().unwrap();
+    let hidden: i64 = pg(&url, &format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES('ci:e08:hidden:{nonce}','ru','HIDDEN-NEVER-DISCLOSE-{nonce}','draft') RETURNING id"
+    )).await.parse().unwrap();
+    let held: i64 = pg(&url, &format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold)
+         VALUES('ci:e08:held:{nonce}','ru','HELD-NEVER-DISCLOSE-{nonce}','public',true) RETURNING id"
+    )).await.parse().unwrap();
+    let form = format!(
+        "body=Book%20%2Fbooks%2F{public}%20hidden%20%2Fbooks%2F{hidden}%20held%20%2Fbooks%2F{held}&client_message_id=preview-{nonce}&csrf_token={}",
+        csrf[0]
+    );
+    let response = call(
+        &reopened, "POST", &format!("{path}/messages"), &cookies[0], &form,
+        &[("accept", "application/json"), ("x-requested-with", "fetch")],
+    ).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+    let message = &json["message"];
+    assert_eq!(message["book_previews"].as_array().unwrap().len(), 1);
+    assert_eq!(message["book_previews"][0]["title"], "Visible <safe>");
+    assert_eq!(message["book_previews"][0]["url"], format!("/books/{public}"));
+    assert_eq!(message["book_previews"][0]["cover_url"], "");
+    let remaining = message["body_without_book_links"].as_str().unwrap();
+    assert!(!remaining.contains(&format!("/books/{public}")));
+    assert!(remaining.contains(&format!("/books/{hidden}")));
+    assert!(remaining.contains(&format!("/books/{held}")));
+    let html = text(call(&reopened, "GET", &path, &cookies[1], "", &[]).await).await;
+    assert!(html.contains("Visible &lt;safe&gt;"));
+    assert!(html.contains(&format!("data-mail-book-preview=\"{public}\"")));
+    assert!(!html.contains("HIDDEN-NEVER-DISCLOSE"));
+    assert!(!html.contains("HELD-NEVER-DISCLOSE"));
+    assert!(!html.contains(&format!("href=\"/books/{hidden}\"")));
+    let conversation_id: i64 = path.trim_start_matches("/mail/").parse().unwrap();
+    let id: i64 = message["id"].as_str().unwrap().parse().unwrap();
+    let poll: serde_json::Value = serde_json::from_str(&text(call(
+        &reopened, "GET",
+        &format!("/api/v1/me/messages?conversation_id={conversation_id}&after_id={}", id - 1),
+        &cookies[1], "", &[],
+    ).await).await).unwrap();
+    assert_eq!(poll["messages"][0]["book_previews"][0]["book_ref"], public.to_string());
+    assert_eq!(call(&reopened, "GET", &path, &cookies[2], "", &[]).await.status(), StatusCode::NOT_FOUND);
+    pg(&url, &format!("DELETE FROM books WHERE id IN({public},{hidden},{held})")).await;
     pg(
         &url,
         &format!(
