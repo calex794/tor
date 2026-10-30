@@ -178,7 +178,10 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
-        .route("/me/settings/password", get(password_change::page).post(password_change::submit))
+        .route(
+            "/me/settings/password",
+            get(password_change::page).post(password_change::submit),
+        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(
