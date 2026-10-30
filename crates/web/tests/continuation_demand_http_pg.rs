@@ -328,6 +328,84 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "0",
         "opening a new chapter is not itself a meaningful completion"
     );
+    // The return is only meaningful after a version-validated end-of-text
+    // completion. A page view cannot create a ChapterCompletedV1 fact.
+    let released_version: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={released}"),
+    )
+    .parse()
+    .unwrap();
+    let final_offset = "C15 reader return".encode_utf16().count();
+    let finish_path = format!("/read/{released}/complete");
+    let finish_form = format!(
+        "csrf_token={csrf}&version_id={released_version}&block_index=1&char_offset={final_offset}&expected_revision=0"
+    );
+    assert_eq!(
+        call(&app, "POST", &finish_path, "", ORIGIN, &finish_form)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            "https://evil.invalid",
+            &finish_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let unfinished = finish_form.replace(
+        &format!("char_offset={final_offset}"),
+        "char_offset=1",
+    );
+    assert_eq!(
+        call(&app, "POST", &finish_path, &reader_cookie, ORIGIN, &unfinished)
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST,
+        "middle-of-chapter progress must not count as completion"
+    );
+    assert_eq!(
+        call(&app, "POST", &finish_path, &reader_cookie, ORIGIN, &finish_form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "POST", &finish_path, &reader_cookie, ORIGIN, &finish_form)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "replaying a stale completion revision cannot add another event"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions \
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "1"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events \
+                 WHERE event_type='ChapterCompletedV1' \
+                   AND dedupe_key='chapter-completed:{reader}:{released}'"
+            )
+        ),
+        "1",
+        "the returned reader's completion and outbox fact must be durable and unique"
+    );
     let owner_fulfilled =
         html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
     assert!(owner_fulfilled
