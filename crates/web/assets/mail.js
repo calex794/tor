@@ -6,8 +6,12 @@
   const status = document.getElementById('mail-status');
   let last = list.dataset.lastId;
   let busy = false;
+  let timer;
+  // NEwBOO mail-detail.js: 3s visible, 10s hidden, 250ms on becoming visible.
+  function schedule(delay = 3000) { clearTimeout(timer); timer = setTimeout(poll, delay); }
   async function poll() {
-    if (busy || document.hidden) return;
+    if (busy) { schedule(); return; }
+    if (document.hidden) { schedule(10000); return; }
     busy = true;
     try {
       const query = new URLSearchParams({ conversation_id: list.dataset.conversation, limit: '50' });
@@ -21,23 +25,22 @@
         card.className = 'me-now-card';
         card.dataset.messageId = message.id;
         const sender = document.createElement('strong');
-        sender.textContent = 'Пользователь №' + message.sender_id;
+        sender.textContent = message.sender_id === list.dataset.actor ? 'Вы' : list.dataset.peerName;
         const text = document.createElement('p');
         text.className = 'mail-message-body';
         text.textContent = message.text;
         const time = document.createElement('time');
-        time.textContent = message.created_at;
+        time.dateTime = message.created_at;
+        time.textContent = message.created_at_display;
         card.append(sender, text, time);
         list.append(card);
-        if (list.children.length > 200) list.firstElementChild.remove();
         last = message.id;
       }
       if (data.blocked) status.textContent = 'Новые сообщения заблокированы. Обновите страницу.';
       else status.textContent = '';
-      const read = document.querySelector('input[name="through_id"]');
-      if (read && last !== '0') { read.value = last; read.form.hidden = false; }
     } catch { status.textContent = 'Связь прервана. Повторим получение сообщений.'; }
-    finally { busy = false; }
+    finally { busy = false; schedule(); }
   }
-  setInterval(poll, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(250); });
+  schedule();
 })();

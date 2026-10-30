@@ -31,7 +31,7 @@ fn key(n: usize) -> String {
 
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
-async fn e_08_membership_concurrent_replay_and_read_cursor() {
+async fn e_08_membership_concurrent_replay_and_reconnect() {
     let (pool, u) = fixture().await;
     let s = MailService::new(PgMail::new(pool.clone()));
     let (a, b, c) = (u[0], u[1], u[2]);
@@ -74,34 +74,10 @@ async fn e_08_membership_concurrent_replay_and_read_cursor() {
         s.send(c, id, "intruder", &key(2)).await,
         Err(MailError::NotFound)
     );
-    assert_eq!(s.mark_read(c, id, message).await, Err(MailError::NotFound));
-    assert_eq!(s.mailbox(b, None, 50).await.unwrap()[0].unread, 1);
-    assert_eq!(
-        s.mailbox(a, None, 50)
-            .await
-            .unwrap()
-            .iter()
-            .find(|r| r.id == id)
-            .unwrap()
-            .unread,
-        0
-    );
-    for _ in 0..2 {
-        s.mark_read(b, id, message).await.unwrap();
-    }
-    assert_eq!(s.mailbox(b, None, 50).await.unwrap()[0].unread, 0);
     let next = s.send(a, id, "next", &key(3)).await.unwrap().id;
     let page = s.messages(b, id, Some(message), None, 1).await.unwrap();
     assert_eq!(page.items[0].id, next);
     assert!(!page.has_more);
-    s.mark_read(b, id, next).await.unwrap();
-    s.mark_read(b, id, message).await.unwrap();
-    assert_eq!(
-        s.mailbox(b, None, 50).await.unwrap()[0].unread,
-        0,
-        "old device cannot rewind read state"
-    );
-    assert_eq!(s.mark_read(b, other, next).await, Err(MailError::NotFound));
     let restarted = MailService::new(PgMail::new(
         PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
             .await
@@ -176,22 +152,19 @@ async fn e_08_blocks_serialize_against_an_already_started_send() {
 
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
-async fn e_08_cursor_pages_and_distributed_rate_limit_do_not_lose_messages() {
+async fn e_08_source_page_size_and_no_invented_send_limit() {
     let (pool, u) = fixture().await;
     let (a, b) = (u[0], u[1]);
     let s = MailService::new(PgMail::new(pool.clone()));
     let id = s.start(a, b).await.unwrap();
-    for n in 0..30 {
+    // NEwBOO has no 30/min mail policy. More than 30 unique sends must work.
+    for n in 0..31 {
         s.send(a, id, &format!("message {n}"), &key(n))
             .await
             .unwrap();
     }
-    assert_eq!(
-        s.send(a, id, "too many", &key(31)).await,
-        Err(MailError::RateLimited)
-    );
     assert!(s.send(a, id, "message 0", &key(0)).await.unwrap().replayed);
-    // A second sender fills a 55-message transcript, exceeding the default page.
+    // A second sender fills a 56-message transcript, exceeding the source default of 50.
     for n in 0..25 {
         s.send(b, id, &format!("reply {n}"), &key(n)).await.unwrap();
     }
@@ -202,7 +175,7 @@ async fn e_08_cursor_pages_and_distributed_rate_limit_do_not_lose_messages() {
         .messages(a, id, None, Some(initial.items[0].id), 50)
         .await
         .unwrap();
-    assert_eq!(older.items.len(), 5);
+    assert_eq!(older.items.len(), 6);
     assert!(!older.has_more);
     let mut cursor = 0;
     let mut all = Vec::new();
@@ -217,11 +190,120 @@ async fn e_08_cursor_pages_and_distributed_rate_limit_do_not_lose_messages() {
             break;
         }
     }
-    assert_eq!(all.len(), 55);
+    assert_eq!(all.len(), 56);
     all.sort();
     all.dedup();
-    assert_eq!(all.len(), 55);
+    assert_eq!(all.len(), 56);
     assert!(s.messages(a, id, Some(0), Some(1), 50).await.is_err());
-    assert!(s.messages(a, id, None, None, 51).await.is_err());
+    // mail_service.py permits up to 100; a nonempty 2001-char body is valid.
+    assert_eq!(
+        s.messages(a, id, None, None, 100)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        56
+    );
+    assert!(s.messages(a, id, None, None, 101).await.is_err());
+    s.send(a, id, &"я".repeat(2001), &key(2001)).await.unwrap();
+    cleanup(&pool, &u).await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_source_five_second_unkeyed_retry_is_sender_and_conversation_scoped() {
+    // Oracle: NEwBOO test_mail_service_dedup.py and mail_service.py:193-250.
+    let (pool, u) = fixture().await;
+    let s = MailService::new(PgMail::new(pool.clone()));
+    let (a, b, c) = (u[0], u[1], u[2]);
+    let id = s.start(a, b).await.unwrap();
+    let first = s.send_unkeyed(a, id, "same", &key(1)).await.unwrap();
+    let replay = s.send_unkeyed(a, id, " same ", &key(2)).await.unwrap();
+    assert_eq!(first.id, replay.id);
+    assert!(replay.replayed);
+    assert_ne!(
+        s.send_unkeyed(a, id, "different", &key(3))
+            .await
+            .unwrap()
+            .id,
+        first.id
+    );
+    assert_ne!(
+        s.send_unkeyed(b, id, "same", &key(4)).await.unwrap().id,
+        first.id
+    );
+    let other = s.start(a, c).await.unwrap();
+    assert_ne!(
+        s.send_unkeyed(a, other, "same", &key(5)).await.unwrap().id,
+        first.id
+    );
+    // Explicit IDs represent separate intents, even when text is the same.
+    assert_ne!(s.send(a, id, "same", &key(6)).await.unwrap().id, first.id);
+    // Seed an old row rather than sleeping or weakening the immutable-message guard.
+    let old: i64 = sqlx::query_scalar("INSERT INTO social_messages(conversation_id,sender_id,body,command_key,created_at) VALUES($1,$2,'outside window',$3,clock_timestamp()-INTERVAL '6 seconds') RETURNING id")
+        .bind(id).bind(a).bind(key(7)).fetch_one(&pool).await.unwrap();
+    assert_ne!(
+        s.send_unkeyed(a, id, "outside window", &key(8))
+            .await
+            .unwrap()
+            .id,
+        old
+    );
+    assert_eq!(
+        s.send_unkeyed(c, id, "same", &key(9)).await,
+        Err(MailError::NotFound)
+    );
+    s.set_block(b, a, true).await.unwrap();
+    assert_eq!(
+        s.send_unkeyed(a, id, "same", &key(10)).await,
+        Err(MailError::Blocked)
+    );
+    cleanup(&pool, &u).await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_source_mailbox_activity_preview_and_scoped_cursor() {
+    // Source memory/mail_repository.py:69-101,180-183 and conversation_sidebar.html.
+    let (pool, u) = fixture().await;
+    let s = MailService::new(PgMail::new(pool.clone()));
+    let (a, b, c) = (u[0], u[1], u[2]);
+    let older = s.start(a, b).await.unwrap();
+    let newer = s.start(a, c).await.unwrap();
+    assert_eq!(s.mailbox(a, None, 1).await.unwrap()[0].id, newer);
+    s.send(b, older, &"я".repeat(141), &key(1)).await.unwrap();
+    let rows = s.mailbox(a, None, 1).await.unwrap();
+    assert_eq!(
+        rows[0].id, older,
+        "new activity moves an existing conversation to the top"
+    );
+    assert_eq!(rows[0].last_message_preview, "я".repeat(140));
+    assert!(!rows[0].last_message_at.is_empty());
+    let next = s.mailbox(a, Some(older), 1).await.unwrap();
+    assert_eq!(next[0].id, newer);
+    assert!(next[0].last_message_preview.is_empty());
+    assert!(
+        s.mailbox(b, Some(newer), 100).await.unwrap().is_empty(),
+        "foreign cursor cannot read another conversation's activity"
+    );
+    assert!(s
+        .mailbox(c, None, 100)
+        .await
+        .unwrap()
+        .iter()
+        .all(|row| row.last_message_preview.is_empty()));
+    // Source time_format_service uses fixed UTC+3, including midnight rollover.
+    sqlx::query("INSERT INTO social_messages(conversation_id,sender_id,body,command_key,created_at) VALUES($1,$2,'MSK fixture',$3,'2026-10-30T22:30:00Z')")
+        .bind(newer).bind(c).bind(key(2)).execute(&pool).await.unwrap();
+    let page = s.messages(a, newer, None, None, 50).await.unwrap();
+    assert_eq!(page.items[0].created_at_display, "31.10.2026 01:30");
+    let rows = s.mailbox(a, None, 100).await.unwrap();
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.id == newer)
+            .unwrap()
+            .last_message_at,
+        "31.10.2026 01:30"
+    );
     cleanup(&pool, &u).await;
 }

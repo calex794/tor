@@ -20,7 +20,6 @@ pub(super) fn status(error: MailError) -> StatusCode {
         MailError::NotFound => StatusCode::NOT_FOUND,
         MailError::Conflict => StatusCode::CONFLICT,
         MailError::Blocked => StatusCode::FORBIDDEN,
-        MailError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
         MailError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
@@ -51,20 +50,13 @@ pub(super) struct MailQuery {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StartForm {
-    peer_id: i64,
     csrf_token: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SendForm {
     body: String,
-    command_key: String,
-    csrf_token: Option<String>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ReadForm {
-    through_id: i64,
+    command_key: Option<String>,
     csrf_token: Option<String>,
 }
 #[derive(Deserialize)]
@@ -87,20 +79,28 @@ pub(super) async fn index(
     if query.before_id.is_some() {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let limit = query.limit.unwrap_or(25);
+    let limit = query.limit.unwrap_or(100);
     let conversations = match service(&state).mailbox(actor, query.after_id, limit).await {
         Ok(p) => p,
         Err(e) => return deny(status(e)),
     };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        super::mail_pages::index(actor, &conversations, limit, &csrf),
-        &cookies,
-    )
+    // Only hydrate peers from the actor-scoped mailbox. Never expose email or
+    // private account rows as a substitute for the source display name.
+    let mut named = Vec::with_capacity(conversations.len());
+    for conversation in conversations {
+        let name = match state.accounts.user_display_name(conversation.peer_id).await {
+            Ok(Some(name)) => name,
+            Ok(None) => continue,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        };
+        named.push((conversation, name));
+    }
+    private_response(super::mail_pages::index(&named, limit), &[])
 }
 
 pub(super) async fn start(
     State(state): State<AuthState>,
+    Path(peer_id): Path<i64>,
     headers: HeaderMap,
     Form(form): Form<StartForm>,
 ) -> Response {
@@ -111,7 +111,7 @@ pub(super) async fn start(
     if let Err(s) = csrf(&state, &headers, form.csrf_token.as_deref()) {
         return deny(s);
     }
-    match service(&state).start(actor, form.peer_id).await {
+    match service(&state).start(actor, peer_id).await {
         Ok(id) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
         Err(e) => deny(status(e)),
     }
@@ -141,10 +141,15 @@ pub(super) async fn conversation(
         Ok(p) => p,
         Err(e) => return deny(status(e)),
     };
+    let peer_name = match state.accounts.user_display_name(page.peer_id).await {
+        Ok(Some(name)) => name,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
     let mut response = private_response(
-        super::mail_pages::conversation(actor, id, &page, &csrf, &key),
+        super::mail_pages::conversation(actor, id, &page, &peer_name, &csrf, &key),
         &cookies,
     );
     response.headers_mut().insert("content-security-policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"));
@@ -164,30 +169,16 @@ pub(super) async fn send(
     if let Err(s) = csrf(&state, &headers, form.csrf_token.as_deref()) {
         return deny(s);
     }
-    match service(&state)
-        .send(actor, id, &form.body, &form.command_key)
-        .await
-    {
-        Ok(_) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
-        Err(e) => deny(status(e)),
-    }
-}
-
-pub(super) async fn read(
-    State(state): State<AuthState>,
-    Path(id): Path<i64>,
-    headers: HeaderMap,
-    Form(form): Form<ReadForm>,
-) -> Response {
-    let actor = match actor(&state, &headers).await {
-        Ok(a) => a,
-        Err(s) => return deny(s),
+    let mail = service(&state);
+    let result = match form.command_key.as_deref().filter(|key| !key.is_empty()) {
+        Some(key) => mail.send(actor, id, &form.body, key).await,
+        None => {
+            mail.send_unkeyed(actor, id, &form.body, &generate_session_token())
+                .await
+        }
     };
-    if let Err(s) = csrf(&state, &headers, form.csrf_token.as_deref()) {
-        return deny(s);
-    }
-    match service(&state).mark_read(actor, id, form.through_id).await {
-        Ok(()) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
+    match result {
+        Ok(_) => private_response(Redirect::to(&format!("/mail/{id}")), &[]),
         Err(e) => deny(status(e)),
     }
 }

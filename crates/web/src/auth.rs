@@ -181,10 +181,9 @@ fn router_inner(
         )
         .route("/me", get(me))
         .route("/mail", get(mail::index))
-        .route("/mail/start", post(mail::start))
+        .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", post(mail::send))
-        .route("/mail/{id}/read", post(mail::read))
         .route("/mail/{id}/block", post(mail::block))
         .route(
             "/api/v1/me/messages",

@@ -47,6 +47,7 @@ struct Message {
     sender_id: String,
     text: String,
     created_at: String,
+    created_at_display: String,
 }
 #[derive(Serialize)]
 struct MessagePage {
@@ -60,7 +61,8 @@ struct MessagePage {
 struct Conversation {
     id: String,
     peer_id: String,
-    unread: i64,
+    last_message_preview: String,
+    last_message_at: String,
     blocked: bool,
 }
 #[derive(Serialize)]
@@ -83,7 +85,11 @@ pub(super) async fn get(
         Ok(a) => a,
         Err(s) => return deny(s),
     };
-    let limit = query.limit.unwrap_or(50);
+    let limit = query.limit.unwrap_or(if query.conversation_id.is_some() {
+        50
+    } else {
+        100
+    });
     if let Some(conversation) = query.conversation_id {
         let page = match service(&state)
             .messages(actor, conversation, query.after_id, query.before_id, limit)
@@ -105,6 +111,7 @@ pub(super) async fn get(
                     sender_id: m.sender_id.to_string(),
                     text: m.body,
                     created_at: m.created_at,
+                    created_at_display: m.created_at_display,
                 })
                 .collect(),
         };
@@ -128,7 +135,8 @@ pub(super) async fn get(
                 .map(|c| Conversation {
                     id: c.id.to_string(),
                     peer_id: c.peer_id.to_string(),
-                    unread: c.unread,
+                    last_message_preview: c.last_message_preview,
+                    last_message_at: c.last_message_at,
                     blocked: c.blocked,
                 })
                 .collect(),

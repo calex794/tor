@@ -16,8 +16,9 @@ impl PgMail {
              EXISTS(SELECT 1 FROM social_user_blocks b WHERE b.blocker_id=$1 AND b.blocked_id IN(c.user_low,c.user_high))
              FROM social_conversations c WHERE c.id=$2 AND $1 IN(c.user_low,c.user_high)")
             .bind(actor).bind(conversation).fetch_optional(&self.pool).await.map_err(unavailable)?.ok_or(MailError::NotFound)?;
-        let rows = sqlx::query_as::<_,(i64,i64,String,String)>(
-            r#"SELECT m.id,m.sender_id,m.body,to_char(m.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+        let rows = sqlx::query_as::<_,(i64,i64,String,String,String)>(
+            r#"SELECT m.id,m.sender_id,m.body,to_char(m.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+                      to_char((m.created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI')
                FROM social_messages m JOIN social_conversations c ON c.id=m.conversation_id
                WHERE c.id=$2 AND $1 IN(c.user_low,c.user_high)
                  AND ($3::BIGINT IS NULL OR m.id>$3) AND ($4::BIGINT IS NULL OR m.id<$4)
@@ -29,12 +30,15 @@ impl PgMail {
         let mut items: Vec<_> = rows
             .into_iter()
             .take(usize::from(limit))
-            .map(|(id, sender_id, body, created_at)| Message {
-                id,
-                sender_id,
-                body,
-                created_at,
-            })
+            .map(
+                |(id, sender_id, body, created_at, created_at_display)| Message {
+                    id,
+                    sender_id,
+                    body,
+                    created_at,
+                    created_at_display,
+                },
+            )
             .collect();
         if after.is_none() {
             items.reverse();
@@ -54,10 +58,10 @@ impl PgMail {
         conversation: i64,
         body: &str,
         key: &str,
+        dedup_recent: bool,
     ) -> Result<SentMessage, MailError> {
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        // Per-sender serialization protects both cross-conversation idempotency
-        // and the distributed 30/minute write budget.
+        // Per-sender serialization protects cross-conversation TOR command identity.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('tor-social-sender:' || $1::BIGINT::TEXT,0))")
             .bind(actor).execute(&mut *tx).await.map_err(unavailable)?;
         let (low,high) = sqlx::query_as::<_,(i64,i64)>("SELECT user_low,user_high FROM social_conversations WHERE id=$1 AND $2 IN(user_low,user_high)")
@@ -66,17 +70,28 @@ impl PgMail {
         if blocked(&mut tx, low, high).await? {
             return Err(MailError::Blocked);
         }
-        // A committed receipt is returned before spending another rate-limit slot.
+        // NEwBOO mail_service.py: absent client ID scans the last 20 messages,
+        // returning the latest same-sender/body message aged 0..5 seconds.
+        // The pair lock also makes this fallback safe across server processes.
+        if dedup_recent {
+            if let Some(id) = sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM (SELECT id,sender_id,body,created_at FROM social_messages
+                 WHERE conversation_id=$1 ORDER BY id DESC LIMIT 20) recent
+                 WHERE sender_id=$2 AND body=$3
+                   AND created_at BETWEEN statement_timestamp()-INTERVAL '5 seconds' AND statement_timestamp()
+                 ORDER BY id DESC LIMIT 1")
+                .bind(conversation).bind(actor).bind(body)
+                .fetch_optional(&mut *tx).await.map_err(unavailable)? {
+                tx.commit().await.map_err(unavailable)?;
+                return Ok(SentMessage { id, replayed: true });
+            }
+        }
+        // Return the committed receipt before inserting another message.
         if let Some((id,original_conversation,original_body)) = sqlx::query_as::<_,(i64,i64,String)>("SELECT id,conversation_id,body FROM social_messages WHERE sender_id=$1 AND command_key=$2")
             .bind(actor).bind(key).fetch_optional(&mut *tx).await.map_err(unavailable)? {
             if original_conversation!=conversation || original_body!=body { return Err(MailError::Conflict); }
             tx.commit().await.map_err(unavailable)?;
             return Ok(SentMessage{id,replayed:true});
-        }
-        let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM social_messages WHERE sender_id=$1 AND created_at>clock_timestamp()-INTERVAL '1 minute'")
-            .bind(actor).fetch_one(&mut *tx).await.map_err(unavailable)?;
-        if recent >= 30 {
-            return Err(MailError::RateLimited);
         }
         // IDs are allocated under the conversation's pair lock, so a committed
         // polling cursor cannot skip a later commit with an earlier message ID.

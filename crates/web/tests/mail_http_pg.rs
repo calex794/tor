@@ -111,15 +111,16 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .to_str()
         .unwrap()
         .contains("no-store"));
-    assert!(text(index)
-        .await
-        .contains(&format!("data-mail-user=\"{}\"", users[0])));
-    let start = format!("peer_id={}&csrf_token={}", users[1], csrf[0]);
+    let index_html = text(index).await;
+    assert!(!index_html.contains("Номер получателя"));
+    assert!(!index_html.contains("data-mail-user"));
+    let start_path = format!("/mail/start/{}", users[1]);
+    let start = format!("csrf_token={}", csrf[0]);
     assert_eq!(
         call(
             &app,
             "POST",
-            "/mail/start",
+            &start_path,
             &cookies[0],
             &start,
             &[("origin", "https://evil.invalid")]
@@ -132,7 +133,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         call(
             &app,
             "POST",
-            "/mail/start",
+            &start_path,
             &cookies[0],
             &start.replace(&csrf[0], "forged"),
             &[]
@@ -141,7 +142,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    let response = call(&app, "POST", "/mail/start", &cookies[0], &start, &[]).await;
+    let response = call(&app, "POST", &start_path, &cookies[0], &start, &[]).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let path = response.headers()[header::LOCATION]
         .to_str()
@@ -225,7 +226,6 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let json: serde_json::Value = serde_json::from_str(&text(result).await).unwrap();
     assert_eq!(json["messages"].as_array().unwrap().len(), 1);
     assert_eq!(json["messages"][0]["text"], "PRIVATE\n<script> /books/2");
-    let message = json["messages"][0]["id"].as_str().unwrap();
     let api_headers = [
         ("content-type", "application/json"),
         ("x-csrf-token", csrf[0].as_str()),
@@ -279,24 +279,12 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert!(rendered.contains("PRIVATE\n&lt;script&gt; /books/2"));
     assert!(!rendered.contains("PRIVATE <script>"));
     assert!(!rendered.contains("href=\"/books/2"));
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("{path}/read"),
-            &cookies[1],
-            &format!("through_id={message}&csrf_token={}", csrf[1]),
-            &[]
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER
-    );
+    assert!(!rendered.contains("/read\""));
     let inbox: serde_json::Value = serde_json::from_str(
         &text(call(&app, "GET", "/api/v1/me/messages", &cookies[1], "", &[]).await).await,
     )
     .unwrap();
-    assert_eq!(inbox["conversations"][0]["unread"], 0);
+    assert!(inbox["conversations"][0].get("unread").is_none());
     let blocked = format!("blocked=true&csrf_token={}", csrf[1]);
     assert_eq!(
         call(

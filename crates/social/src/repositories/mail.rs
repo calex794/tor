@@ -67,11 +67,6 @@ impl PgMail {
             tx.commit().await.map_err(unavailable)?;
             return Ok(id);
         }
-        let recent:i64=sqlx::query_scalar("SELECT count(*) FROM social_conversations WHERE created_by=$1 AND created_at>clock_timestamp()-INTERVAL '1 minute'")
-            .bind(actor).fetch_one(&mut *tx).await.map_err(unavailable)?;
-        if recent >= 10 {
-            return Err(MailError::RateLimited);
-        }
         // Foreign keys are the account-existence authority. No private account
         // rows, emails or profile state are read by this feature.
         let id = sqlx::query_scalar("INSERT INTO social_conversations(user_low,user_high,created_by) VALUES($1,$2,$3) ON CONFLICT(user_low,user_high) DO UPDATE SET user_low=EXCLUDED.user_low RETURNING id")
@@ -86,39 +81,37 @@ impl PgMail {
         after: Option<i64>,
         limit: u16,
     ) -> Result<Vec<Conversation>, MailError> {
-        let rows = sqlx::query_as::<_,(i64,i64,i64,bool)>(
-            "SELECT c.id, CASE WHEN c.user_low=$1 THEN c.user_high ELSE c.user_low END,
-             (SELECT count(*) FROM social_messages m WHERE m.conversation_id=c.id AND m.sender_id<>$1 AND m.id>COALESCE(r.through_id,0)),
-             EXISTS(SELECT 1 FROM social_user_blocks b WHERE (b.blocker_id=c.user_low AND b.blocked_id=c.user_high) OR (b.blocker_id=c.user_high AND b.blocked_id=c.user_low))
-             FROM social_conversations c LEFT JOIN social_mail_reads r ON r.conversation_id=c.id AND r.user_id=$1
-             WHERE $1 IN(c.user_low,c.user_high) AND ($2::BIGINT IS NULL OR c.id<$2)
-             ORDER BY c.id DESC LIMIT $3")
-            .bind(actor).bind(after).bind(i64::from(limit)).fetch_all(&self.pool).await.map_err(unavailable)?;
+        // Same ordering and 140-character preview as the source repository.
+        // Cursor lookup is inside the actor-scoped CTE, so another user's
+        // conversation can never supply private activity or preview data.
+        let rows = sqlx::query_as::<_, (i64, i64, String, String, bool)>(
+            "WITH mailbox AS (
+               SELECT c.id, CASE WHEN c.user_low=$1 THEN c.user_high ELSE c.user_low END AS peer_id,
+                 COALESCE(left(m.body,140),'') AS preview,
+                 COALESCE(to_char((m.created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI'),'') AS sent_at,
+                 COALESCE(m.created_at,c.created_at) AS activity,
+                 EXISTS(SELECT 1 FROM social_user_blocks b WHERE (b.blocker_id=c.user_low AND b.blocked_id=c.user_high) OR (b.blocker_id=c.user_high AND b.blocked_id=c.user_low)) AS blocked
+               FROM social_conversations c
+               LEFT JOIN LATERAL (SELECT body,created_at FROM social_messages
+                 WHERE conversation_id=c.id ORDER BY id DESC LIMIT 1) m ON TRUE
+               WHERE $1 IN(c.user_low,c.user_high))
+             SELECT id,peer_id,preview,sent_at,blocked FROM mailbox
+             WHERE $2::BIGINT IS NULL OR (activity,id)<(SELECT activity,id FROM mailbox WHERE id=$2)
+             ORDER BY activity DESC,id DESC LIMIT $3")
+            .bind(actor).bind(after).bind(i64::from(limit))
+            .fetch_all(&self.pool).await.map_err(unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, peer_id, unread, blocked)| Conversation {
-                id,
-                peer_id,
-                unread,
-                blocked,
-            })
+            .map(
+                |(id, peer_id, last_message_preview, last_message_at, blocked)| Conversation {
+                    id,
+                    peer_id,
+                    last_message_preview,
+                    last_message_at,
+                    blocked,
+                },
+            )
             .collect())
-    }
-
-    pub(super) async fn read_command(
-        &self,
-        actor: i64,
-        conversation: i64,
-        through: i64,
-    ) -> Result<(), MailError> {
-        let changed = sqlx::query_scalar::<_,i64>(
-            "INSERT INTO social_mail_reads(conversation_id,user_id,through_id)
-             SELECT c.id,$1,m.id FROM social_conversations c JOIN social_messages m ON m.conversation_id=c.id
-             WHERE c.id=$2 AND m.id=$3 AND $1 IN(c.user_low,c.user_high)
-             ON CONFLICT(conversation_id,user_id) DO UPDATE SET through_id=GREATEST(social_mail_reads.through_id,EXCLUDED.through_id)
-             RETURNING through_id")
-            .bind(actor).bind(conversation).bind(through).fetch_optional(&self.pool).await.map_err(unavailable)?;
-        changed.map(|_| ()).ok_or(MailError::NotFound)
     }
 
     pub(super) async fn block_command(
@@ -176,15 +169,18 @@ impl MailRepository for PgMail {
         body: &str,
         key: &str,
     ) -> Result<SentMessage, MailError> {
-        self.send_command(actor, conversation, body, key).await
+        self.send_command(actor, conversation, body, key, false)
+            .await
     }
-    async fn mark_read(
+    async fn send_unkeyed(
         &self,
         actor: i64,
         conversation: i64,
-        through: i64,
-    ) -> Result<(), MailError> {
-        self.read_command(actor, conversation, through).await
+        body: &str,
+        receipt_key: &str,
+    ) -> Result<SentMessage, MailError> {
+        self.send_command(actor, conversation, body, receipt_key, true)
+            .await
     }
     async fn set_block(&self, actor: i64, peer: i64, value: bool) -> Result<(), MailError> {
         self.block_command(actor, peer, value).await

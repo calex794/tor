@@ -1,6 +1,19 @@
 // E-08/S057: three real accounts, private mail, polling and blocking.
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+// Fixture-only identity lookup. A source profile->mail click is still a parity
+// blocker and must not be replaced by an invented production recipient form.
+function fixtureUser(email) {
+  const db = process.env.TEST_DATABASE_URL || process.env.APP_URL || '';
+  assert(db.endsWith('/tor_ci'), 'disposable mail fixture database required');
+  const id = execFileSync('psql', ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1',
+    '-v', 'mail_email=' + email, '--dbname', db, '--file', '-'], {
+    input: "SELECT id FROM users WHERE email_normalized=:'mail_email';", encoding: 'utf8',
+  }).trim();
+  assert(/^[1-9][0-9]*$/.test(id), 'one fixture account');
+  return id;
+}
 
 module.exports = async (browser, base, out) => {
   for (const [name, width] of [['desktop', 1440], ['mobile', 390]]) {
@@ -16,14 +29,18 @@ module.exports = async (browser, base, out) => {
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
         await page.getByRole('link', { name: 'Личная почта', exact: true }).click();
-        const id = await page.locator('[data-mail-user]').innerText();
+        assert.equal(await page.getByLabel('Номер получателя').count(), 0);
+        const id = fixtureUser(`mail.${name}.${suffix}@example.test`);
         clients.push({ context, page, id });
       }
       const [a, b, c] = clients;
-      await a.page.getByLabel('Номер получателя').fill(b.id);
-      await a.page.getByRole('button', { name: 'Начать диалог', exact: true }).click();
-      await a.page.waitForURL(/\/mail\/\d+$/);
-      const conversation = new URL(a.page.url()).pathname;
+      const token = (await a.context.cookies()).find(cookie => cookie.name.endsWith('csrf')).value;
+      const started = await a.context.request.post(base + '/mail/start/' + b.id, {
+        form: { csrf_token: token }, headers: { Origin: base }, maxRedirects: 0,
+      });
+      assert.equal(started.status(), 303);
+      const conversation = started.headers().location;
+      await a.page.goto(base + conversation);
       await b.page.goto(base + conversation); // Open empty transcript before first send.
       const marker = 'PRIVATE-MAIL-' + name;
       await a.page.getByLabel('Ваше сообщение', { exact: true }).fill(marker + '\n<img src=x onerror="window.mailXss=1"> /books/2');
@@ -43,11 +60,8 @@ module.exports = async (browser, base, out) => {
       assert.equal((await c.context.request.get(base + conversation)).status(), 404, 'third account denied');
       const conversationId = conversation.split('/').at(-1);
       assert.equal((await c.context.request.get(base + '/api/v1/me/messages?conversation_id=' + conversationId)).status(), 404);
-      await b.page.getByRole('button', { name: 'Отметить показанные сообщения прочитанными', exact: true }).click();
-      await b.page.waitForURL(base + conversation);
-      await b.page.goto(base + '/mail');
-      assert.equal(await b.page.locator(`[data-mail-unread="${conversationId}"]`).innerText(), '0');
-      await b.page.goto(base + conversation);
+      assert.equal(await b.page.getByRole('button', { name: /прочитанными/ }).count(), 0,
+        'NEwBOO mail has no manual read receipt action');
       await b.page.getByLabel('Ваше сообщение', { exact: true }).fill('Ответ ' + marker);
       await b.page.getByRole('button', { name: 'Отправить сообщение', exact: true }).click();
       await b.page.waitForURL(base + conversation);
@@ -86,7 +100,7 @@ module.exports = async (browser, base, out) => {
         await plain.waitForURL(base + conversation);
         assert((await plain.locator('#mail-messages').innerText()).includes('Без JavaScript ' + name));
       } finally { await noJs.close(); }
-      console.log(`E-08/S057 private mail ${name}: PG/HTML/polling/replay/read/third-user/block/no-JS PASS`);
+      console.log(`E-08/S057 mail transport (profile entry pending) ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
   }
 };

@@ -4,7 +4,6 @@ pub enum MailError {
     NotFound,
     Conflict,
     Blocked,
-    RateLimited,
     Unavailable,
 }
 
@@ -14,13 +13,15 @@ pub struct Message {
     pub sender_id: i64,
     pub body: String,
     pub created_at: String,
+    pub created_at_display: String,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Conversation {
     pub id: i64,
     pub peer_id: i64,
-    pub unread: i64,
+    pub last_message_preview: String,
+    pub last_message_at: String,
     pub blocked: bool,
 }
 
@@ -46,14 +47,13 @@ pub fn valid_key(key: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
 }
 
-/// Technical TOR limit, not a claim that the donor used this exact bound.
+/// NEwBOO mail_service accepts nonempty stripped text without a 2000-character cap.
 pub fn clean_body(body: &str) -> Result<String, MailError> {
     // HTML textarea submissions use CRLF; JSON/FormData retries may use LF.
     // Canonicalize transport line endings before bounds and replay comparison.
     let normalized = body.replace("\r\n", "\n").replace('\r', "\n");
     let body = normalized.trim();
     if body.is_empty()
-        || body.chars().count() > 2000
         || body
             .chars()
             .any(|c| c.is_control() && c != '\n' && c != '\t' && c != '\r')
@@ -67,12 +67,12 @@ pub fn clean_body(body: &str) -> Result<String, MailError> {
 mod tests {
     use super::*;
     #[test]
-    fn e_08_bounds_unicode_and_command_identity() {
+    fn e_08_source_nonempty_text_unicode_and_tor_command_identity() {
         assert_eq!(clean_body("  Привет 🐼\n  "), Ok("Привет 🐼".to_owned()));
         assert_eq!(clean_body("a\r\nb\rc"), clean_body("a\nb\nc"));
         assert!(clean_body("\0").is_err());
         assert!(clean_body("  ").is_err());
-        assert!(clean_body(&"я".repeat(2001)).is_err());
+        assert!(clean_body(&"я".repeat(2001)).is_ok());
         assert!(clean_body(&"🐼".repeat(2000)).is_ok());
         assert!(valid_key(&"A".repeat(43)));
         assert!(!valid_key(&"/".repeat(43)));

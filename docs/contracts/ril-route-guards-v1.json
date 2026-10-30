@@ -613,7 +613,7 @@
     },
     {
       "method": "POST",
-      "template": "/mail/start",
+      "template": "/mail/start/{recipient_user_id}",
       "source": "crates/web/src/auth.rs",
       "handler": "mail::start",
       "policy": "scoped"
@@ -630,13 +630,6 @@
       "template": "/mail/{id}/messages",
       "source": "crates/web/src/auth.rs",
       "handler": "mail::send",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/{id}/read",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::read",
       "policy": "scoped"
     },
     {
