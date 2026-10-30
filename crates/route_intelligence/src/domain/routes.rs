@@ -3,7 +3,7 @@ use super::*;
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
-use TrafficSurface::{Api, PublicPage as Page, Static};
+use TrafficSurface::{PublicPage as Page, Static};
 
 mod classifier;
 mod continuation;
