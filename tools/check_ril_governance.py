@@ -119,7 +119,7 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return root / "__unsupported_nested_handler__"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
-        allowed = {"profile_http", "notification_settings", "password_reset", "password_change"}
+        allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
