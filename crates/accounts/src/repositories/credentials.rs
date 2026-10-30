@@ -26,6 +26,7 @@ impl PgAccounts {
         new_password_hash: &str,
         new_session: &[u8; 32],
         ttl: NonZeroU32,
+        audit: LoginAuditContext,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.pool().begin().await?;
         let current: Option<String> = sqlx::query_scalar(
@@ -69,15 +70,15 @@ impl PgAccounts {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "INSERT INTO sessions (user_id, token_hash, expires_at)
-             VALUES ($1, $2, now() + ($3::double precision * INTERVAL '1 second'))",
-        )
-        .bind(user_id)
-        .bind(new_session.as_slice())
-        .bind(ttl.get() as f64)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(INSERT_AUDITED_SESSION)
+            .bind(user_id)
+            .bind(new_session.as_slice())
+            .bind(ttl.get() as f64)
+            .bind(audit.verified_ip.map(|ip| ip.to_string()))
+            .bind(audit.agent_family.label())
+            .bind(audit.event_kind.label())
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(true)
     }
