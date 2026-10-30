@@ -5,7 +5,7 @@ use sqlx::{Postgres, Transaction};
 
 /// One immutable chapter/version pair has one deduplication key. Replaying
 /// the same command cannot send another event; no chapter body is stored.
-pub(super) async fn enqueue_chapter_published(
+pub(crate) async fn enqueue_chapter_published(
     tx: &mut Transaction<'_, Postgres>,
     book_id: i64,
     chapter_id: i64,
