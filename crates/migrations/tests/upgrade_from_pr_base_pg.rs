@@ -27,17 +27,39 @@ async fn upgrade_from_pr_base_preserves_every_applied_checksum() {
     let baseline = Migrator::new(Path::new(&baseline_dir))
         .await
         .expect("discover exact base SQL files");
-    assert_eq!(baseline.migrations.len(), 54, "exact main must have 54 SQLx migrations");
-    assert_eq!(MIGRATOR.migrations.len(), 56, "merged main and G-08/C-18 must have 56");
+    assert_eq!(
+        baseline.migrations.len(),
+        54,
+        "exact main must have 54 SQLx migrations"
+    );
+    assert_eq!(
+        MIGRATOR.migrations.len(),
+        56,
+        "merged main and G-08/C-18 must have 56"
+    );
     assert!(
-        MIGRATOR.migrations.iter().any(|m| m.version == 202610300054)
-            && MIGRATOR.migrations.iter().any(|m| m.version == 202610310001),
+        MIGRATOR
+            .migrations
+            .iter()
+            .any(|m| m.version == 202610300054)
+            && MIGRATOR
+                .migrations
+                .iter()
+                .any(|m| m.version == 202610310001),
         "both staged G-08 and C-18 migrations must exist"
     );
     assert!(
         MIGRATOR.migrations.iter().any(|m| {
-            m.version < baseline.migrations.last().expect("baseline has migrations").version
-                && !baseline.migrations.iter().any(|old| old.version == m.version)
+            m.version
+                < baseline
+                    .migrations
+                    .last()
+                    .expect("baseline has migrations")
+                    .version
+                && !baseline
+                    .migrations
+                    .iter()
+                    .any(|old| old.version == m.version)
         }),
         "the isolated upgrade must exercise an out-of-order pending version"
     );
