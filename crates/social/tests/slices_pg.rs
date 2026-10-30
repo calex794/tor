@@ -128,17 +128,10 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
     assert!(private[0].source_book.is_none());
     assert_eq!(repo.unfollow(825002, 825001).await, Ok(()));
 
-    // B-09 owner membership deliberately RESTRICTs physical Book deletes.
-    sqlx::query("DELETE FROM book_members WHERE book_id IN (825101,825102)")
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM books WHERE id IN (825101,825102)")
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM users WHERE id IN (825001,825002,825003)")
-        .execute(&pool)
-        .await
-        .unwrap();
+    assert!(!repo.is_following(825002, 825001).await.unwrap());
+
+    // The canonical B-10 revenue-share versions and assignments created by
+    // the Book INSERT are immutable financial history (ON DELETE RESTRICT).
+    // Never bypass that guard for test cleanup. This test is intentionally
+    // limited to a fresh, disposable /tor_ci database, discarded after CI.
 }
