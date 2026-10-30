@@ -1312,3 +1312,31 @@ jobs:
       - name: MinIO health only on failure
         if: failure()
         run: curl -fsS --max-time 3 http://127.0.0.1:9000/minio/health/ready || true
+  ci-required:
+    needs:
+      - select
+      - demo
+      - postgres-runtime
+      - migrations
+      - reader-browser
+      - visual
+      - author-cover
+      - image
+      - crypto
+      - s3-provider
+      - s3-cover-build
+      - f02-100k
+      - paid-private-e2e
+      - sealed-remote-copy
+      - purchased-v1-recovery
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate PR selection and mandatory full-main acceptance
+        env:
+          TOR_CI_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 tools/verify_ci_gate.py
