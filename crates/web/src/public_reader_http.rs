@@ -41,30 +41,30 @@ pub(super) async fn reader_page(
     }
     if method == Method::GET {
         if let Some(catalog) = state.postgres.as_ref() {
-        // If verification is unavailable, omit optional analytics. Never
-        // misclassify an authenticated reader as an anonymous visitor.
-        let actor = match state.follow_control.as_ref() {
-            Some(control) => match control.verified_reader(&headers).await {
-                Ok(actor) => actor,
-                Err(_) => {
-                    return auth_cookies::private_response(
-                        pages::reader_with_login_link(&chapter, Some(id)),
-                        &[],
-                    )
+            // If verification is unavailable, omit optional analytics. Never
+            // misclassify an authenticated reader as an anonymous visitor.
+            let actor = match state.follow_control.as_ref() {
+                Some(control) => match control.verified_reader(&headers).await {
+                    Ok(actor) => actor,
+                    Err(_) => {
+                        return auth_cookies::private_response(
+                            pages::reader_with_login_link(&chapter, Some(id)),
+                            &[],
+                        )
+                    }
+                },
+                None => None,
+            };
+            if let Ok(chapter_id) = i64::try_from(id) {
+                if let Err(error) =
+                    tor_reading::repositories::book_stats::PgBookStats::new(catalog.pool())
+                        .record_open(chapter_id, actor)
+                        .await
+                {
+                    tracing::warn!(?error, "book statistics open not recorded");
                 }
-            },
-            None => None,
-        };
-        if let Ok(chapter_id) = i64::try_from(id) {
-            if let Err(error) =
-                tor_reading::repositories::book_stats::PgBookStats::new(catalog.pool())
-                    .record_open(chapter_id, actor)
-                    .await
-            {
-                tracing::warn!(?error, "book statistics open not recorded");
             }
         }
-    }
     }
     auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[])
 }

@@ -65,9 +65,9 @@ pub(super) async fn page(
     if method == Method::GET {
         if let Err(error) =
             tor_reading::repositories::book_stats::PgBookStats::new(state.accounts.pool().clone())
-            .record_open(chapter_id, Some(actor))
-            .await
-    {
+                .record_open(chapter_id, Some(actor))
+                .await
+        {
             tracing::warn!(?error, "book statistics open not recorded");
         }
     }

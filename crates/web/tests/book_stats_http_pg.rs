@@ -109,6 +109,62 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     );
     let page = format!("/books/{book}/stats");
     let csv_path = format!("{page}/export.csv");
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) \
+             VALUES({book},1,'Бесплатная глава','public','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
+             VALUES({chapter},1,'Readable chapter text for the public reader fixture.') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+    );
+
+
+    // HEAD probes must never count as chapter opens.
+    let reader_path = format!("/reader/{chapter}");
+    let head = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri(&reader_path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    let before: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM book_chapter_open_daily WHERE chapter_id={chapter}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(before, 0);
+    assert_eq!(
+        get(&app, &reader_path, Some(&owner_token)).await.status(),
+        StatusCode::OK
+    );
+    let after: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM book_chapter_open_daily WHERE chapter_id={chapter}"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(after, 1);
 
     let guest = get(&app, &page, None).await;
     assert_eq!(guest.status(), StatusCode::SEE_OTHER);
