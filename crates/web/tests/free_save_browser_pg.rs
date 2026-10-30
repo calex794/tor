@@ -11,6 +11,10 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
+use tor_ingest::{
+    repositories::{notify::PgNotificationRecipients, outbox::PgOutbox},
+    services::notify_worker::{NotificationRun, NotificationWorker},
+};
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
@@ -93,6 +97,17 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         )
         .await
         .unwrap();
+    let follower_token = generate_session_token();
+    let follower = accounts
+        .register_with_session(
+            "free-browser-follower@example.invalid",
+            "Free browser follower",
+            &password,
+            &session_token_digest(&follower_token),
+            NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
     let book: i64 = pg(
         &url,
         &format!(
@@ -111,6 +126,17 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     );
     let csrf = generate_session_token();
     let command = generate_session_token();
+    let (status, _) = send(
+        &app,
+        "POST",
+        &format!("/me/books/{book}/follow"),
+        &format!("csrf_token={csrf}"),
+        Some(&follower_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "reader follows before release");
     let path = format!("/me/books/{book}/chapters");
     let page_path = format!("/me/books/{book}/chapters/new");
     let (status, html) = send(&app, "GET", &page_path, "", Some(&token), &csrf, ORIGIN).await;
@@ -188,6 +214,69 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
         ),
     );
     assert_eq!(event, "1");
+    // The B command must commit its outbox envelope with publication; a
+    // real G worker claims it, stages the subscriber, and leaves independent
+    // search projection pending rather than pretending it is complete.
+    let event_id = pg(
+        &url,
+        &format!(
+            "SELECT id::text FROM outbox_events
+             WHERE event_type='ChapterPublished' AND aggregate_id={chapter_id}
+             AND (payload->>'version_id')::bigint={version_id}"
+        ),
+    );
+    assert_eq!(event_id.len(), 36);
+    pg(
+        &url,
+        &format!(
+            "UPDATE outbox_events SET next_attempt_at=now()-interval '20 days'
+             WHERE id='{event_id}'::uuid"
+        ),
+    );
+    let notify = NotificationWorker::new(
+        PgOutbox::new(pool.clone()),
+        PgNotificationRecipients::new(pool.clone()),
+    );
+    assert_eq!(
+        notify.run_one().await.unwrap(),
+        NotificationRun::Staged {
+            recipients: 1,
+            pages: 1,
+        }
+    );
+    let intent_count = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM notification_event_recipient_intents
+             WHERE event_id='{event_id}'::uuid AND user_id={follower}"
+        ),
+    );
+    assert_eq!(intent_count, "1", "real HTTP follower has one staged intent");
+    let delivery_count = pg(
+        &url,
+        &format!(
+            "SELECT count(*) FROM event_deliveries
+             WHERE event_id='{event_id}'::uuid AND consumer='search-index-v1'"
+        ),
+    );
+    assert_eq!(delivery_count, "0", "G must not acknowledge F's work");
+    let (status, follower_html) = send(
+        &app,
+        "GET",
+        "/me/library",
+        "",
+        Some(&follower_token),
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        follower_html.contains("New chapter"),
+        "followed reader must see the newly published chapter in C-16"
+    );
+    assert!(!follower_html.contains("Immediate free text"));
+
     let (status, reader_html) = send(
         &app,
         "GET",
