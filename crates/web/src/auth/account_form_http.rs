@@ -187,12 +187,10 @@ pub(super) async fn register(
     if let Some(code) = manual_code {
         match state.referrals.active_code(code).await {
             Ok(true) => {}
-            Ok(false) => {
-                return invalid_invite(
-                    &form,
-                    "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить.",
-                )
-            }
+            Ok(false) => return invalid_invite(
+                &form,
+                "Код приглашения не найден или больше не действует. Уберите код, чтобы продолжить.",
+            ),
             Err(_) => {
                 return auth_problem(
                     StatusCode::SERVICE_UNAVAILABLE,
