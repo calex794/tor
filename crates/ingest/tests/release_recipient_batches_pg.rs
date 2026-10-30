@@ -324,7 +324,8 @@ async fn g_08_201_followers_paged_without_duplicates_or_101st_loss() {
         .still_candidate(paid, followers[200])
         .await
         .unwrap());
-    assert!(!selector.still_candidate(paid, late).await.unwrap());
+    // Following after the free release must still include a NEW paid release.
+    assert!(selector.still_candidate(paid, late).await.unwrap());
 
     // CI destroys its disposable database. Never delete permanent book records.
     pool.close().await;
