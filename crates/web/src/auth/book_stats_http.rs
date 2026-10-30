@@ -33,25 +33,25 @@ async fn load(
     headers: &HeaderMap,
     id: i64,
     query: &StatsQuery,
-) -> Result<BookStatsReport, Response> {
+) -> Result<BookStatsReport, Box<Response>> {
     let actor = match session_user(state, headers).await {
         Ok(Some(actor)) => actor,
-        Ok(None) => return Err(private_response(Redirect::to("/login"), &[])),
-        Err(code) => return Err(deny(code)),
+        Ok(None) => return Err(Box::new(private_response(Redirect::to("/login"), &[]))),
+        Err(code) => return Err(Box::new(deny(code))),
     };
-    let after = parse_after(query.after.as_deref()).map_err(deny)?;
+    let after = parse_after(query.after.as_deref()).map_err(|code| Box::new(deny(code)))?;
     let member = PgBookMembers::new(state.accounts.pool().clone())
         .active_role(actor, id)
         .await
-        .map_err(|_| deny(StatusCode::SERVICE_UNAVAILABLE))?;
+        .map_err(|_| Box::new(deny(StatusCode::SERVICE_UNAVAILABLE)))?;
     if member.is_none() {
-        return Err(deny(StatusCode::NOT_FOUND));
+        return Err(Box::new(deny(StatusCode::NOT_FOUND)));
     }
     PgBookStats::new(state.accounts.pool().clone())
         .report(id, after)
         .await
-        .map_err(|_| deny(StatusCode::SERVICE_UNAVAILABLE))?
-        .ok_or_else(|| deny(StatusCode::NOT_FOUND))
+        .map_err(|_| Box::new(deny(StatusCode::SERVICE_UNAVAILABLE)))?
+        .ok_or_else(|| Box::new(deny(StatusCode::NOT_FOUND)))
 }
 
 fn money(value: i64) -> String {
@@ -66,7 +66,7 @@ pub(super) async fn page(
 ) -> Response {
     let data = match load(&state, &headers, id, &query).await {
         Ok(data) => data,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let mut body = format!(
         "<section class=\"section\"><div class=\"container\"><h1>Статистика книги: {}</h1>\
@@ -151,7 +151,7 @@ pub(super) async fn export(
 ) -> Response {
     let data = match load(&state, &headers, id, &query).await {
         Ok(data) => data,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed\n");
     use std::fmt::Write;

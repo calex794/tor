@@ -79,7 +79,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
         .await
         .unwrap();
     repo.record_open(chapter_ids[0], Some(user)).await.unwrap();
-    assert_eq!(repo.report(book, None).await.unwrap().is_none(), true);
+    assert!(repo.report(book, None).await.unwrap().is_none());
     // CASCADE deletes the per-reader identity when user is removed.
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(user)
