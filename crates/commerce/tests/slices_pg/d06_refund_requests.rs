@@ -155,7 +155,60 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
         .unwrap();
     assert_eq!(replay_after_grant.request_id, first.request_id);
     assert!(!replay_after_grant.created);
-    // Requests and protected grant evidence never move wallet money.
+    // Reject is an authenticated terminal audit transition, not money.
+    use tor_commerce::repositories::refund_decisions::{
+        DirectRefundRejectError, PgDirectRefundDecisions,
+    };
+    let decisions = PgDirectRefundDecisions::new(pool.clone());
+    assert_eq!(
+        decisions
+            .reject_once(buyer, first.request_id, 1, "not eligible")
+            .await,
+        Err(DirectRefundRejectError::Forbidden)
+    );
+    sqlx::query(
+        "INSERT INTO account_roles(user_id,role,is_active)
+         VALUES($1,'administrator',true)",
+    )
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (one, two) = tokio::join!(
+        decisions.reject_once(owner, first.request_id, 1, "already opened"),
+        decisions.reject_once(owner, first.request_id, 1, "already opened")
+    );
+    let one = one.unwrap();
+    let two = two.unwrap();
+    assert_eq!(one.request_id, first.request_id);
+    assert_eq!(two.request_id, first.request_id);
+    assert_eq!(one.revision, 2);
+    assert_eq!(two.revision, 2);
+    assert_ne!(one.replayed, two.replayed);
+    assert_eq!(
+        decisions
+            .reject_once(owner, first.request_id, 1, "different reason")
+            .await,
+        Err(DirectRefundRejectError::Conflict)
+    );
+    let (state, rev, actor_in_audit): (String, i64, i64) = sqlx::query_as(
+        "SELECT state,revision,decision_actor_id
+         FROM finance_direct_refund_requests WHERE id=$1",
+    )
+    .bind(first.request_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((state.as_str(), rev, actor_in_audit), ("rejected", 2, owner));
+    assert!(sqlx::query(
+        "UPDATE finance_direct_refund_requests SET state='pending',
+         revision=revision+1 WHERE id=$1"
+    )
+    .bind(first.request_id)
+    .execute(&pool)
+    .await
+    .is_err());
+    // Requests and rejected decisions never settle money or change access.
     assert_eq!(count(&pool, "ledger", buyer).await, 1);
     assert_eq!(count(&pool, "rights", buyer).await, 1);
     assert_eq!(count(&pool, "facts", buyer).await, 1);

@@ -30,8 +30,16 @@ CREATE TABLE finance_direct_refund_requests (
   state TEXT NOT NULL DEFAULT 'pending'
     CHECK (state IN ('pending','processing','approved','rejected')),
   decision_actor_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
+  decision_reason TEXT CHECK (
+    decision_reason IS NULL OR (char_length(decision_reason) BETWEEN 1 AND 1000
+                               AND decision_reason=btrim(decision_reason))
+  ),
   decided_at TIMESTAMPTZ,
-  decision_reference TEXT,
+  decision_reference TEXT UNIQUE CHECK (
+    decision_reference IS NULL OR
+    char_length(decision_reference) BETWEEN 8 AND 160
+  ),
+  revision BIGINT NOT NULL DEFAULT 1 CHECK (revision >= 1),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   FOREIGN KEY (purchase_id,user_id)
     REFERENCES chapter_purchase_facts(id,user_id) ON DELETE RESTRICT,
@@ -39,9 +47,10 @@ CREATE TABLE finance_direct_refund_requests (
   CHECK (
     (state IN ('pending','processing')
      AND decided_at IS NULL AND decision_actor_id IS NULL
-     AND decision_reference IS NULL)
+     AND decision_reference IS NULL AND decision_reason IS NULL)
     OR (state IN ('approved','rejected')
-        AND decided_at IS NOT NULL AND decision_actor_id IS NOT NULL)
+        AND decided_at IS NOT NULL AND decision_actor_id IS NOT NULL
+        AND decision_reference IS NOT NULL AND decision_reason IS NOT NULL)
   )
 );
 CREATE UNIQUE INDEX d06_one_open_direct_refund
@@ -59,7 +68,7 @@ BEGIN
     RAISE EXCEPTION 'refund request history is immutable' USING ERRCODE='23514';
   END IF;
   IF TG_OP = 'INSERT' THEN
-    IF NEW.state <> 'pending' THEN
+    IF NEW.state <> 'pending' OR NEW.revision<>1 THEN
       RAISE EXCEPTION 'refund requests must start pending' USING ERRCODE='23514';
     END IF;
     RETURN NEW;
@@ -71,6 +80,7 @@ BEGIN
      OR NEW.request_digest IS DISTINCT FROM OLD.request_digest
      OR NEW.reason IS DISTINCT FROM OLD.reason
      OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.revision IS DISTINCT FROM OLD.revision + 1
      OR OLD.state IN ('approved','rejected')
      OR NOT (
        (OLD.state='pending' AND NEW.state IN ('processing','rejected'))

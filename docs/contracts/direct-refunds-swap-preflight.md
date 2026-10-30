@@ -79,3 +79,20 @@ files/migrations and must drop the duplicate direct slice when rebased to
 `main`. This PR does **not** import Layer grant logic or browser-render
 confirmation. The two mechanisms serve different duties: a first issued key
 is the conservative refund barrier; render confirmation is optional analytics.
+
+
+## Private moderator reject (31.10.2026)
+
+`PgDirectRefundDecisions::reject_once` provides **reject-only** terminal
+processing for pending requests. It locks active global administrator role
+and user account, then locks the requested row and compares a monotonically
+increasing `revision`. A simultaneous identical reject returns the original
+receipt; conflicting reason/actor or stale revision is denied. Terminal
+request rows cannot be restored to pending. The immutable buyer request
+reason is separate from the moderator's `decision_reason`, and each decision
+has an auditable `decision_reference`. No credit, charge, revocation or
+creator posting is performed. This is deliberately an internal D repository:
+**it is not mounted on HTTP**, and admin step-up must be integrated prior to
+any future web route. Approval remains disabled until original buyer/creator/
+platform ledgers, first grant proof, refund terms and a fully atomic posting
+are verified. Tests exercise two simultaneous moderator rejects on `tor_ci`.
