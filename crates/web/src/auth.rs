@@ -299,8 +299,15 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(replies) => replies,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let unread = match state.follow_updates.unread_count_capped(user_id).await {
+        Ok(count) => count,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_account(&name, &csrf, &replies), &cookies)
+    private_response(
+        pages::my_account_with_follow_updates(&name, &csrf, &replies, unread),
+        &cookies,
+    )
 }
 
 /// Browser author workspace backed by the current PostgreSQL user session.
