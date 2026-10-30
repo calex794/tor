@@ -17,7 +17,7 @@ pub fn my_library_with_updates(
 ) -> Html<String> {
     let (updates, revisions) = notifications;
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    let revision_html = revision_cards(revisions);
+    let revision_html = revision_cards(revisions, csrf);
     my_library_inner(
         items,
         saved,
@@ -195,6 +195,7 @@ fn update_cards(
 /// V1 releases remain in C-16; only durably staged V2+ revisions appear here.
 fn revision_cards(
     revisions: &tor_reading::repositories::staged_updates::StagedRevisionPage,
+    csrf: &str,
 ) -> String {
     if revisions.items.is_empty() {
         return String::new();
@@ -208,16 +209,28 @@ fn revision_cards(
         } else {
             "Бесплатная редакция"
         };
+        let (state, label, read_hint) = if item.is_read {
+            ("unread", "Отметить непрочитанной", "Просмотрено")
+        } else {
+            ("read", "Отметить прочитанной", "Новое")
+        };
+        let event_id = escape_html(&item.event_id);
+        let token = escape_html(csrf);
         write!(
             cards,
             "<article class=\"library-card\"><div>\
-             <p class=\"eyebrow\">{access} · V{}</p>\
+             <p class=\"eyebrow\">{access} · V{} · {read_hint}</p>\
              <h3>{book}</h3><p>Глава {}. {chapter}</p></div>\
+             <div class=\"library-card__actions\">\
              <a class=\"button button--small\" href=\"/reader/{}\">Открыть главу</a>\
-             </article>",
+             <form method=\"post\" action=\"/me/revisions/{event_id}/read-state\">\
+             <input type=\"hidden\" name=\"csrf_token\" value=\"{token}\">\
+             <input type=\"hidden\" name=\"state\" value=\"{state}\">\
+             <button class=\"button button--small\" type=\"submit\">{label}</button>\
+             </form></div></article>",
             item.version_no, item.chapter_no, item.chapter_id,
         )
-        .expect("writing revision HTML");
+        .expect("writing safe revision HTML");
     }
     let next = revisions
         .next_cursor
@@ -259,6 +272,7 @@ mod update_tests {
                 chapter_no: 3,
                 version_no: 2,
                 is_paid: true,
+                is_read: false,
                 staged_micros: 1_800_000_000_123_456,
                 event_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
             }],
@@ -267,18 +281,31 @@ mod update_tests {
                 event_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
             }),
         };
-        let html = revision_cards(&page);
+        let html = revision_cards(&page, "csrf-token");
         assert!(html.contains("Обновлённые редакции"));
         assert!(html.contains("&lt;script&gt;unsafe&lt;/script&gt;"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("A &amp; B"));
         assert!(html.contains("href=\"/reader/12\""));
+        assert!(html
+            .contains("action=\"/me/revisions/01234567-89ab-cdef-0123-456789abcdef/read-state\""));
+        assert!(html.contains("name=\"csrf_token\" value=\"csrf-token\""));
+        assert!(html.contains("name=\"state\" value=\"read\""));
+        assert!(html.contains("Отметить прочитанной"));
+        let mut read_page = page.clone();
+        read_page.items[0].is_read = true;
+        let read_html = revision_cards(&read_page, "csrf-token");
+        assert!(read_html.contains("name=\"state\" value=\"unread\""));
+        assert!(read_html.contains("Просмотрено"));
         assert!(html.contains("revisions_after=1800000000123456."));
         assert!(!html.contains("purchase_id="));
-        let empty = revision_cards(&StagedRevisionPage {
-            items: vec![],
-            next_cursor: None,
-        });
+        let empty = revision_cards(
+            &StagedRevisionPage {
+                items: vec![],
+                next_cursor: None,
+            },
+            "csrf-token",
+        );
         assert!(empty.is_empty(), "no duplicate C-16 first-release section");
     }
 

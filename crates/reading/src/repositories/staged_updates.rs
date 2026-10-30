@@ -46,6 +46,7 @@ pub struct StagedRevision {
     pub chapter_no: i32,
     pub version_no: i32,
     pub is_paid: bool,
+    pub is_read: bool,
     pub staged_micros: i64,
     pub event_id: String,
 }
@@ -88,67 +89,19 @@ impl PgStagedRevisions {
             return Err(StagedRevisionError::Invalid);
         }
         let rows = sqlx::query(
-            r#"SELECT book.id AS book_id,book.title AS book_title,
-                      chapter.id AS chapter_id,chapter.title AS chapter_title,
-                      chapter.chapter_no,version.version_no,
-                      (chapter.access_level='paid') AS is_paid,
-                      (EXTRACT(EPOCH FROM intent.staged_at)*1000000)::bigint
+            r#"SELECT book_id,book_title,chapter_id,chapter_title,
+                      chapter_no,version_no,is_paid,
+                      (EXTRACT(EPOCH FROM staged_at)*1000000)::bigint
                         AS staged_micros,
-                      event.id::text AS event_id
-               FROM notification_event_recipient_intents AS intent
-               JOIN notification_event_fanout_scans AS scan
-                 ON scan.event_id=intent.event_id
-                AND scan.completed_at IS NOT NULL
-               JOIN event_deliveries AS receipt
-                 ON receipt.event_id=intent.event_id
-                AND receipt.consumer='subscription-inbox-v1'
-               JOIN outbox_events AS event ON event.id=intent.event_id
-               JOIN chapters AS chapter ON chapter.id=event.aggregate_id
-                 AND event.payload->'chapter_id'=to_jsonb(chapter.id)
-               JOIN books AS book ON book.id=chapter.book_id
-                 AND event.payload->'book_id'=to_jsonb(book.id)
-               JOIN chapter_publications AS publication
-                 ON publication.chapter_id=chapter.id
-                AND event.payload->'version_id'=to_jsonb(publication.version_id)
-               JOIN chapter_versions AS version ON version.id=publication.version_id
-               JOIN reader_book_follows AS follows ON follows.book_id=book.id
-                 AND follows.user_id=intent.user_id
-               WHERE intent.user_id=$1
-                 AND event.event_type='ChapterPublished'
-                 AND event.schema_version=1
-                 AND event.aggregate_kind='chapter'
-                 AND event.payload->'first_release'='false'::jsonb
-                 AND follows.created_at<=event.created_at
-                 AND book.visibility='public'
-                 AND NOT book.admin_hold AND NOT book.is_deleted
-                 AND chapter.visibility='public'
-                 AND NOT chapter.admin_hold AND NOT chapter.is_deleted
-                 AND (chapter.reader_released_at IS NULL
-                      OR chapter.reader_released_at<=now())
-                 AND (
-                   (chapter.access_level='free' AND chapter.price_amount=0)
-                   OR (
-                     chapter.access_level='paid' AND chapter.price_amount>0
-                     AND EXISTS (
-                       SELECT 1 FROM chapter_encrypted_release_events AS encrypted
-                       JOIN chapter_versions AS protected
-                         ON protected.id=encrypted.version_id
-                        AND protected.chapter_id=encrypted.chapter_id
-                       JOIN storage_objects AS object
-                         ON object.id=encrypted.storage_object_id
-                        AND object.id=protected.storage_object_id
-                       WHERE encrypted.chapter_id=chapter.id
-                         AND encrypted.version_id=publication.version_id
-                         AND object.state='attached'
-                         AND object.object_kind='chapter'
-                     )
-                   )
-                 )
+                      event_id::text AS event_id,
+                      (read_at IS NOT NULL) AS is_read
+               FROM reader_staged_revision_candidates
+               WHERE user_id=$1
                  AND ($2::bigint IS NULL OR
-                      (intent.staged_at,event.id)<
+                      (staged_at,event_id)<
                       (TIMESTAMPTZ 'epoch' + $2::bigint * INTERVAL '1 microsecond',
                        $3::uuid))
-               ORDER BY intent.staged_at DESC,event.id DESC LIMIT 21"#,
+               ORDER BY staged_at DESC,event_id DESC LIMIT 21"#,
         )
         .bind(actor)
         .bind(before.as_ref().map(|c| c.staged_micros))
@@ -182,6 +135,9 @@ impl PgStagedRevisions {
                     is_paid: row
                         .try_get("is_paid")
                         .map_err(|_| StagedRevisionError::Unavailable)?,
+                    is_read: row
+                        .try_get("is_read")
+                        .map_err(|_| StagedRevisionError::Unavailable)?,
                     staged_micros: row
                         .try_get("staged_micros")
                         .map_err(|_| StagedRevisionError::Unavailable)?,
@@ -202,6 +158,40 @@ impl PgStagedRevisions {
             None
         };
         Ok(StagedRevisionPage { items, next_cursor })
+    }
+
+    /// Only the currently visible authenticated reader may explicitly mark
+    /// their own event read/unread. Repeating a command is idempotent and
+    /// never touches the V1 per-chapter read state or paid authorization.
+    pub async fn set_read_state(
+        &self,
+        actor: i64,
+        event_id: &str,
+        read: bool,
+    ) -> Result<bool, StagedRevisionError> {
+        if actor <= 0 || !valid_uuid(event_id) {
+            return Err(StagedRevisionError::Invalid);
+        }
+        let changed: bool = sqlx::query_scalar(
+            "WITH eligible AS (
+               SELECT 1 FROM reader_staged_revision_candidates
+               WHERE user_id=$1 AND event_id=$2::uuid
+             ), updated AS (
+               UPDATE notification_event_recipient_intents AS intent
+               SET read_at=CASE WHEN $3 THEN COALESCE(intent.read_at,now()) ELSE NULL END
+               WHERE intent.user_id=$1 AND intent.event_id=$2::uuid
+                 AND EXISTS(SELECT 1 FROM eligible)
+               RETURNING intent.event_id
+             )
+             SELECT EXISTS(SELECT 1 FROM updated)",
+        )
+        .bind(actor)
+        .bind(event_id)
+        .bind(read)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| StagedRevisionError::Unavailable)?;
+        Ok(changed)
     }
 }
 

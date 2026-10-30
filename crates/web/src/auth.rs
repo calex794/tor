@@ -66,6 +66,7 @@ mod profile_http;
 mod rankings;
 mod reply_read_state;
 mod reset_delivery;
+mod revision_read_state;
 mod security_retention;
 mod session_security;
 mod settings_routes;
@@ -215,6 +216,10 @@ fn router_inner(
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
+        )
+        .route(
+            "/me/revisions/{id}/read-state",
+            post(revision_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
         .route(
