@@ -267,9 +267,6 @@ mod tests {
             checked_swap_delta(0, 100, 100),
             Err(SwapQuoteError::InvalidMoney)
         );
-        assert_eq!(
-            checked_swap_delta(i64::MAX, 1, 0),
-            Ok(1 - i64::MAX)
-        );
+        assert_eq!(checked_swap_delta(i64::MAX, 1, 0), Ok(1 - i64::MAX));
     }
 }

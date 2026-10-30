@@ -86,3 +86,28 @@ $$;
 CREATE TRIGGER d06_guard_direct_refund_requests
   BEFORE INSERT OR UPDATE OR DELETE ON finance_direct_refund_requests
   FOR EACH ROW EXECUTE FUNCTION d06_guard_direct_refund_request();
+
+
+-- A policy is never invented from the Python project's seven-day default.
+-- Only explicit, versioned finance/legal approval may populate this catalog.
+-- The empty catalog and NULL purchase snapshots keep live refunds off.
+CREATE TABLE finance_direct_refund_policy_catalog (
+  version TEXT PRIMARY KEY CHECK (
+    char_length(version) BETWEEN 1 AND 80 AND version=btrim(version)
+  ),
+  approval_reference TEXT NOT NULL UNIQUE CHECK (
+    char_length(approval_reference) BETWEEN 8 AND 160
+  ),
+  approved_by_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  approved_at TIMESTAMPTZ NOT NULL,
+  effective_at TIMESTAMPTZ NOT NULL,
+  window_seconds BIGINT NOT NULL CHECK (window_seconds BETWEEN 1 AND 31536000),
+  CHECK (effective_at >= approved_at)
+);
+CREATE TRIGGER d06_direct_policy_immutable
+  BEFORE UPDATE OR DELETE ON finance_direct_refund_policy_catalog
+  FOR EACH ROW EXECUTE FUNCTION reject_purchase_history_mutation();
+ALTER TABLE chapter_purchase_facts
+  ADD CONSTRAINT d06_direct_refund_policy_catalog_ref
+  FOREIGN KEY (refund_policy_version)
+  REFERENCES finance_direct_refund_policy_catalog(version) ON DELETE RESTRICT;

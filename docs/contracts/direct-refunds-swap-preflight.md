@@ -40,3 +40,23 @@ This increment deliberately exposes **no refund/apply HTTP route** and
 Validation for this increment: disposable \`tor_ci\` SQLx migrations and
 \`cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1\`.
 No server deployment. Do not merge as a completed refund feature.
+
+
+## New private request store (no public endpoint)
+\`PgDirectRefundRequests::request_once\` is a D-owned pending-intent writer,
+not refund approval. It locks canonical buyer purchase, requires exact buyer
+wallet debit and immutable B-10 share evidence, enforces one open request,
+and deduplicates by actor + 43-character key + SHA-256 of the exact payload.
+Replay returns the original request without changing the wallet.
+
+Only a purchase-time policy version present in the immutable, **initially
+empty** \`finance_direct_refund_policy_catalog\` can qualify. The seven-day
+NEwBOO period was NOT silently ported or activated. A future approved
+catalog entry must be effective before the purchase and its saved deadline
+must not exceed the approved window. Existing checkout still stores NULL.
+
+The real \`tor_ci\` tests include a deliberately SQL-seeded hypothetical
+approved-policy purchase to verify request deduplication; this is a test
+fixture only, not an operational policy or a new checkout path. Real
+checkout remains strictly PolicyUnavailable. No refund money, creator
+reversals, paid-first-grant recording, swap execution or HTTP routes exist.
