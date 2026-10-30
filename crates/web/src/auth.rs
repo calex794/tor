@@ -45,6 +45,7 @@ mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
+mod book_follow_actions;
 mod book_stars;
 mod checkout;
 mod complete_chapter;
@@ -61,6 +62,7 @@ mod logout;
 mod paid_completion;
 mod private_reader;
 mod rankings;
+mod reply_read_state;
 mod sync_actions;
 mod types;
 use types::*;
@@ -142,6 +144,7 @@ fn router_inner(
     let sync = PgReadingSync::new(accounts.pool().clone());
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
+    let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
@@ -162,6 +165,7 @@ fn router_inner(
         sync,
         bookmarks,
         demand,
+        book_follows,
         reader,
         rankings,
         cookies,
@@ -181,6 +185,10 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route(
+            "/me/replies/{id}/read-state",
+            post(reply_read_state::submit),
+        )
         .route("/me/library", get(my_library))
         .route(
             "/layers/{layer_id}/purchase",
@@ -223,6 +231,11 @@ fn router_inner(
             get(paid_completion::get).post(paid_completion::post),
         )
         .route("/me/library/add/{id}", get(library_actions::show_add))
+        .route("/me/books/{id}/follow", post(book_follow_actions::follow))
+        .route(
+            "/me/books/{id}/unfollow",
+            post(book_follow_actions::unfollow),
+        )
         .route("/me/library/{id}/save", post(library_actions::browser_add))
         .route(
             "/me/library/{id}/remove",
@@ -286,8 +299,16 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let discussions =
+        tor_discussions::repositories::public_book_comments::PgPublicBookComments::new(
+            state.accounts.pool().clone(),
+        );
+    let replies = match discussions.received_replies(user_id, 10).await {
+        Ok(replies) => replies,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(pages::my_account(&name, &csrf), &cookies)
+    private_response(pages::my_account(&name, &csrf, &replies), &cookies)
 }
 
 async fn my_library(

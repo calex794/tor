@@ -204,5 +204,32 @@ class RilGovernanceTests(unittest.TestCase):
         self.assert_detected("duplicate route-policy binding")
 
 
+    def test_follow_write_requires_actor_bound_repository_call(self):
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.book_follows.follow(actor, book_id)",
+            "state.book_follows.follow(book_id)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_unfollow_write_requires_actor_bound_repository_call(self):
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.book_follows.unfollow(actor, book_id)",
+            "state.book_follows.unfollow(book_id)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_follow_write_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/book_follow_actions.rs",
+            "state.cookies.same_origin(headers)",
+            "state.cookies.same_origin_bypass(headers)",
+            start="async fn write(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
 if __name__ == "__main__":
     unittest.main()
