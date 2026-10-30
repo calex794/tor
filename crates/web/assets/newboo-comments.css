@@ -466,3 +466,5 @@
     padding-left: 10px;
   }
 }
+
+.support-message-body { white-space: pre-wrap; overflow-wrap: anywhere; }

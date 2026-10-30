@@ -1,3 +1,4 @@
+mod support_cleanup;
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -96,6 +97,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
+    let mut pending_support_cleanup = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
     let app = match env::var("DATABASE_URL") {
@@ -105,6 +107,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_support_cleanup = Some(
+                    tor_support::repositories::postgres::PgSupport::new(pool.clone()),
+                );
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
@@ -276,6 +281,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =
         pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
+    let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
     // Registrations and their outbox facts were committed atomically.
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =

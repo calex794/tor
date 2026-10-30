@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner"}
+PROTECTED = {"session", "scoped", "owner", "support_admin"}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
@@ -140,7 +140,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "administrator"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body
@@ -170,11 +170,34 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and policy in {"public", "entry", "csrf_only"}
             and entry["template"] != "/logout"):
         errors.append(f"{label}: protected route downgraded to public/entry")
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny":
+    if entry["template"].startswith(("/admin", "/internal")) and policy not in {"deny", "support_admin"}:
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
+    if policy == "support_admin":
+        reviewed = {("GET", "/admin/support", "index"), ("GET", "/admin/support/{id}", "page"),
+                    ("GET", "/admin/support/{id}/messages", "messages"), ("POST", "/admin/support/{id}/messages", "submit"), ("POST", "/admin/support/{id}/read", "mark_read")}
+        if (entry["source"] != "crates/web/src/auth/support_admin.rs"
+                or (entry["method"],entry["template"],entry["handler"]) not in reviewed
+                or "if !actor.administrator" not in evidence
+                or "StatusCode::FORBIDDEN" not in evidence):
+            errors.append(f"{label}: support administrator role boundary missing")
+        if not _contains_scoped_call(evidence, {"admin_chats", "admin_messages", "admin_send", "admin_mark_read"}):
+            errors.append(f"{label}: missing actor-bound support operation")
+    if policy == "support_requester":
+        reviewed = {("GET","/support","page"), ("GET","/support/widget","widget"),
+                    ("GET","/support/messages","messages"), ("POST","/support/messages","submit"),
+                    ("GET","/api/v1/support/tickets","widget"), ("POST","/api/v1/support/tickets","json_submit")}
+        identity = functions.get("__support_identity", "")
+        if (entry["source"] != "crates/web/src/auth/support.rs"
+                or (entry["method"],entry["template"],entry["handler"]) not in reviewed
+                or "support_identity::resolve(&state, &headers)" not in evidence
+                or not re.search(r"\b(?:messages|send|json_send)\s*\(\s*&who", evidence)
+                or "session_user(state, headers)" not in identity
+                or "valid_token(t)" not in identity
+                or '"tor-support:{token}"' not in identity):
+            errors.append(f"{label}: support requester capability boundary missing")
     if policy in PROTECTED:
         if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
             errors.append(f"{label}: missing verified PG session guard")
@@ -317,6 +340,9 @@ def check(root: Path = ROOT) -> list[str]:
                 source_cache[path] = _functions(path.read_text(encoding="utf-8"))
             except OSError:
                 source_cache[path] = {}
+        if entry.get("policy") == "support_requester":
+            identity_path = root / "crates/web/src/auth/support_identity.rs"
+            source_cache[path]["__support_identity"] = _strip_comments(identity_path.read_text(encoding="utf-8")) if identity_path.exists() else ""
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 

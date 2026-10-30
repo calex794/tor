@@ -61,9 +61,30 @@
           <h2 class="site-footer__title">Читателю</h2>
           <a class="site-footer__link" href="/me/library">Моя библиотека</a>
           <a class="site-footer__link" href="/me">Личный кабинет</a>
+          <a class="site-footer__link" href="/support">Поддержка</a>
         </nav>
       </div>
     </div>
   </footer>
+  <section class="support-widget" data-support-widget hidden aria-label="Поддержка">
+    <button class="support-widget__trigger" type="button" data-support-open aria-controls="support-widget-panel" aria-expanded="false">Поддержка</button>
+    <div class="support-widget__panel" id="support-widget-panel" data-support-panel role="dialog" aria-modal="false" aria-labelledby="support-widget-title" hidden>
+      <header class="support-widget__header">
+        <h2 class="support-widget__title" id="support-widget-title">Поддержка</h2>
+        <button class="support-widget__close" type="button" data-support-close aria-label="Закрыть">×</button>
+      </header>
+      <p class="support-widget__notice" data-support-notice>Здравствуйте! Опишите проблему.</p>
+      <div class="support-widget__messages" data-support-messages aria-live="polite"></div>
+      <form class="support-widget__form" data-support-form>
+        <label class="visually-hidden" for="support-widget-input">Введите сообщение</label>
+        <textarea class="support-widget__input" id="support-widget-input" data-support-input maxlength="4000" placeholder="Введите сообщение..." disabled required></textarea>
+        <label class="support-widget__honeypot" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
+        <p class="support-widget__error" data-support-error role="alert" hidden></p>
+        <div class="support-widget__form-row"><button class="ui-button" type="submit" data-support-submit disabled>Отправить</button></div>
+      </form>
+    </div>
+  </section>
+  <script src="/assets/newboo-support-widget.js" defer></script>
+
 </body>
 </html>
