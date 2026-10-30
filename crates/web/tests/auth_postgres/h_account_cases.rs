@@ -183,20 +183,13 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
         ORIGIN.to_owned(),
     );
 
-    let anonymous = send(
-        &app,
-        request("GET", "/me/referrals", "", "", ORIGIN),
-    )
-    .await;
+    let anonymous = send(&app, request("GET", "/me/referrals", "", "", ORIGIN)).await;
     assert_eq!(anonymous.status(), StatusCode::SEE_OTHER);
     assert_eq!(anonymous.headers()[header::LOCATION], "/login");
     assert_eq!(
-        send(
-            &app,
-            request("GET", "/api/v1/me/referrals", "", "", ORIGIN),
-        )
-        .await
-        .status(),
+        send(&app, request("GET", "/api/v1/me/referrals", "", "", ORIGIN),)
+            .await
+            .status(),
         StatusCode::UNAUTHORIZED
     );
 
@@ -245,7 +238,13 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     assert_eq!(
         send(
             &app,
-            request("POST", "/me/referrals", &post_form, &own_cookies, "https://evil.example"),
+            request(
+                "POST",
+                "/me/referrals",
+                &post_form,
+                &own_cookies,
+                "https://evil.example"
+            ),
         )
         .await
         .status(),
@@ -254,13 +253,23 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     assert_eq!(
         send(
             &app,
-            request("POST", "/api/v1/me/referrals", "csrf_token=invalid", &own_cookies, ORIGIN),
+            request(
+                "POST",
+                "/api/v1/me/referrals",
+                "csrf_token=invalid",
+                &own_cookies,
+                ORIGIN
+            ),
         )
         .await
         .status(),
         StatusCode::FORBIDDEN
     );
-    assert!(referrals.default_reader_code(owner_id).await.unwrap().is_none());
+    assert!(referrals
+        .default_reader_code(owner_id)
+        .await
+        .unwrap()
+        .is_none());
 
     let created = send(
         &app,
@@ -287,7 +296,13 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     );
     let api_create = send(
         &app,
-        request("POST", "/api/v1/me/referrals", &post_form, &own_cookies, ORIGIN),
+        request(
+            "POST",
+            "/api/v1/me/referrals",
+            &post_form,
+            &own_cookies,
+            ORIGIN,
+        ),
     )
     .await;
     assert_eq!(api_create.status(), StatusCode::OK);
@@ -307,11 +322,7 @@ async fn f_09_http_personal_referral_link_and_private_aggregate() {
     .await;
     assert_eq!(landing.status(), StatusCode::SEE_OTHER);
     let guest_cookie = cookie(&landing, "tor-dev-guest=");
-    let guest_page = send(
-        &app,
-        request("GET", "/register", "", &guest_cookie, ORIGIN),
-    )
-    .await;
+    let guest_page = send(&app, request("GET", "/register", "", &guest_cookie, ORIGIN)).await;
     let guest_csrf_cookie = cookie(&guest_page, "tor-dev-csrf=");
     let guest_html = body_of(guest_page).await;
     let guest_csrf = csrf_token(&guest_html);

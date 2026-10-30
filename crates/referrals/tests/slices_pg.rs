@@ -504,7 +504,9 @@ async fn f_09_pg_self_service_code_is_idempotent_and_moderation_safe() {
     .unwrap();
     assert_eq!(count, 1);
     assert_eq!(
-        repo.create_default_reader_code(owner, "r_different").await.unwrap(),
+        repo.create_default_reader_code(owner, "r_different")
+            .await
+            .unwrap(),
         first
     );
     sqlx::query("UPDATE referral_codes SET status='blocked' WHERE code=$1")
@@ -542,10 +544,21 @@ async fn f_09_pg_private_overview_exposes_only_owned_aggregates() {
 
     let own = repo.reader_overview(inviter).await.unwrap();
     assert_eq!(own.default_code, Some(code));
-    assert_eq!((own.active, own.under_review, own.blocked, own.expired), (1, 0, 0, 0));
+    assert_eq!(
+        (own.active, own.under_review, own.blocked, own.expired),
+        (1, 0, 0, 0)
+    );
     let other = repo.reader_overview(another).await.unwrap();
     assert_eq!(other.default_code, Some(other_code));
-    assert_eq!((other.active, other.under_review, other.blocked, other.expired), (0, 0, 0, 0));
+    assert_eq!(
+        (
+            other.active,
+            other.under_review,
+            other.blocked,
+            other.expired
+        ),
+        (0, 0, 0, 0)
+    );
     let subject = repo.reader_overview(invited).await.unwrap();
     assert!(subject.default_code.is_none());
     assert_eq!(subject.active, 0);

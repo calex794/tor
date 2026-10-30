@@ -80,7 +80,9 @@ impl PgReferrals {
         proposed_code: &str,
     ) -> Result<OwnedReferralCode, sqlx::Error> {
         if !crate::domain::valid_code(proposed_code) {
-            return Err(sqlx::Error::Protocol("invalid generated invite code".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid generated invite code".into(),
+            ));
         }
         sqlx::query(
             "INSERT INTO referral_codes(code,owner_user_id,program_type,is_default)
@@ -102,18 +104,17 @@ impl PgReferrals {
         owner_user_id: i64,
     ) -> Result<ReferralOverview, sqlx::Error> {
         let default_code = self.default_reader_code(owner_user_id).await?;
-        let (active, under_review, blocked, expired) =
-            sqlx::query_as::<_, (i64, i64, i64, i64)>(
-                "SELECT count(*) FILTER (WHERE status='active'),
+        let (active, under_review, blocked, expired) = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+            "SELECT count(*) FILTER (WHERE status='active'),
                         count(*) FILTER (WHERE status='under_review'),
                         count(*) FILTER (WHERE status='blocked'),
                         count(*) FILTER (WHERE status='expired')
                  FROM referral_attributions
                  WHERE referrer_user_id=$1 AND program_type='reader_spend'",
-            )
-            .bind(owner_user_id)
-            .fetch_one(&self.pool)
-            .await?;
+        )
+        .bind(owner_user_id)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(ReferralOverview {
             default_code,
             active,
