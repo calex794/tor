@@ -1,5 +1,5 @@
 //! Standalone account forms and error responses; browser-only, no SQL in HTTP.
-use super::{access_audit, login_limiter, AuthState};
+use super::{access_audit, auth_observation, login_limiter, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
     observability, pages,
@@ -223,12 +223,14 @@ pub(super) async fn login(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<LoginForm>,
 ) -> Response {
+    let source = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
+    let mut observed = auth_observation::RequestObservation::new(&state, &form.email, source);
     if !state.cookies.same_origin(&headers)
         || !state
             .cookies
             .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
-        observability::record_login_outcome(LoginOutcome::InvalidForm);
+        observed.report(auth_observation::Outcome::InvalidForm, None);
         return auth_problem(
             StatusCode::FORBIDDEN,
             "Форма устарела",
@@ -238,16 +240,32 @@ pub(super) async fn login(
     }
     let email = match rules::login(&form.email, &form.password) {
         Ok(email) => email,
-        Err(_) => return invalid_credentials(),
+        Err(_) => {
+            observed.report(auth_observation::Outcome::InvalidForm, None);
+            return invalid_credentials();
+        }
     };
-    let audit = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
+    let audit = source;
     let identity_key = match login_limiter::limit(&state, "login", &email, &headers, peer).await {
         Ok(key) => key,
-        Err(status) => return auth_limit_error(status, false),
+        Err(status) => {
+            observed.report(
+                if status == StatusCode::TOO_MANY_REQUESTS {
+                    auth_observation::Outcome::RateLimited
+                } else {
+                    auth_observation::Outcome::Unavailable
+                },
+                None,
+            );
+            return auth_limit_error(status, false);
+        }
     };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
-        Err(_) => return login_storage_error(LoginOutcome::LookupUnavailable),
+        Err(_) => {
+            observed.report(auth_observation::Outcome::Unavailable, None);
+            return login_storage_error(LoginOutcome::LookupUnavailable);
+        }
     };
     let known_hash = stored.as_ref().map(|u| u.password_hash.clone());
     let password = form.password;
@@ -265,6 +283,10 @@ pub(super) async fn login(
     {
         Ok(valid) => valid,
         Err(StatusCode::TOO_MANY_REQUESTS) => {
+            observed.report(
+                auth_observation::Outcome::WorkerBusy,
+                stored.as_ref().map(|u| u.id),
+            );
             observability::record_login_outcome(LoginOutcome::PasswordPoolBusy);
             let mut response = auth_problem(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -277,12 +299,27 @@ pub(super) async fn login(
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("10"));
             return response;
         }
-        Err(_) => return login_storage_error(LoginOutcome::PasswordWorkerUnavailable),
+        Err(_) => {
+            observed.report(
+                auth_observation::Outcome::Unavailable,
+                stored.as_ref().map(|u| u.id),
+            );
+            return login_storage_error(LoginOutcome::PasswordWorkerUnavailable);
+        }
     };
     if !verified {
+        observed.report(
+            if stored.is_some() {
+                auth_observation::Outcome::BadPassword
+            } else {
+                auth_observation::Outcome::UnknownAccount
+            },
+            stored.as_ref().map(|u| u.id),
+        );
         return invalid_credentials();
     }
     let Some(user) = stored else {
+        observed.report(auth_observation::Outcome::UnknownAccount, None);
         return invalid_credentials();
     };
     if state
@@ -291,6 +328,7 @@ pub(super) async fn login(
         .await
         .is_err()
     {
+        observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
         return login_storage_error(LoginOutcome::AttemptResetUnavailable);
     }
     let token = generate_session_token();
@@ -302,10 +340,17 @@ pub(super) async fn login(
         .await
     {
         Ok(true) => {}
-        Ok(false) => return invalid_credentials(),
-        Err(_) => return login_storage_error(LoginOutcome::SessionUnavailable),
+        Ok(false) => {
+            observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
+            return invalid_credentials();
+        }
+        Err(_) => {
+            observed.report(auth_observation::Outcome::Unavailable, Some(user.id));
+            return login_storage_error(LoginOutcome::SessionUnavailable);
+        }
     }
     // No next parameter is accepted: redirects always stay on this site.
+    observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
     private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
 }

@@ -76,6 +76,7 @@ TEST_SUITES = {
     "crates/search/tests/search_pg.rs": {"rust", "postgres"},
     "crates/search/tests/catalog_window_pg.rs": {"rust", "postgres"},
     "crates/web/tests/catalog_pagination_http_pg.rs": {"rust", "postgres"},
+    "crates/search/tests/perf233_projection_pg.rs": {"rust", "postgres"},
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},
