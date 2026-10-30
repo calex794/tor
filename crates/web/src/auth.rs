@@ -339,16 +339,34 @@ async fn public_user_profile(
     let mut action = String::new();
     let mut cookies = Vec::new();
     if let Some(actor) = visitor.filter(|id| *id != recipient) {
-        let blocked: bool = match sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM social_user_blocks WHERE (blocker_id=$1 AND blocked_id=$2) OR (blocker_id=$2 AND blocked_id=$1))"
-        ).bind(actor).bind(recipient).fetch_one(state.accounts.pool()).await {
+        use tor_social::repositories::friendships::{FriendState, PgFriendships};
+        let state_view = match PgFriendships::new(state.accounts.pool().clone())
+            .state(actor, recipient).await
+        {
             Ok(value) => value,
             Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         };
-        if !blocked {
-            let (token, issued_cookies) = state.cookies.csrf_for_page(&headers);
-            cookies = issued_cookies;
-            action = format!("<form method=\"post\" action=\"/mail/start/{recipient}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><button type=\"submit\" class=\"ui-button ui-button--ghost\">Почта</button></form>", pages::escape_html(&token));
+        let (token, issued_cookies) = state.cookies.csrf_for_page(&headers);
+        cookies = issued_cookies;
+        let token = pages::escape_html(&token);
+        // The source shows mail on logged-in, non-self profiles.
+        // The server's block/send guard remains authoritative after a click.
+        action.push_str(&format!("<form method=\"post\" action=\"/mail/start/{recipient}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\" class=\"ui-button ui-button--ghost\">Почта</button></form>"));
+        let friend_action = match state_view {
+            FriendState::None => Some(("friend", "Добавить в друзья")),
+            FriendState::Incoming => Some(("friend", "Принять в друзья")),
+            FriendState::Friends => Some(("unfriend", "Удалить из друзей")),
+            _ => None,
+        };
+        if let Some((suffix, label)) = friend_action {
+            action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/{suffix}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">{label}</button></form>"));
+        } else if state_view == FriendState::Outgoing {
+            action.push_str("<p>Заявка уже отправлена.</p>");
+        } else {
+            action.push_str("<p>Действие недоступно: переписка заблокирована.</p>");
+        }
+        if !matches!(state_view, FriendState::BlockedByMe | FriendState::BlockedMe) {
+            action.push_str(&format!("<form method=\"post\" action=\"/users/{recipient}/block\"><input type=\"hidden\" name=\"csrf_token\" value=\"{token}\"><button type=\"submit\">Заблокировать</button></form>"));
         }
     }
     let html = pages::layout("Публичный профиль", "Профиль участника.", &format!(
