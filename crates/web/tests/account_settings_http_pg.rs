@@ -47,10 +47,13 @@ async fn json(response: axum::response::Response) -> serde_json::Value {
 async fn a_04_a_06_profile_http_rejects_guest_foreign_actor_csrf_and_stale_revision() {
     let url = std::env::var("TEST_DATABASE_URL").unwrap();
     assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1"));
-    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let catalog = tor_books::repositories::PgCatalog::connect(&url)
+        .await
+        .unwrap();
+    let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let app = tor_web::router_with_postgres_reading_auth(
-        tor_books::repositories::PgCatalog::new(pool.clone()),
+        catalog,
         tor_reading::repositories::PgReader::new(pool.clone()),
         accounts.clone(),
         false,
