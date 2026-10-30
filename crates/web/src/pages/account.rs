@@ -48,12 +48,21 @@ pub fn login_form(csrf: &str) -> Html<String> {
 /// Private settings page: no password is returned in HTML or client-side scripts.
 pub fn password_change_form(csrf: &str, message: Option<&str>) -> Html<String> {
     let banner = message
-        .map(|text| format!("<p class=\"auth-form__error\" role=\"alert\">{}</p>", escape_html(text)))
+        .map(|text| {
+            format!(
+                "<p class=\"auth-form__error\" role=\"alert\">{}</p>",
+                escape_html(text)
+            )
+        })
         .unwrap_or_default();
     let body = include_str!("../../templates/password_change.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FORM_ERROR-->", &banner);
-    layout("Смена пароля", "Настройки безопасности учётной записи.", &body)
+    layout(
+        "Смена пароля",
+        "Настройки безопасности учётной записи.",
+        &body,
+    )
 }
 
 /// Branded, standalone error page: only fixed site links, no account data or
