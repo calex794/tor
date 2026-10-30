@@ -106,7 +106,8 @@ async fn f_09_http_invite_validation_and_consumed_guest_cookie() {
         .find(|value| value.to_str().unwrap_or("").starts_with("tor-dev-guest="))
         .expect("explicit guest cookie expiration")
         .to_str()
-        .unwrap();
+        .unwrap()
+        .to_owned();
     assert!(cleared.contains("Max-Age=0"));
     assert!(cleared.contains("SameSite=Lax"));
     assert!(cleared.contains("HttpOnly"));
@@ -173,7 +174,8 @@ async fn f_09_http_first_touch_is_attributed_on_signup() {
         .find(|v| v.to_str().unwrap_or("").starts_with("tor-dev-guest="))
         .expect("guest cookie")
         .to_str()
-        .unwrap();
+        .unwrap()
+        .to_owned();
     assert!(set_guest.contains("SameSite=Lax"));
     assert!(set_guest.contains("HttpOnly"));
 
@@ -197,8 +199,9 @@ async fn f_09_http_first_touch_is_attributed_on_signup() {
     assert_eq!(selected, inviters[0].1);
 
     let page = send(&app, request("GET", "/register", "", &guest, ORIGIN)).await;
-    let csrf = csrf_token(&body_of(page.clone()).await).to_owned();
     let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let page_html = body_of(page).await;
+    let csrf = csrf_token(&page_html).to_owned();
     let email = format!("f09-new-{stamp}@example.invalid");
     let signup = format!(
         "email={}&display_name=Invited&password=LongSecurePassword2026&csrf_token={csrf}",
