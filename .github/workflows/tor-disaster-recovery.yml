@@ -8,8 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: tor-disaster-recovery-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   select:
     uses: ./.github/workflows/ci-selection.yml

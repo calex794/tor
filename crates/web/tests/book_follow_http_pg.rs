@@ -61,6 +61,64 @@ async fn post(app: &Router, path: &str, cookies: &str, origin: &str, csrf: &str)
         .status()
 }
 
+async fn read_state_post(
+    app: &Router,
+    chapter_id: i64,
+    cookies: &str,
+    origin: &str,
+    csrf: &str,
+    desired: &str,
+) -> StatusCode {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/me/updates/{chapter_id}/read-state"))
+        .header(header::COOKIE, cookies)
+        .header(header::ORIGIN, origin)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(format!("csrf_token={csrf}&state={desired}")))
+        .expect("read-state request");
+    app.clone()
+        .oneshot(request)
+        .await
+        .expect("response")
+        .status()
+}
+
+async fn followed_page(app: &Router, cookies: &str) -> String {
+    let request = Request::builder()
+        .uri("/me/library")
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("body")
+            .to_vec(),
+    )
+    .expect("UTF-8")
+}
+
+async fn dashboard_page(app: &Router, cookies: &str) -> String {
+    let request = Request::builder()
+        .uri("/me")
+        .header(header::COOKIE, cookies)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    String::from_utf8(
+        to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
 async fn book_page(app: &Router, book_id: i64, cookies: &str) -> String {
     let request = Request::builder()
         .uri(format!("/books/{book_id}"))
@@ -205,6 +263,119 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         ),
         "2"
     );
+    // Canonical first release after both explicit follows: no GET or
+    // library-save action implicitly creates the notification.
+    let chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({public},1,'Новая глава','public','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let version: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+             VALUES({chapter},1,'Текст') RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id)
+             VALUES({chapter},{version})"
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
+             VALUES({chapter},{version})"
+        ),
+    );
+    let first_feed = followed_page(&app, &one).await;
+    assert!(first_feed.contains("Новая глава"));
+    assert!(first_feed.contains(&format!("/me/updates/{chapter}/read-state")));
+    assert!(first_feed.contains("Отметить прочитанной"));
+    assert!(followed_page(&app, &two)
+        .await
+        .contains("Отметить прочитанной"));
+    assert!(dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
+    assert!(dashboard_page(&app, &two)
+        .await
+        .contains("Новые главы подписок: 1"));
+
+    assert_eq!(
+        read_state_post(&app, chapter, &one, "https://wrong.invalid", &csrf, "read").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        read_state_post(&app, chapter, &one, ORIGIN, "wrong", "read").await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        read_state_post(&app, chapter, &one, ORIGIN, &csrf, "invalid").await,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        read_state_post(&app, chapter, "", ORIGIN, &csrf, "read").await,
+        StatusCode::FORBIDDEN
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            read_state_post(&app, chapter, &one, ORIGIN, &csrf, "read").await,
+            StatusCode::SEE_OTHER
+        );
+    }
+    let first_read = followed_page(&app, &one).await;
+    assert!(first_read.contains("Отметить непрочитанной"));
+    assert!(!dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
+    assert!(dashboard_page(&app, &two)
+        .await
+        .contains("Новые главы подписок: 1"));
+    assert!(followed_page(&app, &two)
+        .await
+        .contains("Отметить прочитанной"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads
+                 WHERE user_id={first} AND chapter_id={chapter}"
+            )
+        ),
+        "1",
+        "read acknowledgements are unique per follower and chapter"
+    );
+    assert_eq!(
+        read_state_post(&app, chapter, &one, ORIGIN, &csrf, "unread").await,
+        StatusCode::SEE_OTHER
+    );
+    assert!(followed_page(&app, &one)
+        .await
+        .contains("Отметить прочитанной"));
+    assert!(dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads
+                 WHERE user_id={first} AND chapter_id={chapter}"
+            )
+        ),
+        "0"
+    );
+
     assert_eq!(
         post(&app, &unfollow, &one, ORIGIN, &csrf).await,
         StatusCode::SEE_OTHER
@@ -214,6 +385,14 @@ async fn c_15_follow_is_idempotent_actor_scoped_and_not_an_entitlement() {
         StatusCode::SEE_OTHER,
         "unfollow must be idempotent"
     );
+    assert_eq!(
+        read_state_post(&app, chapter, &one, ORIGIN, &csrf, "read").await,
+        StatusCode::NOT_FOUND,
+        "unfollowed readers cannot change old notification markers"
+    );
+    assert!(!dashboard_page(&app, &one)
+        .await
+        .contains("Новые главы подписок: 1"));
     let unsubscribed_page = book_page(&app, public, &one).await;
     assert!(unsubscribed_page.contains(&format!("action=\"/me/books/{public}/follow\"")));
     assert_eq!(

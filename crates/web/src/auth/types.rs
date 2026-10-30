@@ -29,6 +29,7 @@ pub(super) struct AuthState {
     pub(super) bookmarks: PgLibrary,
     pub(super) demand: PgContinuationDemand,
     pub(super) book_follows: tor_reading::repositories::PgBookFollows,
+    pub(super) follow_updates: PgFollowUpdates,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
     pub(super) cookies: CookiePolicy,
@@ -54,6 +55,7 @@ pub(super) struct SavePlaceForm {
 #[derive(Default, Deserialize)]
 pub(super) struct LibraryQuery {
     pub(super) after: Option<i64>,
+    pub(super) updates_after: Option<String>,
     pub(super) limit: Option<u16>,
 }
 

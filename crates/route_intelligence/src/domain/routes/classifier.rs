@@ -94,11 +94,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/replies/{id}/read-state"), "POST") => Some(81),
         (Some("/me/inbox"), "GET") => Some(82),
         (Some("/api/v1/me/inbox"), "GET") => Some(83),
-        (Some("/r/{code}"), "GET") => Some(84),
-        (Some("/me/referrals"), "GET") => Some(85),
-        (Some("/me/referrals"), "POST") => Some(86),
-        (Some("/api/v1/me/referrals"), "GET") => Some(87),
-        (Some("/api/v1/me/referrals"), "POST") => Some(88),
+        (Some("/me/updates/{id}/read-state"), "POST") => Some(84),
+        (Some("/r/{code}"), "GET") => Some(85),
+        (Some("/me/referrals"), "GET") => Some(86),
+        (Some("/me/referrals"), "POST") => Some(87),
+        (Some("/api/v1/me/referrals"), "GET") => Some(88),
+        (Some("/api/v1/me/referrals"), "POST") => Some(89),
         _ => None,
     };
     index

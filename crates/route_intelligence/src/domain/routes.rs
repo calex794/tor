@@ -10,7 +10,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 89] = [
+const ROUTES: [RouteRegistration; 90] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -583,11 +583,12 @@ const ROUTES: [RouteRegistration; 89] = [
     RouteRegistration::new("/me/replies/{id}/read-state", "POST", "/me/replies/", Prefix, Page, Dashboard, Write), // 81
     RouteRegistration::new("/me/inbox", "GET", "/me/inbox/", Exact, Page, Dashboard, Read), // 82
     RouteRegistration::new("/api/v1/me/inbox", "GET", "/api/v1/me/inbox/", Exact, Api, Dashboard, Read), // 83
-    RouteRegistration::new("/r/{code}", "GET", "/r/", Prefix, Page, Auth, Write), // 84
-    RouteRegistration::new("/me/referrals", "GET", "/me/referrals/", Exact, Page, Dashboard, Read), // 85
-    RouteRegistration::new("/me/referrals", "POST", "/me/referrals/", Exact, Page, Dashboard, Write), // 86
-    RouteRegistration::new("/api/v1/me/referrals", "GET", "/api/v1/me/referrals/", Exact, Api, Dashboard, Read), // 87
-    RouteRegistration::new("/api/v1/me/referrals", "POST", "/api/v1/me/referrals/", Exact, Api, Dashboard, Write), // 88
+    RouteRegistration::new("/me/updates/{id}/read-state", "POST", "/me/updates/", Prefix, Page, Reading, Write), // 84
+    RouteRegistration::new("/r/{code}", "GET", "/r/", Prefix, Page, Auth, Write), // 85
+    RouteRegistration::new("/me/referrals", "GET", "/me/referrals/", Exact, Page, Dashboard, Read), // 86
+    RouteRegistration::new("/me/referrals", "POST", "/me/referrals/", Exact, Page, Dashboard, Write), // 87
+    RouteRegistration::new("/api/v1/me/referrals", "GET", "/api/v1/me/referrals/", Exact, Api, Dashboard, Read), // 88
+    RouteRegistration::new("/api/v1/me/referrals", "POST", "/api/v1/me/referrals/", Exact, Api, Dashboard, Write), // 89
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
