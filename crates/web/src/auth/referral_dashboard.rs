@@ -21,6 +21,7 @@ pub(super) struct CreateReferralForm {
 #[derive(Default, Deserialize)]
 pub(super) struct ReferralPageQuery {
     book: Option<u64>,
+    alias_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +29,7 @@ struct Invitation {
     code: String,
     status: String,
     url: Option<String>,
+    short_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -43,10 +45,17 @@ fn report_data(overview: ReferralOverview, origin: &str) -> ReferralReport {
     let invitation = overview.default_code.map(|owned| {
         let url = (owned.status == "active")
             .then(|| format!("{}/r/{}", origin.trim_end_matches('/'), owned.code));
+        let short_url = if owned.status == "active" {
+            owned.alias_path_prefix.as_deref().zip(owned.alias.as_deref())
+                .map(|(prefix, alias)| format!("{}/{prefix}/{alias}", origin.trim_end_matches('/')))
+        } else {
+            None
+        };
         Invitation {
             code: owned.code,
             status: owned.status,
             url,
+            short_url,
         }
     });
     ReferralReport {
@@ -90,7 +99,10 @@ pub(super) async fn page(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::referrals_page(&csrf, &state.cookies.origin, &snapshot, query.book),
+        pages::referrals_page(
+            &csrf, &state.cookies.origin, &snapshot, query.book,
+            query.alias_error.as_deref(),
+        ),
         &cookies,
     )
 }
