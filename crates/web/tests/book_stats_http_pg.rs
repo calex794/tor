@@ -13,6 +13,14 @@ use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
+fn pg(url: &str, statement: &str) -> String {
+    let result = std::process::Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", statement])
+        .output().expect("psql");
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
+
 async fn get(app: &Router, path: &str, session: Option<&str>) -> axum::response::Response {
     let mut request = Request::builder().uri(path);
     if let Some(token) = session {
@@ -61,16 +69,10 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
         )
         .await
         .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','=2+3 Stats','public',$2) RETURNING id",
-    )
-    .bind(format!("ci:stats-owner:{unique}"))
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-
+    let book: i64 = pg(&url, &format!(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
+         VALUES('ci:stats-owner:{unique}','ru','=2+3 Stats','public',{owner}) RETURNING id"
+    )).parse().unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),
