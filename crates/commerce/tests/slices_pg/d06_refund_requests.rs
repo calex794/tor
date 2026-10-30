@@ -93,7 +93,9 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     let key = IdempotencyKey::parse(&format!("{}8", "S".repeat(42))).unwrap();
     let other = IdempotencyKey::parse(&format!("{}8", "T".repeat(42))).unwrap();
     assert_eq!(
-        requests.request_once(buyer + 1, purchase, &key, "передумал").await,
+        requests
+            .request_once(buyer + 1, purchase, &key, "передумал")
+            .await,
         Err(DirectRefundRequestError::NotFound)
     );
     let first = requests
@@ -114,7 +116,9 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
         Err(DirectRefundRequestError::DuplicateKeyDifferentRequest)
     );
     assert_eq!(
-        requests.request_once(buyer, purchase, &other, "передумал").await,
+        requests
+            .request_once(buyer, purchase, &other, "передумал")
+            .await,
         Err(DirectRefundRequestError::AlreadyOpen)
     );
     let stored: i64 = sqlx::query_scalar(
