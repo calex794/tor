@@ -28,6 +28,28 @@ pub fn registration(
     })
 }
 
+/// The current password may be shorter (legacy users); the new one must
+/// meet the same policy as new registrations.
+pub fn password_change(
+    current: &str,
+    new_password: &str,
+    confirmation: &str,
+) -> Result<(), &'static str> {
+    if current.is_empty() || current.len() > 512 {
+        return Err("Укажите текущий пароль");
+    }
+    if new_password != confirmation {
+        return Err("Подтверждение нового пароля не совпадает");
+    }
+    if !(12..=128).contains(&new_password.chars().count()) || new_password.len() > 512 {
+        return Err("Новый пароль должен содержать от 12 до 128 символов");
+    }
+    if new_password == current {
+        return Err("Новый пароль должен отличаться от текущего");
+    }
+    Ok(())
+}
+
 pub fn login(email: &str, password: &str) -> Result<String, &'static str> {
     let email = normalize_email(email)?;
     if password.is_empty() || password.len() > 512 {
@@ -51,6 +73,15 @@ mod tests {
         assert!(registration("a@b", "A\nB", "мой_надежный_пароль").is_err());
         assert!(registration("a@b", "Автор", "short").is_err());
         assert!(registration("a@b", "Автор", &"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn password_change_preserves_legacy_current_and_checks_new_policy() {
+        assert!(password_change("old", "новый-длинный-пароль", "новый-длинный-пароль").is_ok());
+        assert!(password_change("", "новый-длинный-пароль", "новый-длинный-пароль").is_err());
+        assert!(password_change("old", "short", "short").is_err());
+        assert!(password_change("old", "новый-длинный-пароль", "другой-пароль").is_err());
+        assert!(password_change("тот же длинный пароль", "тот же длинный пароль", "тот же длинный пароль").is_err());
     }
 
     #[test]

@@ -7,7 +7,8 @@ use std::fmt::Write;
 
 mod account;
 pub use account::{
-    account_error_page, login_form, my_account, registration_form, registration_form_with_error,
+    account_error_page, login_form, my_account, password_change_form, registration_form,
+    registration_form_with_error,
 };
 mod reader_private;
 #[allow(unused_imports)]
