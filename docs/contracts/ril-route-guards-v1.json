@@ -131,8 +131,8 @@
     {
       "method": "GET",
       "template": "/login",
-      "source": "crates/web/src/lib.rs",
-      "handler": "login",
+      "source": "crates/web/src/auth.rs",
+      "handler": "account_form_http::show_login",
       "policy": "public"
     },
     {
@@ -257,8 +257,8 @@
     {
       "method": "GET",
       "template": "/register",
-      "source": "crates/web/src/lib.rs",
-      "handler": "register",
+      "source": "crates/web/src/auth.rs",
+      "handler": "account_form_http::show_registration",
       "policy": "public"
     },
     {
@@ -300,7 +300,7 @@
       "method": "POST",
       "template": "/logout",
       "source": "crates/web/src/auth.rs",
-      "handler": "logout",
+      "handler": "logout::logout",
       "policy": "csrf_only"
     },
     {
