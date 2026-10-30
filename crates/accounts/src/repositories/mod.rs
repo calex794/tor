@@ -6,3 +6,4 @@ mod credentials;
 mod password_reset;
 pub mod profile;
 mod security_retention;
+pub mod sessions;
