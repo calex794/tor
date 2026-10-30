@@ -253,8 +253,8 @@ impl PgPublicBookComments {
         let result = match inserted {
             Ok(Some(id)) => CreateResult::Created(id),
             Ok(None) => {
-                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, Option<i64>)>(
-                    "SELECT id,book_id,command_hash,parent_id FROM discussion_comments
+                let original = sqlx::query_as::<_, (i64, i64, Vec<u8>, String, Option<i64>)>(
+                    "SELECT id,book_id,command_hash,body,parent_id FROM discussion_comments
                      WHERE author_user_id=$1 AND command_key=$2 AND book_id IS NOT NULL",
                 )
                 .bind(actor_id)
@@ -262,10 +262,13 @@ impl PgPublicBookComments {
                 .fetch_optional(&mut *tx)
                 .await;
                 match original {
-                    Ok(Some((id, original_book, hash, old_parent)))
+                    Ok(Some((id, original_book, hash, old_body, old_parent)))
                         if original_book == book_id
                             && hash == payload_hash
-                            && old_parent == parent_id =>
+                            && old_parent == parent_id
+                            && (old_body == clean_body
+                                || (mentions::tokens(body).iter().any(|t| matches!(t.key, mentions::MentionKey::User(_) | mentions::MentionKey::Handle(_)))
+                                    && mentions::tokens(&old_body).iter().any(|t| matches!(t.key, mentions::MentionKey::User(_))))) =>
                     {
                         CreateResult::Replayed(id)
                     }
