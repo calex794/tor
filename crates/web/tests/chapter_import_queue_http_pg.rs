@@ -25,8 +25,8 @@ use tor_books::{
         chapter_file_import::{fingerprint, parse_text},
     },
 };
-use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
 use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
+use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -68,10 +68,7 @@ impl ChapterImportObjectStore for MemoryStore {
         let objects = self.0.lock().await;
         let bytes = objects.get(key).ok_or(StoreError::Unavailable)?;
         let actual: [u8; 32] = Sha256::digest(bytes).into();
-        if bytes.len() != expected_size as usize
-            || bytes.len() > max_bytes
-            || actual != *sha256
-        {
+        if bytes.len() != expected_size as usize || bytes.len() > max_bytes || actual != *sha256 {
             return Err(StoreError::Corrupt);
         }
         Ok(bytes.clone())
@@ -189,16 +186,12 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     let queue_path = format!("/me/books/{book_id}/chapters/import-queue");
     let mut bad_payload = cancelled_payload.clone();
     bad_payload["csrf_token"] = json!("invalid-token");
-    let rejected = call(
-        &app,
-        &queue_path,
-        "POST",
-        &owner_cookie,
-        Some(bad_payload),
-    )
-    .await;
+    let rejected = call(&app, &queue_path, "POST", &owner_cookie, Some(bad_payload)).await;
     assert_eq!(rejected.0, StatusCode::FORBIDDEN);
-    assert!(store.0.lock().await.is_empty(), "CSRF failure must not write S3");
+    assert!(
+        store.0.lock().await.is_empty(),
+        "CSRF failure must not write S3"
+    );
 
     let first = call(
         &app,
@@ -226,8 +219,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     let cancelled_job = queued_json["job_id"].as_i64().unwrap();
     assert_eq!(cancelled_job, first_job);
     assert_eq!(queued_json["status"], "queued");
-    let status_path =
-        format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}");
+    let status_path = format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}");
     assert_eq!(
         call(&app, &status_path, "GET", &stranger_cookie, None)
             .await
@@ -248,8 +240,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         serde_json::from_str::<Value>(&latest.1).unwrap()["job_id"],
         cancelled_job
     );
-    let cancel_path =
-        format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}/cancel");
+    let cancel_path = format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}/cancel");
     let bad_cancel = call(
         &app,
         &cancel_path,
@@ -261,9 +252,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     assert_eq!(bad_cancel.0, StatusCode::FORBIDDEN);
     assert_eq!(
         serde_json::from_str::<Value>(
-            &call(&app, &status_path, "GET", &owner_cookie, None)
-                .await
-                .1
+            &call(&app, &status_path, "GET", &owner_cookie, None).await.1
         )
         .unwrap()["status"],
         "queued",
@@ -323,9 +312,16 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     assert_eq!(status_json["saved_count"], 1);
     assert_eq!(status_json["book_url"], format!("/me/books/{book_id}"));
     assert_eq!(
-        authoring.list_owned_chapters(owner, book_id).await.unwrap().len(),
+        authoring
+            .list_owned_chapters(owner, book_id)
+            .await
+            .unwrap()
+            .len(),
         1
     );
-    assert!(store.0.lock().await.is_empty(), "completed and cancelled source objects are cleaned up");
+    assert!(
+        store.0.lock().await.is_empty(),
+        "completed and cancelled source objects are cleaned up"
+    );
     pool.close().await;
 }
