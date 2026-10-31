@@ -44,6 +44,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TOR_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          TOR_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TOR_PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 tools/check_sqlx_merge_hold.py
       - name: Enforce TOR feature-first boundaries
         run: python3 tools/check_feature_layout.py
