@@ -3,7 +3,7 @@
 use super::mail::{blocked, pair_lock, unavailable};
 use crate::domain::MailError;
 use sqlx::PgPool;
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserNotification {
@@ -15,6 +15,42 @@ pub struct UserNotification {
     pub created_at: String,
     pub is_read: bool,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationPreference {
+    pub kind: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub enabled: bool,
+}
+
+// NEwBOO 17125ef7 bell preferences: missing (user,kind) rows mean enabled.
+// These are independent of the reader delivery-time setting.
+#[rustfmt::skip]
+const NOTIFICATION_KIND_OPTIONS: &[(&str, &str, &str)] = &[
+    ("scene_marketplace", "Маркетплейс сцен", "Продажи, отзывы, модерация и обновления пресетов."),
+    ("mail", "Почта", "Новые личные сообщения."),
+    ("comment", "Комментарии", "Комментарии к книгам и главам."),
+    ("comment_reply", "Ответы на комментарии", "Прямые ответы на ваши комментарии."),
+    ("comment_mention", "Упоминания в комментариях", "Когда вас упоминают по handle."),
+    ("chapter_created", "Новые главы", "Главы в книгах из вашей библиотеки."),
+    ("book_invite", "Книги", "Добавление в книгу и роли в проекте."),
+    ("book_share", "Рекомендации книг", "Книги, которыми с вами делятся друзья."),
+    ("friendship", "Друзья", "Заявки, принятие и удаление из друзей."),
+    ("text_issue", "Ошибки текста", "Предложения читателей по исправлению текста."),
+    ("team_invite", "Команды", "Приглашения в команды."),
+    ("book_pending_deletion", "Удаление книг", "Книги, поставленные на удаление."),
+    ("book_moderation_passed", "Модерация: одобрено", "Книга прошла модерацию."),
+    ("book_moderation_problem", "Модерация: проблемы", "Книга скрыта или ограничена модерацией."),
+    ("refund", "Возвраты читателя", "Решения по вашим возвратам."),
+    ("refund_author", "Возвраты автора", "Возвраты по вашим книгам."),
+    ("payout", "Выплаты", "Финансовые события по выводу средств."),
+    ("project_news", "Новости проекта", "Важные новости и объявления платформы."),
+    ("author_new_book", "Авторы: новые книги", "Новые книги от пользователей, на которых вы подписаны."),
+    ("author_new_layer", "Авторы: пакеты", "Новые публичные пакеты доступа от пользователей, на которых вы подписаны."),
+    ("author_new_collection", "Авторы: коллекции", "Новые публичные коллекции от пользователей, на которых вы подписаны."),
+    ("daily_reader_digest", "Ежедневная сводка", "Сводка новых глав, авторских обновлений и подборок."),
+];
 
 #[derive(Clone)]
 pub struct PgNotifications {
@@ -142,6 +178,9 @@ impl PgNotifications {
                         kind,title,body,url,created_at)
                      SELECT $1,$2,e.id,$3,$4,$5,$6,e.created_at
                      FROM outbox_events e WHERE e.id=$7::uuid
+                       AND NOT EXISTS (
+                         SELECT 1 FROM user_notification_preferences p
+                         WHERE p.user_id=$1 AND p.kind=$3 AND NOT p.enabled)
                      ON CONFLICT(source_event_id) DO NOTHING",
                 )
                 .bind(recipient)
@@ -245,6 +284,70 @@ impl PgNotifications {
                 is_read: r.6,
             })
             .collect())
+    }
+
+    /// Source semantics: all known kinds are enabled until explicitly saved.
+    pub async fn preferences(
+        &self,
+        actor: i64,
+    ) -> Result<Vec<NotificationPreference>, MailError> {
+        if actor <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let saved: HashMap<String, bool> = sqlx::query_as::<_, (String, bool)>(
+            "SELECT kind,enabled FROM user_notification_preferences WHERE user_id=$1",
+        )
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(unavailable)?
+        .into_iter()
+        .collect();
+        Ok(NOTIFICATION_KIND_OPTIONS
+            .iter()
+            .map(|&(kind, label, description)| NotificationPreference {
+                kind,
+                label,
+                description,
+                enabled: saved.get(kind).copied().unwrap_or(true),
+            })
+            .collect())
+    }
+
+    /// Save all 22 checkboxes atomically; unchecked known kinds are disabled.
+    /// Ignore submitted unknown names, and never trust a recipient in a form.
+    pub async fn set_preferences(
+        &self,
+        actor: i64,
+        enabled_kinds: &[String],
+    ) -> Result<(), MailError> {
+        if actor <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let kinds: Vec<String> = NOTIFICATION_KIND_OPTIONS
+            .iter()
+            .map(|&(kind, _, _)| kind.to_owned())
+            .collect();
+        let enabled: Vec<String> = kinds
+            .iter()
+            .filter(|kind| enabled_kinds.contains(kind))
+            .cloned()
+            .collect();
+        sqlx::query(
+            "INSERT INTO user_notification_preferences(user_id,kind,enabled,updated_at)
+             SELECT $1,k.kind,k.kind=ANY($2::text[]),clock_timestamp()
+             FROM unnest($3::text[]) AS k(kind)
+             WHERE true
+             ON CONFLICT(user_id,kind)
+             DO UPDATE SET enabled=EXCLUDED.enabled,updated_at=EXCLUDED.updated_at",
+        )
+        .bind(actor)
+        .bind(&enabled)
+        .bind(&kinds)
+        .execute(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        Ok(())
     }
 
     pub async fn mark_read(&self, actor: i64, id: i64) -> Result<bool, MailError> {

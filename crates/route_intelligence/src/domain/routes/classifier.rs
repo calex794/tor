@@ -150,6 +150,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/notifications"), "GET") => Some(137),
         (Some("/notifications/{id}/read"), "POST") => Some(138),
         (Some("/notifications/read-all"), "POST") => Some(139),
+        (Some("/notifications/preferences"), "POST") => Some(140),
         _ => None,
     };
     index

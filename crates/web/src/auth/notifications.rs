@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write};
 use tor_social::repositories::notifications::PgNotifications;
 
 pub(super) fn router() -> Router<AuthState> {
@@ -17,6 +17,7 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/notifications", get(page))
         .route("/notifications/{id}/read", post(mark_one))
         .route("/notifications/read-all", post(mark_all))
+        .route("/notifications/preferences", post(save_preferences))
 }
 
 #[derive(Default, Deserialize)]
@@ -24,6 +25,7 @@ pub(super) fn router() -> Router<AuthState> {
 pub(super) struct NotificationQuery {
     before: Option<i64>,
     tab: Option<String>,
+    notice: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,6 +71,10 @@ pub(super) async fn page(
     let store = PgNotifications::new(state.accounts.pool().clone());
     let rows = match store.list_section(actor, query.before, 50, tab).await {
         Ok(rows) => rows,
+        Err(e) => return deny(super::mail::status(e)),
+    };
+    let preferences = match store.preferences(actor).await {
+        Ok(preferences) => preferences,
         Err(e) => return deny(super::mail::status(e)),
     };
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
@@ -138,8 +144,28 @@ pub(super) async fn page(
     } else {
         String::new()
     };
+    let mut preference_controls = String::new();
+    for preference in &preferences {
+        let checked = if preference.enabled { " checked" } else { "" };
+        write!(
+            preference_controls,
+            r#"<label class="notifications-switch"><span class="notifications-switch__text"><strong>{}</strong><small>{}</small></span><input type="checkbox" name="pref_{}" value="on"{checked}></label>"#,
+            pages::escape_html(preference.label),
+            pages::escape_html(preference.description),
+            preference.kind,
+        )
+        .expect("notification preference control");
+    }
+    let settings_notice = if query.notice.as_deref() == Some("preferences_saved") {
+        r#"<p role="status">Настройки уведомлений сохранены.</p>"#
+    } else {
+        ""
+    };
+    let preferences_section = format!(
+        r#"<aside class="notifications-settings-card" aria-labelledby="notifications-settings-title"><h2 id="notifications-settings-title">Настройки</h2><p>Выберите, какие события будут попадать в колокольчик.</p>{settings_notice}<form method="post" action="/notifications/preferences"><input type="hidden" name="csrf_token" value="{csrf_token}">{preference_controls}<button class="ui-button ui-button--primary" type="submit">Сохранить</button></form></aside>"#
+    );
     let body = format!(
-        "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item is-active\" href=\"/notifications\">Уведомления</a></nav><header class=\"ui-page-header\"><h1>Уведомления</h1></header><nav class=\"ui-tabs notifications-tabs\" aria-label=\"Раздел уведомлений\">{tab_links}</nav><form method=\"post\" action=\"/notifications/read-all\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf_token}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить все прочитанными</button></form><section class=\"me-section\" aria-label=\"Уведомления\">{cards}{older}</section></div></section>"
+        "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item is-active\" href=\"/notifications\">Уведомления</a></nav><header class=\"ui-page-header\"><h1>Уведомления</h1></header><nav class=\"ui-tabs notifications-tabs\" aria-label=\"Раздел уведомлений\">{tab_links}</nav><form method=\"post\" action=\"/notifications/read-all\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf_token}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить все прочитанными</button></form><section class=\"me-section\" aria-label=\"Уведомления\">{cards}{older}</section>{preferences_section}</div></section>"
     );
     private_response(
         pages::layout("Уведомления", "Ваши уведомления", &body),
@@ -189,6 +215,44 @@ pub(super) async fn mark_all(
         .await
     {
         Ok(_) => private_response(Redirect::to("/notifications"), &[]),
+        Err(e) => deny(super::mail::status(e)),
+    }
+}
+
+pub(super) async fn save_preferences(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(fields): Form<HashMap<String, String>>,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    if let Err(status) = csrf(
+        &state,
+        &headers,
+        fields.get("csrf_token").map(String::as_str).unwrap_or(""),
+    ) {
+        return deny(status);
+    }
+    // Unique pref_* names avoid repeated-key form-map ambiguity.
+    // Unknown kinds and user IDs from the body are not authoritative.
+    let enabled_kinds: Vec<String> = fields
+        .iter()
+        .filter_map(|(key, value)| {
+            if value == "on" {
+                key.strip_prefix("pref_").map(str::to_owned)
+            } else {
+                None
+            }
+        })
+        .collect();
+    match PgNotifications::new(state.accounts.pool().clone())
+        .set_preferences(actor, &enabled_kinds)
+        .await
+    {
+        Ok(()) => private_response(Redirect::to("/notifications?notice=preferences_saved"), &[]),
         Err(e) => deny(super::mail::status(e)),
     }
 }

@@ -468,6 +468,81 @@ async fn e_08_notifications_outbox_once_on_replay_and_block() {
     cleanup(&pool, &u).await;
 }
 
+/// NEwBOO per-kind prefs: disabled events remain in the outbox/receipt ledger
+/// but never create a new on-site notification, even after consumer restarts.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_notification_preferences_persist_and_suppress_projection() {
+    let (pool, users) = fixture().await;
+    let (a, b, c) = (users[0], users[1], users[2]);
+    let notifications = PgNotifications::new(pool.clone());
+    let initial = notifications.preferences(b).await.unwrap();
+    assert_eq!(initial.len(), 22);
+    assert!(initial.iter().all(|pref| pref.enabled));
+    assert_eq!(notifications.preferences(0).await, Err(MailError::Invalid));
+    assert_eq!(
+        notifications.set_preferences(0, &[]).await,
+        Err(MailError::Invalid)
+    );
+
+    notifications
+        .set_preferences(b, &["friendship".to_owned()])
+        .await
+        .unwrap();
+    let reopened = PgNotifications::new(pool.clone());
+    let saved = reopened.preferences(b).await.unwrap();
+    assert!(!saved.iter().find(|p| p.kind == "mail").unwrap().enabled);
+    assert!(saved.iter().find(|p| p.kind == "friendship").unwrap().enabled);
+    assert!(reopened.preferences(c).await.unwrap().iter().all(|p| p.enabled));
+
+    let mail = MailService::new(PgMail::new(pool.clone()));
+    let conversation = mail.start(a, b).await.unwrap();
+    mail.send(a, conversation, "suppressed", &key(91))
+        .await
+        .unwrap();
+    for _ in 0..12 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    assert!(reopened.list(b, None, 50).await.unwrap().is_empty());
+    let suppressed_receipts: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM event_deliveries d
+         JOIN outbox_events e ON e.id=d.event_id
+         WHERE d.consumer='user_notifications'
+           AND e.event_type='social.mail.created'
+           AND (e.payload->>'recipient_user_id')::bigint=$1",
+    )
+    .bind(b)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(suppressed_receipts, 1);
+
+    notifications
+        .set_preferences(b, &["mail".to_owned()])
+        .await
+        .unwrap();
+    mail.send(a, conversation, "allowed", &key(92))
+        .await
+        .unwrap();
+    notifications.deliver_pending(100).await.unwrap();
+    let rows = reopened.list(b, None, 50).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].kind, "mail");
+    assert_eq!(
+        PgFriendships::new(pool.clone())
+            .request(a, b)
+            .await
+            .unwrap(),
+        FriendState::Outgoing
+    );
+    notifications.deliver_pending(100).await.unwrap();
+    assert_eq!(reopened.list(b, None, 50).await.unwrap().len(), 1);
+    assert_eq!(notifications.deliver_pending(100).await.unwrap(), 0);
+    cleanup(&pool, &users).await;
+}
+
 use tor_social::services::follow::{CreatorFollowError, PgCreatorFollows};
 
 #[tokio::test]

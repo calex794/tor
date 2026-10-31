@@ -977,6 +977,13 @@
     },
     {
       "method": "POST",
+      "template": "/notifications/preferences",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "save_preferences",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/users/{target_user_id}/block",
       "source": "crates/web/src/auth.rs",
       "handler": "friendship::block",

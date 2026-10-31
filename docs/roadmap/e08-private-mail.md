@@ -150,3 +150,39 @@ at `de852dc1` and ongoing checks at `a1e62b01` do not validate it.
 discussion filters, actor-authorized private/legacy book previews, complete
 public profile identity, group/admin mail, independent review, retained SQLx
 ledger/checksum. No production/SSH/VPS/retained migrations.
+
+## 31.10.2026 — category notification preferences (Draft; verify exact-head CI)
+
+Source NEwBOO @17125ef7 has **22** independent bell categories, keyed by
+`(user_id,kind)`, with missing saved rows treated as enabled. A POST to
+`/notifications/preferences` saves the entire checkbox set, including disabled
+(unticked) categories. This is not the separate content-notification delivery
+mode already implemented in TOR's reader settings.
+
+This Draft slice introduces an independent PostgreSQL migration
+`202610310300_e08_notification_preferences.sql` (above the current main
+migration maximum `202610310291`). Its actor-bound repository methods
+return all 22 categories with default-enabled flags and atomically upsert
+the full selection. A new private, CSRF/Origin-guarded POST accepts checkbox
+names `pref_<kind>` (rather than a repeated key), ignores unknown keys
+and never accepts recipient/user identity from the form. The page presents
+the original category labels and descriptions, and retains all existing
+notification tabs and read/unread behavior.
+
+The existing idempotent social outbox projector checks
+`user_notification_preferences` **before** its insertion into
+`user_notifications`. Disabled kinds produce no new notification, while
+their source event and `event_deliveries` receipt remain intact. Existing
+notification rows are not retroactively deleted or hidden. PostgreSQL and
+HTTP regressions cover default-enabled preference values, persistent
+choices, recipient isolation, CSRF/Origin denial, disabled mail/friendship
+projection, and receipts. Future notification producers must share this
+policy; the currently integrated producer kinds are only `mail` and
+`friendship`, so not all 22 kinds have end-to-end producer parity.
+
+**Acceptance gate:** full CI and architecture regression checks on the
+exact commit published with this slice; previous green `2871609a`
+does not validate it. Retained SQLx ledger/checksum, independent review,
+public-profile identity, private/legacy book previews, full discussions,
+group/admin mail and remaining source parity are still open. No
+main/production/VPS/retained DB change is authorized.

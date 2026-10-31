@@ -320,6 +320,24 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing actor-bound scoped repository call")
 
+    def test_notification_preferences_save_is_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            ".set_preferences(actor, &enabled_kinds)",
+            ".set_preferences(1, &enabled_kinds)",
+            start="pub(super) async fn save_preferences(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_preferences_save_requires_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "if let Err(status) = csrf(",
+            "if let Err(status) = unchecked_csrf(",
+            start="pub(super) async fn save_preferences(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_notification_read_requires_origin_and_csrf(self):
         self.mutate(
             "crates/web/src/auth/notifications.rs",

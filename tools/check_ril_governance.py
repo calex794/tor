@@ -203,7 +203,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         if entry["source"] == "crates/web/src/auth/notifications.rs":
             proof = {
                 "page": {"list_section"}, "mark_one": {"mark_read"},
-                "mark_all": {"mark_all_read"},
+                "mark_all": {"mark_all_read"}, "save_preferences": {"set_preferences"},
             }.get(entry["handler"], proof)
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
