@@ -20,6 +20,10 @@ ALTER TABLE reader_wallet_entries
         OR (kind='chapter_refund' AND delta_minor > 0 AND purchase_id IS NOT NULL)
     );
 
+-- A buyer may receive at most one internal refund credit for one purchase.
+CREATE UNIQUE INDEX d06_unique_buyer_wallet_refund_per_purchase
+    ON reader_wallet_entries(purchase_id) WHERE kind='chapter_refund';
+
 -- Cross-check refund request identity, not just its ID.
 ALTER TABLE finance_direct_refund_requests
     ADD CONSTRAINT d06_refund_request_identity UNIQUE(id,purchase_id,user_id);
@@ -170,3 +174,27 @@ CREATE CONSTRAINT TRIGGER d06_atomic_refund_complete
     AFTER INSERT ON finance_direct_refund_postings
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION d06_verify_atomic_refund();
+
+-- The reverse invariant also holds: a standalone wallet refund credit cannot
+-- commit without its corresponding complete immutable refund posting.
+CREATE FUNCTION d06_verify_refund_credit_has_posting()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM finance_direct_refund_postings r
+        WHERE r.purchase_id=NEW.purchase_id
+          AND r.buyer_user_id=NEW.user_id
+          AND r.amount_minor=NEW.delta_minor
+          AND r.reversal_reference=NEW.reference
+    ) THEN
+        RAISE EXCEPTION 'orphan internal refund wallet credit'
+          USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER d06_refund_wallet_credit_complete
+    AFTER INSERT ON reader_wallet_entries
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW WHEN (NEW.kind='chapter_refund')
+    EXECUTE FUNCTION d06_verify_refund_credit_has_posting();
