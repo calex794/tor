@@ -197,17 +197,30 @@ impl CheckoutRepository for PgCheckout {
         .await
         .map_err(unavailable)?;
 
-        let owned = sqlx::query_scalar::<_, i64>(
-            "SELECT purchase_id FROM library_purchased_chapters
-             WHERE user_id=$1 AND chapter_id=$2",
+        let owned = sqlx::query(
+            "SELECT l.purchase_id,
+                    EXISTS (
+                      SELECT 1 FROM finance_direct_refund_postings refund
+                      WHERE refund.purchase_id=l.purchase_id
+                    ) AS settled_refund
+             FROM library_purchased_chapters l
+             WHERE l.user_id=$1 AND l.chapter_id=$2",
         )
         .bind(actor)
         .bind(chapter)
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
-        if owned.is_some() {
-            return Err(CheckoutError::AlreadyOwned);
+        if let Some(row) = owned {
+            let refunded: bool = row.try_get("settled_refund").map_err(unavailable)?;
+            if !refunded {
+                return Err(CheckoutError::AlreadyOwned);
+            }
+            // A refunded purchase may be reacquired only with a new exact
+            // D-08 creator/platform posting. Never a wallet-only repeat sale.
+            if !self.creator_posting_enabled {
+                return Err(CheckoutError::Unavailable);
+            }
         }
         let balance = balance.unwrap_or(0);
         if balance < price {
