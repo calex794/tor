@@ -31,6 +31,7 @@ pub(super) struct NotificationQuery {
 #[serde(deny_unknown_fields)]
 pub(super) struct ReadForm {
     csrf_token: String,
+    next: Option<String>,
 }
 
 fn csrf(state: &AuthState, headers: &HeaderMap, token: &str) -> Result<(), StatusCode> {
@@ -38,6 +39,35 @@ fn csrf(state: &AuthState, headers: &HeaderMap, token: &str) -> Result<(), Statu
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(())
+}
+
+/// Redirect only to a local page. The form's `next` is not an authority:
+/// it is advisory, never a user identity or an ACL bypass.
+fn safe_next_url(raw: Option<&str>) -> &str {
+    let Some(raw) = raw else {
+        return "/notifications";
+    };
+    let next = raw.trim();
+    if next.is_empty()
+        || next.len() > 1024
+        || !next.starts_with('/')
+        || next.starts_with("//")
+        || next.contains('\\')
+        || !next.is_ascii()
+        || next.bytes().any(|byte| byte.is_ascii_control() || byte == b' ')
+    {
+        return "/notifications";
+    }
+    let path = next.split(['?', '#']).next().unwrap_or("");
+    if path == "/api"
+        || path.starts_with("/api/")
+        || path
+            .split('/')
+            .any(|segment| segment == "." || segment == "..")
+    {
+        return "/notifications";
+    }
+    next
 }
 
 pub(super) async fn page(
@@ -107,21 +137,23 @@ pub(super) async fn page(
         };
         write!(
             cards,
-            "<article class=\"me-now-card\" data-notification-id=\"{}\" data-notification-kind=\"{}\"><a href=\"{}\"><strong>{}</strong></a><p>{}</p><time>{}</time><p>{status}</p>",
+            "<article class=\"me-now-card\" data-notification-id=\"{}\" data-notification-kind=\"{}\"><strong>{}</strong><p>{}</p><time>{}</time><p>{status}</p>",
             row.id,
             pages::escape_html(&row.kind),
-            pages::escape_html(&row.url),
             pages::escape_html(&row.title),
             pages::escape_html(&row.body),
             pages::escape_html(&row.created_at),
         ).expect("notification markup");
-        if !row.is_read {
-            write!(
-                cards,
-                "<form method=\"post\" action=\"/notifications/{}/read\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить прочитанным</button></form>",
-                row.id, csrf_token,
-            ).expect("read form");
-        }
+        // The source 'Open' action acknowledges in POST before navigating.
+        // Render it for read and unread rows; acknowledgement is idempotent.
+        write!(
+            cards,
+            "<form method=\"post\" action=\"/notifications/{}/read\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"next\" value=\"{}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Открыть</button></form>",
+            row.id,
+            csrf_token,
+            pages::escape_html(&row.url),
+        )
+        .expect("notification open form");
         cards.push_str("</article>");
     }
     if rows.is_empty() {
@@ -187,11 +219,12 @@ pub(super) async fn mark_one(
     if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
         return deny(status);
     }
+    let next = safe_next_url(form.next.as_deref());
     match PgNotifications::new(state.accounts.pool().clone())
         .mark_read(actor, id)
         .await
     {
-        Ok(true) => private_response(Redirect::to("/notifications"), &[]),
+        Ok(true) => private_response(Redirect::to(next), &[]),
         Ok(false) => deny(StatusCode::NOT_FOUND),
         Err(e) => deny(super::mail::status(e)),
     }
@@ -254,5 +287,41 @@ pub(super) async fn save_preferences(
     {
         Ok(()) => private_response(Redirect::to("/notifications?notice=preferences_saved"), &[]),
         Err(e) => deny(super::mail::status(e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_next_url;
+
+    #[test]
+    fn e08_source_notification_next_is_local_and_bounded() {
+        for input in [
+            None,
+            Some(""),
+            Some("https://attacker.invalid/steal"),
+            Some("//attacker.invalid"),
+            Some("/\\attacker.invalid"),
+            Some("/api"),
+            Some("/api/v1/me"),
+            Some("/api?filter=1"),
+            Some("/../mail/1"),
+            Some("/mail/./1"),
+            Some("/mail/1\\other"),
+            Some("/mail/1\r\nLocation: https://attacker.invalid"),
+            Some("/mail/1 raw"),
+        ] {
+            assert_eq!(safe_next_url(input), "/notifications", "{input:?}");
+        }
+        for valid in [
+            "/mail/123",
+            "/users/Mail%20reader%201",
+            "/books/123#book-comments",
+            "/notifications?tab=system",
+        ] {
+            assert_eq!(safe_next_url(Some(valid)), valid);
+        }
+        let too_long = format!("/{}", "x".repeat(1025));
+        assert_eq!(safe_next_url(Some(&too_long)), "/notifications");
     }
 }

@@ -20,6 +20,8 @@ use tower::ServiceExt;
 
 #[path = "support/e08_notification_preferences.rs"]
 mod notification_preferences;
+#[path = "support/e08_notification_open.rs"]
+mod notification_open;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(
@@ -442,6 +444,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             .unwrap()
             .is_read
     );
+    notification_open::verify(&app, &cookies[1], &csrf[1], source_id, &path).await;
     assert_eq!(
         call(
             &app,

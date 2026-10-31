@@ -205,3 +205,19 @@ ownership. Later identity migration must handle historical collisions and
 explicit stable handles; this is **not** full source-profile parity. Private
 book previews and group/admin mail also remain open. No privileges or user
 identifiers come from request text; no production or retained data changes.
+ 
+## 01.11.2026 — notification Open/read navigation (Draft, pending exact-HEAD CI)
+
+The pinned source `/notifications/{id}/read` POST marks the authenticated
+recipient's notification as read and then redirects to the form's validated
+same-origin `next` target. TOR previously acknowledged and always returned
+to `/notifications`, while title links navigated without marking read.
+
+This Draft slice renders an actor/CSRF-guarded `Открыть` POST for both read
+and unread rows, including the server-stored event URL as a hidden `next`
+value. The read handler preserves `mark_read(actor, id)` and rejects external,
+scheme-relative, backslash, control-character, API and dot-segment targets,
+falling back to `/notifications`; absent `next` remains backward compatible.
+No new endpoint or SQL migration is introduced. Unit and disposable HTTP
+regressions exercise safe and hostile redirects. **Do not accept the slice
+without exact-HEAD CI, retained migration review and independent review.**
