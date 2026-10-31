@@ -71,9 +71,13 @@ struct AppState {
 }
 async fn text_issue_script() -> Response {
     (
-        [(axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/javascript; charset=utf-8",
+        )],
         include_str!("../assets/newboo-text-issues.js"),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn health() -> &'static str {

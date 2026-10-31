@@ -13,51 +13,128 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
     assert!(url.ends_with("/tor_ci"), "never write to a live database");
     let pool = PgPool::connect(&url).await.unwrap();
     let store = PgTextIssues::new(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let reader: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'Reader','$argon2id$fixture') RETURNING id",
-    ).bind(format!("e12-reader-{nonce}@example.invalid"))
-        .fetch_one(&pool).await.unwrap();
+    )
+    .bind(format!("e12-reader-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let author: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
          VALUES($1,'Author','$argon2id$fixture') RETURNING id",
-    ).bind(format!("e12-author-{nonce}@example.invalid"))
-        .fetch_one(&pool).await.unwrap();
+    )
+    .bind(format!("e12-author-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let book: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
          VALUES($1,'ru','E12 Book','public',$2) RETURNING id",
-    ).bind(format!("e12:{nonce}")).bind(author).fetch_one(&pool).await.unwrap();
+    )
+    .bind(format!("e12:{nonce}"))
+    .bind(author)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let free: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
          VALUES($1,1,'free','public','free',0) RETURNING id",
-    ).bind(book).fetch_one(&pool).await.unwrap();
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let paid: i64 = sqlx::query_scalar(
         "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
          VALUES($1,2,'paid','public','paid',100) RETURNING id",
-    ).bind(book).fetch_one(&pool).await.unwrap();
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let version: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES($1,1,$2) RETURNING id",
-    ).bind(free).bind("Слово слово😀 слово").fetch_one(&pool).await.unwrap();
+    )
+    .bind(free)
+    .bind("Слово слово😀 слово")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let paid_version: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES($1,1,'PRIVATE-PAID-TEXT') RETURNING id",
     ).bind(paid).fetch_one(&pool).await.unwrap();
     sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2),($3,$4)")
         .bind(free).bind(version).bind(paid).bind(paid_version).execute(&pool).await.unwrap();
-    let result = store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version, block_index: 1, selection_start: 0, selection_end: 5, quote: "Слово", suggestion: "слово", issue_type: "typo" }).await.unwrap();
+    let result = store.create_free(NewTextIssue {
+            actor: reader,
+            chapter_id: free,
+            version_id: version,
+            block_index: 1,
+            selection_start: 0,
+            selection_end: 5,
+            quote: "Слово",
+            suggestion: "слово",
+            issue_type: "typo",
+        }).await.unwrap();
     let issue_id = match result { CreatedIssue::Added(id) => id, other => panic!("{other:?}") };
     assert_eq!(
-        store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version, block_index: 1, selection_start: 0, selection_end: 5, quote: "Слово", suggestion: "слово", issue_type: "typo" }).await.unwrap(),
+        store.create_free(NewTextIssue {
+            actor: reader,
+            chapter_id: free,
+            version_id: version,
+            block_index: 1,
+            selection_start: 0,
+            selection_end: 5,
+            quote: "Слово",
+            suggestion: "слово",
+            issue_type: "typo",
+        }).await.unwrap(),
         CreatedIssue::Replayed(issue_id)
     );
     // Wrong offset/quote, absent version and paid edition must fail closed.
-    assert_eq!(store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version, block_index: 1, selection_start: 6, selection_end: 11, quote: "Слово", suggestion: "fix", issue_type: "typo" }).await,
+    assert_eq!(store.create_free(NewTextIssue {
+            actor: reader,
+            chapter_id: free,
+            version_id: version,
+            block_index: 1,
+            selection_start: 6,
+            selection_end: 11,
+            quote: "Слово",
+            suggestion: "fix",
+            issue_type: "typo",
+        }).await,
         Err(IssueError::Invalid));
-    assert_eq!(store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version+100000, block_index: 1, selection_start: 0, selection_end: 5, quote: "Слово", suggestion: "fix", issue_type: "typo" }).await,
+    assert_eq!(store.create_free(NewTextIssue {
+            actor: reader,
+            chapter_id: free,
+            version_id: version+100000,
+            block_index: 1,
+            selection_start: 0,
+            selection_end: 5,
+            quote: "Слово",
+            suggestion: "fix",
+            issue_type: "typo",
+        }).await,
         Err(IssueError::NotVisible));
-    assert_eq!(store.create_free(NewTextIssue { actor: reader, chapter_id: paid, version_id: paid_version, block_index: 1, selection_start: 0, selection_end: 7, quote: "PRIVATE", suggestion: "fix", issue_type: "typo" }).await,
+    assert_eq!(store.create_free(NewTextIssue {
+            actor: reader,
+            chapter_id: paid,
+            version_id: paid_version,
+            block_index: 1,
+            selection_start: 0,
+            selection_end: 7,
+            quote: "PRIVATE",
+            suggestion: "fix",
+            issue_type: "typo",
+        }).await,
         Err(IssueError::NotVisible));
     assert!(store.author_page(reader,book,None,None).await.unwrap().is_none());
     let page = store.author_page(author,book,Some("new"),None).await.unwrap().unwrap();

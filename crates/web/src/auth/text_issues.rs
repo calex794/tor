@@ -52,7 +52,10 @@ pub(super) async fn submit(
     Form(form): Form<IssueForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !form.csrf_token.as_deref().is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
+        || !form
+            .csrf_token
+            .as_deref()
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -71,17 +74,20 @@ pub(super) async fn submit(
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
     let repo = PgTextIssues::new(state.accounts.pool().clone());
-    match repo.create_free(tor_discussions::repositories::text_issues::NewTextIssue {
-        actor,
-        chapter_id,
-        version_id: form.version_id,
-        block_index: form.block_index,
-        selection_start: form.selection_start,
-        selection_end: form.selection_end,
-        quote: &form.quote,
-        suggestion: &form.suggested_text,
-        issue_type: &form.issue_type,
-    }).await {
+    match repo
+        .create_free(tor_discussions::repositories::text_issues::NewTextIssue {
+            actor,
+            chapter_id,
+            version_id: form.version_id,
+            block_index: form.block_index,
+            selection_start: form.selection_start,
+            selection_end: form.selection_end,
+            quote: &form.quote,
+            suggestion: &form.suggested_text,
+            issue_type: &form.issue_type,
+        })
+        .await
+    {
         Ok(CreatedIssue::Added(_)) => private_response(
             Redirect::to(&format!("/read/{chapter_id}?issue=sent")), &[]
         ),
@@ -104,9 +110,10 @@ pub(super) async fn author_page(
         Err(code) => return deny(code),
     };
     let repo = PgTextIssues::new(state.accounts.pool().clone());
-    let page = match repo.author_page(
-        actor, book_id, query.status.as_deref(), query.after
-    ).await {
+    let page = match repo
+        .author_page(actor, book_id, query.status.as_deref(), query.after)
+        .await
+    {
         Ok(Some(page)) => page,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(err) => return deny(status(err)),
@@ -147,9 +154,13 @@ pub(super) async fn author_page(
         ));
     }
     let navigation = if let Some(after) = page.next {
-        let filter = query.status.as_deref().map_or(String::new(), |v| format!("&amp;status={}", pages::escape_html(v)));
+        let filter = query.status.as_deref().map_or(String::new(), |v| {
+            format!("&amp;status={}", pages::escape_html(v))
+        });
         format!("<p><a href=\"/me/books/{book_id}/issues?after={after}{filter}\">Следующая страница</a></p>")
-    } else { String::new() };
+    } else {
+        String::new()
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container">
         <h1>Ошибки текста — {title}</h1>
@@ -160,9 +171,12 @@ pub(super) async fn author_page(
         <a href="/me/books/{book_id}/issues?status=fixed">Исправленные</a> ·
         <a href="/me/books/{book_id}/issues?status=rejected">Отклонённые</a></nav>
         {cards}{navigation}</div></section>"#,
-        title=pages::escape_html(&page.book_title)
+        title = pages::escape_html(&page.book_title)
     );
-    private_response(pages::layout("Ошибки текста", "Очередь исправлений автора.", &body), &cookies)
+    private_response(
+        pages::layout("Ошибки текста", "Очередь исправлений автора.", &body),
+        &cookies,
+    )
 }
 
 pub(super) async fn change_status(
@@ -172,7 +186,10 @@ pub(super) async fn change_status(
     Form(form): Form<StatusForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !form.csrf_token.as_deref().is_some_and(|csrf| state.cookies.valid_csrf(&headers,csrf))
+        || !form
+            .csrf_token
+            .as_deref()
+            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -182,12 +199,21 @@ pub(super) async fn change_status(
         Err(code) => return deny(code),
     };
     let repo = PgTextIssues::new(state.accounts.pool().clone());
-    match repo.update_status(
-        actor, book_id, issue_id, &form.status,
-        form.resolution_note.as_deref().filter(|value| !value.is_empty()),
-    ).await {
-        Ok(StatusMutation::Changed | StatusMutation::Replayed) =>
-            private_response(Redirect::to(&format!("/me/books/{book_id}/issues")), &[]),
+    match repo
+        .update_status(
+            actor,
+            book_id,
+            issue_id,
+            &form.status,
+            form.resolution_note
+                .as_deref()
+                .filter(|value| !value.is_empty()),
+        )
+        .await
+    {
+        Ok(StatusMutation::Changed | StatusMutation::Replayed) => {
+            private_response(Redirect::to(&format!("/me/books/{book_id}/issues")), &[])
+        }
         Ok(StatusMutation::NotFound) => deny(StatusCode::NOT_FOUND),
         Err(err) => deny(status(err)),
     }

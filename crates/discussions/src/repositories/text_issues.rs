@@ -100,7 +100,11 @@ impl PgTextIssues {
         {
             return Err(IssueError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| IssueError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| IssueError::Unavailable)?;
         let selected = sqlx::query_as::<_, (i64, String)>(
             "SELECT c.book_id,v.body_markdown
              FROM chapters c JOIN books b ON b.id=c.book_id
@@ -121,7 +125,9 @@ impl PgTextIssues {
         .ok_or(IssueError::NotVisible)?;
         let (book_id, source) = selected;
         let blocks = reader_blocks(&source);
-        let Some(block) = usize::try_from(block_index - 1).ok().and_then(|i| blocks.get(i))
+        let Some(block) = usize::try_from(block_index - 1)
+            .ok()
+            .and_then(|i| blocks.get(i))
         else {
             return Err(IssueError::Invalid);
         };
@@ -194,7 +200,9 @@ impl PgTextIssues {
         status: Option<&str>,
         after: Option<i64>,
     ) -> Result<Option<AuthorIssuePage>, IssueError> {
-        if actor <= 0 || book_id <= 0 || after.is_some_and(|id| id <= 0)
+        if actor <= 0
+            || book_id <= 0
+            || after.is_some_and(|id| id <= 0)
             || status.is_some_and(|s| !STATUSES.contains(&s))
         {
             return Err(IssueError::Invalid);
@@ -237,14 +245,26 @@ impl PgTextIssues {
         for row in rows.into_iter().take(25) {
             issues.push(AuthorIssue {
                 id: row.try_get("id").map_err(|_| IssueError::Unavailable)?,
-                chapter_id: row.try_get("chapter_id").map_err(|_| IssueError::Unavailable)?,
-                version_id: row.try_get("version_id").map_err(|_| IssueError::Unavailable)?,
-                block_index: row.try_get("block_index").map_err(|_| IssueError::Unavailable)?,
-                issue_type: row.try_get("issue_type").map_err(|_| IssueError::Unavailable)?,
+                chapter_id: row
+                    .try_get("chapter_id")
+                    .map_err(|_| IssueError::Unavailable)?,
+                version_id: row
+                    .try_get("version_id")
+                    .map_err(|_| IssueError::Unavailable)?,
+                block_index: row
+                    .try_get("block_index")
+                    .map_err(|_| IssueError::Unavailable)?,
+                issue_type: row
+                    .try_get("issue_type")
+                    .map_err(|_| IssueError::Unavailable)?,
                 quote: row.try_get("quote").map_err(|_| IssueError::Unavailable)?,
-                suggested_text: row.try_get("suggested_text").map_err(|_| IssueError::Unavailable)?,
+                suggested_text: row
+                    .try_get("suggested_text")
+                    .map_err(|_| IssueError::Unavailable)?,
                 status: row.try_get("status").map_err(|_| IssueError::Unavailable)?,
-                resolution_note: row.try_get("resolution_note").map_err(|_| IssueError::Unavailable)?,
+                resolution_note: row
+                    .try_get("resolution_note")
+                    .map_err(|_| IssueError::Unavailable)?,
             });
         }
         let next = if has_next {
@@ -269,13 +289,19 @@ impl PgTextIssues {
         status: &str,
         note: Option<&str>,
     ) -> Result<StatusMutation, IssueError> {
-        if actor <= 0 || book_id <= 0 || issue_id <= 0
+        if actor <= 0
+            || book_id <= 0
+            || issue_id <= 0
             || !STATUSES.contains(&status)
             || note.is_some_and(|value| !bounded(value, 1, 1000))
         {
             return Err(IssueError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| IssueError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| IssueError::Unavailable)?;
         let current = sqlx::query_scalar::<_, String>(
             "SELECT i.status FROM text_issues i
              JOIN book_members m ON m.book_id=i.book_id

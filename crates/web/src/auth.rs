@@ -57,7 +57,6 @@ mod book_follow_actions;
 mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
-mod text_issues;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
@@ -85,6 +84,7 @@ mod security_retention;
 mod session_security;
 mod settings_routes;
 mod sync_actions;
+mod text_issues;
 mod types;
 use types::*;
 pub(crate) fn router(
@@ -257,7 +257,10 @@ fn router_inner(
         )
         .route("/read/{id}/text-issues", post(text_issues::submit))
         .route("/me/books/{id}/issues", get(text_issues::author_page))
-        .route("/me/books/{id}/issues/{issue_id}/status", post(text_issues::change_status))
+        .route(
+            "/me/books/{id}/issues/{issue_id}/status",
+            post(text_issues::change_status),
+        )
         .route(
             "/reader/{id}/thanks",
             get(chapter_thanks::page).post(chapter_thanks::submit),
