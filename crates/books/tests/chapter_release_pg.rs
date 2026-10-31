@@ -214,6 +214,18 @@ async fn private_chapter_is_never_public_until_exact_version_release() {
             .await
             .unwrap();
     assert_eq!(event_count, 1, "only one durable first-release fact");
+    let published_outbox: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(saved.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        published_outbox, 1,
+        "two releases enqueue one durable event"
+    );
     let draft_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(saved.chapter_id)
