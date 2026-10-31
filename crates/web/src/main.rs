@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // only the author's already-reviewed canonical UTF-8 text.
     #[cfg(feature = "s3-chapter-import")]
     let chapter_import_store: Option<
-        Arc<dyn tor_books::services::chapter_import_jobs::ChapterImportObjectStore>,
+        Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     > = match env::var("TOR_CHAPTER_IMPORT_S3_BUCKET") {
         Ok(bucket) => {
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     #[cfg(not(feature = "s3-chapter-import"))]
     let chapter_import_store: Option<
-        Arc<dyn tor_books::services::chapter_import_jobs::ChapterImportObjectStore>,
+        Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     > = {
         if env::var_os("TOR_CHAPTER_IMPORT_S3_BUCKET").is_some() {
             return Err(
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )> = None;
     let mut pending_chapter_import_worker: Option<(
         PgCatalog,
-        Arc<dyn tor_books::services::chapter_import_jobs::ChapterImportObjectStore>,
+        Arc<dyn tor_imports::services::ChapterImportObjectStore>,
     )> = None;
     let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
@@ -200,8 +200,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
                 if chapter_import_worker_enabled {
-                    tor_books::repositories::postgres::PgAuthoring::new(pool.clone())
-                        .probe_chapter_import_jobs()
+                    tor_imports::repositories::postgres::PgImportJobs::new(pool.clone())
+                        .probe()
                         .await
                         .map_err(|_| "S023 chapter import migration is not applied")?;
                     let storage = chapter_import_store
