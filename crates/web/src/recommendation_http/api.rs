@@ -122,7 +122,12 @@ pub(super) fn error(value: FeedbackError) -> Response {
     )
 }
 
-fn idempotency_error(code: &'static str, message: &'static str) -> Response {
+fn idempotency_error(code: &'static str) -> Response {
+    let message = if code == "IDEMPOTENCY_KEY_REQUIRED" {
+        "Не указан ключ повтора"
+    } else {
+        "Некорректный ключ повтора"
+    };
     private_response(
         (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -140,13 +145,8 @@ fn idempotency_error(code: &'static str, message: &'static str) -> Response {
 
 /// 32 random bytes encoded as canonical 43-byte base64url without padding.
 /// Last sextet must have its two unused bits set to zero.
-fn idempotency_key(headers: &HeaderMap) -> Result<&str, Response> {
-    let Some(raw) = headers.get("idempotency-key") else {
-        return Err(idempotency_error(
-            "IDEMPOTENCY_KEY_REQUIRED",
-            "Не указан ключ повтора",
-        ));
-    };
+fn idempotency_key(headers: &HeaderMap) -> Result<&str, &'static str> {
+    let raw = headers.get("idempotency-key").ok_or("IDEMPOTENCY_KEY_REQUIRED")?;
     match raw.to_str() {
         Ok(token)
             if valid_token(token)
@@ -157,10 +157,7 @@ fn idempotency_key(headers: &HeaderMap) -> Result<&str, Response> {
         {
             Ok(token)
         }
-        _ => Err(idempotency_error(
-            "INVALID_IDEMPOTENCY_KEY",
-            "Некорректный ключ повтора",
-        )),
+        _ => Err("INVALID_IDEMPOTENCY_KEY"),
     }
 }
 
@@ -297,7 +294,7 @@ pub(super) async fn feedback(
     }
     let key = match idempotency_key(&headers) {
         Ok(key) => key,
-        Err(response) => return response,
+        Err(code) => return idempotency_error(code),
     };
     let (actor, _) = match actor(&state, &headers).await {
         Ok(value) => value,
