@@ -150,7 +150,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
 
 def _contains_scoped_call(body: str, names: set[str]) -> bool:
     for name in names:
-        if re.search(rf"\b{name}\s*\(\s*(?:actor|user_id)\b", body):
+        if re.search(rf"\b{name}\s*\(\s*(?:actor_id|actor|user_id)\b", body):
             return True
     return False
 
