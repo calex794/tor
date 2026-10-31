@@ -1,18 +1,26 @@
 //! S023 private S3 staging provider tests against disposable loopback MinIO.
 use super::S3ChapterImportStore;
+use crate::services::{ChapterImportObjectStore, ChapterImportStoreError};
 use aws_sdk_s3::{
     config::{BehaviorVersion, Credentials, Region},
     Client,
 };
 use sha2::{Digest, Sha256};
-use std::{process::Command, time::{SystemTime, UNIX_EPOCH}};
-use crate::services::{
-    ChapterImportObjectStore, ChapterImportStoreError,
+use std::{
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 fn anonymous_status(url: &str) -> String {
     let output = Command::new("curl")
-        .args(["--silent", "--output", "/dev/null", "--write-out", "%{http_code}", url])
+        .args([
+            "--silent",
+            "--output",
+            "/dev/null",
+            "--write-out",
+            "%{http_code}",
+            url,
+        ])
         .output()
         .expect("curl installed in CI");
     assert!(output.status.success());
@@ -32,7 +40,13 @@ async fn s023_private_source_put_get_conflict_and_delete() {
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new(access, secret, None, None, "loopback-test"))
+        .credentials_provider(Credentials::new(
+            access,
+            secret,
+            None,
+            None,
+            "loopback-test",
+        ))
         .endpoint_url(&endpoint)
         .force_path_style(true)
         .build();
@@ -93,15 +107,12 @@ fn s3_import_store_rejects_unsafe_bucket_names() {
     let config = aws_sdk_s3::Config::builder()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new(
-            "unused",
-            "unused",
-            None,
-            None,
-            "unit",
-        ))
+        .credentials_provider(Credentials::new("unused", "unused", None, None, "unit"))
         .build();
     for bucket in ["", "../private", "TOR_PRIVATE", "with space", "bad..bucket"] {
-        assert!(S3ChapterImportStore::new(Client::from_conf(config.clone()), bucket.to_owned()).is_err());
+        assert!(
+            S3ChapterImportStore::new(Client::from_conf(config.clone()), bucket.to_owned())
+                .is_err()
+        );
     }
 }
