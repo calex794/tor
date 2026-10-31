@@ -3,7 +3,7 @@
 use sqlx::{PgPool, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tor_discussions::repositories::text_issues::{
-    CreatedIssue, IssueError, PgTextIssues, StatusMutation,
+    CreatedIssue, IssueError, NewTextIssue, PgTextIssues, StatusMutation,
 };
 
 #[tokio::test]
@@ -46,18 +46,18 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
     ).bind(paid).fetch_one(&pool).await.unwrap();
     sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2),($3,$4)")
         .bind(free).bind(version).bind(paid).bind(paid_version).execute(&pool).await.unwrap();
-    let result = store.create_free(reader,free,version,1,0,5,"Слово","слово","typo").await.unwrap();
+    let result = store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version, block_index: 1, selection_start: 0, selection_end: 5, quote: "Слово", suggestion: "слово", issue_type: "typo" }).await.unwrap();
     let issue_id = match result { CreatedIssue::Added(id) => id, other => panic!("{other:?}") };
     assert_eq!(
-        store.create_free(reader,free,version,1,0,5,"Слово","слово","typo").await.unwrap(),
+        store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version, block_index: 1, selection_start: 0, selection_end: 5, quote: "Слово", suggestion: "слово", issue_type: "typo" }).await.unwrap(),
         CreatedIssue::Replayed(issue_id)
     );
     // Wrong offset/quote, absent version and paid edition must fail closed.
-    assert_eq!(store.create_free(reader,free,version,1,6,11,"Слово","fix","typo").await,
+    assert_eq!(store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version, block_index: 1, selection_start: 6, selection_end: 11, quote: "Слово", suggestion: "fix", issue_type: "typo" }).await,
         Err(IssueError::Invalid));
-    assert_eq!(store.create_free(reader,free,version+100000,1,0,5,"Слово","fix","typo").await,
+    assert_eq!(store.create_free(NewTextIssue { actor: reader, chapter_id: free, version_id: version+100000, block_index: 1, selection_start: 0, selection_end: 5, quote: "Слово", suggestion: "fix", issue_type: "typo" }).await,
         Err(IssueError::NotVisible));
-    assert_eq!(store.create_free(reader,paid,paid_version,1,0,7,"PRIVATE","fix","typo").await,
+    assert_eq!(store.create_free(NewTextIssue { actor: reader, chapter_id: paid, version_id: paid_version, block_index: 1, selection_start: 0, selection_end: 7, quote: "PRIVATE", suggestion: "fix", issue_type: "typo" }).await,
         Err(IssueError::NotVisible));
     assert!(store.author_page(reader,book,None,None).await.unwrap().is_none());
     let page = store.author_page(author,book,Some("new"),None).await.unwrap().unwrap();
