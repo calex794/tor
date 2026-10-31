@@ -159,10 +159,8 @@ function makeDocxXml(xml) {
         await page.getByText(/После преобразования в UTF-8 текст больше 700 КБ/).waitFor();
         assert(await page.getByRole('button', { name: 'Проверить главы' }).isDisabled(),
           name + ': expanded UTF-8 limit was bypassed');
-        // DOCX is validated on the authorized preview, then the plain text
-        // can be corrected by the owner before atomic PostgreSQL confirmation.
-        await importLink.click();
-        await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        // We are already on the importer after the oversized Windows-1251 test.
+        // DOCX is validated on preview, then editable before PG confirmation.
         const docx = makeDocxXml(
           '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
           + '<w:body><w:p><w:r><w:t>Глава 4: Ворд</w:t></w:r></w:p>'

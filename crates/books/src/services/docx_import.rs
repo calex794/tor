@@ -24,7 +24,10 @@ fn safe_path(name: &str) -> bool {
         && !name.contains('\\')
         && !name.contains('\0')
         && !(name.len() >= 2 && name.as_bytes()[1] == b':')
-        && name.trim_end_matches('/').split('/').all(|part| !matches!(part, "" | "." | ".."))
+        && name
+            .trim_end_matches('/')
+            .split('/')
+            .all(|part| !matches!(part, "" | "." | ".."))
 }
 
 pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {
@@ -34,18 +37,18 @@ pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {
     if !source.starts_with(b"PK\x03\x04") {
         return Err(ImportError::InvalidArchive);
     }
-    let mut archive = zip::ZipArchive::new(Cursor::new(source))
-        .map_err(|_| ImportError::InvalidArchive)?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(source)).map_err(|_| ImportError::InvalidArchive)?;
     if archive.len() == 0 || archive.len() > MAX_ENTRIES {
         return Err(ImportError::InvalidArchive);
     }
     let (mut total, mut content_types, mut document) = (0_u64, false, None);
     for index in 0..archive.len() {
-        let file = archive.by_index(index).map_err(|_| ImportError::InvalidArchive)?;
+        let file = archive
+            .by_index(index)
+            .map_err(|_| ImportError::InvalidArchive)?;
         let name = file.name();
-        if !safe_path(name)
-            || file.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000)
-        {
+        if !safe_path(name) || file.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
             return Err(ImportError::InvalidArchive);
         }
         let packed = file.compressed_size();
@@ -101,7 +104,10 @@ pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {
         .ok_or(ImportError::InvalidArchive)?;
     let mut text = String::new();
     let mut paragraphs = 0;
-    for para in body.descendants().filter(|n| n.has_tag_name((WORD_NS, "p"))) {
+    for para in body
+        .descendants()
+        .filter(|n| n.has_tag_name((WORD_NS, "p")))
+    {
         paragraphs += 1;
         for node in para.descendants().filter(|n| n.is_element()) {
             if node.has_tag_name((WORD_NS, "t")) {
@@ -157,7 +163,11 @@ mod tests {
 
     #[test]
     fn docx_text_uses_canonical_parser() {
-        let chapters = parse_text("extracted.txt", &extract_docx_text(&docx(XML, None)).unwrap()).unwrap();
+        let chapters = parse_text(
+            "extracted.txt",
+            &extract_docx_text(&docx(XML, None)).unwrap(),
+        )
+        .unwrap();
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].body, "Один & два");
         assert_eq!(chapters[1].title, "Глава 2: Финал");
@@ -165,9 +175,18 @@ mod tests {
 
     #[test]
     fn invalid_archives_and_unsafe_paths_fail_closed() {
-        assert_eq!(extract_docx_text(b"not zip"), Err(ImportError::InvalidArchive));
-        assert_eq!(extract_docx_text(&docx(XML, Some("../evil.txt"))), Err(ImportError::InvalidArchive));
-        assert_eq!(extract_docx_text(&vec![0; MAX_DOCX_BYTES + 1]), Err(ImportError::TooLarge));
+        assert_eq!(
+            extract_docx_text(b"not zip"),
+            Err(ImportError::InvalidArchive)
+        );
+        assert_eq!(
+            extract_docx_text(&docx(XML, Some("../evil.txt"))),
+            Err(ImportError::InvalidArchive)
+        );
+        assert_eq!(
+            extract_docx_text(&vec![0; MAX_DOCX_BYTES + 1]),
+            Err(ImportError::TooLarge)
+        );
     }
 
     #[test]
@@ -175,12 +194,18 @@ mod tests {
         let xml = r#"<!DOCTYPE w:document [<!ENTITY x "evil">]>
           <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
           <w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>"#;
-        assert_eq!(extract_docx_text(&docx(xml, None)), Err(ImportError::InvalidArchive));
+        assert_eq!(
+            extract_docx_text(&docx(xml, None)),
+            Err(ImportError::InvalidArchive)
+        );
     }
 
     #[test]
     fn expanded_utf8_text_is_bounded() {
         let xml = format!("<w:document xmlns:w=\"{WORD_NS}\"><w:body><w:p><w:t>{}</w:t></w:p></w:body></w:document>", "Ж".repeat(350_001));
-        assert_eq!(extract_docx_text(&docx(&xml, None)), Err(ImportError::TooLarge));
+        assert_eq!(
+            extract_docx_text(&docx(&xml, None)),
+            Err(ImportError::TooLarge)
+        );
     }
 }
