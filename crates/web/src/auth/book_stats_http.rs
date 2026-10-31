@@ -73,7 +73,7 @@ pub(super) async fn page(
          <p>Открытия глав: {} · Анонимные: {} · Авторизованные: {} · Уникальные \
          зарегистрированные читатели: {} · Повторные открытия: {}</p>\
          <p>Покупки: {} · Оборот прямых покупок: {} ₽ · Завершено глав: {} · Благодарностей: {}</p>\
-         <p>Закладок: {} · Оценка произведения: {} (голосов: {}) · Оценка перевода: {} (голосов: {})</p>\
+         <p>Закладок: {} · Отметок «Нравится»: {} · Оценка произведения: {} (голосов: {}) · Оценка перевода: {} (голосов: {})</p>\
          <p>Открытие страницы не доказывает прочтение. Авторские выплаты и комиссия здесь не рассчитаны.</p>\
          <p>Скачивание CSV соответствует выбранной странице глав.</p>\
          <h2>Главы</h2><table><thead><tr><th>Глава</th><th>Открытия</th>\
@@ -82,7 +82,7 @@ pub(super) async fn page(
         pages::escape_html(&data.title), data.opens, data.anonymous_opens,
         data.authenticated_opens, data.unique_registered, data.repeat_authenticated,
         data.purchases, money(data.purchase_minor), data.completed, data.thanks,
-        data.bookmarks,
+        data.bookmarks, data.likes,
         data.work_rating
             .average()
             .unwrap_or_else(|| "нет оценок".to_owned()),
@@ -206,11 +206,11 @@ pub(super) async fn export(
         Err(response) => return *response,
     };
     // Book-level bookmark and ratings columns are blank for chapter/daily rows.
-    let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed,thanks,bookmarks,work_rating_avg,work_rating_votes,translation_rating_avg,translation_rating_votes\n");
+    let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed,thanks,bookmarks,work_rating_avg,work_rating_votes,translation_rating_avg,translation_rating_votes,likes\n");
     use std::fmt::Write;
     let _ = writeln!(
         csv,
-        "book,0,{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "book,0,{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         csv_cell(&data.title),
         data.opens,
         data.anonymous_opens,
@@ -224,12 +224,13 @@ pub(super) async fn export(
         data.work_rating.average().unwrap_or_default(),
         data.work_rating.votes,
         data.translation_rating.average().unwrap_or_default(),
-        data.translation_rating.votes
+        data.translation_rating.votes,
+        data.likes
     );
     for row in &data.chapters {
         let _ = writeln!(
             csv,
-            "chapter,{},{},{},{},{},{},{},{},{},{},,,,,",
+            "chapter,{},{},{},{},{},{},{},{},{},{},,,,,,",
             row.number,
             csv_cell(&row.title),
             row.opens,
@@ -245,7 +246,7 @@ pub(super) async fn export(
     for day in &data.daily {
         let _ = writeln!(
             csv,
-            "daily,0,{},{},0,{},0,{},{},0,{},,,,,",
+            "daily,0,{},{},0,{},0,{},{},0,{},,,,,,",
             csv_cell(&day.day),
             day.opens,
             day.unique_first,
