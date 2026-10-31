@@ -763,7 +763,8 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             .await
             .contains("data-mail-compose")
     );
-    // B ACL must produce a preview only for a published, non-held book.
+    // Public previews work for both participants. An owned draft is visible
+    // only to its owner, not the other participant of the same conversation.
     let public: i64 = pg(
         &url,
         &format!(
@@ -777,8 +778,9 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let hidden: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:e08:hidden:{nonce}','ru','HIDDEN-NEVER-DISCLOSE-{nonce}','draft') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:e08:hidden:{nonce}','ru','HIDDEN-NEVER-DISCLOSE-{nonce}','draft',{}) RETURNING id",
+            users[0]
         ),
     )
     .await
@@ -787,8 +789,9 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let held: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold)
-             VALUES('ci:e08:held:{nonce}','ru','HELD-NEVER-DISCLOSE-{nonce}','public',true) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold,owner_user_id)
+             VALUES('ci:e08:held:{nonce}','ru','HELD-NEVER-DISCLOSE-{nonce}','public',true,{}) RETURNING id",
+            users[0]
         ),
     )
     .await
@@ -813,17 +816,30 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert_eq!(response.status(), StatusCode::OK);
     let json: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
     let message = &json["message"];
-    assert_eq!(message["book_previews"].as_array().unwrap().len(), 1);
+    assert_eq!(message["book_previews"].as_array().unwrap().len(), 2);
     assert_eq!(message["book_previews"][0]["title"], "Visible <safe>");
     assert_eq!(
         message["book_previews"][0]["url"],
         format!("/books/{public}")
     );
     assert_eq!(message["book_previews"][0]["cover_url"], "");
+    assert_eq!(
+        message["book_previews"][1]["title"],
+        format!("HIDDEN-NEVER-DISCLOSE-{nonce}")
+    );
+    assert_eq!(
+        message["book_previews"][1]["url"],
+        format!("/me/books/{hidden}")
+    );
+    assert_eq!(message["book_previews"][1]["cover_url"], "");
     let remaining = message["body_without_book_links"].as_str().unwrap();
     assert!(!remaining.contains(&format!("/books/{public}")));
-    assert!(remaining.contains(&format!("/books/{hidden}")));
+    assert!(!remaining.contains(&format!("/books/{hidden}")));
     assert!(remaining.contains(&format!("/books/{held}")));
+    let owner_html = text(call(&reopened, "GET", &path, &cookies[0], "", &[]).await).await;
+    assert!(owner_html.contains(&format!("href=\"/me/books/{hidden}\"")));
+    assert!(owner_html.contains(&format!("HIDDEN-NEVER-DISCLOSE-{nonce}")));
+    assert!(!owner_html.contains("HELD-NEVER-DISCLOSE"));
     let html = text(call(&reopened, "GET", &path, &cookies[1], "", &[]).await).await;
     assert!(html.contains("Visible &lt;safe&gt;"));
     assert!(html.contains(&format!("data-mail-book-preview=\"{public}\"")));
@@ -854,6 +870,11 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         poll["messages"][0]["book_previews"][0]["book_ref"],
         public.to_string()
     );
+    assert_eq!(
+        poll["messages"][0]["book_previews"].as_array().unwrap().len(),
+        1
+    );
+    assert!(!poll.to_string().contains("HIDDEN-NEVER-DISCLOSE"));
     assert_eq!(
         call(&reopened, "GET", &path, &cookies[2], "", &[])
             .await

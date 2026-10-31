@@ -1,5 +1,5 @@
-//! E-08 mail presentation. Only public books authorized by B become previews.
-//! Do not copy the source's unscoped include_hidden catalog fallback.
+//! E-08 mail presentation: public B catalog or exact owner-authorized private view.
+//! Never copy the source's unscoped include_hidden catalog fallback.
 use super::AuthState;
 use std::collections::{HashMap, HashSet};
 use tor_books::{
@@ -154,13 +154,15 @@ fn project(
     links: &[BookLink],
     titles: &HashMap<u64, String>,
     covers: &HashSet<u64>,
+    owned_titles: &HashMap<u64, String>,
 ) -> PreviewedText {
     let mut previews = Vec::new();
     let mut displayed = HashSet::new();
     let mut plain = String::with_capacity(body.len());
     let mut from = 0;
     for link in links {
-        let Some(title) = titles.get(&link.id) else {
+        let public_title = titles.get(&link.id);
+        let Some(title) = public_title.or_else(|| owned_titles.get(&link.id)) else {
             continue;
         };
         if link.start < from {
@@ -172,8 +174,12 @@ fn project(
             previews.push(MailBookPreview {
                 book_ref: link.id.to_string(),
                 title: title.clone(),
-                url: format!("/books/{}", link.id),
-                cover_url: if covers.contains(&link.id) {
+                url: if public_title.is_some() {
+                    format!("/books/{}", link.id)
+                } else {
+                    format!("/me/books/{}", link.id)
+                },
+                cover_url: if public_title.is_some() && covers.contains(&link.id) {
                     format!("/covers/{}/card.webp", link.id)
                 } else {
                     String::new()
@@ -195,7 +201,7 @@ fn project(
 }
 
 /// Called only after actor authentication and conversation membership checks.
-pub(super) async fn enrich(state: &AuthState, messages: &[Message]) -> Vec<PreviewedText> {
+pub(super) async fn enrich(state: &AuthState, actor: i64, messages: &[Message]) -> Vec<PreviewedText> {
     let links: Vec<_> = messages.iter().map(|m| extract_links(&m.body)).collect();
     let mut ids = Vec::new();
     let mut seen = HashSet::new();
@@ -209,6 +215,7 @@ pub(super) async fn enrich(state: &AuthState, messages: &[Message]) -> Vec<Previ
     }
     let pool = state.accounts.pool().clone();
     let mut titles = HashMap::new();
+    let mut missing_public = Vec::new();
     for batch in ids.chunks(CONCURRENT_LOOKUPS) {
         let mut jobs = tokio::task::JoinSet::new();
         for id in batch {
@@ -217,8 +224,32 @@ pub(super) async fn enrich(state: &AuthState, messages: &[Message]) -> Vec<Previ
             jobs.spawn(async move { (id, GetPublicBook::new(&catalog).execute(id).await) });
         }
         while let Some(result) = jobs.join_next().await {
+            if let Ok((id, outcome)) = result {
+                match outcome {
+                    Ok(Some(book)) => {
+                        titles.insert(id, book.title().to_owned());
+                    }
+                    Ok(None) => missing_public.push(id),
+                    // A failed public lookup must not become an unscoped private lookup.
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+    // Only active owners may see unpublished metadata. All other actors
+    // retain literal links, including the other participant of the same mail.
+    // B's owned-book query rejects held/deleted books and checks owner_user_id.
+    let mut owned_titles = HashMap::new();
+    for batch in missing_public.chunks(CONCURRENT_LOOKUPS) {
+        let mut jobs = tokio::task::JoinSet::new();
+        for id in batch {
+            let id = *id;
+            let authoring = state.authoring.clone();
+            jobs.spawn(async move { (id, authoring.owned_book(actor, id as i64).await) });
+        }
+        while let Some(result) = jobs.join_next().await {
             if let Ok((id, Ok(Some(book)))) = result {
-                titles.insert(id, book.title().to_owned());
+                owned_titles.insert(id, book.title);
             }
         }
     }
@@ -230,7 +261,7 @@ pub(super) async fn enrich(state: &AuthState, messages: &[Message]) -> Vec<Previ
     messages
         .iter()
         .zip(links.iter())
-        .map(|(m, refs)| project(&m.body, refs, &titles, &covers))
+        .map(|(m, refs)| project(&m.body, refs, &titles, &covers, &owned_titles))
         .collect()
 }
 
@@ -269,8 +300,30 @@ mod tests {
         let body = "  Prefix /books/12 \n";
         let mut titles = HashMap::new();
         titles.insert(12, "Public".to_owned());
-        let projected = project(body, &extract_links(body), &titles, &HashSet::new());
+        let projected = project(body, &extract_links(body), &titles, &HashSet::new(), &HashMap::new());
         assert_eq!(projected.body_without_book_links, "  Prefix  \n");
+    }
+
+    #[test]
+    fn e08_owned_draft_preview_never_gets_a_public_cover() {
+        let body = "/books/13";
+        let owned = HashMap::from([(13, "Owner-only draft".to_owned())]);
+        let covers = HashSet::from([13]);
+        let projected = project(body, &extract_links(body), &HashMap::new(), &covers, &owned);
+        assert_eq!(projected.body_without_book_links, "");
+        assert_eq!(projected.book_previews.len(), 1);
+        assert_eq!(projected.book_previews[0].title, "Owner-only draft");
+        assert_eq!(projected.book_previews[0].url, "/me/books/13");
+        assert_eq!(projected.book_previews[0].cover_url, "");
+        let denied = project(
+            body,
+            &extract_links(body),
+            &HashMap::new(),
+            &covers,
+            &HashMap::new(),
+        );
+        assert!(denied.book_previews.is_empty());
+        assert_eq!(denied.body_without_book_links, body);
     }
 
     #[test]
@@ -279,7 +332,7 @@ mod tests {
         let mut titles = HashMap::new();
         titles.insert(12, "<img onerror=alert(1)>".into());
         let covers = HashSet::from([12]);
-        let projected = project(body, &extract_links(body), &titles, &covers);
+        let projected = project(body, &extract_links(body), &titles, &covers, &HashMap::new());
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].url, "/books/12");
         assert_eq!(projected.book_previews[0].cover_url, "/covers/12/card.webp");

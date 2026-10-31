@@ -100,7 +100,7 @@ pub(super) async fn get(
             Ok(p) => p,
             Err(e) => return deny(status(e)),
         };
-        let enriched = super::mail_book_previews::enrich(&state, &page.items).await;
+        let enriched = super::mail_book_previews::enrich(&state, actor, &page.items).await;
         let result = MessagePage {
             newest_message_id: page.items.last().map(|m| m.id.to_string()),
             oldest_message_id: page.items.first().map(|m| m.id.to_string()),
