@@ -196,7 +196,13 @@ async fn e_08_group_mail_notification_replay_membership_block_and_preference() {
 
     let first = groups.send(a, id, "Hello team", &key(461)).await.unwrap();
     assert!(!first.replayed);
-    assert!(groups.send(a, id, "Hello team", &key(461)).await.unwrap().replayed);
+    assert!(
+        groups
+            .send(a, id, "Hello team", &key(461))
+            .await
+            .unwrap()
+            .replayed
+    );
     let source_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events
          WHERE event_type='social.group_mail.created' AND aggregate_id=$1",
@@ -245,7 +251,10 @@ async fn e_08_group_mail_notification_replay_membership_block_and_preference() {
 
     // A later block suppresses delivery, independently of message storage.
     blocks.set_block(b, a, true).await.unwrap();
-    groups.send(a, id, "Blocked notice", &key(464)).await.unwrap();
+    groups
+        .send(a, id, "Blocked notice", &key(464))
+        .await
+        .unwrap();
     notifications.deliver_pending(100).await.unwrap();
     assert_eq!(notifications.list(b, None, 50).await.unwrap().len(), 3);
 
