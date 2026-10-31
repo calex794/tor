@@ -165,24 +165,19 @@ impl PgAuthoring {
         Ok(saved)
     }
 
-    /// The job fence, batch tombstone, all chapter versions and succeeded state
-    /// share ONE transaction. A concurrent cancel either wins before this row
-    /// lock (zero chapters) or waits and then observes succeeded (no false cancel).
+    /// G's durable job fence, B's batch command, all chapter versions and
+    /// succeeded state share ONE transaction. The job row is locked first:
+    /// cancellation either wins before this transaction (zero chapters) or
+    /// waits and observes succeeded (no false cancellation).
     pub async fn complete_chapter_import_job(
         &self,
-        claim: &super::chapter_import_jobs::ChapterImportClaim,
+        job_id: i64,
+        epoch: i64,
         chapters: &[ImportedChapter],
     ) -> Result<usize, AuthorError> {
-        validate_batch(claim.actor_id, claim.book_id, &claim.command_key, chapters)?;
-        let digest = fingerprint(claim.book_id, chapters);
-        if claim.epoch <= 0
-            || claim.source_sha256.len() != 32
-            || claim.approved_fingerprint.as_slice() != digest.as_slice()
-            || usize::try_from(claim.expected_chapter_count).ok() != Some(chapters.len())
-        {
-            return Err(AuthorError::Conflict);
+        if job_id <= 0 || epoch <= 0 {
+            return Err(AuthorError::Invalid);
         }
-
         let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
         let row = sqlx::query(
             "SELECT status,lease_epoch,actor_user_id,book_id,command_key,
@@ -190,16 +185,20 @@ impl PgAuthoring {
                     COALESCE(locked_until > now(), FALSE) AS lease_valid
              FROM chapter_import_jobs WHERE id=$1 FOR UPDATE",
         )
-        .bind(claim.job_id)
+        .bind(job_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Conflict)?;
         let status: String = row.try_get("status").map_err(|_| AuthorError::Unavailable)?;
-        let epoch: i64 = row.try_get("lease_epoch").map_err(|_| AuthorError::Unavailable)?;
+        let current_epoch: i64 = row
+            .try_get("lease_epoch")
+            .map_err(|_| AuthorError::Unavailable)?;
         let actor: i64 = row.try_get("actor_user_id").map_err(|_| AuthorError::Unavailable)?;
         let book: i64 = row.try_get("book_id").map_err(|_| AuthorError::Unavailable)?;
-        let key: String = row.try_get("command_key").map_err(|_| AuthorError::Unavailable)?;
+        let command_key: String = row
+            .try_get("command_key")
+            .map_err(|_| AuthorError::Unavailable)?;
         let approved: Vec<u8> = row
             .try_get("approved_fingerprint")
             .map_err(|_| AuthorError::Unavailable)?;
@@ -209,11 +208,10 @@ impl PgAuthoring {
         let lease_valid: bool = row
             .try_get("lease_valid")
             .map_err(|_| AuthorError::Unavailable)?;
+        validate_batch(actor, book, &command_key, chapters)?;
+        let digest = fingerprint(book, chapters);
         if status != "running"
-            || epoch != claim.epoch
-            || actor != claim.actor_id
-            || book != claim.book_id
-            || key != claim.command_key
+            || current_epoch != epoch
             || approved.as_slice() != digest.as_slice()
             || usize::try_from(count).ok() != Some(chapters.len())
             || !lease_valid
@@ -221,21 +219,15 @@ impl PgAuthoring {
             return Err(AuthorError::Conflict);
         }
 
-        let saved = import_batch_in_transaction(
-            &mut *tx,
-            claim.actor_id,
-            claim.book_id,
-            &claim.command_key,
-            chapters,
-        )
-        .await?;
+        let saved =
+            import_batch_in_transaction(&mut *tx, actor, book, &command_key, chapters).await?;
         let updated = sqlx::query(
             "UPDATE chapter_import_jobs SET status='succeeded',locked_until=NULL,
                     saved_count=$3,last_error_code=NULL,updated_at=now(),finished_at=now()
              WHERE id=$1 AND lease_epoch=$2 AND status='running' AND locked_until>now()",
         )
-        .bind(claim.job_id)
-        .bind(claim.epoch)
+        .bind(job_id)
+        .bind(epoch)
         .bind(i32::try_from(saved).map_err(|_| AuthorError::Invalid)?)
         .execute(&mut *tx)
         .await
