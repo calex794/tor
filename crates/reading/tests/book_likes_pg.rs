@@ -120,7 +120,7 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         likes.set_like(first, book, false, true).await.unwrap(),
         LikeMutation::AlreadyRemoved
     );
-    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
     assert_eq!(
         likes.set_like(first, book, true, true).await.unwrap(),
         LikeMutation::Added
