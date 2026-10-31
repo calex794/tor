@@ -23,6 +23,7 @@ pub(super) fn router() -> Router<AuthState> {
 #[serde(deny_unknown_fields)]
 pub(super) struct NotificationQuery {
     before: Option<i64>,
+    tab: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,13 +48,41 @@ pub(super) async fn page(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
+    // Only allow known source tabs; never interpolate raw user input into HTML.
+    let requested_tab = query.tab.as_deref().unwrap_or_default().trim().to_ascii_lowercase();
+    let tab = match requested_tab.as_str() {
+        "releases" => "releases",
+        "system" => "system",
+        "discussions" => "discussions",
+        _ => "notifications",
+    };
+    // E-03 already owns the actor-scoped discussion Inbox; do not duplicate
+    // its read/unread state in the mail notification projection.
+    if tab == "discussions" {
+        return private_response(Redirect::to("/me/inbox"), &[]);
+    }
     let store = PgNotifications::new(state.accounts.pool().clone());
-    let rows = match store.list(actor, query.before, 50).await {
+    let rows = match store.list_section(actor, query.before, 50, tab).await {
         Ok(rows) => rows,
         Err(e) => return deny(super::mail::status(e)),
     };
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
     let csrf_token = pages::escape_html(&csrf_token);
+    let mut tab_links = String::new();
+    for (value, label, href) in [
+        ("notifications", "Все", "/notifications"),
+        ("discussions", "Обсуждения", "/me/inbox"),
+        ("releases", "Релизы", "/notifications?tab=releases"),
+        ("system", "Система", "/notifications?tab=system"),
+    ] {
+        let active = if value == tab { " is-active" } else { "" };
+        let current = if value == tab { " aria-current=\"page\"" } else { "" };
+        write!(
+            tab_links,
+            "<a class=\"ui-button ui-button--small{active}\" href=\"{href}\"{current}>{label}</a>"
+        )
+        .expect("notification tab");
+    }
     let mut cards = String::new();
     for row in &rows {
         let status = if row.is_read {
@@ -81,12 +110,19 @@ pub(super) async fn page(
         cards.push_str("</article>");
     }
     if rows.is_empty() {
-        cards.push_str("<p>Уведомлений пока нет.</p>");
+        let empty = if tab == "releases" {
+            "Пока нет уведомлений о релизах."
+        } else if tab == "system" {
+            "Системных уведомлений пока нет."
+        } else {
+            "Уведомлений пока нет."
+        };
+        write!(cards, "<p>{empty}</p>").expect("notification empty state");
     }
     let older = if rows.len() == 50 {
         rows.last().map_or_else(String::new, |row| {
             format!(
-                "<a href=\"/notifications?before={}\">Следующие уведомления</a>",
+                "<a href=\"/notifications?tab={tab}&amp;before={}\">Следующие уведомления</a>",
                 row.id
             )
         })
@@ -94,7 +130,7 @@ pub(super) async fn page(
         String::new()
     };
     let body = format!(
-        "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item is-active\" href=\"/notifications\">Уведомления</a></nav><header class=\"ui-page-header\"><h1>Уведомления</h1></header><form method=\"post\" action=\"/notifications/read-all\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf_token}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить все прочитанными</button></form><section class=\"me-section\" aria-label=\"Уведомления\">{cards}{older}</section></div></section>"
+        "<section class=\"me-page\"><div class=\"container\"><nav class=\"dashboard-nav\"><a class=\"dashboard-nav__item\" href=\"/me\">Обзор</a><a class=\"dashboard-nav__item\" href=\"/mail\">Личная почта</a><a class=\"dashboard-nav__item is-active\" href=\"/notifications\">Уведомления</a></nav><header class=\"ui-page-header\"><h1>Уведомления</h1></header><nav class=\"ui-tabs notifications-tabs\" aria-label=\"Раздел уведомлений\">{tab_links}</nav><form method=\"post\" action=\"/notifications/read-all\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf_token}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">Отметить все прочитанными</button></form><section class=\"me-section\" aria-label=\"Уведомления\">{cards}{older}</section></div></section>"
     );
     private_response(
         pages::layout("Уведомления", "Ваши уведомления", &body),

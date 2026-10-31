@@ -127,3 +127,26 @@ Source: NEwBOO mail_book_previews.py, 3 refs/message, 40 refs/page. Unscoped inc
 ### E-08 P0 parser hardening (follow-up; CI pending)
 
 Bound preview parsing to at most three recognized book-link occurrences per message (including duplicates), cap each preceding-token scan to 256 Unicode characters, and preserve whitespace surrounding resolved links. Omit unsupported display_url aliases from the JSON DTO. Client-side book URL and cover URL must match the same canonical resolved book ID. Added parser regression tests. These changes require Rustfmt, Clippy, PostgreSQL/Chromium acceptance on the exact final commit; this note does not claim a completed run.
+
+## 31.10.2026 — partial notification tabs; source preferences remain open
+
+The source `GET /notifications?tab=notifications|discussions|releases|system` separates
+release kinds (`chapter_created`, `project_news`, `author_new_book/layer/collection`)
+from system notifications and excludes comment/discussion kinds from the system tab.
+
+This Draft slice adds server-side PostgreSQL filtering **before cursor LIMIT** for
+`notifications`, `releases` and `system`, with bounded actor-scoped results and
+preserved `before` pagination. The `discussions` tab delegates to the existing
+E-03 actor-scoped `/me/inbox`; this does **not** claim full source discussion UX.
+The invalid/unknown tab falls back to the all-notifications view. The existing
+mark-read and mark-all CSRF/recipient guards are unchanged.
+
+The isolated PostgreSQL/HTTP E-08 acceptance tests now cover mail appearing in
+`system` but not `releases`, invalid-tab fallback and discussion redirect. This
+change requires its **own exact-HEAD CI** after publication; earlier 17/17 success
+at `de852dc1` and ongoing checks at `a1e62b01` do not validate it.
+
+**Still blocked:** source per-kind notification preferences/persistence, full
+discussion filters, actor-authorized private/legacy book previews, complete
+public profile identity, group/admin mail, independent review, retained SQLx
+ledger/checksum. No production/SSH/VPS/retained migrations.

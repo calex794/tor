@@ -181,13 +181,30 @@ impl PgNotifications {
         Ok(processed)
     }
 
+    /// Default inbox preserves the existing pagination and actor-only contract.
     pub async fn list(
         &self,
         actor: i64,
         before: Option<i64>,
         limit: u16,
     ) -> Result<Vec<UserNotification>, MailError> {
-        if actor <= 0 || before.is_some_and(|id| id <= 0) || !(1..=100).contains(&limit) {
+        self.list_section(actor, before, limit, "notifications").await
+    }
+
+    /// Source notification tabs, filtered before LIMIT so later matching rows
+    /// cannot be skipped by a page full of unrelated kinds.
+    pub async fn list_section(
+        &self,
+        actor: i64,
+        before: Option<i64>,
+        limit: u16,
+        section: &str,
+    ) -> Result<Vec<UserNotification>, MailError> {
+        if actor <= 0
+            || before.is_some_and(|id| id <= 0)
+            || !(1..=100).contains(&limit)
+            || !matches!(section, "notifications" | "releases" | "system")
+        {
             return Err(MailError::Invalid);
         }
         let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(
@@ -196,11 +213,22 @@ impl PgNotifications {
                       read_at IS NOT NULL
                FROM user_notifications
                WHERE recipient_user_id=$1 AND ($2::bigint IS NULL OR id<$2)
+                 AND (
+                   $4::text='notifications'
+                   OR ($4='releases' AND kind IN (
+                     'chapter_created','project_news','author_new_book',
+                     'author_new_layer','author_new_collection'))
+                   OR ($4='system' AND kind NOT IN (
+                     'chapter_created','project_news','author_new_book',
+                     'author_new_layer','author_new_collection',
+                     'comment','comment_reply','comment_mention'))
+                 )
                ORDER BY id DESC LIMIT $3"#,
         )
         .bind(actor)
         .bind(before)
         .bind(i64::from(limit))
+        .bind(section)
         .fetch_all(&self.pool)
         .await
         .map_err(unavailable)?;
