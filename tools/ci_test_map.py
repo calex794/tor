@@ -43,6 +43,8 @@ MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
+# Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
+ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 POSTGRES_SUITES = {
     "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
