@@ -22,6 +22,7 @@ pub struct ChapterStats {
     pub purchases: i64,
     pub purchase_minor: i64,
     pub completed: i64,
+    pub thanks: i64,
 }
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ pub struct DailyStats {
     pub unique_first: i64,
     pub purchases: i64,
     pub purchase_minor: i64,
+    pub thanks: i64,
 }
 
 #[derive(Debug)]
@@ -51,10 +53,12 @@ pub struct BookStatsReport {
     pub purchases: i64,
     pub purchase_minor: i64,
     pub completed: i64,
+    pub thanks: i64,
     pub chapters: Vec<ChapterStats>,
     pub daily: Vec<DailyStats>,
     pub top_by_opens: Vec<TopChapter>,
     pub top_by_purchases: Vec<TopChapter>,
+    pub top_by_thanks: Vec<TopChapter>,
     pub next_after: Option<String>,
 }
 
@@ -176,7 +180,8 @@ impl PgBookStats {
                   ON c.id=p.chapter_id WHERE c.book_id=$1) AS purchases,
                COALESCE((SELECT SUM(p.amount_minor) FROM chapter_purchase_facts p
                   JOIN chapters c ON c.id=p.chapter_id WHERE c.book_id=$1),0)::BIGINT AS gross,
-               (SELECT COUNT(*) FROM reader_chapter_completions WHERE book_id=$1) AS completed",
+               (SELECT COUNT(*) FROM reader_chapter_completions WHERE book_id=$1) AS completed,
+               (SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1) AS thanks",
         )
         .bind(book_id)
         .fetch_one(&self.pool)
@@ -198,7 +203,9 @@ impl PgBookStats {
                COALESCE((SELECT SUM(p.amount_minor) FROM chapter_purchase_facts p
                  WHERE p.chapter_id=c.id),0)::BIGINT AS gross,
                (SELECT COUNT(*) FROM reader_chapter_completions done
-                 WHERE done.chapter_id=c.id) AS completed
+                 WHERE done.chapter_id=c.id) AS completed,
+               (SELECT COUNT(*) FROM chapter_thanks t
+                 WHERE t.chapter_id=c.id) AS thanks
              FROM chapters c
              WHERE c.book_id=$1 AND NOT c.is_deleted
                AND ($2::INTEGER IS NULL OR (c.chapter_no,c.id)>($2::INTEGER,$3::BIGINT))
@@ -224,6 +231,7 @@ impl PgBookStats {
                 purchases: row.try_get("purchases")?,
                 purchase_minor: row.try_get("gross")?,
                 completed: row.try_get("completed")?,
+                thanks: row.try_get("thanks")?,
             });
         }
         let next_after = if has_next {
@@ -250,14 +258,24 @@ impl PgBookStats {
                WHERE c.book_id=$1
                  AND p.acquired_at >= (now() AT TIME ZONE 'UTC')::date - INTERVAL '29 days'
                GROUP BY 1
+             ), thanks AS (
+               SELECT (t.first_thanked_at AT TIME ZONE 'UTC')::date AS day,
+                      COUNT(*)::BIGINT AS thanks
+               FROM chapter_thanks t
+               WHERE t.book_id=$1
+                 AND (t.first_thanked_at AT TIME ZONE 'UTC')
+                     >= (now() AT TIME ZONE 'UTC')::date - 29
+               GROUP BY 1
              )
-             SELECT TO_CHAR(COALESCE(o.day,p.day),'YYYY-MM-DD') AS day,
+             SELECT TO_CHAR(COALESCE(o.day,p.day,t.day),'YYYY-MM-DD') AS day,
                     COALESCE(o.opens,0)::BIGINT AS opens,
                     COALESCE(o.firsts,0)::BIGINT AS firsts,
                     COALESCE(p.purchases,0)::BIGINT AS purchases,
-                    COALESCE(p.gross,0)::BIGINT AS gross
+                    COALESCE(p.gross,0)::BIGINT AS gross,
+                    COALESCE(t.thanks,0)::BIGINT AS thanks
              FROM opens o FULL JOIN purchases p ON p.day=o.day
-             ORDER BY COALESCE(o.day,p.day) DESC LIMIT 30",
+             FULL JOIN thanks t ON t.day=COALESCE(o.day,p.day)
+             ORDER BY COALESCE(o.day,p.day,t.day) DESC LIMIT 30",
         )
         .bind(book_id)
         .fetch_all(&self.pool)
@@ -271,6 +289,7 @@ impl PgBookStats {
                     unique_first: r.try_get("firsts")?,
                     purchases: r.try_get("purchases")?,
                     purchase_minor: r.try_get("gross")?,
+                    thanks: r.try_get("thanks")?,
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
@@ -316,6 +335,27 @@ impl PgBookStats {
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        // Rank across all chapters, not only the current 100-row page.
+        let top_thanks_rows = sqlx::query(
+            "SELECT c.chapter_no AS number, c.title, COUNT(*)::BIGINT AS count
+             FROM chapter_thanks t JOIN chapters c ON c.id=t.chapter_id
+             WHERE t.book_id=$1 AND NOT c.is_deleted
+             GROUP BY c.id,c.chapter_no,c.title
+             ORDER BY count DESC,c.chapter_no,c.id LIMIT 5",
+        )
+        .bind(book_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let top_by_thanks = top_thanks_rows
+            .into_iter()
+            .map(|row| {
+                Ok(TopChapter {
+                    number: row.try_get("number")?,
+                    title: row.try_get("title")?,
+                    count: row.try_get("count")?,
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
         Ok(Some(BookStatsReport {
             title,
             opens: totals.try_get("opens")?,
@@ -326,10 +366,12 @@ impl PgBookStats {
             purchases: totals.try_get("purchases")?,
             purchase_minor: totals.try_get("gross")?,
             completed: totals.try_get("completed")?,
+            thanks: totals.try_get("thanks")?,
             chapters,
             daily,
             top_by_opens,
             top_by_purchases,
+            top_by_thanks,
             next_after,
         }))
     }
