@@ -49,12 +49,9 @@ fn d_08_explicit_policy_conserves_gross_minor_units() {
 
 #[test]
 fn d_08_platform_fee_uses_half_up_kopeck_rounding() {
-    let allocation = calculate_purchase_allocation(
-        gross(1),
-        &policy("ci-half-up-v1", 5_000),
-        &[share(7, 100)],
-    )
-    .unwrap();
+    let allocation =
+        calculate_purchase_allocation(gross(1), &policy("ci-half-up-v1", 5_000), &[share(7, 100)])
+            .unwrap();
     assert_eq!(allocation.platform_fee_minor.get(), 1);
     assert_eq!(allocation.creator_pool_minor.get(), 0);
     assert_eq!(allocation.creators[0].amount_minor.get(), 0);
@@ -172,11 +169,7 @@ fn d_08_invalid_policy_and_share_schedules_are_rejected() {
         Err(RevenueAllocationError::SharesMustEqualOneHundred)
     );
     assert_eq!(
-        calculate_purchase_allocation(
-            gross(100),
-            &policy,
-            &[share(11, 50), share(11, 50)]
-        ),
+        calculate_purchase_allocation(gross(100), &policy, &[share(11, 50), share(11, 50)]),
         Err(RevenueAllocationError::DuplicateRecipient)
     );
     assert_eq!(
