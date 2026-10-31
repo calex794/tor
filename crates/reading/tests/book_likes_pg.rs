@@ -148,13 +148,14 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .unwrap();
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
 
-    // Account erasure removes only that account's row.
+    // The second reader already unliked. Deleting the remaining (first)
+    // reader must not leave a ghost public like.
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(first)
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(second)
         .execute(&pool)
