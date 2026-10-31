@@ -311,14 +311,14 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         .unwrap();
     assert!(suspect_summary.liked);
     assert_eq!(suspect_summary.count, 0);
-    let suspect_events: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM book_engagement_integrity_events
-         WHERE user_id=$1 AND book_id=$2",
+    let suspect_events: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*) FROM book_engagement_integrity_events
+             WHERE user_id={user_c} AND book_id={suspect_book}"
+        ),
     )
-    .bind(user_c)
-    .bind(suspect_book)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
     assert_eq!(suspect_events, 1);
 
