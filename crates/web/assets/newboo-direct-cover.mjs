@@ -30,6 +30,8 @@ async function load(image) {
     if (!Number.isInteger(bytesExpected) || bytesExpected < 12 || bytesExpected > MAX_BYTES ||
         !/^[a-f0-9]{64}$/.test(grant.sha256) || grant.content_type !== 'image/webp') return;
     const signed = new URL(grant.url);
+    // Credentials are deliberately not sent to the object store.
+    // A browser CSP connect-src allowlist is required before opting in.
     if (signed.protocol !== 'https:' &&
         !(signed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(signed.hostname))) return;
     const response = await fetch(signed, { credentials: 'omit', cache: 'no-store', redirect: 'error' });
