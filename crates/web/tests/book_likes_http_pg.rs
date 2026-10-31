@@ -275,6 +275,36 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     let limited = call(&app, "POST", &like, &cookie_b, ORIGIN, &add).await;
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(limited.headers()[header::RETRY_AFTER], "60");
+    for _ in 0..4 {
+        assert_eq!(
+            call(&app, "POST", &like, &cookie_b, ORIGIN, &add)
+                .await
+                .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+    // Repeated blocked POSTs must not create unlimited audit rows or
+    // perform extra rate-bucket updates after the 20/minute hard limit.
+    let refused_events: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*) FROM book_engagement_integrity_events
+             WHERE user_id={user_b} AND book_id={book} AND decision='throttle'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(refused_events, 1);
+    let accepted_subject_bucket_updates: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COALESCE(SUM(attempts),0) FROM book_engagement_rate_buckets
+             WHERE user_id={user_b}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(accepted_subject_bucket_updates, 40);
     assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
     assert!(html(call(&app, "GET", &detail, "", ORIGIN, "").await)
         .await
