@@ -529,9 +529,8 @@ async fn d_06_swap_rejects_replaced_published_target_version() {
             .await,
         Err(SwapError::Changed)
     );
-    let (balance, postings, revoked, target_purchases): (i64, i64, i64, i64) =
-        sqlx::query_as(
-            "SELECT balance_minor,
+    let (balance, postings, revoked, target_purchases): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT balance_minor,
                (SELECT COUNT(*) FROM finance_direct_swap_postings
                 WHERE source_purchase_id=$2),
                (SELECT COUNT(*) FROM chapter_purchase_revocations
@@ -539,14 +538,17 @@ async fn d_06_swap_rejects_replaced_published_target_version() {
                (SELECT COUNT(*) FROM chapter_purchase_facts
                 WHERE user_id=$1 AND chapter_id=$3)
              FROM reader_wallet_accounts WHERE user_id=$1",
-        )
-        .bind(intent.buyer_id)
-        .bind(intent.source_purchase_id)
-        .bind(intent.target_chapter_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!((balance, postings, revoked, target_purchases), (700, 0, 0, 0));
+    )
+    .bind(intent.buyer_id)
+    .bind(intent.source_purchase_id)
+    .bind(intent.target_chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (balance, postings, revoked, target_purchases),
+        (700, 0, 0, 0)
+    );
     pool.close().await;
 }
 
@@ -586,16 +588,17 @@ async fn d_06_swap_expired_source_purchase_preserves_wallet_and_access() {
     .await
     .unwrap();
     assert_eq!((balance, postings, revoked), (700, 0, 0));
-    let readable: bool = sqlx::query_scalar(
-        "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
-    )
-    .bind(intent.buyer_id)
-    .bind(intent.source_purchase_id)
-    .bind(source_chapter)
-    .bind(source_version)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(readable, "the original purchased edition must remain readable");
+    let readable: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+        .bind(intent.buyer_id)
+        .bind(intent.source_purchase_id)
+        .bind(source_chapter)
+        .bind(source_version)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        readable,
+        "the original purchased edition must remain readable"
+    );
     pool.close().await;
 }
