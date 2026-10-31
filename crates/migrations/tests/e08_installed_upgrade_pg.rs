@@ -1,7 +1,8 @@
 //! E-08 release upgrade regression against *only* a disposable PostgreSQL CI database.
-//! First replay the exact 67 main migration blobs, then install the six Draft
-//! extensions using SQLx's real version/checksum ledger (including 200/201
-//! below the previously installed 291). Never execute against retained data.
+//! Replay the exact checked-out non-E-08 migration blobs as the installed
+//! baseline, then install the six Draft extensions with SQLx's checksum ledger.
+//! The PR CI checkout is a synthetic merge with the newest main: baseline
+//! migrations can grow while an E-08 PR is being reviewed. Never touch retained data.
 
 use sqlx::{migrate::Migrator, postgres::PgPoolOptions};
 use std::{borrow::Cow, collections::HashMap, env, error::Error, time::Duration};
@@ -49,13 +50,16 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
         MIGRATOR.migrations.len(),
         baseline.migrations.len() + E08_VERSIONS.len()
     );
-    assert_eq!(baseline.migrations.len(), 67);
-    assert_eq!(
+    // Preserve at least the verified historical main baseline and its final
+    // refund migration. A PR checkout may also include newer main migrations
+    // (for example 202610310293) without changing any old SQL bytes.
+    assert!(baseline.migrations.len() >= 67);
+    assert!(baseline.version_exists(202610310291));
+    assert!(
         baseline
             .migrations
             .last()
-            .map(|migration| migration.version),
-        Some(202610310291)
+            .is_some_and(|migration| migration.version >= 202610310291)
     );
     for version in E08_VERSIONS {
         assert!(MIGRATOR.version_exists(version));
