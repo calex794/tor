@@ -109,12 +109,15 @@ async fn s023_queue_claim_fencing_retry_and_owner_privacy() {
         .await,
         Err(ImportJobsError::Conflict)
     );
+    let stranger_command = "d".repeat(43);
+    let stranger_key =
+        format!("staging/chapters/{stranger}/{book}/{stranger_command}");
     assert_eq!(
         jobs.enqueue_verified(
             stranger,
             book,
-            &"d".repeat(43),
-            &format!("staging/chapters/{stranger}/{book}/stranger"),
+            &stranger_command,
+            &stranger_key,
             "source.txt",
             &hash,
             100,
@@ -127,12 +130,14 @@ async fn s023_queue_claim_fencing_retry_and_owner_privacy() {
     assert!(jobs.status_for_owner(stranger, book, job).await.unwrap().is_none());
 
     // A different idempotency key cannot create a second active job for the book.
+    let second_command = "e".repeat(43);
+    let second_key = format!("staging/chapters/{actor}/{book}/{second_command}");
     assert_eq!(
         jobs.enqueue_verified(
             actor,
             book,
-            &"e".repeat(43),
-            &format!("staging/chapters/{actor}/{book}/second"),
+            &second_command,
+            &second_key,
             "source.txt",
             &hash,
             100,
