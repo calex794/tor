@@ -42,6 +42,24 @@ pub struct TopChapter {
     pub count: i64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RatingStat {
+    pub sum: i64,
+    pub votes: i64,
+}
+
+impl RatingStat {
+    /// Same exact integer rounding as the F-05 public rating summary.
+    /// Empty ratings stay unknown rather than becoming a misleading zero.
+    pub fn average(self) -> Option<String> {
+        if self.votes <= 0 || self.sum < self.votes || self.sum > self.votes.checked_mul(5)? {
+            return None;
+        }
+        let hundredths = self.sum.checked_mul(100)?.checked_add(self.votes / 2)? / self.votes;
+        Some(format!("{}.{:02}", hundredths / 100, hundredths % 100))
+    }
+}
+
 #[derive(Debug)]
 pub struct BookStatsReport {
     pub title: String,
@@ -54,6 +72,9 @@ pub struct BookStatsReport {
     pub purchase_minor: i64,
     pub completed: i64,
     pub thanks: i64,
+    pub bookmarks: i64,
+    pub work_rating: RatingStat,
+    pub translation_rating: RatingStat,
     pub chapters: Vec<ChapterStats>,
     pub daily: Vec<DailyStats>,
     pub top_by_opens: Vec<TopChapter>,
@@ -181,7 +202,24 @@ impl PgBookStats {
                COALESCE((SELECT SUM(p.amount_minor) FROM chapter_purchase_facts p
                   JOIN chapters c ON c.id=p.chapter_id WHERE c.book_id=$1),0)::BIGINT AS gross,
                (SELECT COUNT(*) FROM reader_chapter_completions WHERE book_id=$1) AS completed,
-               (SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1) AS thanks",
+               (SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1) AS thanks,
+               (SELECT COUNT(*) FROM reader_library_items WHERE book_id=$1) AS bookmarks",
+        )
+        .bind(book_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        // Only public F-05 rating records; no invented integrity/trusted split.
+        let ratings = sqlx::query(
+            "SELECT
+                COALESCE(SUM(rating::BIGINT) FILTER
+                    (WHERE rating_kind='work'),0)::BIGINT AS work_sum,
+                COUNT(*) FILTER (WHERE rating_kind='work')::BIGINT AS work_votes,
+                COALESCE(SUM(rating::BIGINT) FILTER
+                    (WHERE rating_kind='translation'),0)::BIGINT AS translation_sum,
+                COUNT(*) FILTER (WHERE rating_kind='translation')::BIGINT AS translation_votes
+             FROM user_book_star_ratings
+             WHERE book_id=$1",
         )
         .bind(book_id)
         .fetch_one(&self.pool)
@@ -367,6 +405,15 @@ impl PgBookStats {
             purchase_minor: totals.try_get("gross")?,
             completed: totals.try_get("completed")?,
             thanks: totals.try_get("thanks")?,
+            bookmarks: totals.try_get("bookmarks")?,
+            work_rating: RatingStat {
+                sum: ratings.try_get("work_sum")?,
+                votes: ratings.try_get("work_votes")?,
+            },
+            translation_rating: RatingStat {
+                sum: ratings.try_get("translation_sum")?,
+                votes: ratings.try_get("translation_votes")?,
+            },
             chapters,
             daily,
             top_by_opens,
@@ -374,5 +421,24 @@ impl PgBookStats {
             top_by_thanks,
             next_after,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RatingStat;
+
+    #[test]
+    fn b_stats_average_matches_f05_and_never_invents_zero_votes() {
+        assert_eq!(RatingStat { sum: 0, votes: 0 }.average(), None);
+        assert_eq!(
+            RatingStat { sum: 10, votes: 3 }.average(),
+            Some("3.33".to_owned())
+        );
+        assert_eq!(
+            RatingStat { sum: 7, votes: 2 }.average(),
+            Some("3.50".to_owned())
+        );
+        assert_eq!(RatingStat { sum: 1, votes: 2 }.average(), None);
     }
 }
