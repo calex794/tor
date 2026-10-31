@@ -212,7 +212,8 @@ function makeDocxXml(xml) {
           name + ': ZIP members not naturally sorted');
         await page.getByRole('button', { name: 'Подтвердить и создать главы' }).click();
         await page.waitForURL(base + '/me/books/' + id);
-        assert(await page.getByText(/№5/).isVisible() && await page.getByText(/№10/).isVisible(),
+        assert(await page.getByText(/№5 — Глава 5:/).isVisible()
+          && await page.getByText(/№10 — Глава 10:/).isVisible(),
           name + ': ZIP chapter batch not saved');
 
         await importLink.click();
