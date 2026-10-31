@@ -47,7 +47,7 @@ impl PgRecommendations {
             .bind(actor).bind(key.as_slice()).fetch_optional(&mut *tx).await? {
             let hash: Vec<u8> = receipt.try_get("payload_hash")?;
             let kind: String = receipt.try_get("command_type")?;
-            if hash != payload || kind != "consent" { return Err(FeedbackError::Conflict); }
+            if hash != payload || kind != "consent" { return Err(FeedbackError::IdempotencyConflict); }
             return Ok(ConsentState { enabled, revision: receipt.try_get("result_revision")? });
         }
         if state.try_get::<i64, _>("revision")? != revision {

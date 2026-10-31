@@ -38,7 +38,7 @@ impl PgRecommendations {
         if let Some(row) = sqlx::query("SELECT payload_hash,result_revision,command_type FROM rec_preference_commands WHERE user_id=$1 AND command_key=$2")
             .bind(actor).bind(key.as_slice()).fetch_optional(&mut *tx).await? {
             if row.try_get::<Vec<u8>,_>("payload_hash")? != payload || row.try_get::<String,_>("command_type")? != "feedback" {
-                return Err(FeedbackError::Conflict);
+                return Err(FeedbackError::IdempotencyConflict);
             }
             return Ok(FeedbackReceipt { revision: row.try_get("result_revision")?, hidden });
         }

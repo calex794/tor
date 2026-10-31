@@ -417,12 +417,15 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
     }
     let changed =
         json!({"book_id":book.to_string(),"choice":"clear","expected_revision":0}).to_string();
+    let collision = feedback_json(&app, &cookie, &csrf, Some(&key), &changed).await;
     assert_eq!(
-        feedback_json(&app, &cookie, &csrf, Some(&key), &changed)
-            .await
-            .status(),
+        collision.status(),
         StatusCode::CONFLICT,
         "One actor and key cannot change its semantic payload"
+    );
+    assert_eq!(
+        data(collision).await["error"]["code"],
+        "IDEMPOTENCY_CONFLICT"
     );
     let after = data(
         call(

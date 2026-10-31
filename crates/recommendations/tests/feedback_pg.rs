@@ -200,7 +200,7 @@ async fn rec13_explicit_feedback_has_cas_and_command_replay() {
         store
             .set_feedback(actor, book, Choice::Clear, 0, &key)
             .await,
-        Err(FeedbackError::Conflict)
+        Err(FeedbackError::IdempotencyConflict)
     );
     assert!(store
         .issue_tickets(actor, &[7; 32], Surface::Home, feed(book))

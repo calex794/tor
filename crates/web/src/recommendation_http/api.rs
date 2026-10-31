@@ -96,6 +96,11 @@ pub(super) fn error(value: FeedbackError) -> Response {
             "VERSION_CONFLICT",
             "Обновите страницу",
         ),
+        FeedbackError::IdempotencyConflict => (
+            StatusCode::CONFLICT,
+            "IDEMPOTENCY_CONFLICT",
+            "Повтор команды с другим содержимым",
+        ),
         FeedbackError::Limited => (
             StatusCode::TOO_MANY_REQUESTS,
             "RATE_LIMITED",

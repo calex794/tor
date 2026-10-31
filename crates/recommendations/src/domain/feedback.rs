@@ -13,6 +13,7 @@ pub enum FeedbackError {
     Forbidden,
     NotFound,
     Conflict,
+    IdempotencyConflict,
     Limited,
     Unavailable,
 }
