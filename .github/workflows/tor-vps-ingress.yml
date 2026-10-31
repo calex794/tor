@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            nginx wireguard-tools wrk iproute2 iputils-ping curl
+            nginx wireguard-tools wrk iproute2 iputils-ping curl openssl sysstat
       - name: Static syntax check
         run: |
           bash -n tests/load/vps_ingress_ci.sh
