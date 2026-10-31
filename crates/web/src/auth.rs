@@ -57,6 +57,7 @@ mod book_follow_actions;
 mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
+mod text_issues;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
@@ -254,6 +255,9 @@ fn router_inner(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
         )
+        .route("/read/{id}/text-issues", post(text_issues::submit))
+        .route("/me/books/{id}/issues", get(text_issues::author_page))
+        .route("/me/books/{id}/issues/{issue_id}/status", post(text_issues::change_status))
         .route(
             "/reader/{id}/thanks",
             get(chapter_thanks::page).post(chapter_thanks::submit),
