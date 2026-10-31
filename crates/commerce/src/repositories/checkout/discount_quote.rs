@@ -13,6 +13,9 @@ pub struct SingleChapterQuote {
     pub version_id: i64,
     pub base_price_minor: i64,
     pub final_price_minor: i64,
+    pub campaign_id: Option<i64>,
+    pub campaign_revision: Option<i32>,
+    pub follow_period_id: Option<i64>,
     pub discount_percent: Option<i16>,
     pub requires_follow_days: Option<i16>,
 }
@@ -94,6 +97,9 @@ impl PgCheckout {
             version_id: offer.try_get("version_id").map_err(unavailable)?,
             base_price_minor: base,
             final_price_minor: discount.as_ref().map_or(base, |d| d.paid_minor),
+            campaign_id: discount.map(|d| d.campaign_id),
+            campaign_revision: discount.map(|d| d.campaign_revision),
+            follow_period_id: discount.map(|d| d.follow_period_id),
             discount_percent: discount.map(|d| d.discount_percent),
             requires_follow_days: discount.map(|d| d.min_follow_days),
         };
