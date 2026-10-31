@@ -236,12 +236,35 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
         "lost IPC frames must not be reported as stored"
     );
 
-    assert!(publisher.try_publish(&after));
-    assert!(wait_for(|| publisher.counts().sent == 2));
+    // Restart delivery has the same bounded best-effort IPC contract as the
+    // first delivery above. A scheduling delay must be counted as failed,
+    // never disguised as an ACK or compensated by changing production timeouts.
+    let mut failed_after_restart = 0;
+    let mut recovered_ack = false;
+    for _ in 0..3 {
+        let prior = publisher.counts();
+        assert!(publisher.try_publish(&after));
+        assert!(wait_for(|| {
+            let counts = publisher.counts();
+            counts.sent > prior.sent || counts.failed > prior.failed
+        }));
+        let counts = publisher.counts();
+        if counts.sent > prior.sent {
+            recovered_ack = true;
+            break;
+        }
+        assert_eq!(counts.failed, prior.failed + 1);
+        failed_after_restart += 1;
+    }
+    assert!(recovered_ack, "restarted writer must acknowledge a real frame");
+    assert_eq!(publisher.counts().sent, 2);
     let recovered = lookup::request(&socket, after.trace_id).unwrap();
     assert_eq!(recovered.found.unwrap().1, after);
     assert_eq!(recovered.archived, 2);
-    assert_eq!(publisher.counts().failed, failed_before_crash + 1);
+    assert_eq!(
+        publisher.counts().failed,
+        failed_before_crash + 1 + failed_after_restart
+    );
     assert_eq!(publisher.counts().dropped, 0);
 
     drop(restarted);

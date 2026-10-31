@@ -356,7 +356,10 @@ async fn rec13_reconsent_does_not_resurrect_old_undelivered_reading() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(canonical, 1, "opt-out does not delete C-owned reading facts");
+    assert_eq!(
+        canonical, 1,
+        "opt-out does not delete C-owned reading facts"
+    );
     assert!(!store.accept_read_event(&event).await.unwrap());
 }
 
