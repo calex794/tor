@@ -96,6 +96,7 @@ pub(super) async fn page(
                 uploads_enabled: state.cover_upload_enabled,
                 latest_job: latest_cover.as_deref(),
                 demand_count,
+                discounts_enabled: state.paid_checkout_enabled,
                 next: page.next,
                 has_previous_page: cursor.is_some(),
             },

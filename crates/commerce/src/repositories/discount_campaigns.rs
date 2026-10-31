@@ -139,6 +139,17 @@ impl PgAuthorDiscounts {
         if !has_paid {
             return Err(DiscountCampaignError::Invalid);
         }
+        // Expired campaigns cannot remain an eternal unique-index blocker.
+        sqlx::query(
+            "UPDATE author_discount_campaigns SET status='stopped'
+             WHERE book_id=$1 AND owner_user_id=$2
+               AND status='active' AND ends_at<=clock_timestamp()",
+        )
+        .bind(book)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| DiscountCampaignError::Unavailable)?;
         let inserted = sqlx::query_scalar(
             "INSERT INTO author_discount_campaigns
                (book_id,owner_user_id,discount_percent,min_follow_days,ends_at)

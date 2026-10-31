@@ -64,7 +64,7 @@ fn select_page(
              <fieldset><legend>Выберите от 2 до 20 глав одной книги</legend>{rows}</fieldset>
              <input type=\"hidden\" name=\"step\" value=\"select\">
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
-             <p>Стоимость и окончательный список будут показаны перед списанием.</p>
+             <p>Стоимость и окончательный список будут показаны перед списанием. Скидки подписчикам действуют только при покупке одной главы.</p>
              <button class=\"ui-button ui-button--primary\" type=\"submit\">Проверить выбор и цену</button></form>",
             pages::escape_html(csrf)
         )
