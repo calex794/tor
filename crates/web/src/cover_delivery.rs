@@ -41,18 +41,30 @@ impl CoverDelivery {
             return Err(CoverError::Forbidden);
         }
         let book_id = i64::try_from(book_id).map_err(|_| CoverError::Invalid)?;
-        let object = self.slots.public_variant(book_id, kind)
-            .await.map_err(|_| CoverError::Unavailable)?;
-        let Some(object) = object else { return Ok(None); };
+        let object = self
+            .slots
+            .public_variant(book_id, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let Some(object) = object else {
+            return Ok(None);
+        };
         if object.size_bytes <= 0 || object.size_bytes > 8 * 1024 * 1024 {
             return Err(CoverError::Invalid);
         }
-        let signed = self.objects.presign_variant_get(
-            &object.storage_key, Duration::from_secs(60),
-        ).await?;
+        let signed = self
+            .objects
+            .presign_variant_get(&object.storage_key, Duration::from_secs(60))
+            .await?;
         // The book may have been hidden or its cover replaced during signing.
-        if self.slots.public_variant(book_id, kind).await
-            .map_err(|_| CoverError::Unavailable)?.as_ref() != Some(&object) {
+        if self
+            .slots
+            .public_variant(book_id, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?
+            .as_ref()
+            != Some(&object)
+        {
             return Ok(None);
         }
         Ok(Some((signed, object.sha256, object.size_bytes)))
