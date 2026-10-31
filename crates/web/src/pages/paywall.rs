@@ -5,6 +5,7 @@ use tor_reading::services::PublicPaidChapterPreview;
 
 /// No paid body, purchase token, signed URL, S3 key or false purchase form.
 /// The real checkout is separately authenticated and feature-gated in D.
+#[allow(dead_code)] // Preserved for existing read-only paywall callers.
 pub fn paid_chapter_paywall(chapter: &PublicPaidChapterPreview) -> Html<String> {
     paid_chapter_paywall_with_checkout(chapter, 0, false)
 }
