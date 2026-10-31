@@ -1,4 +1,4 @@
-//! Regression for the B-09 / D-05 raw DELETE membership fence.
+//! Regression for the B-09 / D-05 Layer membership SQL fences.
 use super::*;
 
 fn assert_layer_delete_denied(error: sqlx::Error) {
@@ -15,6 +15,18 @@ fn assert_layer_delete_denied(error: sqlx::Error) {
             .to_string()
             .contains("book membership deletion locked by Layer"),
         "DELETE should be blocked by the Layer-specific fence: {error}"
+    );
+}
+
+
+fn assert_layer_paid_owner_update_denied(error: sqlx::Error) {
+    let database = error.as_database_error().expect("expected SQL error");
+    assert_eq!(database.code().as_deref(), Some("23514"));
+    assert!(
+        error
+            .to_string()
+            .contains("book owner membership update locked by paid Layer"),
+        "expected Layer paid-owner fence, got: {error}"
     );
 }
 
@@ -110,6 +122,44 @@ async fn d_05_pg_historical_paid_term_blocks_owner_member_delete_until_revoked()
             .await
             .expect_err("historical paid Layer rights still bind the owner membership");
     assert_layer_delete_denied(error);
+
+    // A denied DELETE is insufficient: after removal from the current Layer,
+    // the older B-09 UPDATE fence alone would permit the same owner loss.
+    for update in [
+        "UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2",
+        "UPDATE book_members SET role='translator' WHERE book_id=$1 AND user_id=$2",
+    ] {
+        let error = sqlx::query(update)
+            .bind(book)
+            .bind(owner)
+            .execute(&pool)
+            .await
+            .expect_err("paid Layer still requires the active canonical owner");
+        assert_layer_paid_owner_update_denied(error);
+    }
+
+    // Historical paid rights freeze the canonical owner, not former
+    // collaborators: an active translator added after Layer removal can
+    // still be removed without weakening the old payment's owner boundary.
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role,is_active)
+         VALUES($1,$2,'translator',TRUE)",
+    )
+    .bind(book)
+    .bind(buyer)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let collaborator_removed = sqlx::query(
+        "DELETE FROM book_members
+         WHERE book_id=$1 AND user_id=$2 AND role='translator'",
+    )
+    .bind(book)
+    .bind(buyer)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(collaborator_removed.rows_affected(), 1);
 
     // Once the last paid obligation is legally revoked and the Book is no
     // longer in any current Layer, the legacy B-09 cleanup path can proceed.
