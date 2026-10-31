@@ -304,3 +304,10 @@ Acceptance requires full exact-HEAD CI including group PG regression,
 Repository rules, HTTP load, retained SQLx ledger review, independent
 review and remaining S057 source parity. No migration runs on retained
 data, no main merge, no VPS/production actions.
+
+ 
+## 01.11.2026 — групповой интерфейс на основе PgGroupMail (Draft)
+
+Подготовлены веб-страницы `GET /mail/groups`, `POST /mail/groups`, `GET /mail/groups/{id}`, `POST /mail/groups/{id}/messages`, `POST /mail/groups/{id}/leave`, только с серверной проверкой сеанса, Origin/CSRF и активного участия. Создание с выбором двух собеседников из текущей личной почты (не отдельный поиск пользователей), история и страницы сообщений по 50, отправка с повторяемым ключом без дублей, выход для обычного участника. Названия и сообщения выводятся как экранированный текст, скрипты на страницах запрещены. Пять новых RIL-маршрутов с явным доказательством scoped ACL; PostgreSQL/HTTP тест проверяет роль создателя, постороннего, вышедшего, повторную отправку, CSRF, отображение текста.
+
+Это первый интерфейс, **не полный S057**: приглашения в готовую группу, повторный вход, внешние уведомления, административные диалоги и сверка с полным UX NEwBOO остаются отдельно. Не считать принятым без полного CI на точном commit SHA. main / рабочий PostgreSQL / VPS не затрагивать.

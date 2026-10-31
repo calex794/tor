@@ -198,6 +198,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
             "friendship::request": {"request"}, "friendship::remove": {"remove"},
             "friendship::block": {"set_block"},
+            "group_mail::index": {"list"},
+            "group_mail::create": {"create"},
+            "group_mail::detail": {"get", "messages"},
+            "group_mail::send": {"send"},
+            "group_mail::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
         if entry["source"] == "crates/web/src/auth/notifications.rs":

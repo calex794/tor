@@ -151,6 +151,11 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/notifications/{id}/read"), "POST") => Some(138),
         (Some("/notifications/read-all"), "POST") => Some(139),
         (Some("/notifications/preferences"), "POST") => Some(140),
+        (Some("/mail/groups"), "GET") => Some(141),
+        (Some("/mail/groups"), "POST") => Some(142),
+        (Some("/mail/groups/{id}"), "GET") => Some(143),
+        (Some("/mail/groups/{id}/messages"), "POST") => Some(144),
+        (Some("/mail/groups/{id}/leave"), "POST") => Some(145),
         _ => None,
     };
     index

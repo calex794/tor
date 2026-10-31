@@ -24,6 +24,8 @@ mod mail_book_aliases;
 mod notification_open;
 #[path = "support/e08_notification_preferences.rs"]
 mod notification_preferences;
+#[path = "support/e08_group_mail_http.rs"]
+mod group_mail_http;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(

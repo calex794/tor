@@ -63,6 +63,7 @@ mod creator_follows;
 mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
+mod group_mail;
 mod inbox;
 mod library_actions;
 mod library_page;
@@ -245,6 +246,10 @@ fn router_inner(
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
+        .route("/mail/groups", get(group_mail::index).post(group_mail::create))
+        .route("/mail/groups/{id}", get(group_mail::detail))
+        .route("/mail/groups/{id}/messages", post(group_mail::send))
+        .route("/mail/groups/{id}/leave", post(group_mail::leave))
         .route(
             "/api/v1/me/messages",
             get(mail_api::get).post(mail_api::post),

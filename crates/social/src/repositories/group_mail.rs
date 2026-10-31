@@ -12,6 +12,7 @@ pub struct PgGroupMail {
 pub struct GroupConversation {
     pub id: i64,
     pub title: String,
+    pub is_creator: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -125,8 +126,8 @@ impl PgGroupMail {
         if actor <= 0 || group_id <= 0 {
             return Err(MailError::Invalid);
         }
-        let row: Option<(i64, String)> = sqlx::query_as(
-            "SELECT g.id,g.title FROM social_group_conversations g
+        let row: Option<(i64, String, bool)> = sqlx::query_as(
+            "SELECT g.id,g.title,m.role='creator' FROM social_group_conversations g
              JOIN social_group_members m ON m.group_id=g.id
              WHERE g.id=$2 AND m.user_id=$1 AND m.status='active'",
         )
@@ -135,8 +136,12 @@ impl PgGroupMail {
         .fetch_optional(&self.pool)
         .await
         .map_err(unavailable)?;
-        row.map(|(id, title)| GroupConversation { id, title })
-            .ok_or(MailError::NotFound)
+        row.map(|(id, title, is_creator)| GroupConversation {
+            id,
+            title,
+            is_creator,
+        })
+        .ok_or(MailError::NotFound)
     }
 
     /// Only active members can see even the group title or existence.
@@ -150,8 +155,8 @@ impl PgGroupMail {
         if actor <= 0 || before.is_some_and(|n| n <= 0) || !(1..=50).contains(&limit) {
             return Err(MailError::Invalid);
         }
-        let rows = sqlx::query_as::<_, (i64, String)>(
-            "SELECT g.id,g.title FROM social_group_conversations g
+        let rows = sqlx::query_as::<_, (i64, String, bool)>(
+            "SELECT g.id,g.title,m.role='creator' FROM social_group_conversations g
              JOIN social_group_members m ON m.group_id=g.id
              WHERE m.user_id=$1 AND m.status='active'
                AND ($2::bigint IS NULL OR g.id<$2)
@@ -165,7 +170,11 @@ impl PgGroupMail {
         .map_err(unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, title)| GroupConversation { id, title })
+            .map(|(id, title, is_creator)| GroupConversation {
+                id,
+                title,
+                is_creator,
+            })
             .collect())
     }
 

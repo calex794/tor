@@ -1002,6 +1002,41 @@
       "source": "crates/web/src/auth.rs",
       "handler": "friendship::remove",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::index",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::create",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::detail",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/leave",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::leave",
+      "policy": "scoped"
     }
   ]
 }
