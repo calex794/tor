@@ -6,8 +6,12 @@ use tor_books::{
     services::{
         authoring::AuthorError,
         chapter_file_import::{fingerprint, parse_text, MAX_IMPORT_BYTES},
-        chapter_import_jobs::{ChapterImportObjectStore, ChapterImportStoreError},
     },
+};
+use tor_imports::{
+    domain::ChapterImportClaim,
+    repositories::postgres::PgImportJobs,
+    services::{ChapterImportObjectStore, ChapterImportStoreError},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,21 +25,24 @@ pub enum ChapterImportWorkerResult {
 
 pub struct ChapterImportWorker {
     authoring: PgAuthoring,
+    jobs: PgImportJobs,
     storage: Arc<dyn ChapterImportObjectStore>,
 }
 
 impl ChapterImportWorker {
     pub fn new(catalog: &PgCatalog, storage: Arc<dyn ChapterImportObjectStore>) -> Self {
+        let pool = catalog.pool();
         Self {
-            authoring: PgAuthoring::new(catalog.pool()),
+            authoring: PgAuthoring::new(pool.clone()),
+            jobs: PgImportJobs::new(pool),
             storage,
         }
     }
 
     pub async fn run_one(&self) -> Result<ChapterImportWorkerResult, &'static str> {
         let Some(claim) = self
-            .authoring
-            .claim_chapter_import()
+            .jobs
+            .claim_next()
             .await
             .map_err(|_| "claim_unavailable")?
         else {
@@ -93,7 +100,7 @@ impl ChapterImportWorker {
 
         match self
             .authoring
-            .complete_chapter_import_job(&claim, &chapters)
+            .complete_chapter_import_job(claim.job_id, claim.epoch, &chapters)
             .await
         {
             Ok(_) => {
@@ -118,7 +125,7 @@ impl ChapterImportWorker {
 
     async fn retryable_failure(
         &self,
-        claim: &tor_books::repositories::postgres::chapter_import_jobs::ChapterImportClaim,
+        claim: &ChapterImportClaim,
         code: &str,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
         self.record_failure(claim, claim.attempts < 8, code).await
@@ -139,8 +146,8 @@ impl ChapterImportWorker {
         code: &str,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
         let changed = self
-            .authoring
-            .fail_chapter_import(claim.job_id, claim.epoch, retry, code)
+            .jobs
+            .fail_if_current(claim.job_id, claim.epoch, retry, code)
             .await
             .map_err(|_| "job_update_unavailable")?;
         if !changed {
