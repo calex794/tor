@@ -56,9 +56,13 @@ version numbers only, not SQL bodies or raw installed checksums.
 `NO_APPLIED_DRIFT_DETECTED` means only that the scanned applied rows
 match the supplied tree and no exact repeated applied checksum was found;
 it is **not deployment approval**. Pending local migrations are listed
-separately; an older-than-latest pending version needs tested upgrade
-ordering. Semantically equivalent SQL with different bytes is not detected,
-and duplicate no-op/checkpoint migrations require migration-owner review.
+separately. An unapplied version **lower than the highest applied version**
+is a `BLOCK`, even if every applied row matches: the migration owner must
+review ordering/compatibility on an isolated restored copy before any DDL.
+Newer, not-yet-applied migrations may remain `pending` without being an
+installed-history mismatch, but still require an approved upgrade plan.
+Semantically equivalent SQL with different bytes is not detected, and
+duplicate no-op/checkpoint migrations require migration-owner review.
 
 Repeat for **each retained primary, standby, backup/restore candidate
 that may become authoritative**, plus any rollout environment holding
