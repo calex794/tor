@@ -7,10 +7,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tor_accounts::{
-    repositories::PgAccounts,
-    services::security::session_token_digest,
-};
+use std::sync::Arc;
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::{
@@ -18,7 +16,6 @@ use tor_books::{
         chapter_file_import::{fingerprint, parse_text, ImportedChapter},
     },
 };
-use std::sync::Arc;
 use tor_imports::{
     domain::{ChapterImportStatus, ImportJobsError},
     repositories::postgres::PgImportJobs,
@@ -90,17 +87,11 @@ pub fn router(
         accounts,
         authoring,
         jobs,
-        cookies: CookiePolicy {
-            secure,
-            origin,
-        },
+        cookies: CookiePolicy { secure, origin },
         storage,
     };
     Router::new()
-        .route(
-            "/me/books/{book_id}/chapters/import-queue",
-            post(enqueue),
-        )
+        .route("/me/books/{book_id}/chapters/import-queue", post(enqueue))
         .route(
             "/me/books/{book_id}/chapters/import-jobs/latest",
             get(latest),
@@ -180,9 +171,18 @@ async fn enqueue(
         Ok(None) => return fail(StatusCode::NOT_FOUND, "Книга не найдена."),
         Err(_) => return fail(StatusCode::SERVICE_UNAVAILABLE, "База данных недоступна."),
     }
-    match state.authoring.owned_book_is_public(actor_id, book_id).await {
+    match state
+        .authoring
+        .owned_book_is_public(actor_id, book_id)
+        .await
+    {
         Ok(false) => {}
-        Ok(true) => return fail(StatusCode::CONFLICT, "Импорт доступен только для черновика."),
+        Ok(true) => {
+            return fail(
+                StatusCode::CONFLICT,
+                "Импорт доступен только для черновика.",
+            )
+        }
         Err(AuthorError::Missing) => return fail(StatusCode::NOT_FOUND, "Книга не найдена."),
         Err(_) => return fail(StatusCode::SERVICE_UNAVAILABLE, "База данных недоступна."),
     }
@@ -191,18 +191,32 @@ async fn enqueue(
     // author. Archives are converted to the same editable text before enqueue.
     let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
         Ok(chapters) => chapters,
-        Err(_) => return fail(StatusCode::UNPROCESSABLE_ENTITY, "Проверьте формат и структуру глав."),
+        Err(_) => {
+            return fail(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Проверьте формат и структуру глав.",
+            )
+        }
     };
     let approved = fingerprint(book_id, &chapters);
     let Some(expected) = parse_hex_hash(&input.fingerprint) else {
-        return fail(StatusCode::BAD_REQUEST, "Некорректная подпись предпросмотра.");
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "Некорректная подпись предпросмотра.",
+        );
     };
     if expected != approved {
-        return fail(StatusCode::CONFLICT, "Текст изменился после предпросмотра. Проверьте его заново.");
+        return fail(
+            StatusCode::CONFLICT,
+            "Текст изменился после предпросмотра. Проверьте его заново.",
+        );
     }
     let bytes = input.text.as_bytes();
     if bytes.is_empty() || bytes.len() > 700_000 {
-        return fail(StatusCode::PAYLOAD_TOO_LARGE, "Текст превышает допустимый размер.");
+        return fail(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Текст превышает допустимый размер.",
+        );
     }
     let source_hash: [u8; 32] = Sha256::digest(bytes).into();
 
@@ -223,15 +237,21 @@ async fn enqueue(
         .await
     {
         Ok(existing) => existing,
-        Err(ImportJobsError::Conflict) => return fail(StatusCode::CONFLICT, "Ключ уже использован с другими данными."),
-        Err(_) => return fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось проверить повтор запроса."),
+        Err(ImportJobsError::Conflict) => {
+            return fail(
+                StatusCode::CONFLICT,
+                "Ключ уже использован с другими данными.",
+            )
+        }
+        Err(_) => {
+            return fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Не удалось проверить повтор запроса.",
+            )
+        }
     };
     if let Some(job_id) = existing {
-        return match state
-            .jobs
-            .status_for_owner(actor_id, book_id, job_id)
-            .await
-        {
+        return match state.jobs.status_for_owner(actor_id, book_id, job_id).await {
             Ok(Some(job)) => private_response(
                 Json(QueueResponse {
                     job_id,
@@ -240,7 +260,10 @@ async fn enqueue(
                 }),
                 &[],
             ),
-            _ => fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось прочитать состояние задания."),
+            _ => fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Не удалось прочитать состояние задания.",
+            ),
         };
     }
 
@@ -252,7 +275,10 @@ async fn enqueue(
         }
         Ok(None) => {}
         Err(_) => {
-            return fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось проверить очередь.");
+            return fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Не удалось проверить очередь.",
+            );
         }
     }
 
@@ -305,10 +331,16 @@ async fn enqueue(
             );
         }
         Err(ImportJobsError::Invalid) => {
-            return fail(StatusCode::UNPROCESSABLE_ENTITY, "Недопустимые данные импорта.");
+            return fail(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Недопустимые данные импорта.",
+            );
         }
         Err(_) => {
-            return fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось поставить импорт в очередь.");
+            return fail(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Не удалось поставить импорт в очередь.",
+            );
         }
     };
     private_response(
@@ -331,11 +363,7 @@ async fn latest(
         Ok(None) => return fail(StatusCode::UNAUTHORIZED, "Требуется войти в аккаунт."),
         Err(status) => return fail(status, "Сервис временно недоступен."),
     };
-    match state
-        .jobs
-        .latest_active_for_owner(actor_id, book_id)
-        .await
-    {
+    match state.jobs.latest_active_for_owner(actor_id, book_id).await {
         Ok(Some((job_id, job))) => {
             private_response(Json(status_response(job_id, job, book_id)), &[])
         }
@@ -354,11 +382,7 @@ async fn status(
         Ok(None) => return fail(StatusCode::UNAUTHORIZED, "Требуется войти в аккаунт."),
         Err(status) => return fail(status, "Сервис временно недоступен."),
     };
-    match state
-        .jobs
-        .status_for_owner(actor_id, book_id, job_id)
-        .await
-    {
+    match state.jobs.status_for_owner(actor_id, book_id, job_id).await {
         Ok(Some(job)) => private_response(Json(status_response(job_id, job, book_id)), &[]),
         Ok(None) => fail(StatusCode::NOT_FOUND, "Задание не найдено."),
         Err(_) => fail(StatusCode::SERVICE_UNAVAILABLE, "База данных недоступна."),
@@ -391,6 +415,9 @@ async fn cancel(
             private_response(Json(CancelResponse { cancelled: true }), &[])
         }
         Ok(None) => private_response(Json(CancelResponse { cancelled: false }), &[]),
-        Err(_) => fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось отменить задание."),
+        Err(_) => fail(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Не удалось отменить задание.",
+        ),
     }
 }
