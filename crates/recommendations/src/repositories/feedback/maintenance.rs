@@ -59,10 +59,30 @@ impl PgRecommendations {
         ] {
             count+=sqlx::query(statement).execute(&mut *tx).await?.rows_affected();
         }
-        // Expire personal choices completely after their 30-day window and a
-        // one-hour CSRF grace period; old nonzero CAS revisions cannot recreate them.
-        sqlx::query("DELETE FROM rec_feedback_state WHERE (subject_id,book_id) IN(SELECT subject_id,book_id FROM rec_feedback_state WHERE expires_at<now()-interval '1 hour' LIMIT 1000)")
-            .execute(&mut *tx).await?;
+        // Serialize retention erasure with feedback writes through the subject
+        // row. After deleting per-book history, advance an anonymous CAS epoch
+        // so even an old revision-zero request cannot recreate a hidden book.
+        sqlx::query(
+            "WITH locked_subjects AS (
+                SELECT s.subject_id FROM rec_subjects s
+                WHERE EXISTS (
+                    SELECT 1 FROM rec_feedback_state f
+                    WHERE f.subject_id=s.subject_id
+                      AND f.expires_at<now()-interval '1 hour'
+                )
+                ORDER BY s.subject_id LIMIT 32 FOR UPDATE OF s SKIP LOCKED
+             ), erased AS (
+                DELETE FROM rec_feedback_state f USING locked_subjects s
+                WHERE f.subject_id=s.subject_id
+                  AND f.expires_at<now()-interval '1 hour'
+                RETURNING f.subject_id
+             )
+             UPDATE rec_subjects s
+             SET feedback_epoch=feedback_epoch+1
+             WHERE s.subject_id IN (SELECT DISTINCT subject_id FROM erased)",
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(count)
     }

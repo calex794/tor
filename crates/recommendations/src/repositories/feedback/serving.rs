@@ -186,8 +186,8 @@ impl PgRecommendations {
         }
         let ids: Vec<i64> = ordered.iter().map(|c| c.0).collect();
         // One final statement checks current B visibility and current explicit preference.
-        let rows=sqlx::query("SELECT b.id,b.title,COALESCE(f.revision,0) AS revision FROM rec_public_books b LEFT JOIN rec_feedback_state f ON f.subject_id=$2::uuid AND f.book_id=b.id WHERE b.id=ANY($1::bigint[]) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())")
-            .bind(&ids).bind(subject.as_deref()).fetch_all(&self.pool).await?;
+        let rows=sqlx::query("SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$3+COALESCE(f.revision,0)) AS revision FROM rec_public_books b LEFT JOIN rec_subjects s ON s.subject_id=$2::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE b.id=ANY($1::bigint[]) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now())")
+            .bind(&ids).bind(subject.as_deref()).bind(REVISION_STRIDE).fetch_all(&self.pool).await?;
         let mut metadata = BTreeMap::new();
         for row in rows {
             metadata.insert(
@@ -229,8 +229,8 @@ impl PgRecommendations {
         seed: Option<i64>,
         limit: usize,
     ) -> Result<Feed, FeedbackError> {
-        let rows=sqlx::query("SELECT b.id,b.title,COALESCE(f.revision,0) AS revision FROM rec_public_books b LEFT JOIN rec_feedback_state f ON f.subject_id=$1::uuid AND f.book_id=b.id WHERE ($2::bigint IS NULL OR b.id<>$2) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now()) ORDER BY b.created_at DESC,b.id DESC LIMIT $3")
-            .bind(subject).bind(seed).bind(limit as i64).fetch_all(&self.pool).await?;
+        let rows=sqlx::query("SELECT b.id,b.title,(COALESCE(s.feedback_epoch,0)*$4+COALESCE(f.revision,0)) AS revision FROM rec_public_books b LEFT JOIN rec_subjects s ON s.subject_id=$1::uuid LEFT JOIN rec_feedback_state f ON f.subject_id=s.subject_id AND f.book_id=b.id WHERE ($2::bigint IS NULL OR b.id<>$2) AND NOT(COALESCE(f.hidden,false) AND f.expires_at>now()) ORDER BY b.created_at DESC,b.id DESC LIMIT $3")
+            .bind(subject).bind(seed).bind(limit as i64).bind(REVISION_STRIDE).fetch_all(&self.pool).await?;
         let mut items = Vec::new();
         for row in rows {
             items.push(FeedItem {

@@ -13,6 +13,9 @@ mod serving;
 mod sources;
 mod status;
 
+// Public CAS versions include a consent/retention epoch in their high digits.
+pub(super) const REVISION_STRIDE: i64 = 1_000_000_000;
+
 #[derive(Clone)]
 pub struct PgRecommendations {
     pub(super) pool: PgPool,

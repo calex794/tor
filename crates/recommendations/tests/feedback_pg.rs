@@ -399,3 +399,153 @@ async fn rec13_late_view_reclassifies_click_without_duplicating_ctr() {
     assert_eq!(after.paired_clicks, 1);
     assert_eq!(after.unpaired_clicks, 0);
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn rec13_old_feedback_command_cannot_cross_consent_epochs() {
+    let (pool, store, actor, book) = fixture("reconsent-feedback").await;
+    enable(&store, actor).await;
+    let old_key = new_ticket().unwrap();
+    assert_eq!(
+        store
+            .set_feedback(actor, book, Choice::NotInterested, 0, &old_key)
+            .await
+            .unwrap()
+            .revision,
+        1
+    );
+    store
+        .set_consent(actor, false, 1, &new_ticket().unwrap())
+        .await
+        .unwrap();
+    enable_again(&store, actor).await;
+
+    // Consent withdrawal erased the command receipt and rotated the subject.
+    // Neither a replay nor a fresh key with the old revision may hide the book.
+    let fresh_key = new_ticket().unwrap();
+    for key in [&old_key, &fresh_key] {
+        assert_eq!(
+            store
+                .set_feedback(actor, book, Choice::NotInterested, 0, key)
+                .await,
+            Err(FeedbackError::Conflict)
+        );
+    }
+    assert!(store.hidden_books(actor, 0).await.unwrap().is_empty());
+    let epoch: i64 = sqlx::query_scalar("SELECT feedback_epoch FROM rec_subjects WHERE user_id=$1")
+        .bind(actor)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(epoch, 2);
+
+    let current = epoch * 1_000_000_000;
+    let expected_book_id = book.to_string();
+    let offered = store.feed(Some(actor), None, 20).await.unwrap();
+    assert_eq!(
+        offered
+            .items
+            .iter()
+            .find(|item| item.book_id.as_str() == expected_book_id.as_str())
+            .and_then(|item| item.feedback_revision),
+        Some(current),
+        "a freshly issued card must carry the current consent epoch"
+    );
+    let receipt = store
+        .set_feedback(
+            actor,
+            book,
+            Choice::NotInterested,
+            current,
+            &new_ticket().unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt.revision, current + 1);
+    assert_eq!(
+        store.hidden_books(actor, 0).await.unwrap()[0].revision,
+        current + 1
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn rec13_preference_epoch_survives_ttl_erasure() {
+    let (pool, store, actor, book) = fixture("feedback-ttl").await;
+    enable(&store, actor).await;
+    let old_key = new_ticket().unwrap();
+    store
+        .set_feedback(actor, book, Choice::NotInterested, 0, &old_key)
+        .await
+        .unwrap();
+    // Simulate elapsed retention without sleeping or touching live users.
+    sqlx::query(
+        "UPDATE rec_feedback_state SET expires_at=now()-interval '2 hours'
+         WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=$1) AND book_id=$2",
+    )
+    .bind(actor)
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE rec_preference_commands SET created_at=now()-interval '31 days' WHERE user_id=$1",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
+    store.prune().await.unwrap();
+
+    let retained: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_feedback_state WHERE subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=$1)",
+    )
+    .bind(actor)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(retained, 0, "expired personal preferences must be erased");
+    let receipts: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM rec_preference_commands WHERE user_id=$1")
+            .bind(actor)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(receipts, 0, "expired command receipts must be erased");
+
+    assert_eq!(
+        store
+            .set_feedback(actor, book, Choice::NotInterested, 0, &old_key)
+            .await,
+        Err(FeedbackError::Conflict)
+    );
+    let epoch: i64 = sqlx::query_scalar("SELECT feedback_epoch FROM rec_subjects WHERE user_id=$1")
+        .bind(actor)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(epoch, 1);
+    let current = epoch * 1_000_000_000;
+    let expected_book_id = book.to_string();
+    let offered = store.feed(Some(actor), None, 20).await.unwrap();
+    assert_eq!(
+        offered
+            .items
+            .iter()
+            .find(|item| item.book_id.as_str() == expected_book_id.as_str())
+            .and_then(|item| item.feedback_revision),
+        Some(current),
+        "a freshly issued card must carry the current consent epoch"
+    );
+    let receipt = store
+        .set_feedback(
+            actor,
+            book,
+            Choice::NotInterested,
+            current,
+            &new_ticket().unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt.revision, current + 1);
+}

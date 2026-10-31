@@ -83,7 +83,7 @@ impl PgRecommendations {
             .bind(&subject)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,changed_at=now() WHERE user_id=$1")
+        sqlx::query("UPDATE rec_subjects SET subject_id=gen_random_uuid(),enabled=$2,revision=revision+1,feedback_epoch=feedback_epoch+CASE WHEN revision=0 THEN 0 ELSE 1 END,enabled_at=CASE WHEN $2 THEN now() ELSE NULL END,changed_at=now() WHERE user_id=$1")
             .bind(actor).bind(enabled).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM rec_preference_commands WHERE user_id=$1")
             .bind(actor)
