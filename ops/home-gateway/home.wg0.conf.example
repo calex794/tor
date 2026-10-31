@@ -1,0 +1,11 @@
+# Home computer; sample only. Initiates the encrypted outbound tunnel.
+# No WAN port forwarding on the home router. Use root-only permissions.
+[Interface]
+Address = 10.77.77.2/30
+PrivateKey = REPLACE_WITH_HOME_PRIVATE_KEY
+
+[Peer]
+PublicKey = REPLACE_WITH_EDGE_PUBLIC_KEY
+Endpoint = 203.0.113.10:51820
+AllowedIPs = 10.77.77.1/32
+PersistentKeepalive = 25

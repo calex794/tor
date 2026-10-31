@@ -1,0 +1,11 @@
+# External VPS; sample only. Create a fresh key pair locally.
+# Copy as /etc/wireguard/wg0.conf with root-only permissions (0600).
+# Permit inbound UDP/51820 from the Internet; do not enable IP forwarding.
+[Interface]
+Address = 10.77.77.1/30
+ListenPort = 51820
+PrivateKey = REPLACE_WITH_EDGE_PRIVATE_KEY
+
+[Peer]
+PublicKey = REPLACE_WITH_HOME_PUBLIC_KEY
+AllowedIPs = 10.77.77.2/32
