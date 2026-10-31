@@ -122,20 +122,36 @@ async fn d_05_pg_historical_paid_term_blocks_owner_role_update_and_delete() {
             .expect_err("historical paid Layer rights still bind the owner membership");
     assert_layer_delete_denied(error);
 
-    // A denied DELETE is insufficient: after removal from the current Layer,
-    // the older B-09 UPDATE fence alone would permit the same owner loss.
-    for update in [
-        "UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2",
-        "UPDATE book_members SET role='translator' WHERE book_id=$1 AND user_id=$2",
-    ] {
-        let error = sqlx::query(update)
-            .bind(book)
-            .bind(owner)
-            .execute(&pool)
-            .await
-            .expect_err("paid Layer still requires the active canonical owner");
-        assert_layer_paid_owner_update_denied(error);
-    }
+    // B-10 already fences deactivation of an active revenue recipient.
+    // This must remain denied, regardless of which independent SQL fence
+    // rejects it first.
+    let denied_deactivation = sqlx::query(
+        "UPDATE book_members SET is_active=FALSE
+         WHERE book_id=$1 AND user_id=$2",
+    )
+    .bind(book)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .expect_err("active revenue recipient cannot be deactivated");
+    let db = denied_deactivation
+        .as_database_error()
+        .expect("expected SQL error");
+    assert_eq!(db.code().as_deref(), Some("23514"));
+
+    // The stronger regression is a raw owner role DOWNGRADE: B-10 only
+    // fences is_active changes, and the old B-09 current-Layer fence has
+    // already released this Book. D-05 must independently deny this UPDATE.
+    let denied_downgrade = sqlx::query(
+        "UPDATE book_members SET role='translator'
+         WHERE book_id=$1 AND user_id=$2",
+    )
+    .bind(book)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .expect_err("paid Layer must preserve the canonical owner role");
+    assert_layer_paid_owner_update_denied(denied_downgrade);
 
     // Historical paid rights freeze the canonical owner, not former
     // collaborators: an active translator added after Layer removal can
