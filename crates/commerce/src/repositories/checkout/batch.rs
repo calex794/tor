@@ -227,7 +227,16 @@ impl PgCheckout {
             if sum != 100 {
                 return Err(CheckoutError::Unavailable.into());
             }
-            books_and_revisions.push((book, revision));
+            let terms = if self.creator_posting_enabled {
+                Some(
+                    super::revenue::load_terms(&mut tx, book, revision, offer.expected_price.get())
+                        .await
+                        .map_err(BatchCheckoutError::from)?,
+                )
+            } else {
+                None
+            };
+            books_and_revisions.push((book, revision, terms));
         }
 
         let balance = sqlx::query_scalar::<_, i64>(
@@ -258,7 +267,7 @@ impl PgCheckout {
         }
 
         let mut purchases: Vec<PurchaseReceipt> = Vec::with_capacity(command.offers().len());
-        for (index, (offer, (book, revision))) in
+        for (index, (offer, (book, revision, terms))) in
             command.offers().iter().zip(books_and_revisions).enumerate()
         {
             let price = offer.expected_price.get();
@@ -342,6 +351,11 @@ impl PgCheckout {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
+            if let Some(terms) = &terms {
+                super::revenue::post_purchase(&mut tx, id, book, revision, terms)
+                    .await
+                    .map_err(BatchCheckoutError::from)?;
+            }
             sqlx::query(
                 "INSERT INTO chapter_batch_items
                    (user_id,command_key,position,purchase_id)

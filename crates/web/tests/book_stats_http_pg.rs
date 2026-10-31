@@ -10,7 +10,7 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
-use tor_reading::repositories::PgReader;
+use tor_reading::repositories::{PgChapterThanks, PgReader, ThanksMutation};
 use tower::ServiceExt;
 
 fn pg(url: &str, statement: &str) -> String {
@@ -134,6 +134,13 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
         ),
     );
 
+    // The browser report reads only stored, confirmed thanks.
+    let thanks = PgChapterThanks::new(pool.clone());
+    assert_eq!(
+        thanks.thank_visible_free(owner, chapter).await.unwrap(),
+        ThanksMutation::Added
+    );
+
     // HEAD probes must never count as chapter opens.
     let reader_path = format!("/reader/{chapter}");
     let head = app
@@ -183,6 +190,10 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert_eq!(ok.headers()[header::CACHE_CONTROL], "no-store");
     let html = body(ok).await;
     assert!(html.contains("Статистика книги"));
+    assert!(html.contains("Благодарностей: 1"));
+    assert!(html.contains("<th>Спасибо</th>"));
+    assert!(html.contains("Топ 5 глав по благодарностям"));
+    assert!(html.contains("«Спасибо»: 1"));
     assert!(html.contains("=2+3 Stats"));
     let csv = get(&app, &csv_path, Some(&owner_token)).await;
     assert_eq!(csv.status(), StatusCode::OK);
@@ -190,6 +201,16 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     let data = body(csv).await;
     assert!(data.contains("\"'=2+3 Stats\""), "formula must not execute");
     assert!(data.contains("book,0,"));
+    assert!(data.contains("gross_minor,completed,thanks"));
+    assert!(data
+        .lines()
+        .any(|line| line.starts_with("book,0,") && line.ends_with(",1")));
+    assert!(data
+        .lines()
+        .any(|line| line.starts_with("chapter,1,") && line.ends_with(",1")));
+    assert!(data
+        .lines()
+        .any(|line| line.starts_with("daily,0,") && line.ends_with(",1")));
     let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later.status(), StatusCode::OK);
     let later_html = body(later).await;
