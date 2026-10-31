@@ -5,8 +5,8 @@ use crate::domain::cover::CoverError;
 use crate::services::cover_jobs::CoverObjectStore;
 use async_trait::async_trait;
 use aws_sdk_s3::{presigning::PresigningConfig, primitives::ByteStream, Client};
-use std::time::Duration;
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 
 #[derive(Clone)]
@@ -32,9 +32,20 @@ impl S3CoverStore {
         let local_test = origin.starts_with("http://127.0.0.1:")
             || origin.starts_with("http://localhost:");
         let secure = origin.starts_with("https://");
-        let host_part = if secure { &origin[8..] } else if local_test { &origin[7..] } else { "" };
-        if host_part.is_empty() || host_part.contains('/') || host_part.contains('@')
-            || host_part.contains('?') || host_part.contains('#') || origin.ends_with('/') {
+        let host_part = if secure {
+            &origin[8..]
+        } else if local_test {
+            &origin[7..]
+        } else {
+            ""
+        };
+        if host_part.is_empty()
+            || host_part.contains('/')
+            || host_part.contains('@')
+            || host_part.contains('?')
+            || host_part.contains('#')
+            || origin.ends_with('/')
+        {
             return Err(CoverError::Invalid);
         }
         self.direct_origin = Some(origin);
@@ -64,15 +75,21 @@ impl CoverObjectStore for S3CoverStore {
 
     async fn presign_variant_get(&self, key: &str, ttl: Duration) -> Result<String, CoverError> {
         let origin = self.direct_origin.as_deref().ok_or(CoverError::Forbidden)?;
-        if !key.starts_with("staging/covers/variants/") || !Self::permitted(key)
-            || ttl.as_secs() == 0 || ttl.as_secs() > 120
+        if !key.starts_with("staging/covers/variants/")
+            || !Self::permitted(key)
+            || ttl.as_secs() == 0
+            || ttl.as_secs() > 120
         {
             return Err(CoverError::Invalid);
         }
-        let signed = self.client.get_object()
-            .bucket(&self.private_bucket).key(key)
+        let signed = self
+            .client
+            .get_object()
+            .bucket(&self.private_bucket)
+            .key(key)
             .presigned(PresigningConfig::expires_in(ttl).map_err(|_| CoverError::Invalid)?)
-            .await.map_err(|_| CoverError::Unavailable)?;
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
         let url = signed.uri().to_string();
         if !url.starts_with(&format!("{origin}/")) {
             return Err(CoverError::Unavailable);
