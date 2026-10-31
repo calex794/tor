@@ -170,6 +170,15 @@ async fn d_s035_batch_exactly_once_and_historic_receipts() {
     assert_eq!(paid.total.get(), 300);
     assert_eq!(paid.balance_after.get(), 700);
     assert_eq!(paid.purchases.len(), 2);
+    let tracked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_purchase_facts
+         WHERE user_id=$1 AND first_grant_tracking_version='c06-first-issue-v1'",
+    )
+    .bind(f.buyer)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(tracked, 2, "every batch purchase must track first paid grant");
     assert_eq!(paid.purchases[0].balance_after.get(), 900);
     assert_eq!(paid.purchases[1].balance_after.get(), 700);
     let again = store.checkout_batch_once(&quote).await.unwrap();
