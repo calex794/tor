@@ -27,6 +27,7 @@ mod catalog_http;
 mod chapter_import_assets;
 pub mod cover_delivery;
 mod cover_http;
+mod direct_cover_page;
 mod referral_book_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
@@ -68,6 +69,7 @@ struct AppState {
     paid_batch_browser_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
+    direct_cover_origin: Option<String>,
 }
 async fn health() -> &'static str {
     "ok"
@@ -490,6 +492,7 @@ fn make_router(
         .clone()
         .map(tor_search::api::router)
         .unwrap_or_default();
+    let direct_cover_origin = objects.as_ref().and_then(|store| store.direct_read_origin()).map(str::to_owned);
     let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
         cover_delivery::CoverDelivery::new(
             tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
@@ -504,6 +507,7 @@ fn make_router(
         paid_batch_browser_enabled: active_auth
             && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
         covers,
+        direct_cover_origin,
         follow_control,
     })
     .merge(api)
