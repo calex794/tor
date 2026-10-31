@@ -210,7 +210,11 @@ async fn d_07_expired_offer_is_not_applied_and_will_not_block_replacement() {
         checkout.quote_single(f.reader,f.book,f.chapter).await.unwrap().final_price_minor,75
     );
     // Bump only the disposable campaign's end time to simulate expiry.
-    sqlx::query("UPDATE author_discount_campaigns SET ends_at=now()-interval '1 second' WHERE id=$1")
+    sqlx::query(
+        "UPDATE author_discount_campaigns
+         SET starts_at=now()-interval '3 days',ends_at=now()-interval '1 second'
+         WHERE id=$1"
+    )
         .bind(id).execute(&f.pool).await.unwrap();
     assert_eq!(
         checkout.quote_single(f.reader,f.book,f.chapter).await.unwrap().final_price_minor,100
