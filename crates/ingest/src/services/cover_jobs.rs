@@ -44,11 +44,7 @@ pub trait CoverObjectStore: Send + Sync {
 
     /// Sign only a previously authorized public cover variant. No source uploads.
     /// This method must never read or return the object bytes through TOR.
-    async fn presign_variant_get(
-        &self,
-        _key: &str,
-        _ttl: Duration,
-    ) -> Result<String, CoverError> {
+    async fn presign_variant_get(&self, _key: &str, _ttl: Duration) -> Result<String, CoverError> {
         Err(CoverError::Forbidden)
     }
 
