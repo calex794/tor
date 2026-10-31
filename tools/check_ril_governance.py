@@ -201,7 +201,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         proof = mail_calls.get(entry["handler"], proof)
         if entry["source"] == "crates/web/src/auth/notifications.rs":
             proof = {
-                "page": {"list"}, "mark_one": {"mark_read"},
+                "page": {"list_section"}, "mark_one": {"mark_read"},
                 "mark_all": {"mark_all_read"},
             }.get(entry["handler"], proof)
         if not _contains_scoped_call(evidence, proof):

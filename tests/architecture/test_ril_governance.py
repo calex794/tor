@@ -305,8 +305,17 @@ class RilGovernanceTests(unittest.TestCase):
     def test_notification_feed_requires_verified_actor_scope(self):
         self.mutate(
             "crates/web/src/auth/notifications.rs",
+            "store.list_section(actor, query.before, 50, tab)",
+            "store.list_section(1, query.before, 50, tab)",
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_tabs_require_section_filtered_repository(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "store.list_section(actor, query.before, 50, tab)",
             "store.list(actor, query.before, 50)",
-            "store.list(1, query.before, 50)",
             start="pub(super) async fn page(",
         )
         self.assert_detected("missing actor-bound scoped repository call")
