@@ -83,7 +83,8 @@ impl PgNotifications {
                    AND e.required_consumers @> ARRAY['user_notifications']::text[]
                    AND e.event_type IN
                      ('social.mail.created','social.friendship.requested',
-                      'social.friendship.accepted','social.friendship.removed')
+                      'social.friendship.accepted','social.friendship.removed',
+                      'social.group_mail.created')
                    AND NOT EXISTS (
                      SELECT 1 FROM event_deliveries d
                      WHERE d.event_id=e.id AND d.consumer='user_notifications')
@@ -130,6 +131,28 @@ impl PgNotifications {
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(unavailable)?
+            } else if kind == "social.group_mail.created" {
+                // A departed member must not receive a delayed notification.
+                // FOR SHARE serializes projection against member exit, and the
+                // source message check binds this event to the actual sender.
+                let status: Option<String> = sqlx::query_scalar(
+                    "SELECT m.status FROM social_group_members m
+                     WHERE m.group_id=$1 AND m.user_id=$2
+                       AND EXISTS(
+                         SELECT 1 FROM social_group_messages msg
+                         JOIN outbox_events e ON e.id=$4::uuid
+                         WHERE msg.group_id=$1 AND msg.id=e.aggregate_id
+                           AND msg.sender_id=$3)
+                     FOR SHARE",
+                )
+                .bind(object_id)
+                .bind(recipient)
+                .bind(actor)
+                .bind(&event_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+                status.as_deref() == Some("active")
             } else {
                 object_id == actor
             };
@@ -151,6 +174,12 @@ impl PgNotifications {
                         "Новое сообщение",
                         format!("{name} написал вам"),
                         format!("/mail/{object_id}"),
+                    ),
+                    "social.group_mail.created" => (
+                        "mail",
+                        "Новое сообщение в группе",
+                        format!("{name} написал в группе"),
+                        format!("/mail/groups/{object_id}"),
                     ),
                     "social.friendship.requested" => (
                         "friendship",

@@ -182,6 +182,81 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     cleanup(&pool, &users).await;
 }
 
+/// Group notifications use the same user mail setting and durable outbox,
+/// without leaking messages to a nonmember, departed member or blocked peer.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_group_mail_notification_replay_membership_block_and_preference() {
+    let (pool, users) = fixture().await;
+    let (a, b, c) = (users[0], users[1], users[2]);
+    let groups = PgGroupMail::new(pool.clone());
+    let notifications = PgNotifications::new(pool.clone());
+    let blocks = MailService::new(PgMail::new(pool.clone()));
+    let id = groups.create(a, &[b, c], "Team notices").await.unwrap();
+
+    let first = groups.send(a, id, "Hello team", &key(461)).await.unwrap();
+    assert!(!first.replayed);
+    assert!(groups.send(a, id, "Hello team", &key(461)).await.unwrap().replayed);
+    let source_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='social.group_mail.created' AND aggregate_id=$1",
+    )
+    .bind(first.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(source_count, 2, "one durable event for each recipient");
+    for _ in 0..10 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    assert!(notifications.list(a, None, 50).await.unwrap().is_empty());
+    let for_b = notifications.list(b, None, 50).await.unwrap();
+    assert_eq!(for_b.len(), 1);
+    assert_eq!(for_b[0].kind, "mail");
+    assert_eq!(for_b[0].url, format!("/mail/groups/{id}"));
+    assert!(!for_b[0].body.contains("Hello team"));
+    assert_eq!(notifications.list(c, None, 50).await.unwrap().len(), 1);
+    assert_eq!(notifications.deliver_pending(100).await.unwrap(), 0);
+
+    // A recipient leaving before the consumer runs must not get the pending
+    // event, even though the message and immutable outbox fact survive.
+    let pre_leave = groups.send(a, id, "Before exit", &key(462)).await.unwrap();
+    groups.leave(c, id).await.unwrap();
+    let after_leave = groups.send(a, id, "After exit", &key(463)).await.unwrap();
+    let post_leave_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='social.group_mail.created' AND aggregate_id=$1",
+    )
+    .bind(after_leave.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(post_leave_events, 1);
+    assert_ne!(pre_leave.id, after_leave.id);
+    for _ in 0..10 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    assert_eq!(notifications.list(c, None, 50).await.unwrap().len(), 1);
+    assert_eq!(notifications.list(b, None, 50).await.unwrap().len(), 3);
+
+    // A later block suppresses delivery, independently of message storage.
+    blocks.set_block(b, a, true).await.unwrap();
+    groups.send(a, id, "Blocked notice", &key(464)).await.unwrap();
+    notifications.deliver_pending(100).await.unwrap();
+    assert_eq!(notifications.list(b, None, 50).await.unwrap().len(), 3);
+
+    blocks.set_block(b, a, false).await.unwrap();
+    notifications.set_preferences(b, &[]).await.unwrap();
+    groups.send(a, id, "Muted notice", &key(465)).await.unwrap();
+    notifications.deliver_pending(100).await.unwrap();
+    assert_eq!(notifications.list(b, None, 50).await.unwrap().len(), 3);
+    cleanup(&pool, &users).await;
+}
+
 /// This reuses the exact member-row lock taken by send and leave. A queued
 /// sender cannot insert after a membership revocation commits.
 #[tokio::test]

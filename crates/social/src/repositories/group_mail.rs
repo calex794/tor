@@ -1,5 +1,6 @@
 //! E-08/S057 group-mail storage, isolated from immutable direct-mail pairs.
-//! No public route yet: group membership and actor access must be proven first.
+//! All writes and membership checks are actor-scoped; public pages live in web.
+use super::notification_events::{self, NotificationEvent};
 use crate::domain::{clean_body, valid_key, MailError, SentMessage};
 use sqlx::PgPool;
 
@@ -292,6 +293,35 @@ impl PgGroupMail {
         .fetch_one(&mut *tx)
         .await
         .map_err(missing_or_unavailable)?;
+        // Every active recipient receives a separate immutable source event.
+        // Keep it in the message transaction: retries return above and cannot
+        // duplicate notifications, even across processes or worker restarts.
+        let recipients: Vec<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM social_group_members
+             WHERE group_id=$1 AND user_id<>$2 AND status='active'
+             ORDER BY user_id",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        for recipient in recipients {
+            let dedupe_key = format!("tor-social:group-message:{id}:recipient:{recipient}");
+            notification_events::queue(
+                &mut tx,
+                NotificationEvent {
+                    event_type: "social.group_mail.created",
+                    aggregate_kind: "social_group_message",
+                    aggregate_id: id,
+                    actor,
+                    recipient,
+                    object_id: group_id,
+                    dedupe_key: Some(&dedupe_key),
+                },
+            )
+            .await?;
+        }
         tx.commit().await.map_err(unavailable)?;
         Ok(SentMessage {
             id,
