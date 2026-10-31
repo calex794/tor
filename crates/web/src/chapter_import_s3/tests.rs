@@ -6,7 +6,7 @@ use aws_sdk_s3::{
 };
 use sha2::{Digest, Sha256};
 use std::{process::Command, time::{SystemTime, UNIX_EPOCH}};
-use tor_books::services::chapter_import_jobs::{
+use tor_imports::services::{
     ChapterImportObjectStore, ChapterImportStoreError,
 };
 
