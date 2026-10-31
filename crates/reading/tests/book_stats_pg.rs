@@ -66,19 +66,31 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     .unwrap();
     let thanks = PgChapterThanks::new(pool.clone());
     assert_eq!(
-        thanks.thank_visible_free(user, chapter_ids[0]).await.unwrap(),
+        thanks
+            .thank_visible_free(user, chapter_ids[0])
+            .await
+            .unwrap(),
         ThanksMutation::Added
     );
     assert_eq!(
-        thanks.thank_visible_free(user, chapter_ids[0]).await.unwrap(),
+        thanks
+            .thank_visible_free(user, chapter_ids[0])
+            .await
+            .unwrap(),
         ThanksMutation::Repeated
     );
     assert_eq!(
-        thanks.thank_visible_free(second_user, chapter_ids[0]).await.unwrap(),
+        thanks
+            .thank_visible_free(second_user, chapter_ids[0])
+            .await
+            .unwrap(),
         ThanksMutation::Added
     );
     assert_eq!(
-        thanks.thank_visible_free(user, chapter_ids[1]).await.unwrap(),
+        thanks
+            .thank_visible_free(user, chapter_ids[1])
+            .await
+            .unwrap(),
         ThanksMutation::Added
     );
     let repo = PgBookStats::new(pool.clone());
