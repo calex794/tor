@@ -2,10 +2,14 @@
 use crate::domain::money::CheckoutError;
 use sqlx::{Postgres, Row, Transaction};
 
+/// V1 uses integer-kopek arithmetic with the discount rounded down.
+pub(super) const DISCOUNT_RULE_VERSION: i16 = 1;
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(super) struct DiscountApplied {
     pub campaign_id: i64,
     pub campaign_revision: i32,
+    pub rule_version: i16,
     pub follow_period_id: i64,
     pub base_price_minor: i64,
     pub discount_minor: i64,
@@ -93,6 +97,7 @@ pub(super) async fn eligible_discount(
     Ok(Some(DiscountApplied {
         campaign_id,
         campaign_revision: revision,
+        rule_version: DISCOUNT_RULE_VERSION,
         follow_period_id: period
             .try_get("id")
             .map_err(|_| CheckoutError::Unavailable)?,
