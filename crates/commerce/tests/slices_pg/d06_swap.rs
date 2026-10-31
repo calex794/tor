@@ -4,7 +4,7 @@ use tor_commerce::repositories::{
     swap_intent::DirectSwapIntent,
 };
 
-async fn swap_fixture(tag: &str, target_price: i64) -> (PgPool, DirectSwapIntent, i64, i64) {
+pub(super) async fn swap_fixture(tag: &str, target_price: i64) -> (PgPool, DirectSwapIntent, i64, i64) {
     let (pool, buyer, source_book, chapter, version) = fixture(tag, 1000, 300).await;
     let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
         .bind(source_book)
