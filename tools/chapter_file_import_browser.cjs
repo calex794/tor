@@ -90,7 +90,7 @@ function makeDocxXml(xml) {
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
         const id = page.url().split('/').pop();
-        const importLink = page.getByRole('link', { name: 'Импорт глав из TXT/MD' });
+        const importLink = page.getByRole('link', { name: 'Импорт глав из файла' });
         assert(await importLink.isVisible(), name + ': import action missing from draft');
         await importLink.click();
         await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
@@ -243,7 +243,7 @@ function makeDocxXml(xml) {
         await context.close();
       }
     }
-    console.log('TOR H-09 chapter TXT import browser PASS: desktop/mobile, preview, confirm, private drafts');
+    console.log('TOR H-09 chapter TXT/MD/DOCX/ZIP import browser PASS: desktop/mobile, preview, confirm, private drafts');
   } finally {
     await browser.close();
   }
