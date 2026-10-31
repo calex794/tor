@@ -72,22 +72,32 @@ pub(super) async fn page(
         "<section class=\"section\"><div class=\"container\"><h1>Статистика книги: {}</h1>\
          <p>Открытия глав: {} · Анонимные: {} · Авторизованные: {} · Уникальные \
          зарегистрированные читатели: {} · Повторные открытия: {}</p>\
-         <p>Покупки: {} · Оборот прямых покупок: {} ₽ · Завершено глав: {}</p>\
+         <p>Покупки: {} · Оборот прямых покупок: {} ₽ · Завершено глав: {} · Благодарностей: {}</p>\
+         <p>Закладок: {} · Отметок «Нравится»: {} · Оценка произведения: {} (голосов: {}) · Оценка перевода: {} (голосов: {})</p>\
          <p>Открытие страницы не доказывает прочтение. Авторские выплаты и комиссия здесь не рассчитаны.</p>\
          <p>Скачивание CSV соответствует выбранной странице глав.</p>\
          <h2>Главы</h2><table><thead><tr><th>Глава</th><th>Открытия</th>\
          <th>Уникальные зарегистрированные</th><th>Повторы</th><th>Покупки</th>\
-         <th>Оборот, ₽</th><th>Завершения</th></tr></thead><tbody>",
+         <th>Оборот, ₽</th><th>Завершения</th><th>Спасибо</th></tr></thead><tbody>",
         pages::escape_html(&data.title), data.opens, data.anonymous_opens,
         data.authenticated_opens, data.unique_registered, data.repeat_authenticated,
-        data.purchases, money(data.purchase_minor), data.completed,
+        data.purchases, money(data.purchase_minor), data.completed, data.thanks,
+        data.bookmarks, data.likes,
+        data.work_rating
+            .average()
+            .unwrap_or_else(|| "нет оценок".to_owned()),
+        data.work_rating.votes,
+        data.translation_rating
+            .average()
+            .unwrap_or_else(|| "нет оценок".to_owned()),
+        data.translation_rating.votes,
     );
     use std::fmt::Write;
     for row in &data.chapters {
         let _ = write!(
             body,
             "<tr><td>{}. {}</td><td>{}</td><td>{}</td>\
-            <td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             row.number,
             pages::escape_html(&row.title),
             row.opens,
@@ -95,7 +105,8 @@ pub(super) async fn page(
             row.repeat_authenticated,
             row.purchases,
             money(row.purchase_minor),
-            row.completed
+            row.completed,
+            row.thanks
         );
     }
     body.push_str("</tbody></table>");
@@ -118,18 +129,19 @@ pub(super) async fn page(
     body.push_str(
         "<h2>Динамика за 30 дней</h2><table><thead><tr><th>День (UTC)</th>\
         <th>Открытия</th><th>Первые открытия глав</th><th>Покупки</th>\
-        <th>Оборот, ₽</th></tr></thead><tbody>",
+        <th>Оборот, ₽</th><th>Спасибо</th></tr></thead><tbody>",
     );
     for row in &data.daily {
         let _ = write!(
             body,
             "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td>\
-            <td>{}</td></tr>",
+            <td>{}</td><td>{}</td></tr>",
             row.day,
             row.opens,
             row.unique_first,
             row.purchases,
-            money(row.purchase_minor)
+            money(row.purchase_minor),
+            row.thanks
         );
     }
     body.push_str("</tbody></table><h2>Топ 5 глав по открытиям</h2><ol>");
@@ -147,6 +159,16 @@ pub(super) async fn page(
         let _ = write!(
             body,
             "<li>Глава {}. {} — {} покупок</li>",
+            chapter.number,
+            pages::escape_html(&chapter.title),
+            chapter.count
+        );
+    }
+    body.push_str("</ol><h2>Топ 5 глав по благодарностям</h2><ol>");
+    for chapter in &data.top_by_thanks {
+        let _ = write!(
+            body,
+            "<li>Глава {}. {} — «Спасибо»: {}</li>",
             chapter.number,
             pages::escape_html(&chapter.title),
             chapter.count
@@ -183,11 +205,12 @@ pub(super) async fn export(
         Ok(data) => data,
         Err(response) => return *response,
     };
-    let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed\n");
+    // Book-level bookmark and ratings columns are blank for chapter/daily rows.
+    let mut csv = String::from("section,chapter_no,title,opens,anonymous,unique_registered,repeats,purchases,gross_minor,completed,thanks,bookmarks,work_rating_avg,work_rating_votes,translation_rating_avg,translation_rating_votes,likes\n");
     use std::fmt::Write;
     let _ = writeln!(
         csv,
-        "book,0,{},{},{},{},{},{},{},{}",
+        "book,0,{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         csv_cell(&data.title),
         data.opens,
         data.anonymous_opens,
@@ -195,12 +218,19 @@ pub(super) async fn export(
         data.repeat_authenticated,
         data.purchases,
         data.purchase_minor,
-        data.completed
+        data.completed,
+        data.thanks,
+        data.bookmarks,
+        data.work_rating.average().unwrap_or_default(),
+        data.work_rating.votes,
+        data.translation_rating.average().unwrap_or_default(),
+        data.translation_rating.votes,
+        data.likes
     );
     for row in &data.chapters {
         let _ = writeln!(
             csv,
-            "chapter,{},{},{},{},{},{},{},{},{}",
+            "chapter,{},{},{},{},{},{},{},{},{},{},,,,,,",
             row.number,
             csv_cell(&row.title),
             row.opens,
@@ -209,18 +239,20 @@ pub(super) async fn export(
             row.repeat_authenticated,
             row.purchases,
             row.purchase_minor,
-            row.completed
+            row.completed,
+            row.thanks
         );
     }
     for day in &data.daily {
         let _ = writeln!(
             csv,
-            "daily,0,{},{},0,{},0,{},{},0",
+            "daily,0,{},{},0,{},0,{},{},0,{},,,,,,",
             csv_cell(&day.day),
             day.opens,
             day.unique_first,
             day.purchases,
-            day.purchase_minor
+            day.purchase_minor,
+            day.thanks
         );
     }
     let mut response = private_response(Html(csv), &[]);

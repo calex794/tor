@@ -11,9 +11,9 @@
     },
     {
       "method": "GET",
-      "template": "/",
+      "template": "/api/v1/books/{id}/toc",
       "source": "crates/web/src/lib.rs",
-      "handler": "homepage",
+      "handler": "book_toc",
       "policy": "public"
     },
     {
@@ -25,24 +25,10 @@
     },
     {
       "method": "GET",
-      "template": "/api/v1/books/{id}/toc",
-      "source": "crates/web/src/lib.rs",
-      "handler": "book_toc",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
       "template": "/api/v1/chapters/{id}/read",
       "source": "crates/web/src/lib.rs",
       "handler": "denied_reader_api",
       "policy": "deny"
-    },
-    {
-      "method": "GET",
-      "template": "/api/v1/me",
-      "source": "crates/web/src/auth/settings_routes.rs",
-      "handler": "profile_http::api_get",
-      "policy": "session"
     },
     {
       "method": "GET",
@@ -60,13 +46,6 @@
     },
     {
       "method": "GET",
-      "template": "/api/v1/me/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail_api::get",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
       "template": "/api/v1/me/progress/free",
       "source": "crates/web/src/auth.rs",
       "handler": "sync_actions::get_free",
@@ -74,16 +53,16 @@
     },
     {
       "method": "GET",
-      "template": "/api/v1/me/progress/purchased",
+      "template": "/api/v1/me/progress/purchased/complete",
       "source": "crates/web/src/auth.rs",
-      "handler": "sync_actions::get_purchased",
+      "handler": "paid_completion::get",
       "policy": "scoped"
     },
     {
       "method": "GET",
-      "template": "/api/v1/me/progress/purchased/complete",
+      "template": "/api/v1/me/progress/purchased",
       "source": "crates/web/src/auth.rs",
-      "handler": "paid_completion::get",
+      "handler": "sync_actions::get_purchased",
       "policy": "scoped"
     },
     {
@@ -98,6 +77,13 @@
       "template": "/api/v1/me/referrals",
       "source": "crates/web/src/auth/referral_routes.rs",
       "handler": "referral_dashboard::api_get",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "profile_http::api_get",
       "policy": "session"
     },
     {
@@ -133,13 +119,6 @@
       "template": "/assets/brand/pandaolate-header.png",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::brand_logo",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
-      "template": "/assets/mail.js",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::script",
       "policy": "public"
     },
     {
@@ -186,17 +165,17 @@
     },
     {
       "method": "GET",
-      "template": "/books/{id}",
-      "source": "crates/web/src/lib.rs",
-      "handler": "book_detail",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
       "template": "/books/{id}/comments",
       "source": "crates/web/src/auth.rs",
       "handler": "book_comments::page",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/stats/export.csv",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stats_http::export",
+      "policy": "scoped"
     },
     {
       "method": "GET",
@@ -207,10 +186,10 @@
     },
     {
       "method": "GET",
-      "template": "/books/{id}/stats/export.csv",
-      "source": "crates/web/src/auth.rs",
-      "handler": "book_stats_http::export",
-      "policy": "scoped"
+      "template": "/books/{id}",
+      "source": "crates/web/src/lib.rs",
+      "handler": "book_detail",
+      "policy": "public"
     },
     {
       "method": "GET",
@@ -224,6 +203,13 @@
       "template": "/covers/{id}/{variant}",
       "source": "crates/web/src/lib.rs",
       "handler": "cover_http::cover_image",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/",
+      "source": "crates/web/src/lib.rs",
+      "handler": "homepage",
       "policy": "public"
     },
     {
@@ -260,41 +246,6 @@
       "source": "crates/web/src/lib.rs",
       "handler": "login",
       "policy": "public"
-    },
-    {
-      "method": "GET",
-      "template": "/mail",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::index",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::conversation",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/me",
-      "source": "crates/web/src/auth.rs",
-      "handler": "me",
-      "policy": "session"
-    },
-    {
-      "method": "GET",
-      "template": "/me/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "author_books",
-      "policy": "owner"
-    },
-    {
-      "method": "GET",
-      "template": "/me/books/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "author_book_page::page",
-      "policy": "owner"
     },
     {
       "method": "GET",
@@ -361,6 +312,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_book_page::page",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/new",
       "source": "crates/web/src/auth.rs",
       "handler": "new_author_book",
@@ -368,10 +326,10 @@
     },
     {
       "method": "GET",
-      "template": "/me/creators",
+      "template": "/me/books",
       "source": "crates/web/src/auth.rs",
-      "handler": "creator_follows::page",
-      "policy": "session"
+      "handler": "author_books",
+      "policy": "owner"
     },
     {
       "method": "GET",
@@ -382,17 +340,17 @@
     },
     {
       "method": "GET",
-      "template": "/me/library",
-      "source": "crates/web/src/auth.rs",
-      "handler": "library_page::my_library",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
       "template": "/me/library/add/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "library_actions::show_add",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library",
+      "source": "crates/web/src/auth.rs",
+      "handler": "library_page::my_library",
+      "policy": "scoped"
     },
     {
       "method": "GET",
@@ -431,6 +389,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/settings/password",
+      "source": "crates/web/src/auth.rs",
+      "handler": "password_change::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/me/settings",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "profile_http::page",
@@ -438,9 +403,9 @@
     },
     {
       "method": "GET",
-      "template": "/me/settings/password",
+      "template": "/me",
       "source": "crates/web/src/auth.rs",
-      "handler": "password_change::page",
+      "handler": "me",
       "policy": "session"
     },
     {
@@ -449,13 +414,6 @@
       "source": "crates/web/src/lib.rs",
       "handler": "observability::metrics_endpoint",
       "policy": "token"
-    },
-    {
-      "method": "GET",
-      "template": "/notifications",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "page",
-      "policy": "scoped"
     },
     {
       "method": "GET",
@@ -501,17 +459,17 @@
     },
     {
       "method": "GET",
-      "template": "/reader/{id}",
-      "source": "crates/web/src/lib.rs",
-      "handler": "reader_page",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
       "template": "/reader/{id}/thanks",
       "source": "crates/web/src/auth.rs",
       "handler": "chapter_thanks::page",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/reader/{id}",
+      "source": "crates/web/src/lib.rs",
+      "handler": "reader_page",
+      "policy": "public"
     },
     {
       "method": "GET",
@@ -542,13 +500,6 @@
       "policy": "public"
     },
     {
-      "method": "GET",
-      "template": "/users/{display_name}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "public_profile::page",
-      "policy": "public"
-    },
-    {
       "method": "PATCH",
       "template": "/api/v1/me",
       "source": "crates/web/src/auth/settings_routes.rs",
@@ -560,13 +511,6 @@
       "template": "/api/v1/me/library/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "library_actions::api_add",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/api/v1/me/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail_api::post",
       "policy": "scoped"
     },
     {
@@ -599,13 +543,6 @@
     },
     {
       "method": "POST",
-      "template": "/api/v1/me/referrals",
-      "source": "crates/web/src/auth/referral_routes.rs",
-      "handler": "referral_dashboard::api_create",
-      "policy": "session"
-    },
-    {
-      "method": "POST",
       "template": "/api/v1/me/referrals/alias",
       "source": "crates/web/src/auth/referral_routes.rs",
       "handler": "referral_alias::api_create",
@@ -613,9 +550,9 @@
     },
     {
       "method": "POST",
-      "template": "/api/v1/purchases",
-      "source": "crates/web/src/auth.rs",
-      "handler": "checkout::buy",
+      "template": "/api/v1/me/referrals",
+      "source": "crates/web/src/auth/referral_routes.rs",
+      "handler": "referral_dashboard::api_create",
       "policy": "session"
     },
     {
@@ -623,6 +560,13 @@
       "template": "/api/v1/purchases/batch",
       "source": "crates/web/src/auth.rs",
       "handler": "checkout::buy_batch",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/purchases",
+      "source": "crates/web/src/auth.rs",
+      "handler": "checkout::buy",
       "policy": "session"
     },
     {
@@ -669,27 +613,6 @@
     },
     {
       "method": "POST",
-      "template": "/mail/{id}/block",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::block",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/{id}/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::send",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/start/{recipient_user_id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::start",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
       "template": "/me/behavior",
       "source": "crates/web/src/auth.rs",
       "handler": "behavior_consent::set_behavior_consent",
@@ -697,24 +620,10 @@
     },
     {
       "method": "POST",
-      "template": "/me/books",
-      "source": "crates/web/src/auth.rs",
-      "handler": "create_book",
-      "policy": "owner"
-    },
-    {
-      "method": "POST",
       "template": "/me/books/{id}/buy-chapters",
       "source": "crates/web/src/auth.rs",
       "handler": "batch_checkout_browser::submit",
       "policy": "session"
-    },
-    {
-      "method": "POST",
-      "template": "/me/books/{id}/chapters",
-      "source": "crates/web/src/author_chapter_http.rs",
-      "handler": "create_chapter",
-      "policy": "owner"
     },
     {
       "method": "POST",
@@ -753,6 +662,13 @@
     },
     {
       "method": "POST",
+      "template": "/me/books/{id}/chapters",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "create_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/cover",
       "source": "crates/web/src/author_cover_http.rs",
       "handler": "upload_cover",
@@ -771,13 +687,6 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::follow",
       "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/me/books/{id}/follow-creator",
-      "source": "crates/web/src/auth.rs",
-      "handler": "book_follow_actions::follow_creator",
-      "policy": "session"
     },
     {
       "method": "POST",
@@ -802,10 +711,10 @@
     },
     {
       "method": "POST",
-      "template": "/me/creators/{id}/unfollow",
+      "template": "/me/books",
       "source": "crates/web/src/auth.rs",
-      "handler": "creator_follows::unfollow",
-      "policy": "session"
+      "handler": "create_book",
+      "policy": "owner"
     },
     {
       "method": "POST",
@@ -844,16 +753,16 @@
     },
     {
       "method": "POST",
-      "template": "/me/referrals",
+      "template": "/me/referrals/alias",
       "source": "crates/web/src/auth/referral_routes.rs",
-      "handler": "referral_dashboard::create",
+      "handler": "referral_alias::browser_create",
       "policy": "session"
     },
     {
       "method": "POST",
-      "template": "/me/referrals/alias",
+      "template": "/me/referrals",
       "source": "crates/web/src/auth/referral_routes.rs",
-      "handler": "referral_alias::browser_create",
+      "handler": "referral_dashboard::create",
       "policy": "session"
     },
     {
@@ -872,13 +781,6 @@
     },
     {
       "method": "POST",
-      "template": "/me/settings",
-      "source": "crates/web/src/auth/settings_routes.rs",
-      "handler": "profile_http::submit",
-      "policy": "session"
-    },
-    {
-      "method": "POST",
       "template": "/me/settings/password",
       "source": "crates/web/src/auth.rs",
       "handler": "password_change::submit",
@@ -886,23 +788,16 @@
     },
     {
       "method": "POST",
+      "template": "/me/settings",
+      "source": "crates/web/src/auth/settings_routes.rs",
+      "handler": "profile_http::submit",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
       "template": "/me/updates/{id}/read-state",
       "source": "crates/web/src/auth.rs",
       "handler": "follow_read_state::submit",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/notifications/{id}/read",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "mark_one",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/notifications/read-all",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "mark_all",
       "policy": "scoped"
     },
     {
@@ -948,6 +843,139 @@
       "policy": "recovery"
     },
     {
+      "method": "PUT",
+      "template": "/api/v1/me/progress/free",
+      "source": "crates/web/src/auth.rs",
+      "handler": "sync_actions::put_free",
+      "policy": "scoped"
+    },
+    {
+      "method": "PUT",
+      "template": "/api/v1/me/progress/purchased",
+      "source": "crates/web/src/auth.rs",
+      "handler": "sync_actions::put_purchased",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/creators",
+      "source": "crates/web/src/auth.rs",
+      "handler": "creator_follows::page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/creators/{id}/unfollow",
+      "source": "crates/web/src/auth.rs",
+      "handler": "creator_follows::unfollow",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/follow-creator",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_follow_actions::follow_creator",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::get",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mail.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/mail",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::index",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::conversation",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/notifications",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/users/{display_name}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "public_profile::page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::post",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/block",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::block",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/start/{recipient_user_id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::start",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/{id}/read",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_one",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/read-all",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_all",
+      "policy": "scoped"
+    },
+    {
       "method": "POST",
       "template": "/users/{target_user_id}/block",
       "source": "crates/web/src/auth.rs",
@@ -966,20 +994,6 @@
       "template": "/users/{target_user_id}/unfriend",
       "source": "crates/web/src/auth.rs",
       "handler": "friendship::remove",
-      "policy": "scoped"
-    },
-    {
-      "method": "PUT",
-      "template": "/api/v1/me/progress/free",
-      "source": "crates/web/src/auth.rs",
-      "handler": "sync_actions::put_free",
-      "policy": "scoped"
-    },
-    {
-      "method": "PUT",
-      "template": "/api/v1/me/progress/purchased",
-      "source": "crates/web/src/auth.rs",
-      "handler": "sync_actions::put_purchased",
       "policy": "scoped"
     }
   ]

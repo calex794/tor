@@ -16,6 +16,7 @@
   const csrfToken = document.getElementById('chapter-import-csrf').value;
   const commandKey = document.getElementById('chapter-import-command').value;
   let filename = '';
+  let archiveBase64 = '';
   let accepted = null;
   let requestSerial = 0;
 
@@ -49,6 +50,7 @@
     previewButton.disabled = true;
     textInput.value = '';
     filename = '';
+    archiveBase64 = '';
     const selected = fileInput.files && fileInput.files[0];
     if (!selected) {
       previewButton.disabled = true;
@@ -57,19 +59,38 @@
     }
     const lowName = selected.name.toLowerCase();
     if (selected.name.includes('/') || selected.name.includes('\\')
-      || !(lowName.endsWith('.txt') || lowName.endsWith('.md'))) {
+      || !(lowName.endsWith('.txt') || lowName.endsWith('.md')
+        || lowName.endsWith('.docx') || lowName.endsWith('.zip'))) {
       previewButton.disabled = true;
-      message('Разрешены только TXT и MD.');
+      message('Разрешены только TXT, MD, DOCX и ZIP.');
       return;
     }
-    if (selected.size > 700000) {
+    const isDocx = lowName.endsWith('.docx');
+    const isZip = lowName.endsWith('.zip');
+    const isArchive = isDocx || isZip;
+    if (selected.size > (isArchive ? 1250000 : 700000)) {
       previewButton.disabled = true;
-      message('Файл больше 700 КБ.');
+      message(isArchive ? 'Архив больше 1,25 МБ.' : 'Файл больше 700 КБ.');
       return;
     }
     const serial = requestSerial;
     try {
       const bytes = await selected.arrayBuffer();
+      if (isArchive) {
+        if (serial !== requestSerial) return;
+        // Encode a bounded file; no external JS or third-party upload service.
+        const data = new Uint8Array(bytes);
+        const blocks = [];
+        for (let offset = 0; offset < data.length; offset += 8192) {
+          blocks.push(String.fromCharCode(...data.subarray(offset, offset + 8192)));
+        }
+        archiveBase64 = btoa(blocks.join(''));
+        filename = selected.name;
+        previewButton.disabled = false;
+        message((isZip ? 'ZIP' : 'DOCX')
+          + ' прочитан. Проверьте главы, затем сможете исправить извлечённый текст.');
+        return;
+      }
       // A legacy code page is used only after explicit selection by the author.
       const decoded = new TextDecoder(encodingInput.value, { fatal: true }).decode(bytes);
       if (serial !== requestSerial) return;
@@ -108,6 +129,10 @@
     try {
       const data = await send('import-preview', {
         filename, text, csrf_token: csrfToken,
+        ...(archiveBase64 ? {
+          file_base64: archiveBase64,
+          archive_encoding: encodingInput.value,
+        } : {}),
       });
       if (serial !== requestSerial) return;
       const list = document.createDocumentFragment();
@@ -122,7 +147,14 @@
         list.append(item);
       }
       results.replaceChildren(list);
-      accepted = { filename, text, fingerprint: data.fingerprint };
+      if (archiveBase64) {
+        if (typeof data.extracted_text !== 'string') throw new Error('Нет текста архива');
+        // Reuse the canonical UTF-8 text import on confirmation and after edits.
+        textInput.value = data.extracted_text;
+        filename = filename.replace(/\.(docx|zip)$/i, '.txt');
+        archiveBase64 = '';
+      }
+      accepted = { filename, text: textInput.value, fingerprint: data.fingerprint };
       confirmButton.disabled = false;
       message('Найдено глав: ' + data.count
         + '. Все будут созданы в черновике одной операцией.');
