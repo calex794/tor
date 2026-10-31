@@ -113,7 +113,7 @@ pub fn router(
             "/me/books/{book_id}/chapters/import-jobs/{job_id}/cancel",
             post(cancel),
         )
-        .layer(DefaultBodyLimit::max(768 * 1024))
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state)
 }
 
