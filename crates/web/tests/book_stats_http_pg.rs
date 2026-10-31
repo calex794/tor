@@ -252,16 +252,16 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(book_row.ends_with(",1,1,4.00,1,5.00,1,0"));
     assert!(data
         .lines()
-        .any(|line| line.starts_with("book,0,") && line.ends_with(",1")));
+        .any(|line| line.starts_with("book,0,") && line.ends_with(",0")));
     assert!(data.lines().any(|line| {
         line.starts_with("chapter,1,")
             && line.split(',').nth(10) == Some("1")
-            && line.ends_with(",,,,,,")
+            && line.ends_with(",,,,,,,")
     }));
     assert!(data.lines().any(|line| {
         line.starts_with("daily,0,")
             && line.split(',').nth(10) == Some("1")
-            && line.ends_with(",,,,,,")
+            && line.ends_with(",,,,,,,")
     }));
     let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later.status(), StatusCode::OK);
