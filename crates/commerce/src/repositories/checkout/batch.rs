@@ -39,13 +39,21 @@ impl PgCheckout {
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
                AND NOT EXISTS (
-                   SELECT 1 FROM chapter_purchase_facts owned
+                   SELECT 1 FROM library_purchased_chapters owned
                    WHERE owned.user_id=$2 AND owned.chapter_id=c.id
+                     AND (
+                         NOT $3::BOOLEAN
+                         OR NOT EXISTS (
+                           SELECT 1 FROM finance_direct_refund_postings refund
+                           WHERE refund.purchase_id=owned.purchase_id
+                         )
+                     )
                )
              ORDER BY c.chapter_no,c.id LIMIT 101",
         )
         .bind(book_id)
         .bind(actor)
+        .bind(self.creator_posting_enabled)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| CheckoutError::Unavailable)?;
@@ -241,7 +249,16 @@ impl PgCheckout {
             if sum != 100 {
                 return Err(CheckoutError::Unavailable.into());
             }
-            books_and_revisions.push((book, revision));
+            let terms = if self.creator_posting_enabled {
+                Some(
+                    super::revenue::load_terms(&mut tx, book, revision, offer.expected_price.get())
+                        .await
+                        .map_err(BatchCheckoutError::from)?,
+                )
+            } else {
+                None
+            };
+            books_and_revisions.push((book, revision, terms));
         }
 
         let balance = sqlx::query_scalar::<_, i64>(
@@ -254,17 +271,28 @@ impl PgCheckout {
         .map_err(unavailable)?
         .unwrap_or(0);
         for offer in command.offers() {
-            let already_owned = sqlx::query_scalar::<_, i64>(
-                "SELECT purchase_id FROM library_purchased_chapters
-                 WHERE user_id=$1 AND chapter_id=$2",
+            let already_owned = sqlx::query(
+                "SELECT l.purchase_id,
+                        EXISTS (
+                            SELECT 1 FROM finance_direct_refund_postings refund
+                            WHERE refund.purchase_id=l.purchase_id
+                        ) AS settled_refund
+                 FROM library_purchased_chapters l
+                 WHERE l.user_id=$1 AND l.chapter_id=$2",
             )
             .bind(actor)
             .bind(offer.edition.chapter_id.get())
             .fetch_optional(&mut *tx)
             .await
             .map_err(unavailable)?;
-            if already_owned.is_some() {
-                return Err(CheckoutError::AlreadyOwned.into());
+            if let Some(row) = already_owned {
+                let refunded: bool = row.try_get("settled_refund").map_err(unavailable)?;
+                if !refunded {
+                    return Err(CheckoutError::AlreadyOwned.into());
+                }
+                if !self.creator_posting_enabled {
+                    return Err(CheckoutError::Unavailable.into());
+                }
             }
         }
         if balance < command.total().get() {
@@ -272,7 +300,7 @@ impl PgCheckout {
         }
 
         let mut purchases: Vec<PurchaseReceipt> = Vec::with_capacity(command.offers().len());
-        for (index, (offer, (book, revision))) in
+        for (index, (offer, (book, revision, terms))) in
             command.offers().iter().zip(books_and_revisions).enumerate()
         {
             let price = offer.expected_price.get();
@@ -296,14 +324,22 @@ impl PgCheckout {
             let version = offer.edition.version_id.get();
             let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO chapter_purchase_facts
-                   (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
-                 VALUES($1,$2,$3,$4,$5,'RUB') RETURNING id",
+                   (user_id,chapter_id,version_id,settlement_reference,amount_minor,
+                    currency,first_grant_tracking_version,
+                    refund_policy_version,refund_deadline_at)
+                 VALUES($1,$2,$3,$4,$5,'RUB','c06-first-issue-v1',$6,
+                        CASE WHEN $6::TEXT IS NULL THEN NULL
+                            ELSE transaction_timestamp() +
+                                 ($7::BIGINT * INTERVAL '1 second') END)
+                 RETURNING id",
             )
             .bind(actor)
             .bind(chapter)
             .bind(version)
             .bind(&journal_reference)
             .bind(price)
+            .bind(terms.as_ref().map(|t| t.refund_policy_version.as_str()))
+            .bind(terms.as_ref().map(|t| t.refund_window_seconds))
             .fetch_one(&mut *tx)
             .await
             .map_err(|error| {
@@ -356,6 +392,11 @@ impl PgCheckout {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
+            if let Some(terms) = &terms {
+                super::revenue::post_purchase(&mut tx, id, book, revision, terms)
+                    .await
+                    .map_err(BatchCheckoutError::from)?;
+            }
             sqlx::query(
                 "INSERT INTO chapter_batch_items
                    (user_id,command_key,position,purchase_id)

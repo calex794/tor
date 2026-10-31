@@ -182,6 +182,16 @@ pub fn book_detail_with_chapters_cover_stars_batch(
     )
 }
 
+/// Book likes are independent of ratings, chapter thanks and purchases.
+pub fn book_likes_strip(book_id: u64, count: i64) -> String {
+    format!(
+        "<section class=\"book-likes\" aria-label=\"Отметки «Нравится»\">\
+         <span>Нравится: {count}</span>\
+         <a class=\"text-link\" href=\"/books/{book_id}/like\">Отметить книгу</a>\
+         </section>"
+    )
+}
+
 fn book_star_strip(book_id: u64, stars: &tor_recommendations::repositories::BookStars) -> String {
     use tor_recommendations::repositories::StarTotal;
     fn value(score: StarTotal, kind: &str, label: &str) -> String {

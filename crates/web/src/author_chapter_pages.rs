@@ -173,7 +173,7 @@ pub fn detail_with_covers_with_demand_page(
         String::new()
     } else {
         format!(
-            "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/import\">Импорт глав из TXT/MD</a></p>",
+            "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/import\">Импорт глав из файла</a></p>",
             book.id
         )
     };
@@ -292,7 +292,7 @@ pub fn import_chapters(book_id: i64, csrf: &str, command_key: &str) -> Html<Stri
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
     layout(
-        "Импорт глав из TXT/MD",
+        "Импорт глав из файла",
         "Проверка файла и явное подтверждение без автоматической публикации.",
         &html,
     )

@@ -879,6 +879,20 @@
     },
     {
       "method": "GET",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{book_id}/buy-chapter/{chapter_id}",
       "source": "crates/web/src/auth.rs",
       "handler": "single_chapter_checkout::page",
