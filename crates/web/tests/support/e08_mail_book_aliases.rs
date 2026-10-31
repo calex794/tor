@@ -105,15 +105,13 @@ pub(super) async fn verify(
     )
     .await;
 
-    // Revoking active owner membership also revokes alias lookup. The old
-    // mail text survives, but no alias-derived private title is materialized.
+    // A live ACL change must revoke an already sent legacy preview.
+    // B-10 forbids deactivating an owner with current revenue shares, so
+    // exercise the Book moderation hold rather than bypassing that fence.
+    // The explicit alias mapping remains intact throughout this check.
     pg(
         db_url,
-        &format!(
-            "UPDATE book_members SET is_active=FALSE
-             WHERE book_id={private}
-               AND user_id=(SELECT owner_user_id FROM books WHERE id={private})"
-        ),
+        &format!("UPDATE books SET admin_hold=TRUE WHERE id={private}"),
     )
     .await;
     let own_poll = call(
