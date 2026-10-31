@@ -57,24 +57,20 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
             || (b == LikeMutation::Added && a == LikeMutation::AlreadyLiked)
     );
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
-    assert_eq!(
-        likes
-            .visible_summary(first, book)
-            .await
-            .unwrap()
-            .unwrap()
-            .liked,
-        true
-    );
-    assert_eq!(
-        likes
-            .visible_summary(second, book)
-            .await
-            .unwrap()
-            .unwrap()
-            .liked,
-        false
-    );
+    let first_liked = likes
+        .visible_summary(first, book)
+        .await
+        .unwrap()
+        .unwrap()
+        .liked;
+    assert!(first_liked);
+    let second_liked = likes
+        .visible_summary(second, book)
+        .await
+        .unwrap()
+        .unwrap()
+        .liked;
+    assert!(!second_liked);
 
     assert_eq!(
         likes.set_like(second, book, true).await.unwrap(),
