@@ -94,7 +94,9 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
         .expect("create unlisted disposable private bucket");
     let direct_origin = std::env::var("TOR_TEST_S3_ENDPOINT").unwrap();
     let store = S3CoverStore::new(client.clone(), BUCKET.to_owned())
-        .unwrap().with_direct_origin(direct_origin.clone()).unwrap();
+        .unwrap()
+        .with_direct_origin(direct_origin.clone())
+        .unwrap();
 
     let png = source_png();
     let hash = digest(&png);
@@ -188,13 +190,26 @@ async fn obs09_private_s3_postgres_worker_http_and_tamper_denial() {
     assert_eq!(direct.headers()["cache-control"], "no-store");
     let direct_body = to_bytes(direct.into_body(), 8192).await.unwrap();
     let grant: serde_json::Value = serde_json::from_slice(&direct_body).unwrap();
-    assert!(grant["url"].as_str().unwrap().starts_with(&format!("{direct_origin}/")));
+    assert!(grant["url"]
+        .as_str()
+        .unwrap()
+        .starts_with(&format!("{direct_origin}/")));
     assert_eq!(grant["size_bytes"], card.size_bytes);
     assert_eq!(grant["sha256"].as_str().unwrap(), hex::encode(card.sha256));
     assert!(direct_body.len() < 8192);
     assert!(!direct_body.starts_with(b"RIFF"));
-    assert_eq!(request(&app, "/api/v1/covers/951/card.webp/direct-grant").await.status(), StatusCode::NOT_FOUND);
-    assert_eq!(request(&app, "/api/v1/covers/950/source.webp/direct-grant").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        request(&app, "/api/v1/covers/951/card.webp/direct-grant")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&app, "/api/v1/covers/950/source.webp/direct-grant")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
 
     let response = request(&app, "/covers/950/card.webp").await;
     assert_eq!(response.status(), StatusCode::OK);
