@@ -21,6 +21,7 @@ pub struct BookRecommendationSettings {
     pub title: String,
     pub audience: String,
     pub revision: i64,
+    pub reviewed: bool,
     pub related: Vec<i64>,
 }
 #[derive(Clone)]
@@ -56,7 +57,7 @@ impl PgRecommendationPolicy {
         if book <= 0 {
             return Err(RecommendationPolicyError::Invalid);
         }
-        let row=sqlx::query("SELECT b.title,COALESCE(a.audience,'unreviewed') AS audience,COALESCE(a.revision,0) AS revision FROM books b LEFT JOIN book_recommendation_audiences a ON a.book_id=b.id WHERE b.id=$1 AND (b.owner_user_id=$2 OR $3) AND NOT b.is_deleted")
+        let row=sqlx::query("SELECT b.title,COALESCE(a.audience,'unreviewed') AS audience,COALESCE(a.revision,0) AS revision,(review.reviewer_user_id IS NOT NULL AND review.reviewed_revision=a.revision) AS reviewed FROM books b LEFT JOIN book_recommendation_audiences a ON a.book_id=b.id LEFT JOIN rec_general_audience_approvals review ON review.book_id=b.id WHERE b.id=$1 AND (b.owner_user_id=$2 OR $3) AND NOT b.is_deleted")
             .bind(book).bind(actor.actor.user_id.get()).bind(actor.administrator).fetch_optional(&self.pool).await?.ok_or(RecommendationPolicyError::NotFound)?;
         let related=sqlx::query_scalar("SELECT r.related_book_id FROM book_recommendation_relations r JOIN rec_public_books b ON b.id=r.related_book_id WHERE r.book_id=$1 ORDER BY r.related_book_id LIMIT 10")
             .bind(book).fetch_all(&self.pool).await?;
@@ -65,6 +66,7 @@ impl PgRecommendationPolicy {
             title: row.try_get("title")?,
             audience: row.try_get("audience")?,
             revision: row.try_get("revision")?,
+            reviewed: row.try_get("reviewed")?,
             related,
         })
     }
@@ -116,6 +118,15 @@ impl PgRecommendationPolicy {
         }
         sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience,revision) VALUES($1,$2,$3) ON CONFLICT(book_id) DO UPDATE SET audience=EXCLUDED.audience,revision=EXCLUDED.revision,updated_at=now()")
             .bind(book).bind(audience).bind(expected+1).execute(&mut *tx).await?;
+        // Every edit invalidates the earlier approval; only an A-verified
+        // administrator can confirm general eligibility at the new CAS revision.
+        sqlx::query("DELETE FROM rec_general_audience_approvals WHERE book_id=$1")
+            .bind(book).execute(&mut *tx).await?;
+        if actor.administrator && audience == "general" {
+            sqlx::query("INSERT INTO rec_general_audience_approvals(book_id,reviewed_revision,reviewer_user_id) VALUES($1,$2,$3)")
+                .bind(book).bind(expected+1).bind(actor.actor.user_id.get())
+                .execute(&mut *tx).await?;
+        }
         sqlx::query("DELETE FROM book_recommendation_relations WHERE book_id=$1")
             .bind(book)
             .execute(&mut *tx)

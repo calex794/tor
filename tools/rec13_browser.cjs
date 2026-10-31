@@ -60,6 +60,13 @@ async function register(page, email) {
     page.on('pageerror',error=>errors.push(error.message));
     await register(page,email);
     const user=scalar(`SELECT id FROM users WHERE email_normalized='${email}'`);
+    // The fixture explicitly grants synthetic moderator review in disposable PG.
+    // Author-provided 'general' without a review must never enter the feed.
+    assert.equal(scalar(`SELECT count(*) FROM rec_public_books WHERE id IN(${books.join(',')})`),0);
+    for (const eligibleBook of books) {
+      sql(`INSERT INTO rec_general_audience_approvals(book_id,reviewed_revision,reviewer_user_id) SELECT book_id,revision,${user} FROM book_recommendation_audiences WHERE book_id=${eligibleBook}`);
+    }
+    assert.equal(scalar(`SELECT count(*) FROM rec_public_books WHERE id IN(${books.join(',')})`),books.length);
     await page.goto(base+'/me/recommendations');
     const checkbox=page.getByRole('checkbox');
     assert.equal(await checkbox.isChecked(),false);

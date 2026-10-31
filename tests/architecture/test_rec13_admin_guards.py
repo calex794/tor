@@ -30,6 +30,15 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertIn('recommendation administration policy downgraded',checker)
         self.assertIn('missing independent administrator role guard',checker)
 
+    def test_author_general_does_not_bypass_moderator_review(self):
+        migration = (ROOT / "migrations/202611010002_rec_general_review_gate.sql").read_text()
+        policy = (ROOT / "crates/books/src/repositories/recommendation_policy.rs").read_text()
+        self.assertIn("JOIN rec_general_audience_approvals review", migration)
+        self.assertIn("review.reviewed_revision=a.revision", migration)
+        self.assertIn("review.reviewer_user_id IS NOT NULL", migration)
+        self.assertIn('if actor.administrator && audience == "general"', policy)
+        self.assertIn("DELETE FROM rec_general_audience_approvals WHERE book_id=$1", policy)
+
     def test_reader_control_does_not_accept_browser_actor(self):
         text=(ROOT/'crates/web/src/recommendation_http/api.rs').read_text()
         for name in ('ImpressionBatch','Activation','FeedbackCommand'):

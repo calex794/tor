@@ -19,6 +19,8 @@ async fn setup() -> (PgPool, PgRecommendations, i64, Vec<i64>) {
         if index < 4 {
             sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general') ON CONFLICT(book_id) DO UPDATE SET audience='general'")
                 .bind(book).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO rec_general_audience_approvals(book_id,reviewed_revision,reviewer_user_id) SELECT book_id,revision,$2 FROM book_recommendation_audiences WHERE book_id=$1 ON CONFLICT(book_id) DO UPDATE SET reviewed_revision=EXCLUDED.reviewed_revision,reviewer_user_id=EXCLUDED.reviewer_user_id,reviewed_at=now()")
+                .bind(book).bind(actor).execute(&pool).await.unwrap();
         }
         books.push(book);
     }
