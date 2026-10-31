@@ -160,7 +160,7 @@ impl PgAuthoring {
         validate_batch(actor, book_id, command_key, chapters)?;
         let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
         let saved =
-            import_batch_in_transaction(&mut *tx, actor, book_id, command_key, chapters).await?;
+            import_batch_in_transaction(&mut tx, actor, book_id, command_key, chapters).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(saved)
     }
@@ -220,7 +220,7 @@ impl PgAuthoring {
         }
 
         let saved =
-            import_batch_in_transaction(&mut *tx, actor, book, &command_key, chapters).await?;
+            import_batch_in_transaction(&mut tx, actor, book, &command_key, chapters).await?;
         let updated = sqlx::query(
             "UPDATE chapter_import_jobs SET status='succeeded',locked_until=NULL,
                     saved_count=$3,last_error_code=NULL,updated_at=now(),finished_at=now()
