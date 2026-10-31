@@ -83,11 +83,13 @@ pub fn router(
     origin: String,
     storage: Arc<dyn ChapterImportObjectStore>,
 ) -> Router {
-    let authoring = PgAuthoring::new(accounts.pool().clone());
+    let pool = accounts.pool();
+    let authoring = PgAuthoring::new(pool.clone());
+    let jobs = PgImportJobs::new(pool);
     let state = QueueState {
         accounts,
         authoring,
-        jobs: PgImportJobs::new(accounts.pool().clone()),
+        jobs,
         cookies: CookiePolicy {
             secure,
             origin,
