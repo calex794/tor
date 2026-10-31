@@ -122,6 +122,8 @@ jobs:
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
+          TOR_COVER_S3_DIRECT_ORIGIN: http://127.0.0.1:9000
+          TOR_DIRECT_COVER_BROWSER: '1'
           TOR_COVER_WORKER_ENABLED: '1'
           TOR_AUTH_ENABLED: '1'
           TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
