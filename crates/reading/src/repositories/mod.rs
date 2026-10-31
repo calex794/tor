@@ -25,5 +25,9 @@ pub mod book_stats;
 
 pub mod book_likes;
 pub use book_likes::{LikeMutation, LikeSummary, PgBookLikes};
+pub mod book_engagement_integrity;
+pub use book_engagement_integrity::{
+    LikeIntegrityDecision, LikeRateSignals, PgBookEngagementIntegrity,
+};
 pub mod chapter_thanks;
 pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};

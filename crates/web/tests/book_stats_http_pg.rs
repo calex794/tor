@@ -149,7 +149,7 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     bookmarks.add_book(owner, book).await.unwrap();
     let likes = PgBookLikes::new(pool.clone());
     assert_eq!(
-        likes.set_like(owner, book, true).await.unwrap(),
+        likes.set_like(owner, book, true, true).await.unwrap(),
         LikeMutation::Added
     );
     // Ratings pass F-05's canonical completion requirement, not direct SQL.
@@ -223,6 +223,7 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(html.contains("Благодарностей: 1"));
     assert!(html.contains("Закладок: 1"));
     assert!(html.contains("Отметок «Нравится»: 1"));
+    assert!(html.contains("Неучтённых отметок: 0"));
     assert!(html.contains("Оценка произведения: 4.00 (голосов: 1)"));
     assert!(html.contains("Оценка перевода: 5.00 (голосов: 1)"));
     assert!(html.contains("<th>Спасибо</th>"));
@@ -237,30 +238,30 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(data.contains("book,0,"));
     assert!(data.contains("gross_minor,completed,thanks"));
     assert!(data.contains("thanks,bookmarks,work_rating_avg,work_rating_votes,"));
-    assert!(data.contains("translation_rating_avg,translation_rating_votes,likes"));
+    assert!(data.contains("translation_rating_avg,translation_rating_votes,likes,untrusted_likes"));
     // This fixture contains no commas in titles: every CSV row must have
-    // all 17 columns, even when chapter/day scores are intentionally blank.
+    // all 18 columns, even when chapter/day scores are intentionally blank.
     assert!(
-        data.lines().all(|line| line.split(',').count() == 17),
+        data.lines().all(|line| line.split(',').count() == 18),
         "book, chapter and day rows must agree with the CSV header"
     );
     let book_row = data
         .lines()
         .find(|line| line.starts_with("book,0,"))
         .unwrap();
-    assert!(book_row.ends_with(",1,1,4.00,1,5.00,1,1"));
+    assert!(book_row.ends_with(",1,1,4.00,1,5.00,1,0"));
     assert!(data
         .lines()
-        .any(|line| line.starts_with("book,0,") && line.ends_with(",1")));
+        .any(|line| line.starts_with("book,0,") && line.ends_with(",0")));
     assert!(data.lines().any(|line| {
         line.starts_with("chapter,1,")
             && line.split(',').nth(10) == Some("1")
-            && line.ends_with(",,,,,,")
+            && line.ends_with(",,,,,,,")
     }));
     assert!(data.lines().any(|line| {
         line.starts_with("daily,0,")
             && line.split(',').nth(10) == Some("1")
-            && line.ends_with(",,,,,,")
+            && line.ends_with(",,,,,,,")
     }));
     let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later.status(), StatusCode::OK);
