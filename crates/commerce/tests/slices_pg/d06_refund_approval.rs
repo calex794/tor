@@ -152,7 +152,7 @@ async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split(
         (300, 60, 240)
     );
     let reversed_creator: i64 = sqlx::query_scalar(
-        "SELECT SUM(amount_minor) FROM finance_direct_refund_creator_reversals
+        "SELECT COALESCE(SUM(amount_minor),0)::BIGINT FROM finance_direct_refund_creator_reversals
          WHERE purchase_id=$1",
     )
     .bind(f.purchase)
