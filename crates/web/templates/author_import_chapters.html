@@ -3,13 +3,13 @@
     <div class="auth-card author-chapter-card" id="chapter-import" data-book-id="<!--BOOK_ID-->">
       <p class="eyebrow">Кабинет автора · книга №<!--BOOK_ID--></p>
       <h1>Импорт глав из файла</h1>
-      <p>Поддерживаются TXT/MD в UTF-8 и Windows-1251, до 700 КБ после перевода в UTF-8 и 500 глав. Кодировку выбирает автор; неверно распознанный текст не сохраняется автоматически.</p>
+      <p>TXT/MD: UTF-8 и Windows-1251. DOCX: до 1,25 МБ исходного файла. После извлечения текста — до 700 КБ UTF-8 и 500 глав. Для DOCX распознаются обычные абзацы с явными заголовками «Глава 1: Название».</p>
       <p>Сначала посмотрите список и число глав. Только после подтверждения они будут <strong>атомарно записаны в черновик книги</strong>. Ничего не публикуется автоматически. Уже существующие главы не заменяются.</p>
       <input id="chapter-import-csrf" type="hidden" value="<!--CSRF_TOKEN-->">
       <input id="chapter-import-command" type="hidden" value="<!--COMMAND_KEY-->">
-      <label for="chapter-import-file">Выберите TXT или MD</label>
-      <input id="chapter-import-file" type="file" accept=".txt,.md,text/plain,text/markdown">
-      <label for="chapter-import-encoding">Кодировка файла</label>
+      <label for="chapter-import-file">Выберите TXT, MD или DOCX</label>
+      <input id="chapter-import-file" type="file" accept=".txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+      <label for="chapter-import-encoding">Кодировка TXT/MD (не применяется к DOCX)</label>
       <select id="chapter-import-encoding">
         <option value="utf-8">UTF-8</option>
         <option value="windows-1251">Windows-1251 (старые файлы)</option>

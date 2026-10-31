@@ -24,7 +24,7 @@ fn safe_path(name: &str) -> bool {
         && !name.contains('\\')
         && !name.contains('\0')
         && !(name.len() >= 2 && name.as_bytes()[1] == b':')
-        && name.split('/').all(|part| !matches!(part, "" | "." | ".."))
+        && name.trim_end_matches('/').split('/').all(|part| !matches!(part, "" | "." | ".."))
 }
 
 pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {

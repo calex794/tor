@@ -1,4 +1,4 @@
-//! Owner-only chapter TXT/Markdown import. Preview has no writes.
+//! Owner-only chapter TXT/Markdown/DOCX import. Preview has no writes.
 //! Confirm makes one all-or-nothing draft-book transaction via the B repository.
 use super::{deny, session_actor, AuthorChapterState};
 use crate::{auth_cookies::private_response, author_chapter_pages};
@@ -7,18 +7,22 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use tor_accounts::services::security::generate_session_token;
 use tor_books::services::{
     authoring::AuthorError,
     chapter_file_import::{fingerprint, parse_text, ImportError, ImportedChapter},
+    docx_import::{extract_docx_text, valid_docx_filename, MAX_DOCX_BYTES},
 };
 
 #[derive(Deserialize)]
 pub(super) struct ImportInput {
     filename: String,
     text: String,
+    #[serde(default)]
+    file_base64: Option<String>,
     csrf_token: String,
     #[serde(default)]
     command_key: Option<String>,
@@ -39,6 +43,8 @@ struct PreviewResponse {
     fingerprint: String,
     count: usize,
     chapters: Vec<ChapterPreview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extracted_text: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -50,6 +56,28 @@ struct ConfirmResponse {
 #[derive(Serialize)]
 struct ErrorResponse {
     error: &'static str,
+}
+
+/// A DOCX is decoded only on the authorized preview. Confirmation always
+/// re-parses extracted UTF-8 text under the existing book-bound fingerprint.
+fn preview_source(input: &ImportInput) -> Result<(Vec<ImportedChapter>, Option<String>), ImportError> {
+    if let Some(encoded) = input.file_base64.as_deref() {
+        if !input.text.is_empty() || !valid_docx_filename(&input.filename) {
+            return Err(ImportError::InvalidFilename);
+        }
+        if encoded.len() > MAX_DOCX_BYTES.div_ceil(3) * 4 {
+            return Err(ImportError::TooLarge);
+        }
+        let bytes = BASE64.decode(encoded).map_err(|_| ImportError::InvalidArchive)?;
+        let extracted = extract_docx_text(&bytes)?;
+        let chapters = parse_text("extracted.txt", &extracted)?;
+        Ok((chapters, Some(extracted)))
+    } else {
+        if valid_docx_filename(&input.filename) {
+            return Err(ImportError::InvalidArchive);
+        }
+        Ok((parse_text(&input.filename, &input.text)?, None))
+    }
 }
 
 fn digest_hex(book_id: i64, chapters: &[ImportedChapter]) -> String {
@@ -68,7 +96,7 @@ fn import_error(error: ImportError) -> Response {
     let (code, message) = match error {
         ImportError::InvalidFilename => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Поддерживаются только безопасные файлы TXT и MD.",
+            "Поддерживаются только безопасные файлы TXT, MD и DOCX.",
         ),
         ImportError::InvalidEncoding => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -77,6 +105,10 @@ fn import_error(error: ImportError) -> Response {
         ImportError::TooLarge | ImportError::TooManyChapters => (
             StatusCode::PAYLOAD_TOO_LARGE,
             "Файл, глава или количество глав превышают допустимый размер.",
+        ),
+        ImportError::InvalidArchive => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "DOCX повреждён или содержит недопустимые элементы.",
         ),
         ImportError::DuplicateNumber => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -180,7 +212,7 @@ pub(super) async fn preview(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let chapters = match parse_text(&input.filename, &input.text) {
+    let (chapters, extracted_text) = match preview_source(&input) {
         Ok(chapters) => chapters,
         Err(error) => return import_error(error),
     };
@@ -198,6 +230,7 @@ pub(super) async fn preview(
             fingerprint: digest_hex(id, &chapters),
             count: chapters.len(),
             chapters: preview,
+            extracted_text,
         }),
         &[],
     )
@@ -235,6 +268,9 @@ pub(super) async fn confirm(
         }
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    if input.file_base64.is_some() {
+        return fail(StatusCode::UNPROCESSABLE_ENTITY, "Сначала проверьте извлечённый текст DOCX.");
     }
     let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
         Ok(chapters) => chapters,
