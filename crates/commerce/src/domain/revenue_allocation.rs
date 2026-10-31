@@ -194,8 +194,7 @@ pub fn calculate_purchase_allocation(
         creators.push(CreatorAllocation {
             recipient_id: share.recipient_id,
             share_percent: share.share_percent,
-            amount_minor: MoneyMinor::new(amount)
-                .map_err(|_| RevenueAllocationError::Overflow)?,
+            amount_minor: MoneyMinor::new(amount).map_err(|_| RevenueAllocationError::Overflow)?,
         });
     }
     creators.sort_by_key(|line| line.recipient_id.get());
@@ -237,8 +236,8 @@ impl PurchaseAllocation {
         if !has_positive_earning {
             return Ok(Vec::new());
         }
-        let available_at_unix = refund_deadline_at_unix
-            .ok_or(RevenueAllocationError::MissingRefundDeadline)?;
+        let available_at_unix =
+            refund_deadline_at_unix.ok_or(RevenueAllocationError::MissingRefundDeadline)?;
         if available_at_unix <= 0 {
             return Err(RevenueAllocationError::InvalidRefundDeadline);
         }
