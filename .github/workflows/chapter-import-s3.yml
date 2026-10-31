@@ -1,20 +1,5 @@
 name: TOR chapter import private S3
 on:
-  pull_request:
-    paths:
-      - 'crates/books/src/services/chapter_import_jobs.rs'
-      - 'crates/web/src/chapter_import_s3.rs'
-      - 'crates/web/src/chapter_import_s3/**'
-      - 'crates/web/Cargo.toml'
-      - '.github/workflows/chapter-import-s3.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'crates/books/src/services/chapter_import_jobs.rs'
-      - 'crates/web/src/chapter_import_s3.rs'
-      - 'crates/web/src/chapter_import_s3/**'
-      - 'crates/web/Cargo.toml'
-      - '.github/workflows/chapter-import-s3.yml'
   workflow_dispatch:
 permissions:
   contents: read
