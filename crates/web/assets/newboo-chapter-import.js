@@ -281,8 +281,7 @@
         message('Импорт отменён. Главы не сохранены. Обновите страницу для нового задания.');
       } else {
         message('Задание уже завершилось или было отменено. Проверяю итог…');
-        const latest = await latestJob();
-        if (latest && latest.job_id) await watchJob(latest.job_id);
+        await watchJob(activeJob);
       }
     } catch (error) {
       message(error.message);
