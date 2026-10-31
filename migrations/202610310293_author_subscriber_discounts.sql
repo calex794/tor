@@ -6,7 +6,7 @@ CREATE TABLE author_discount_campaigns (
     book_id BIGINT NOT NULL REFERENCES books(id) ON DELETE RESTRICT,
     owner_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     discount_percent SMALLINT NOT NULL CHECK (discount_percent BETWEEN 1 AND 90),
-    min_follow_days SMALLINT NOT NULL CHECK (min_follow_days IN (0,90)),
+    min_follow_days SMALLINT NOT NULL CHECK (min_follow_days IN (0,30,90,180)),
     starts_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     ends_at TIMESTAMPTZ NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','stopped')),
@@ -47,6 +47,7 @@ ALTER TABLE chapter_purchase_commands
     ADD COLUMN expected_campaign_id BIGINT
         REFERENCES author_discount_campaigns(id) ON DELETE RESTRICT,
     ADD COLUMN expected_campaign_revision INTEGER,
+    ADD COLUMN expected_rule_version SMALLINT,
     ADD COLUMN expected_follow_period_id BIGINT
         REFERENCES creator_follow_periods(id) ON DELETE RESTRICT,
     ADD COLUMN expected_discount_percent SMALLINT,
@@ -66,6 +67,7 @@ ALTER TABLE chapter_purchase_commands
         CHECK (
             (expected_campaign_id IS NULL
              AND expected_campaign_revision IS NULL
+             AND expected_rule_version IS NULL
              AND expected_follow_period_id IS NULL
              AND expected_discount_percent IS NULL
              AND expected_min_follow_days IS NULL
@@ -74,11 +76,13 @@ ALTER TABLE chapter_purchase_commands
             (expected_campaign_id IS NOT NULL
              AND expected_campaign_revision IS NOT NULL
              AND expected_campaign_revision > 0
+             AND expected_rule_version IS NOT NULL
+             AND expected_rule_version > 0
              AND expected_follow_period_id IS NOT NULL
              AND expected_discount_percent IS NOT NULL
              AND expected_discount_percent BETWEEN 1 AND 90
              AND expected_min_follow_days IS NOT NULL
-             AND expected_min_follow_days IN (0,90)
+             AND expected_min_follow_days IN (0,30,90,180)
              AND expected_base_price_minor > expected_price_minor)
         );
 
@@ -88,12 +92,13 @@ CREATE TABLE chapter_purchase_discount_snapshots (
     purchase_id BIGINT PRIMARY KEY REFERENCES chapter_purchase_facts(id) ON DELETE RESTRICT,
     campaign_id BIGINT NOT NULL REFERENCES author_discount_campaigns(id) ON DELETE RESTRICT,
     campaign_revision INTEGER NOT NULL CHECK (campaign_revision > 0),
+    rule_version SMALLINT NOT NULL CHECK (rule_version > 0),
     follow_period_id BIGINT NOT NULL REFERENCES creator_follow_periods(id) ON DELETE RESTRICT,
     base_price_minor BIGINT NOT NULL CHECK (base_price_minor > 0),
     discount_minor BIGINT NOT NULL CHECK (discount_minor > 0),
     paid_minor BIGINT NOT NULL CHECK (paid_minor > 0),
     discount_percent SMALLINT NOT NULL CHECK (discount_percent BETWEEN 1 AND 90),
-    min_follow_days SMALLINT NOT NULL CHECK (min_follow_days IN (0,90)),
+    min_follow_days SMALLINT NOT NULL CHECK (min_follow_days IN (0,30,90,180)),
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     CHECK (base_price_minor = discount_minor + paid_minor)
 );
