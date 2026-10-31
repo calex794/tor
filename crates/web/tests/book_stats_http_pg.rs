@@ -250,7 +250,10 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
         .find(|line| line.starts_with("book,0,"))
         .unwrap();
     let book_columns: Vec<_> = book_row.split(',').collect();
-    assert_eq!(&book_columns[10..], &["1", "1", "4.00", "1", "5.00", "1", "1", "0"]);
+    assert_eq!(
+        &book_columns[10..],
+        &["1", "1", "4.00", "1", "5.00", "1", "1", "0"]
+    );
     assert!(data
         .lines()
         .any(|line| line.starts_with("book,0,") && line.ends_with(",0")));
