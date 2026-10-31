@@ -137,7 +137,7 @@ pub fn calculate_purchase_allocation(
             .ok_or(RevenueAllocationError::Overflow)?;
     }
     if total_share != 100 {
-        return Err(RevenueAllocationError::SharesMustSumToOneHundred);
+        return Err(RevenueAllocationError::SharesMustEqualOneHundred);
     }
 
     let gross = i128::from(gross_minor.get());
