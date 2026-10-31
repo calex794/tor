@@ -304,3 +304,103 @@ async fn d_06_refund_approval_and_first_grant_compete_under_purchase_lock() {
     }
     d06_approval_cleanup(f).await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
+    let f = d06_approval_fixture("d06_refund_failure_rollback", 86400).await;
+    let reference = format!("d06:refund:{}", f.purchase);
+    let mut tx = f.pool.begin().await.unwrap();
+    // Intentionally simulate a broken writer: buyer credit, revocation,
+    // platform reversal and terminal state, but OMIT creator reversal.
+    sqlx::query(
+        "UPDATE reader_wallet_accounts SET balance_minor=1000 WHERE user_id=$1",
+    )
+    .bind(f.buyer)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO reader_wallet_entries
+         (user_id,kind,delta_minor,balance_after_minor,reference,purchase_id)
+         VALUES($1,'chapter_refund',300,1000,$2,$3)",
+    )
+    .bind(f.buyer)
+    .bind(&reference)
+    .bind(f.purchase)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations
+         (purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(f.purchase)
+    .bind(&reference)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO finance_direct_refund_postings
+         (purchase_id,request_id,buyer_user_id,amount_minor,
+          platform_reversal_minor,creator_reversal_minor,reversal_reference)
+         VALUES($1,$2,$3,300,60,240,$4)",
+    )
+    .bind(f.purchase)
+    .bind(f.request)
+    .bind(f.buyer)
+    .bind(&reference)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE finance_direct_refund_requests
+         SET state='processing',revision=revision+1
+         WHERE id=$1",
+    )
+    .bind(f.request)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE finance_direct_refund_requests
+         SET state='approved',revision=revision+1,
+             decision_actor_id=$2,decision_reason='approved',
+             decision_reference=$3,decided_at=clock_timestamp()
+         WHERE id=$1",
+    )
+    .bind(f.request)
+    .bind(f.moderator)
+    .bind(&reference)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    assert!(tx.commit().await.is_err());
+
+    let (balance, refund_entries, revocations, postings): (i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT a.balance_minor,
+                    (SELECT count(*) FROM reader_wallet_entries e
+                     WHERE e.purchase_id=$2 AND e.kind='chapter_refund'),
+                    (SELECT count(*) FROM chapter_purchase_revocations v
+                     WHERE v.purchase_id=$2),
+                    (SELECT count(*) FROM finance_direct_refund_postings fp
+                     WHERE fp.purchase_id=$2)
+             FROM reader_wallet_accounts a WHERE a.user_id=$1",
+        )
+        .bind(f.buyer)
+        .bind(f.purchase)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!((balance, refund_entries, revocations, postings), (700, 0, 0, 0));
+    // The valid writer can retry after the failure without duplicate money.
+    let correct = PgDirectRefundApprovals::new(f.pool.clone())
+        .approve_once(f.moderator, f.request, 1, "approved")
+        .await
+        .unwrap();
+    assert_eq!(correct.credited_minor, 300);
+    assert!(!correct.replayed);
+    d06_approval_cleanup(f).await;
+}
