@@ -121,7 +121,7 @@ pub(crate) fn router(
             get(confirm_release).post(publish_chapter),
         )
         .route("/me/books/{id}/publish", post(publish_book))
-        .layer(DefaultBodyLimit::max(768 * 1024))
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     if let Some(images) = images {
         app.merge(images)
