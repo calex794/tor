@@ -858,8 +858,8 @@ jobs:
           cargo fmt --all -- --check
           cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
           cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
-          cargo test -p tor-web --features s3-chapter-import \
-            chapter_import_s3::tests::s023_private_source_put_get_conflict_and_delete \
+          cargo test -p tor-imports --features s3 \
+            repositories::s3::tests::s023_private_source_put_get_conflict_and_delete \
             -- --ignored --test-threads=1
       - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
         run: |
