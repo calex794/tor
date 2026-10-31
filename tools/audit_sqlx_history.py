@@ -139,6 +139,11 @@ def evaluate_history(local, database, applied):
             pending.append(version)
     max_installed = max(applied)
     older_pending = [version for version in pending if version < max_installed]
+    if older_pending:
+        blocked.append(
+            "Unapplied SQLx versions older than latest applied version: "
+            + ", ".join(older_pending)
+        )
     return {
         "database_name": database,
         "status": "BLOCK" if blocked else "NO_APPLIED_DRIFT_DETECTED",
@@ -147,8 +152,9 @@ def evaluate_history(local, database, applied):
         "out_of_order_pending": older_pending,
         "blockers": blocked,
         "notice": (
-            "Read-only snapshot; not a deploy approval. An unapplied older numeric "
-            "version requires the exact-base upgrade test before installation."
+            "Read-only snapshot; not a deploy approval. Unapplied migration "
+            "versions below the latest applied version BLOCK this audit and "
+            "require migration-owner compatibility review on an isolated restore."
         ),
     }
 
