@@ -71,8 +71,8 @@ impl CheckoutRepository for PgCheckout {
             "INSERT INTO chapter_purchase_commands
               (user_id, command_key, chapter_id, expected_version_id, expected_price_minor,
                expected_base_price_minor, expected_campaign_id, expected_campaign_revision,
-               expected_follow_period_id, expected_discount_percent, expected_min_follow_days)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+               expected_rule_version, expected_follow_period_id, expected_discount_percent, expected_min_follow_days)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
              ON CONFLICT (user_id, command_key) DO NOTHING RETURNING user_id",
         )
         .bind(actor)
@@ -83,6 +83,7 @@ impl CheckoutRepository for PgCheckout {
         .bind(base_price_expected)
         .bind(expected_discount.map(|offer| offer.campaign_id.get()))
         .bind(expected_discount.map(|offer| offer.campaign_revision))
+        .bind(expected_discount.map(|offer| offer.rule_version))
         .bind(expected_discount.map(|offer| offer.follow_period_id.get()))
         .bind(expected_discount.map(|offer| offer.discount_percent))
         .bind(expected_discount.map(|offer| offer.min_follow_days))
@@ -93,7 +94,7 @@ impl CheckoutRepository for PgCheckout {
         let prior = sqlx::query(
             "SELECT chapter_id, expected_version_id, expected_price_minor,
                     expected_base_price_minor, expected_campaign_id,
-                    expected_campaign_revision, expected_follow_period_id,
+                    expected_campaign_revision, expected_rule_version, expected_follow_period_id,
                     expected_discount_percent, expected_min_follow_days, purchase_id
              FROM chapter_purchase_commands
              WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
@@ -124,6 +125,10 @@ impl CheckoutRepository for PgCheckout {
                 .try_get::<Option<i32>, _>("expected_campaign_revision")
                 .map_err(unavailable)?
                 != expected_discount.map(|offer| offer.campaign_revision)
+            || prior
+                .try_get::<Option<i16>, _>("expected_rule_version")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.rule_version)
             || prior
                 .try_get::<Option<i64>, _>("expected_follow_period_id")
                 .map_err(unavailable)?
@@ -212,6 +217,7 @@ impl CheckoutRepository for PgCheckout {
                     && actual.paid_minor == price
                     && actual.campaign_id == expected.campaign_id.get()
                     && actual.campaign_revision == expected.campaign_revision
+                    && actual.rule_version == expected.rule_version
                     && actual.follow_period_id == expected.follow_period_id.get()
                     && actual.discount_percent == expected.discount_percent
                     && actual.min_follow_days == expected.min_follow_days
@@ -372,13 +378,14 @@ impl CheckoutRepository for PgCheckout {
         if let Some(discount) = discount {
             sqlx::query(
                 "INSERT INTO chapter_purchase_discount_snapshots
-                 (purchase_id,campaign_id,campaign_revision,follow_period_id,base_price_minor,
+                 (purchase_id,campaign_id,campaign_revision,rule_version,follow_period_id,base_price_minor,
                   discount_minor,paid_minor,discount_percent,min_follow_days)
-                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
             )
             .bind(purchase_id)
             .bind(discount.campaign_id)
             .bind(discount.campaign_revision)
+            .bind(discount.rule_version)
             .bind(discount.follow_period_id)
             .bind(discount.base_price_minor)
             .bind(discount.discount_minor)
