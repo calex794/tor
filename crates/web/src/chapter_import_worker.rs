@@ -194,7 +194,12 @@ pub fn start_chapter_import_worker_background(
                     | ChapterImportWorkerResult::Stale,
                 )) => {}
                 Ok(Err(_)) => {}
-                Err(_) => break,
+                Err(_) => {
+                    // The transaction may have committed or rolled back before
+                    // timeout cancellation. The job row is the source of truth;
+                    // wait briefly, then let its lease determine safe recovery.
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
             }
         }
     })
