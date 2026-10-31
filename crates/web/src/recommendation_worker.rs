@@ -15,14 +15,14 @@ pub fn spawn(store: PgRecommendations) -> Option<JoinHandle<()>> {
             if result.is_err() {
                 eprintln!("rec_feedback_worker: batch failed; retry deferred");
             }
-            if loops % 120 == 0 {
+            if loops.is_multiple_of(120) {
                 let _ = store.schedule_due_refresh().await;
             }
             if store.advance_generation().await.is_err() {
                 eprintln!("rec_generation_worker: build failed; previous active preserved");
             }
             loops = loops.wrapping_add(1);
-            if loops % 120 == 0 && store.prune().await.is_err() {
+            if loops.is_multiple_of(120) && store.prune().await.is_err() {
                 eprintln!("rec_feedback_worker: retention batch failed");
             }
             sleep(Duration::from_secs(5)).await;
