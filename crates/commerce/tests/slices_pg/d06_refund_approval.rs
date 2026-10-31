@@ -1,12 +1,12 @@
 use super::*;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tor_commerce::repositories::{
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
-    refund_approvals::{DirectRefundApproveError, PgDirectRefundApprovals},
+    refund_approvals::{
+        approval_step_up_payload_digest, DirectRefundApproveError, PgDirectRefundApprovals,
+    },
     refund_requests::PgDirectRefundRequests,
-};
-use tor_accounts::services::security::{
-    generate_session_token, hash_password, session_token_digest, verify_password_for_step_up,
 };
 use tor_contracts::paid_delivery::{DeliveryError, PositiveId};
 
@@ -98,45 +98,31 @@ pub(super) async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> Refu
 }
 
 
-async fn issue_refund_step_up(
-    f: &RefundFixture,
-    reason: &str,
-) -> ([u8; 32], String) {
-    const PASSWORD: &str = "RefundModeratorStepUp2026";
-    let password_hash = hash_password(PASSWORD).unwrap();
-    sqlx::query("UPDATE users SET password_hash=$1 WHERE id=$2")
-        .bind(&password_hash)
-        .bind(f.moderator)
-        .execute(&f.pool)
-        .await
-        .unwrap();
-
-    let session_token = generate_session_token();
-    let session_digest = session_token_digest(&session_token);
+async fn issue_refund_step_up(f: &RefundFixture, reason: &str) -> ([u8; 32], String) {
+    // D tests own the financial decision boundary only. A tests verify
+    // password re-authentication and session-bound proof issuance.
+    let session_digest: [u8; 32] =
+        Sha256::digest(format!("d06:approval:{}", f.moderator).as_bytes()).into();
+    let step_up_token = format!("{}8", "S".repeat(42));
+    let proof_hash = Sha256::digest(step_up_token.as_bytes());
+    let intent = approval_step_up_payload_digest(f.moderator, f.request, 1, reason);
     sqlx::query(
-        "INSERT INTO sessions(user_id,token_hash,expires_at)
-         VALUES($1,$2,clock_timestamp()+INTERVAL '1 hour')",
+        "INSERT INTO sessions(
+            user_id,token_hash,expires_at,step_up_proof_hash,step_up_scope,
+            step_up_resource_id,step_up_revision,step_up_payload_digest,
+            step_up_issued_at,step_up_expires_at)
+         VALUES($1,$2,statement_timestamp()+INTERVAL '1 hour',
+                $3,'finance.refund.approve.v1',$4,1,$5,
+                statement_timestamp(),statement_timestamp()+INTERVAL '5 minutes')",
     )
     .bind(f.moderator)
     .bind(session_digest.as_slice())
+    .bind(proof_hash.as_slice())
+    .bind(f.request)
+    .bind(intent.as_slice())
     .execute(&f.pool)
     .await
     .unwrap();
-
-    let verified = verify_password_for_step_up(PASSWORD, &password_hash).unwrap();
-    let step_up_token = generate_session_token();
-    PgDirectRefundApprovals::new(f.pool.clone())
-        .issue_step_up(
-            f.moderator,
-            &session_digest,
-            &verified,
-            f.request,
-            1,
-            reason,
-            &step_up_token,
-        )
-        .await
-        .unwrap();
     (session_digest, step_up_token)
 }
 
@@ -508,3 +494,74 @@ async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
     assert!(!correct.replayed);
     d06_approval_cleanup(f).await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_refund_step_up_is_bound_to_session_reason_and_expiry() {
+    let f = d06_approval_fixture("d06_step_up_guards", 86400).await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "confirmed").await;
+    let approvals = PgDirectRefundApprovals::new(f.pool.clone());
+
+    let foreign_session = [0_u8; 32];
+    assert_eq!(
+        approvals
+            .approve_once(
+                f.moderator,
+                &foreign_session,
+                &step_up_token,
+                f.request,
+                1,
+                "confirmed",
+            )
+            .await,
+        Err(DirectRefundApproveError::StepUpRequired)
+    );
+    assert_eq!(
+        approvals
+            .approve_once(
+                f.moderator,
+                &session_digest,
+                &step_up_token,
+                f.request,
+                1,
+                "different",
+            )
+            .await,
+        Err(DirectRefundApproveError::InvalidStepUp)
+    );
+    sqlx::query(
+        "UPDATE sessions SET step_up_expires_at=statement_timestamp()-INTERVAL '1 second'
+         WHERE token_hash=$1",
+    )
+    .bind(session_digest.as_slice())
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        approvals
+            .approve_once(
+                f.moderator,
+                &session_digest,
+                &step_up_token,
+                f.request,
+                1,
+                "confirmed",
+            )
+            .await,
+        Err(DirectRefundApproveError::InvalidStepUp)
+    );
+    let (balance, reversals): (i64, i64) = sqlx::query_as(
+        "SELECT a.balance_minor,
+                (SELECT count(*) FROM finance_direct_refund_postings
+                 WHERE purchase_id=$2)
+         FROM reader_wallet_accounts a WHERE a.user_id=$1",
+    )
+    .bind(f.buyer)
+    .bind(f.purchase)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!((balance, reversals), (700, 0));
+    d06_approval_cleanup(f).await;
+}
+
