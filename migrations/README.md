@@ -39,7 +39,7 @@ Migration `202610310191_creator_follow_release_feed.sql` extends the canonical f
 
 ## D-06: moderator step-up for direct refunds (2026-10-31)
 
-Migration `202610310292_d06_refund_admin_step_up.sql` adds a short-lived,
+Migration `202610310293_d06_refund_admin_step_up.sql` adds a short-lived,
 single-use, transaction-scoped proof to the existing opaque `sessions` row.
 The proof binds the active administrator session to the exact refund request,
 revision and normalized decision reason. A password-backed web handler must
