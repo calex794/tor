@@ -294,7 +294,20 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     )
     .parse()
     .unwrap();
-    assert_eq!(refused_events, 1);
+    // Requests may cross a UTC minute boundary; both minute buckets are
+    // valid, but no minute may contain duplicate refusal rows.
+    assert!((1..=2).contains(&refused_events));
+    let refused_minutes: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(DISTINCT hard_limit_minute)
+             FROM book_engagement_integrity_events
+             WHERE user_id={user_b} AND book_id={book} AND decision='throttle'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(refused_events, refused_minutes);
     let accepted_subject_bucket_updates: i64 = pg(
         &url,
         &format!(
