@@ -51,19 +51,30 @@ impl PgCheckout {
         .await
         .map_err(unavailable)?
         .ok_or(CheckoutError::Inaccessible)?;
-        let owned: bool = sqlx::query_scalar(
+        // Match the canonical checkout decision: an approved and settled
+        // refund allows a new purchase only with D-08 creator postings.
+        // The quote must never offer a checkout the real debit rejects.
+        let owned = sqlx::query(
             "SELECT EXISTS (
-                 SELECT 1 FROM library_purchased_chapters
-                 WHERE user_id=$1 AND chapter_id=$2
-             )",
+                SELECT 1 FROM finance_direct_refund_postings AS refund
+                WHERE refund.purchase_id=l.purchase_id
+             ) AS settled_refund
+             FROM library_purchased_chapters AS l
+             WHERE l.user_id=$1 AND l.chapter_id=$2",
         )
         .bind(actor)
         .bind(chapter_id)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
-        if owned {
-            return Err(CheckoutError::AlreadyOwned);
+        if let Some(owned) = owned {
+            let refunded: bool = owned.try_get("settled_refund").map_err(unavailable)?;
+            if !refunded {
+                return Err(CheckoutError::AlreadyOwned);
+            }
+            if !self.creator_posting_enabled {
+                return Err(CheckoutError::Unavailable);
+            }
         }
         let base: i64 = offer.try_get("price_amount").map_err(unavailable)?;
         let discount = eligible_discount(
