@@ -52,9 +52,7 @@ impl ChapterImportWorker {
         let expected_hash: [u8; 32] = match claim.source_sha256.as_slice().try_into() {
             Ok(value) => value,
             Err(_) => {
-                return self
-                    .terminal_failure(&claim, "invalid_source_hash")
-                    .await;
+                return self.terminal_failure(&claim, "invalid_source_hash").await;
             }
         };
         let bytes = match self
@@ -110,8 +108,7 @@ impl ChapterImportWorker {
                 Ok(ChapterImportWorkerResult::Completed)
             }
             Err(AuthorError::Unavailable) => {
-                self.retryable_failure(&claim, "database_unavailable")
-                    .await
+                self.retryable_failure(&claim, "database_unavailable").await
             }
             Err(AuthorError::Conflict) => {
                 // A current epoch with a chapter-number conflict becomes failed.
