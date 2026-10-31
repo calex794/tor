@@ -129,10 +129,7 @@ impl PgGroupMail {
         before: Option<i64>,
         limit: u16,
     ) -> Result<Vec<GroupConversation>, MailError> {
-        if actor <= 0
-            || before.is_some_and(|n| n <= 0)
-            || !(1..=50).contains(&limit)
-        {
+        if actor <= 0 || before.is_some_and(|n| n <= 0) || !(1..=50).contains(&limit) {
             return Err(MailError::Invalid);
         }
         let rows = sqlx::query_as::<_, (i64, String)>(

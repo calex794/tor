@@ -47,7 +47,10 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     let (a, b, outsider) = (users[0], users[1], users[2]);
     let groups = PgGroupMail::new(pool.clone());
 
-    assert_eq!(groups.create(a, &[], "Single").await, Err(MailError::Invalid));
+    assert_eq!(
+        groups.create(a, &[], "Single").await,
+        Err(MailError::Invalid)
+    );
     assert_eq!(groups.create(a, &[b], "  ").await, Err(MailError::Invalid));
     assert_eq!(
         groups.create(a, &[i64::MAX], "Missing").await,
@@ -81,7 +84,10 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     assert_eq!(groups.leave(outsider, id).await, Err(MailError::NotFound));
     assert_eq!(groups.leave(a, id).await, Err(MailError::Conflict));
 
-    let first = groups.send(a, id, "  Group hello  ", &key(401)).await.unwrap();
+    let first = groups
+        .send(a, id, "  Group hello  ", &key(401))
+        .await
+        .unwrap();
     assert!(!first.replayed);
     let replay = groups.send(a, id, "Group hello", &key(401)).await.unwrap();
     assert_eq!(replay.id, first.id);
@@ -90,25 +96,22 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
         groups.send(a, id, "different", &key(401)).await,
         Err(MailError::Conflict)
     );
-    let other = groups.create(a, &[outsider], "Another group").await.unwrap();
+    let other = groups
+        .create(a, &[outsider], "Another group")
+        .await
+        .unwrap();
     assert_eq!(
         groups.send(a, other, "Group hello", &key(401)).await,
         Err(MailError::Conflict),
         "command key must not replay into a different group"
     );
-    let second = groups
-        .send(b, id, "Message two", &key(402))
-        .await
-        .unwrap();
+    let second = groups.send(b, id, "Message two", &key(402)).await.unwrap();
     let messages = groups.messages(b, id, None, 50).await.unwrap();
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].id, first.id);
     assert_eq!(messages[1].id, second.id);
     assert_eq!(
-        groups.messages(b, id, Some(second.id), 1)
-            .await
-            .unwrap()[0]
-            .id,
+        groups.messages(b, id, Some(second.id), 1).await.unwrap()[0].id,
         first.id
     );
     let reopened = PgGroupMail::new(
@@ -188,9 +191,7 @@ async fn e_08_group_mail_send_cannot_race_member_exit() {
     .await
     .unwrap();
     assert_eq!(status, "active");
-    let pending = tokio::spawn(async move {
-        groups.send(b, id, "never deliver", &key(421)).await
-    });
+    let pending = tokio::spawn(async move { groups.send(b, id, "never deliver", &key(421)).await });
     sqlx::query(
         "UPDATE social_group_members SET status='left',left_at=clock_timestamp()
          WHERE group_id=$1 AND user_id=$2",
@@ -202,14 +203,16 @@ async fn e_08_group_mail_send_cannot_race_member_exit() {
     .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(pending.await.unwrap(), Err(MailError::NotFound));
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM social_group_messages WHERE group_id=$1",
-    )
-    .bind(id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(count, 0, "deferred sender cannot cross a member-exit boundary");
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM social_group_messages WHERE group_id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        count, 0,
+        "deferred sender cannot cross a member-exit boundary"
+    );
     cleanup(&pool, &users).await;
 }
 

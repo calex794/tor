@@ -45,7 +45,10 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
         ),
         ..Migrator::DEFAULT
     };
-    assert_eq!(MIGRATOR.migrations.len(), baseline.migrations.len() + E08_VERSIONS.len());
+    assert_eq!(
+        MIGRATOR.migrations.len(),
+        baseline.migrations.len() + E08_VERSIONS.len()
+    );
     assert_eq!(baseline.migrations.len(), 67);
     assert_eq!(
         baseline
