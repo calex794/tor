@@ -10,9 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::services::security::session_token_digest;
-use tor_reading::repositories::{
-    LikeMutation, PgBookEngagementIntegrity, PgBookLikes,
-};
+use tor_reading::repositories::{LikeMutation, PgBookEngagementIntegrity, PgBookLikes};
 
 #[derive(Default, Deserialize)]
 pub(super) struct LikeQuery {
