@@ -36,10 +36,10 @@ fn render(
 ) -> Html<String> {
     let title = pages::escape_html(title);
     let action = if let Some(active) = active {
-        let terms = if active.min_follow_days == 90 {
-            "подписчиков от 90 дней"
+        let terms = if active.min_follow_days == 0 {
+            "всех текущих подписчиков".to_owned()
         } else {
-            "всех текущих подписчиков"
+            format!("подписчиков от {} дней", active.min_follow_days)
         };
         format!(
             "<p role=\"status\">Действующая скидка: {}% для {terms}. До {} (UTC).</p>\
