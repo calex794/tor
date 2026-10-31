@@ -384,6 +384,12 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ));
 }
 
+/// Add a separately constructed route group to the same process-wide RIL
+/// recorder before merging it into the main application.
+pub fn instrument_additional_routes(router: Router) -> Router {
+    ril::instrument_additional(router)
+}
+
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
     ril::instrument(make_router(repo, None, None, false, None, None))
 }
