@@ -236,7 +236,8 @@ pub(super) async fn send(
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
             let enriched =
-                super::mail_book_previews::enrich(&state, actor, std::slice::from_ref(&message)).await;
+                super::mail_book_previews::enrich(&state, actor, std::slice::from_ref(&message))
+                    .await;
             let view = &enriched[0];
             let payload = serde_json::json!({"ok":true,"message":{
                 "id": message.id.to_string(), "sender_id":message.sender_id.to_string(),

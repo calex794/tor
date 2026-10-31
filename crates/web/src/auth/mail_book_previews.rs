@@ -201,7 +201,11 @@ fn project(
 }
 
 /// Called only after actor authentication and conversation membership checks.
-pub(super) async fn enrich(state: &AuthState, actor: i64, messages: &[Message]) -> Vec<PreviewedText> {
+pub(super) async fn enrich(
+    state: &AuthState,
+    actor: i64,
+    messages: &[Message],
+) -> Vec<PreviewedText> {
     let links: Vec<_> = messages.iter().map(|m| extract_links(&m.body)).collect();
     let mut ids = Vec::new();
     let mut seen = HashSet::new();
@@ -300,7 +304,13 @@ mod tests {
         let body = "  Prefix /books/12 \n";
         let mut titles = HashMap::new();
         titles.insert(12, "Public".to_owned());
-        let projected = project(body, &extract_links(body), &titles, &HashSet::new(), &HashMap::new());
+        let projected = project(
+            body,
+            &extract_links(body),
+            &titles,
+            &HashSet::new(),
+            &HashMap::new(),
+        );
         assert_eq!(projected.body_without_book_links, "  Prefix  \n");
     }
 
@@ -332,7 +342,13 @@ mod tests {
         let mut titles = HashMap::new();
         titles.insert(12, "<img onerror=alert(1)>".into());
         let covers = HashSet::from([12]);
-        let projected = project(body, &extract_links(body), &titles, &covers, &HashMap::new());
+        let projected = project(
+            body,
+            &extract_links(body),
+            &titles,
+            &covers,
+            &HashMap::new(),
+        );
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].url, "/books/12");
         assert_eq!(projected.book_previews[0].cover_url, "/covers/12/card.webp");

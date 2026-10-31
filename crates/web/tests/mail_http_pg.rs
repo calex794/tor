@@ -871,7 +871,10 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         public.to_string()
     );
     assert_eq!(
-        poll["messages"][0]["book_previews"].as_array().unwrap().len(),
+        poll["messages"][0]["book_previews"]
+            .as_array()
+            .unwrap()
+            .len(),
         1
     );
     assert!(!poll.to_string().contains("HIDDEN-NEVER-DISCLOSE"));
@@ -881,19 +884,9 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             .status(),
         StatusCode::NOT_FOUND
     );
-    pg(
-        &url,
-        &format!("DELETE FROM books WHERE id IN({public},{hidden},{held})"),
-    )
-    .await;
-    pg(
-        &url,
-        &format!(
-            "DELETE FROM users WHERE id IN({},{},{})",
-            users[0], users[1], users[2]
-        ),
-    )
-    .await;
+    // This test runs only against a disposable tor_ci database, which CI drops.
+    // Leave linked fixtures for database teardown: deleting books before their
+    // book_members ownership rows (or users before mail/role rows) violates FKs.
 }
 
 // Keep fixture SQL outside production web code. Never target a retained DB.
