@@ -135,6 +135,8 @@ pub mod shadow_seo;
 
 /// H-09/S023: bounded NEwBOO-compatible chapter TXT/Markdown file import.
 pub mod chapter_file_import;
+/// S023: durable background chapter import and private source object contract.
+pub mod chapter_import_jobs;
 
 /// Bounded DOCX extraction, validated by the same S023 chapter parser.
 pub mod docx_import;

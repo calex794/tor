@@ -74,6 +74,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         None
     };
+
+    // Chapter-import staging is a separate private S3 capability. It stores
+    // only the author's already-reviewed canonical UTF-8 text.
+    #[cfg(feature = "s3-chapter-import")]
+    let chapter_import_store: Option<
+        Arc<dyn tor_books::services::chapter_import_jobs::ChapterImportObjectStore>,
+    > = match env::var("TOR_CHAPTER_IMPORT_S3_BUCKET") {
+        Ok(bucket) => {
+            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+            let client = aws_sdk_s3::Client::new(&config);
+            let store = tor_web::chapter_import_s3::S3ChapterImportStore::new(client, bucket)
+                .map_err(|_| "Invalid TOR_CHAPTER_IMPORT_S3_BUCKET")?;
+            Some(Arc::new(store))
+        }
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    #[cfg(not(feature = "s3-chapter-import"))]
+    let chapter_import_store: Option<
+        Arc<dyn tor_books::services::chapter_import_jobs::ChapterImportObjectStore>,
+    > = {
+        if env::var_os("TOR_CHAPTER_IMPORT_S3_BUCKET").is_some() {
+            return Err(
+                "TOR_CHAPTER_IMPORT_S3_BUCKET requires a build with --features s3-chapter-import"
+                    .into(),
+            );
+        }
+        None
+    };
     // Explicit opt-in only. Never start image jobs in demo, without PostgreSQL,
     // without a compiled private S3 adapter, or on malformed configuration.
     let worker_setting = match env::var("TOR_COVER_WORKER_ENABLED") {
@@ -90,12 +119,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(enabled) => enabled,
         Err(reason) => return Err(reason.into()),
     };
+
+    let chapter_import_worker_setting = match env::var("TOR_CHAPTER_IMPORT_WORKER_ENABLED") {
+        Ok(setting) => Some(setting),
+        Err(env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let chapter_import_worker_enabled = match tor_web::chapter_import_worker::worker_opt_in(
+        chapter_import_worker_setting.as_deref(),
+        demo,
+        env::var_os("DATABASE_URL").is_some(),
+        env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1"),
+        chapter_import_store.is_some(),
+    ) {
+        Ok(enabled) => enabled,
+        Err(reason) => return Err(reason.into()),
+    };
     // Do not start jobs until the HTTP application and listener have passed
     // their own readiness checks. No second database pool is opened.
     let mut pending_cover_worker: Option<(
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
+    let mut pending_chapter_import_worker: Option<(
+        PgCatalog,
+        Arc<dyn tor_books::services::chapter_import_jobs::ChapterImportObjectStore>,
+    )> = None;
+    let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
@@ -149,6 +199,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                if chapter_import_worker_enabled {
+                    tor_books::repositories::postgres::PgAuthoring::new(pool.clone())
+                        .probe_chapter_import_jobs()
+                        .await
+                        .map_err(|_| "S023 chapter import migration is not applied")?;
+                    let storage = chapter_import_store
+                        .as_ref()
+                        .expect("validated chapter import S3 configuration")
+                        .clone();
+                    pending_chapter_import_worker = Some((catalog.clone(), storage.clone()));
+                    pending_chapter_import_routes = Some(
+                        tor_web::chapter_import_queue_http::router(
+                            accounts.clone(),
+                            secure,
+                            origin.clone(),
+                            storage,
+                        ),
+                    );
+                }
                 #[cfg(feature = "s3-paid")]
                 let (paid_storage, paid_author): (
                     Option<Arc<dyn PrivateObjectDeliveryPort>>,
@@ -267,6 +336,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Err(error) => return Err(error.into()),
     };
+    let app = if let Some(routes) = pending_chapter_import_routes {
+        app.merge(routes)
+    } else {
+        app
+    };
     let listener = tokio::net::TcpListener::bind(address).await?;
     // Exactly one bounded background task for this process. PostgreSQL's
     // SKIP LOCKED and lease_epoch fence competing processes and restarts.
@@ -278,6 +352,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    let _chapter_import_worker =
+        pending_chapter_import_worker.map(|(catalog, storage)| {
+            println!("TOR chapter import worker enabled");
+            tor_web::chapter_import_worker::start_chapter_import_worker_background(
+                catalog, storage,
+            )
+        });
     // C completion events remain durable if the server restarts.
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =
