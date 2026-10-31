@@ -1,7 +1,10 @@
 //! E-08: real group-mail forms on isolated PostgreSQL.
 use super::{call, pg, text, ORIGIN};
 use axum::http::{header, StatusCode};
-use std::{num::NonZeroU32, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -17,7 +20,10 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let pool = catalog.pool().clone();
     let accounts = PgAccounts::from_pool(pool.clone());
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let hash = hash_password("GroupMailTestingPassword2026").unwrap();
     let mut users = Vec::new();
     let mut cookies = Vec::new();
@@ -47,13 +53,20 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         ORIGIN.to_owned(),
     );
     assert_eq!(
-        call(&app, "GET", "/mail/groups", "", "", &[]).await.status(),
+        call(&app, "GET", "/mail/groups", "", "", &[])
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     let initial = call(&app, "GET", "/mail/groups", &cookies[0], "", &[]).await;
     assert_eq!(initial.status(), StatusCode::OK);
-    assert!(initial.headers()["content-security-policy"].to_str().unwrap().contains("script-src 'none'"));
-    assert!(text(initial).await.contains("Групповых переписок пока нет."));
+    assert!(initial.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .contains("script-src 'none'"));
+    assert!(text(initial)
+        .await
+        .contains("Групповых переписок пока нет."));
 
     for peer in [users[1], users[2]] {
         assert_eq!(
@@ -80,15 +93,16 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         users[1], users[2], tokens[0]
     );
     assert_eq!(
-        call(&app, "POST", "/mail/groups", &cookies[0], &form, &[("origin", "https://evil.invalid")])
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        call(&app, "POST", "/mail/groups", &cookies[0], &form.replace(&tokens[0], "forged"), &[])
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            "/mail/groups",
+            &cookies[0],
+            &form,
+            &[("origin", "https://evil.invalid")]
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -97,7 +111,23 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
             "POST",
             "/mail/groups",
             &cookies[0],
-            &format!("title=Bad&peer_one={}&peer_two={}&csrf_token={}", users[1], users[1], tokens[0]),
+            &form.replace(&tokens[0], "forged"),
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/mail/groups",
+            &cookies[0],
+            &format!(
+                "title=Bad&peer_one={}&peer_two={}&csrf_token={}",
+                users[1], users[1], tokens[0]
+            ),
             &[]
         )
         .await
@@ -106,19 +136,33 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
     let created = call(&app, "POST", "/mail/groups", &cookies[0], &form, &[]).await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
-    let path = created.headers()[header::LOCATION].to_str().unwrap().to_owned();
+    let path = created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
     assert!(path.starts_with("/mail/groups/"));
     let group_id: i64 = path.trim_start_matches("/mail/groups/").parse().unwrap();
     assert_eq!(
-        call(&app, "GET", &path, &cookies[3], "", &[]).await.status(),
+        call(&app, "GET", &path, &cookies[3], "", &[])
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(
-            &app, "POST", &format!("{path}/messages"), &cookies[3],
-            &format!("body=forged&command_key={}&csrf_token={}", generate_session_token(), tokens[3]), &[]
+            &app,
+            "POST",
+            &format!("{path}/messages"),
+            &cookies[3],
+            &format!(
+                "body=forged&command_key={}&csrf_token={}",
+                generate_session_token(),
+                tokens[3]
+            ),
+            &[]
         )
-        .await.status(),
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     let own_page = text(call(&app, "GET", &path, &cookies[0], "", &[]).await).await;
@@ -127,7 +171,12 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(own_page.contains("Создатель группы пока не может выйти"));
     let key = own_page
         .split("name=\"command_key\" value=\"")
-        .nth(1).unwrap().split('"').next().unwrap().to_owned();
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned();
     assert_eq!(key.len(), 43);
     let send = format!(
         "body=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&command_key={key}&csrf_token={}",
@@ -135,13 +184,25 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
     for _ in 0..2 {
         assert_eq!(
-            call(&app, "POST", &format!("{path}/messages"), &cookies[0], &send, &[])
-                .await.status(),
+            call(
+                &app,
+                "POST",
+                &format!("{path}/messages"),
+                &cookies[0],
+                &send,
+                &[]
+            )
+            .await
+            .status(),
             StatusCode::SEE_OTHER
         );
     }
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM social_group_messages WHERE group_id={group_id}")).await,
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_group_messages WHERE group_id={group_id}")
+        )
+        .await,
         "1"
     );
     let peer_page = text(call(&app, "GET", &path, &cookies[1], "", &[]).await).await;
@@ -150,31 +211,57 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(peer_page.contains("Выйти из группы"));
     assert_eq!(
         call(
-            &app, "POST", &format!("{path}/leave"), &cookies[1],
-            &format!("csrf_token={}", tokens[1]), &[]
-        ).await.status(),
+            &app,
+            "POST",
+            &format!("{path}/leave"),
+            &cookies[1],
+            &format!("csrf_token={}", tokens[1]),
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookies[1], "", &[]).await.status(),
+        call(&app, "GET", &path, &cookies[1], "", &[])
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(
-            &app, "POST", &format!("{path}/messages"), &cookies[1],
-            &format!("body=after&command_key={}&csrf_token={}", generate_session_token(), tokens[1]), &[]
-        ).await.status(),
+            &app,
+            "POST",
+            &format!("{path}/messages"),
+            &cookies[1],
+            &format!(
+                "body=after&command_key={}&csrf_token={}",
+                generate_session_token(),
+                tokens[1]
+            ),
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(
-            &app, "POST", &format!("{path}/leave"), &cookies[0],
-            &format!("csrf_token={}", tokens[0]), &[]
-        ).await.status(),
+            &app,
+            "POST",
+            &format!("{path}/leave"),
+            &cookies[0],
+            &format!("csrf_token={}", tokens[0]),
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
     assert_eq!(
-        call(&app, "GET", &path, &cookies[2], "", &[]).await.status(),
+        call(&app, "GET", &path, &cookies[2], "", &[])
+            .await
+            .status(),
         StatusCode::OK
     );
     // All fixtures live in tor_ci, which is discarded after this run.

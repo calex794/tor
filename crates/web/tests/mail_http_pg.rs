@@ -18,14 +18,14 @@ use tor_reading::repositories::PgReader;
 use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
+#[path = "support/e08_group_mail_http.rs"]
+mod group_mail_http;
 #[path = "support/e08_mail_book_aliases.rs"]
 mod mail_book_aliases;
 #[path = "support/e08_notification_open.rs"]
 mod notification_open;
 #[path = "support/e08_notification_preferences.rs"]
 mod notification_preferences;
-#[path = "support/e08_group_mail_http.rs"]
-mod group_mail_http;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(

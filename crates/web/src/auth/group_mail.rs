@@ -1,6 +1,9 @@
 //! E-08/S057 group mail browser pages, separate from direct mail and support.
 use super::{deny, session_user, AuthState};
-use crate::{auth_cookies::private_response, pages::{escape_html, layout}};
+use crate::{
+    auth_cookies::private_response,
+    pages::{escape_html, layout},
+};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -16,7 +19,9 @@ fn group_store(state: &AuthState) -> PgGroupMail {
 }
 
 async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {
-    session_user(state, headers).await?.ok_or(StatusCode::UNAUTHORIZED)
+    session_user(state, headers)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 
 fn csrf(state: &AuthState, headers: &HeaderMap, token: &str) -> Result<(), StatusCode> {
@@ -74,7 +79,11 @@ pub(super) struct LeaveForm {
     csrf_token: String,
 }
 
-fn render_index(rows: &[GroupConversation], contacts: &[(i64, String)], csrf: &str) -> Html<String> {
+fn render_index(
+    rows: &[GroupConversation],
+    contacts: &[(i64, String)],
+    csrf: &str,
+) -> Html<String> {
     let mut body = String::from(
         r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1></header><section class="me-section" aria-label="Групповые переписки">"#,
     );
@@ -241,7 +250,10 @@ pub(super) async fn create(
     if form.peer_one <= 0 || form.peer_two <= 0 || form.peer_one == form.peer_two {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    match group_store(&state).create(actor, &[form.peer_one, form.peer_two], &form.title).await {
+    match group_store(&state)
+        .create(actor, &[form.peer_one, form.peer_two], &form.title)
+        .await
+    {
         Ok(id) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
         Err(error) => deny(super::mail::status(error)),
     }
@@ -269,7 +281,13 @@ pub(super) async fn detail(
     };
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        render_detail(&group, &messages, &csrf_token, &generate_session_token(), actor),
+        render_detail(
+            &group,
+            &messages,
+            &csrf_token,
+            &generate_session_token(),
+            actor,
+        ),
         &cookies,
     );
     secure(&mut response);
@@ -289,7 +307,10 @@ pub(super) async fn send(
     if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
         return deny(status);
     }
-    match group_store(&state).send(actor, id, &form.body, &form.command_key).await {
+    match group_store(&state)
+        .send(actor, id, &form.body, &form.command_key)
+        .await
+    {
         Ok(_) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
         Err(error) => deny(super::mail::status(error)),
     }

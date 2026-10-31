@@ -41,7 +41,6 @@ use tor_reading::{
 };
 mod access_audit;
 mod auth_observation;
-/// Count dropped diagnostics; this never changes authentication decisions.
 pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
 }
@@ -112,7 +111,6 @@ pub(crate) fn router_with_cover_uploads(
     router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
 
-/// Enable purchased-library navigation only when an authorized reader is mounted.
 pub(crate) fn router_with_paid_reader(
     accounts: PgAccounts,
     reader: PgReader,
@@ -131,8 +129,6 @@ pub(crate) fn router_with_paid_reader(
     )
 }
 
-/// Only the private, explicitly enabled paid-author router provides a writer.
-/// The existing grant-only constructor never changes author capabilities.
 pub(crate) fn router_with_paid_reader_author(
     accounts: PgAccounts,
     reader: PgReader,
@@ -246,11 +242,17 @@ fn router_inner(
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
-        .route("/mail/groups", get(group_mail::index).post(group_mail::create))
+        .route(
+            "/mail/groups",
+            get(group_mail::index).post(group_mail::create),
+        )
         .route("/mail/groups/{id}", get(group_mail::detail))
         .route("/mail/groups/{id}/messages", post(group_mail::send))
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
-        .route("/api/v1/me/messages", get(mail_api::get).post(mail_api::post))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
         .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",
@@ -333,7 +335,10 @@ fn router_inner(
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
-        .route("/me/books/{id}/description", get(book_description::edit).post(book_description::save))
+        .route(
+            "/me/books/{id}/description",
+            get(book_description::edit).post(book_description::save),
+        )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
@@ -396,7 +401,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     )
 }
 
-/// Browser author workspace backed by the current PostgreSQL user session.
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
@@ -416,7 +420,6 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
         Err(status) => return deny(status),
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    // Each form gets a unique cryptographic command key for safe POST replay.
     let command_key = generate_session_token();
     private_response(author_pages::new_book(&csrf, &command_key), &cookies)
 }
@@ -438,8 +441,6 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    // Manual authorship does not invoke collectors or trust client-supplied IDs.
-    // The source identity is stable across retries of this exact form.
     let identity = format!("manual:{actor}:{}", form.command_key);
     let request = match new_book_with_taxonomy(
         &identity,
@@ -468,7 +469,6 @@ async fn create_book(
     }
 }
 
-/// NEwBOO owner cover settings, restricted script; no inline scripts.
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
@@ -520,7 +520,6 @@ async fn cover_settings(
     response
 }
 
-/// Manual place save checks session, Origin, CSRF, published version and visibility.
 async fn save_place(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
