@@ -77,7 +77,7 @@ impl PgAccounts {
         sqlx::query("SELECT id FROM users LIMIT 0")
             .execute(&self.pool)
             .await?;
-        sqlx::query("SELECT token_hash, session_id FROM sessions LIMIT 0")
+        sqlx::query("SELECT token_hash, session_id, step_up_proof_hash, step_up_scope FROM sessions LIMIT 0")
             .execute(&self.pool)
             .await?;
         sqlx::query("SELECT session_id FROM account_login_events LIMIT 0")
