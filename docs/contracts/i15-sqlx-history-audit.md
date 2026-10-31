@@ -26,9 +26,15 @@ intended integration SHA**, and store the report in the organization's
 approved private audit storage:
 
 \`\`\`sh
+# PRIVATE_SQLX_DIR must be an approved local, operator-owned private path.
+# The command refuses a directory readable by others or an existing CSV.
+umask 077
+mkdir -p -m 700 "$PRIVATE_SQLX_DIR"
 PGSERVICE=tor_readonly_prod_a \
   python3 tools/audit_sqlx_history.py inventory --from-psql \
-  --migrations migrations > audit-tor-prod-a.json
+  --migrations migrations \
+  --save-raw-csv "$PRIVATE_SQLX_DIR/tor-prod-a-ledger.csv" \
+  > "$PRIVATE_SQLX_DIR/tor-prod-a-summary.json"
 \`\`\`
 
 The command executes **one fixed SQL \`COPY (SELECT ...) TO STDOUT\`**
@@ -36,6 +42,18 @@ through \`psql -X\`, with \`default_transaction_read_only=on\`,
 statement timeout and no SQL parameters from user input. It neither
 applies nor repairs migrations. Keep the database role SELECT-only,
 even though the command also enforces read-only transaction defaults.
+
+The optional \`--save-raw-csv\` is supported **only with \`--from-psql\`**.
+It preserves the complete original five-column SQLx ledger, including
+all SHA-384 checksums, in a *new* mode-0600 file inside an operator-owned
+mode-0700 directory. It refuses to overwrite an existing file, follow
+a final-component symlink, or save incomplete/malformed CSV. The JSON
+summary still goes to stdout; **never** post either artifact or a
+database connection string to GitHub, CI logs, chat, or a public Notion page.
+The operator must store them in approved private storage and repeat the
+command separately for every retained, standby, and restore-capable DB.
+A \`BLOCK\` still writes the original ledger for private investigation;
+an incomplete inventory does not create a misleading evidence file.
 
 Alternatively export the same five fields with CSV headers
 (\`database_name,version,description,checksum_sha384_hex,success\`)
