@@ -55,6 +55,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
+mod book_likes;
 mod book_stats_http;
 mod chapter_thanks;
 mod checkout;
@@ -250,6 +251,7 @@ fn router_inner(
             post(follow_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
+        .route("/books/{id}/like", get(book_likes::page).post(book_likes::submit))
         .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
