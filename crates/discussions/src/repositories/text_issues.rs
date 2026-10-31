@@ -76,6 +76,8 @@ impl PgTextIssues {
         chapter_id: i64,
         version_id: i64,
         block_index: i32,
+        selection_start: i32,
+        selection_end: i32,
         quote: &str,
         suggestion: &str,
         issue_type: &str,
@@ -84,6 +86,9 @@ impl PgTextIssues {
             || chapter_id <= 0
             || version_id <= 0
             || !(1..=200).contains(&block_index)
+            || selection_start < 0
+            || selection_end <= selection_start
+            || selection_end > 100_000
             || !bounded(quote, 1, 500)
             || !bounded(suggestion, 1, 1000)
             || !ISSUE_TYPES.contains(&issue_type)
@@ -115,19 +120,16 @@ impl PgTextIssues {
         else {
             return Err(IssueError::Invalid);
         };
-        // The browser only proposes a quote. The server resolves the canonical
-        // UTF-16 anchor against the immutable source and rejects ambiguities.
-        let mut occurrences = block.match_indices(quote);
-        let Some((byte_start, _)) = occurrences.next() else {
-            return Err(IssueError::Invalid);
-        };
-        if occurrences.next().is_some() {
+        // The browser proposes UTF-16 offsets and a quote. Server checks both
+        // against the exact immutable edition, including repeated text and emoji.
+        let units = block.encode_utf16().collect::<Vec<_>>();
+        let start = usize::try_from(selection_start).map_err(|_| IssueError::Invalid)?;
+        let end = usize::try_from(selection_end).map_err(|_| IssueError::Invalid)?;
+        let actual = units.get(start..end).ok_or(IssueError::Invalid)?;
+        let actual = String::from_utf16(actual).map_err(|_| IssueError::Invalid)?;
+        if actual != quote {
             return Err(IssueError::Invalid);
         }
-        let start = i32::try_from(block[..byte_start].encode_utf16().count())
-            .map_err(|_| IssueError::Invalid)?;
-        let end = i32::try_from(block[..byte_start + quote.len()].encode_utf16().count())
-            .map_err(|_| IssueError::Invalid)?;
         let hash_input = format!("{issue_type}\n{quote}\n{suggestion}");
         let created = sqlx::query_scalar::<_, i64>(
             "INSERT INTO text_issues
@@ -143,8 +145,8 @@ impl PgTextIssues {
         .bind(version_id)
         .bind(actor)
         .bind(block_index)
-        .bind(start)
-        .bind(end)
+        .bind(selection_start)
+        .bind(selection_end)
         .bind(issue_type)
         .bind(quote)
         .bind(suggestion)
@@ -165,8 +167,8 @@ impl PgTextIssues {
                 .bind(chapter_id)
                 .bind(version_id)
                 .bind(block_index)
-                .bind(start)
-                .bind(end)
+                .bind(selection_start)
+                .bind(selection_end)
                 .bind(&hash_input)
                 .fetch_one(&mut *tx)
                 .await
@@ -207,20 +209,25 @@ impl PgTextIssues {
             return Ok(None);
         };
         let rows = sqlx::query(
-            "SELECT id,chapter_id,version_id,block_index,issue_type,
-                    quote,suggested_text,status,resolution_note
-             FROM text_issues
-             WHERE book_id=$1
-               AND ($2::text IS NULL OR status=$2)
-               AND ($3::bigint IS NULL OR id<$3)
-             ORDER BY id DESC LIMIT 26",
+            "SELECT i.id,i.chapter_id,i.version_id,i.block_index,i.issue_type,
+                    i.quote,i.suggested_text,i.status,i.resolution_note
+             FROM text_issues i
+             WHERE i.book_id=$1
+               AND EXISTS (SELECT 1 FROM book_members m
+                           WHERE m.book_id=i.book_id AND m.user_id=$4
+                             AND m.is_active AND m.role IN ('owner','translator','moderator'))
+               AND ($2::text IS NULL OR i.status=$2)
+               AND ($3::bigint IS NULL OR i.id<$3)
+             ORDER BY i.id DESC LIMIT 26",
         )
         .bind(book_id)
         .bind(status)
         .bind(after)
+        .bind(actor)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| IssueError::Unavailable)?;
+        let has_next = rows.len() > 25;
         let mut issues = Vec::new();
         for row in rows.into_iter().take(25) {
             issues.push(AuthorIssue {
@@ -235,7 +242,7 @@ impl PgTextIssues {
                 resolution_note: row.try_get("resolution_note").map_err(|_| IssueError::Unavailable)?,
             });
         }
-        let next = if issues.len() == 25 {
+        let next = if has_next {
             issues.last().map(|issue| issue.id)
         } else {
             None
@@ -269,7 +276,7 @@ impl PgTextIssues {
              JOIN book_members m ON m.book_id=i.book_id
              WHERE i.id=$1 AND i.book_id=$2 AND m.user_id=$3
                AND m.is_active AND m.role IN ('owner','translator','moderator')
-             FOR UPDATE OF i",
+             FOR UPDATE OF i,m",
         )
         .bind(issue_id)
         .bind(book_id)
