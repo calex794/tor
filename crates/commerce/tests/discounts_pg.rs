@@ -6,7 +6,7 @@ use tor_commerce::{
         CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
     },
     repositories::{
-        checkout::PgCheckout,
+        checkout::{PgCheckout, SingleChapterQuote},
         discount_campaigns::{DiscountCampaignError, PgAuthorDiscounts},
     },
 };
@@ -103,6 +103,28 @@ fn command(f: &Fixture, price: i64, key: char) -> PurchaseCommand {
     )
     .unwrap()
 }
+fn command_for_quote(f: &Fixture, quote: &SingleChapterQuote, key: char) -> PurchaseCommand {
+    PurchaseCommand::new(
+        PositiveId::new(f.reader).unwrap(),
+        WalletId::new(f.reader).unwrap(),
+        ChapterVersionRef {
+            chapter_id: PositiveId::new(f.chapter).unwrap(),
+            version_id: PositiveId::new(quote.version_id).unwrap(),
+        },
+        MoneyMinor::new(quote.final_price_minor).unwrap(),
+        IdempotencyKey::parse(&format!("{}8", key.to_string().repeat(42))).unwrap(),
+    )
+    .unwrap()
+    .with_discount_offer(
+        MoneyMinor::new(quote.base_price_minor).unwrap(),
+        quote.campaign_id.unwrap(),
+        quote.campaign_revision.unwrap(),
+        quote.follow_period_id.unwrap(),
+        quote.discount_percent.unwrap(),
+        quote.requires_follow_days.unwrap(),
+    )
+    .unwrap()
+}
 async fn follow(f: &Fixture, started_days_ago: i32) -> i64 {
     sqlx::query_scalar(
         "INSERT INTO creator_follow_periods(
@@ -158,19 +180,22 @@ async fn d_07_exact_ninety_day_discount_freezes_paid_amount_and_replay() {
         .unwrap();
     assert_eq!((offer.base_price_minor, offer.final_price_minor), (100, 80));
     assert_eq!(offer.discount_percent, Some(20));
+    assert_eq!(offer.campaign_id, Some(campaign_id));
+    assert_eq!(offer.campaign_revision, Some(1));
+    assert_eq!(offer.follow_period_id, Some(period));
     assert_eq!(offer.requires_follow_days, Some(90));
     assert_eq!(
         checkout.checkout_once(&command(&f, 100, 'B')).await,
         Err(CheckoutError::StaleOffer),
         "a mature follower must not silently overpay the full price"
     );
-    let buy = command(&f, 80, 'C');
+    let buy = command_for_quote(&f, &offer, 'C');
     let receipt = checkout.checkout_once(&buy).await.unwrap();
     assert_eq!(receipt.amount.get(), 80);
     assert_eq!(receipt.balance_after.get(), 220);
     assert_eq!(receipt.pinned.version_id.get(), f.version);
     let snapshot = sqlx::query(
-        "SELECT campaign_id,follow_period_id,base_price_minor,discount_minor,
+        "SELECT campaign_id,campaign_revision,follow_period_id,base_price_minor,discount_minor,
                 paid_minor,discount_percent,min_follow_days
          FROM chapter_purchase_discount_snapshots WHERE purchase_id=$1",
     )
@@ -179,6 +204,7 @@ async fn d_07_exact_ninety_day_discount_freezes_paid_amount_and_replay() {
     .await
     .unwrap();
     assert_eq!(snapshot.get::<i64, _>("campaign_id"), campaign_id);
+    assert_eq!(snapshot.get::<i32, _>("campaign_revision"), 1);
     assert_eq!(snapshot.get::<i64, _>("follow_period_id"), period);
     assert_eq!(snapshot.get::<i64, _>("base_price_minor"), 100);
     assert_eq!(snapshot.get::<i64, _>("discount_minor"), 20);
@@ -239,14 +265,11 @@ async fn d_07_refollow_resets_ninety_day_clock_and_campaign_stop_reprices() {
     let checkout = PgCheckout::new(f.pool.clone());
     campaigns.create(f.owner, f.book, 20, 90, 30).await.unwrap();
     let first = follow(&f, 91).await;
-    assert_eq!(
-        checkout
-            .quote_single(f.reader, f.book, f.chapter)
-            .await
-            .unwrap()
-            .final_price_minor,
-        80
-    );
+    let first_offer = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(first_offer.final_price_minor, 80);
     sqlx::query("UPDATE creator_follow_periods SET ended_at=now() WHERE id=$1")
         .bind(first)
         .execute(&f.pool)
@@ -267,15 +290,24 @@ async fn d_07_refollow_resets_ninety_day_clock_and_campaign_stop_reprices() {
     // campaign; historical periods can never accumulate their duration.
     campaigns.stop(f.owner, f.book).await.unwrap();
     campaigns.create(f.owner, f.book, 20, 0, 30).await.unwrap();
+    let current_offer = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(current_offer.final_price_minor, 80);
+    assert_ne!(current_offer.campaign_id, first_offer.campaign_id);
+    assert_eq!(current_offer.follow_period_id, Some(second));
     assert_eq!(
         checkout
-            .quote_single(f.reader, f.book, f.chapter)
-            .await
-            .unwrap()
-            .final_price_minor,
-        80
+            .checkout_once(&command_for_quote(&f, &first_offer, 'F'))
+            .await,
+        Err(CheckoutError::StaleOffer),
+        "same final price from a different campaign and follow period is still a stale quote"
     );
-    let bought = checkout.checkout_once(&command(&f, 80, 'E')).await.unwrap();
+    let bought = checkout
+        .checkout_once(&command_for_quote(&f, &current_offer, 'E'))
+        .await
+        .unwrap();
     assert_eq!(bought.amount.get(), 80);
     let source: i64 = sqlx::query_scalar(
         "SELECT follow_period_id FROM chapter_purchase_discount_snapshots WHERE purchase_id=$1",
