@@ -252,7 +252,11 @@ and notification/mail behavior is unchanged.
 
 Real `mail_http_pg` regressions check public and private aliases across
 the sender and other mail participant, denied held/unmapped aliases,
-duplicate mapping rejection and revoked owner membership. Unit tests
+duplicate mapping rejection and a post-send `admin_hold` transition.
+B-10 correctly forbids deactivating the owner while their 100% current
+revenue share remains assigned; the HTTP test must not bypass that fence.
+A separate, valid revenue-reassignment/owner-revocation scenario is still
+needed to prove the membership-specific ACL transition. Unit tests
 cover bounded parsing, rejected numeric ambiguity and canonical output.
 The data migration **does not populate actual NEwBOO aliases**; this is
 infrastructure and proof of safe behavior for imported mappings, not full
