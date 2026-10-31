@@ -25,6 +25,7 @@ pub(super) struct FormBuy {
     expected_base_price_minor: i64,
     expected_campaign_id: i64,
     expected_campaign_revision: i32,
+    expected_rule_version: i16,
     expected_follow_period_id: i64,
     expected_discount_percent: i16,
     expected_min_follow_days: i16,
@@ -75,6 +76,7 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
              <input type=\"hidden\" name=\"expected_base_price_minor\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_campaign_id\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_campaign_revision\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_rule_version\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_follow_period_id\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_discount_percent\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_min_follow_days\" value=\"{}\">\
@@ -94,6 +96,7 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
             quote.base_price_minor,
             quote.campaign_id.unwrap_or(0),
             quote.campaign_revision.unwrap_or(0),
+            quote.rule_version.unwrap_or(0),
             quote.follow_period_id.unwrap_or(0),
             quote.discount_percent.unwrap_or(0),
             quote.requires_follow_days.unwrap_or(0),
@@ -208,6 +211,7 @@ pub(super) async fn submit(
         let base = MoneyMinor::new(form.expected_base_price_minor).ok()?;
         if form.expected_campaign_id == 0
             && form.expected_campaign_revision == 0
+            && form.expected_rule_version == 0
             && form.expected_follow_period_id == 0
             && form.expected_discount_percent == 0
             && form.expected_min_follow_days == 0
@@ -219,6 +223,7 @@ pub(super) async fn submit(
                     base,
                     form.expected_campaign_id,
                     form.expected_campaign_revision,
+                    form.expected_rule_version,
                     form.expected_follow_period_id,
                     form.expected_discount_percent,
                     form.expected_min_follow_days,
@@ -278,6 +283,7 @@ mod tests {
             final_price_minor: 80,
             campaign_id: Some(10),
             campaign_revision: Some(1),
+            rule_version: Some(1),
             follow_period_id: Some(20),
             discount_percent: Some(20),
             requires_follow_days: Some(90),
@@ -291,6 +297,7 @@ mod tests {
         assert!(html.contains("expected_version_id"));
         assert!(html.contains("expected_base_price_minor"));
         assert!(html.contains("expected_campaign_revision"));
+        assert!(html.contains("expected_rule_version"));
         assert!(html.contains("expected_follow_period_id"));
     }
 }
