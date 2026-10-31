@@ -53,7 +53,7 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 # They must run the complete available B/C/D/G/H/I pack regardless of the graph.
 CRITICAL_PACKAGES = {
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
-    "tor-storage", "tor-ingest", "tor-migrations", "tor-traffic_behavior",
+    "tor-storage", "tor-ingest", "tor-imports", "tor-migrations", "tor-traffic_behavior",
     "tor-route_intelligence", "tor-referrals", "tor-social",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
@@ -67,6 +67,9 @@ TEST_SUITES = {
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
+    "crates/imports/tests/chapter_import_jobs_pg.rs": {"rust", "postgres"},
+    "crates/books/tests/chapter_import_job_finalize_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/chapter_import_queue_http_pg.rs": {"rust", "postgres"},
     "crates/storage/tests/crypto_webcrypto.mjs": {"crypto"},
     "crates/storage/tests/private_objects.rs": {"rust", "crypto"},
     "crates/storage/tests/s3_private_provider.rs": {"rust", "storage_s3"},
