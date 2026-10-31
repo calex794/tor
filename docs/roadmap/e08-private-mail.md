@@ -221,3 +221,42 @@ falling back to `/notifications`; absent `next` remains backward compatible.
 No new endpoint or SQL migration is introduced. Unit and disposable HTTP
 regressions exercise safe and hostile redirects. **Do not accept the slice
 without exact-HEAD CI, retained migration review and independent review.**
+
+## 01.11.2026 — explicit legacy mail Book aliases (Draft slice)
+
+Source `mail_book_previews.py` accepts book IDs, public IDs and slugs and
+also tries an unsafe `list_all_books_async(include_hidden=True)` fallback.
+TOR's SEO URL contract has **canonical numeric `/books/{id}` only** and
+the B Book schema stores `(source_identity,target_language)`, **not**
+source `public_id` / `slug`. Automatically guessing a mapping is incorrect
+and may expose hidden works or remap another translated Book.
+
+This slice introduces an **explicit opt-in alias mapping** in new migration
+`202611010020_e08_mail_book_legacy_refs.sql`, keyed by one unique
+lowercase ASCII alias (1–128 chars, must begin with letter). It is empty
+until a separately reviewed, one-to-one NEwBOO import supplies mappings;
+there is deliberately no mass legacy backfill or new HTTP slug route.
+The only output URL remains the canonical `/books/{id}` for public works
+or the existing `/me/books/{id}` for a verified owner. Unsupported
+Unicode/ambiguous numeric aliases stay literal text.
+
+The B repository resolves at most 40 requested aliases using a single
+actor-bound PostgreSQL query. Hidden drafts require matching
+`books.owner_user_id` **and** an active `book_members` owner role;
+`admin_hold` and `is_deleted` deny all aliases. E's mail enrichment then
+passes canonical IDs through the existing public/owned Book methods.
+A failed lookup/DB outage never falls back to an unscoped catalogue scan.
+Alias and numeric refs share the original 3-per-message and 40-per-page
+bounds. No private covers are emitted. Existing `/book(s)/{numeric_id}`
+and notification/mail behavior is unchanged.
+
+Real `mail_http_pg` regressions check public and private aliases across
+the sender and other mail participant, denied held/unmapped aliases,
+duplicate mapping rejection and revoked owner membership. Unit tests
+cover bounded parsing, rejected numeric ambiguity and canonical output.
+The data migration **does not populate actual NEwBOO aliases**; this is
+infrastructure and proof of safe behavior for imported mappings, not full
+legacy identity parity. Full source alias import, collaborator-authorized
+destinations, discussions and group/admin mail remain open. Exact-head
+CI + SQLx ledger review are still acceptance gates. No main, production,
+SSH, VPS or retained database operations.

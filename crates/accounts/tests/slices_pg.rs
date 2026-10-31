@@ -135,7 +135,10 @@ async fn e_08_public_display_name_resolution_fails_closed_on_case_collision() {
         .await
         .unwrap();
     for key in [&display_name, &colliding_name] {
-        assert_eq!(accounts.public_profile_by_display_name(key).await.unwrap(), None);
+        assert_eq!(
+            accounts.public_profile_by_display_name(key).await.unwrap(),
+            None
+        );
     }
     assert_eq!(
         accounts.profile(alice).await.unwrap().unwrap().display_name,

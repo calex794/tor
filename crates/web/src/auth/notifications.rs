@@ -54,7 +54,9 @@ fn safe_next_url(raw: Option<&str>) -> &str {
         || next.starts_with("//")
         || next.contains('\\')
         || !next.is_ascii()
-        || next.bytes().any(|byte| byte.is_ascii_control() || byte == b' ')
+        || next
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte == b' ')
     {
         return "/notifications";
     }

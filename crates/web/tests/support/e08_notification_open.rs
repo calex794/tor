@@ -13,9 +13,7 @@ pub(super) async fn verify(
     target: &str,
 ) {
     let page = text(call(app, "GET", "/notifications", recipient_cookie, "", &[]).await).await;
-    assert!(page.contains(&format!(
-        "action=\"/notifications/{notification_id}/read\""
-    )));
+    assert!(page.contains(&format!("action=\"/notifications/{notification_id}/read\"")));
     assert!(page.contains(&format!("name=\"next\" value=\"{target}\"")));
     assert!(page.contains(">Открыть</button>"));
 

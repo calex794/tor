@@ -18,10 +18,12 @@ use tor_reading::repositories::PgReader;
 use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
-#[path = "support/e08_notification_preferences.rs"]
-mod notification_preferences;
+#[path = "support/e08_mail_book_aliases.rs"]
+mod mail_book_aliases;
 #[path = "support/e08_notification_open.rs"]
 mod notification_open;
+#[path = "support/e08_notification_preferences.rs"]
+mod notification_preferences;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(
@@ -131,10 +133,8 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         text(call(&app, "GET", "/users/mAiL%20ReAdEr%201", "", "", &[]).await).await;
     assert!(folded_profile.contains("Mail reader 1"));
     assert!(!folded_profile.contains(">Почта</button>"));
-    let trimmed_profile = text(
-        call(&app, "GET", "/users/%20mAiL%20ReAdEr%201%20", "", "", &[]).await,
-    )
-    .await;
+    let trimmed_profile =
+        text(call(&app, "GET", "/users/%20mAiL%20ReAdEr%201%20", "", "", &[]).await).await;
     assert!(trimmed_profile.contains("Mail reader 1"));
     let start_path = format!("/mail/start/{}", users[1]);
     let start = format!("csrf_token={}", csrf[0]);
@@ -903,6 +903,16 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         1
     );
     assert!(!poll.to_string().contains("HIDDEN-NEVER-DISCLOSE"));
+    mail_book_aliases::verify(
+        &reopened,
+        &url,
+        &path,
+        nonce,
+        [public, hidden, held],
+        &cookies,
+        &csrf,
+    )
+    .await;
     assert_eq!(
         call(&reopened, "GET", &path, &cookies[2], "", &[])
             .await

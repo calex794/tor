@@ -1,0 +1,147 @@
+//! E-08 legacy Book ref regression: only explicitly mapped aliases, bounded
+//! canonical public/owner title access, and no hidden/held leakage to peers.
+use super::{call, pg, text};
+use axum::{http::StatusCode, Router};
+
+pub(super) async fn verify(
+    app: &Router,
+    db_url: &str,
+    path: &str,
+    nonce: u128,
+    books: [i64; 3],
+    cookies: &[String],
+    csrf: &[String],
+) {
+    let [public, private, held] = books;
+    let public_alias = format!("legacy-public-{nonce}");
+    let private_alias = format!("legacy-private-{nonce}");
+    let held_alias = format!("legacy-held-{nonce}");
+    let unknown_alias = format!("legacy-unknown-{nonce}");
+    pg(
+        db_url,
+        &format!(
+            "INSERT INTO book_legacy_mail_refs(alias_key,book_id) VALUES
+             ('{public_alias}',{public}),
+             ('{private_alias}',{private}),
+             ('{held_alias}',{held})",
+        ),
+    )
+    .await;
+
+    let form = format!(
+        "body=Links%20%2Fbooks%2F{public_alias}%20%2Fbook%2F{private_alias}%20%2Fbooks%2F{held_alias}%20%2Fbooks%2F{unknown_alias}&client_message_id=legacy-{nonce}&csrf_token={}",
+        csrf[0]
+    );
+    let sent = call(
+        app,
+        "POST",
+        &format!("{path}/messages"),
+        &cookies[0],
+        &form,
+        &[("accept", "application/json"), ("x-requested-with", "fetch")],
+    )
+    .await;
+    assert_eq!(sent.status(), StatusCode::OK);
+    let payload: serde_json::Value = serde_json::from_str(&text(sent).await).unwrap();
+    let message = &payload["message"];
+    let previews = message["book_previews"].as_array().unwrap();
+    assert_eq!(previews.len(), 2);
+    assert_eq!(previews[0]["url"], format!("/books/{public}"));
+    assert_eq!(previews[1]["url"], format!("/me/books/{private}"));
+    assert_eq!(previews[1]["cover_url"], "");
+    assert!(!message.to_string().contains("HELD-NEVER-DISCLOSE"));
+    let body = message["body_without_book_links"].as_str().unwrap();
+    assert!(body.contains(&format!("/books/{held_alias}")));
+    assert!(body.contains(&format!("/books/{unknown_alias}")));
+    assert!(!body.contains(&public_alias));
+    assert!(!body.contains(&private_alias));
+
+    let conversation_id: i64 = path.trim_start_matches("/mail/").parse().unwrap();
+    let message_id: i64 = message["id"].as_str().unwrap().parse().unwrap();
+    let peer = call(
+        app,
+        "GET",
+        &format!(
+            "/api/v1/me/messages?conversation_id={conversation_id}&after_id={}",
+            message_id - 1
+        ),
+        &cookies[1],
+        "",
+        &[],
+    )
+    .await;
+    assert_eq!(peer.status(), StatusCode::OK);
+    let peer_json: serde_json::Value = serde_json::from_str(&text(peer).await).unwrap();
+    let item = &peer_json["messages"][0];
+    assert_eq!(item["book_previews"].as_array().unwrap().len(), 1);
+    assert_eq!(item["book_previews"][0]["url"], format!("/books/{public}"));
+    assert!(!item.to_string().contains("HIDDEN-NEVER-DISCLOSE"));
+    assert!(!item.to_string().contains("HELD-NEVER-DISCLOSE"));
+    let peer_body = item["body_without_book_links"].as_str().unwrap();
+    assert!(peer_body.contains(&format!("/book/{private_alias}")));
+    assert!(peer_body.contains(&format!("/books/{held_alias}")));
+
+    // Imported aliases are globally one-to-one. No second Book may claim
+    // the same legacy ref and silently reassign previous mail links.
+    let pool = sqlx::PgPool::connect(db_url).await.unwrap();
+    let duplicate = sqlx::query(
+        "INSERT INTO book_legacy_mail_refs(alias_key,book_id) VALUES($1,$2)",
+    )
+    .bind(&public_alias)
+    .bind(private)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(duplicate.as_database_error().and_then(|e| e.code()).as_deref(), Some("23505"));
+
+    // Revoking active owner membership also revokes alias lookup. The old
+    // mail text survives, but no alias-derived private title is materialized.
+    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=(SELECT owner_user_id FROM books WHERE id=$1)")
+        .bind(private)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let own_poll = call(
+        app,
+        "GET",
+        &format!(
+            "/api/v1/me/messages?conversation_id={conversation_id}&after_id={}",
+            message_id - 1
+        ),
+        &cookies[0],
+        "",
+        &[],
+    )
+    .await;
+    let own_json: serde_json::Value = serde_json::from_str(&text(own_poll).await).unwrap();
+    let after_revoke = &own_json["messages"][0];
+    assert_eq!(after_revoke["book_previews"].as_array().unwrap().len(), 1);
+    assert_eq!(after_revoke["book_previews"][0]["url"], format!("/books/{public}"));
+    assert!(after_revoke["body_without_book_links"]
+        .as_str()
+        .unwrap()
+        .contains(&format!("/book/{private_alias}")));
+
+    // A syntactically valid but unmapped legacy string is never looked up
+    // against books.source_identity or the hidden Book catalog.
+    let unmapped = call(
+        app,
+        "POST",
+        &format!("{path}/messages"),
+        &cookies[0],
+        &format!(
+            "body=Unmapped%20%2Fbooks%2F{unknown_alias}&client_message_id=unmapped-{nonce}&csrf_token={}",
+            csrf[0]
+        ),
+        &[("accept", "application/json"), ("x-requested-with", "fetch")],
+    )
+    .await;
+    assert_eq!(unmapped.status(), StatusCode::OK);
+    let unmapped_json: serde_json::Value = serde_json::from_str(&text(unmapped).await).unwrap();
+    let unmapped_message = &unmapped_json["message"];
+    assert!(unmapped_message["book_previews"].as_array().unwrap().is_empty());
+    assert!(unmapped_message["body_without_book_links"]
+        .as_str()
+        .unwrap()
+        .contains(&format!("/books/{unknown_alias}")));
+}

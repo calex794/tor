@@ -26,11 +26,14 @@ pub(super) struct PreviewedText {
     pub(super) book_previews: Vec<MailBookPreview>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct BookLink {
     start: usize,
     end: usize,
+    // Zero means that a legacy alias has not yet passed its actor-bound
+    // PostgreSQL resolution. Zero is never a valid canonical Book ID.
     id: u64,
+    alias_key: Option<String>,
 }
 
 fn boundary(c: u8) -> bool {
@@ -125,25 +128,52 @@ fn extract_links(body: &str) -> Vec<BookLink> {
             continue;
         };
         let first = at + path_len;
-        let mut end_id = first;
-        while bytes.get(end_id).is_some_and(u8::is_ascii_digit) {
-            end_id += 1;
+        let mut token_end = first;
+        while token_end - first <= 128
+            && bytes.get(token_end).is_some_and(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.')
+            })
+        {
+            token_end += 1;
         }
-        let raw = &body[first..end_id];
-        let id = raw
+        // Sentence-final dots are punctuation, not part of a legacy alias.
+        while token_end > first && bytes[token_end - 1] == b'.' {
+            token_end -= 1;
+        }
+        let raw = &body[first..token_end];
+        let canonical_id = raw
             .parse::<i64>()
             .ok()
             .filter(|id| *id > 0 && raw == id.to_string())
             .map(|id| id as u64);
-        let Some(id) = id else {
+        // Legacy mappings are explicit and case-folded ASCII only. Reject
+        // ambiguous numeric prefixes (003, 1abc), Unicode, path traversal
+        // and overlong attacker-supplied tokens rather than guessing a Book.
+        let alias_key = if canonical_id.is_none()
+            && raw.len() <= 128
+            && raw.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+            && raw
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
+        {
+            Some(raw.to_ascii_lowercase())
+        } else {
+            None
+        };
+        if canonical_id.is_none() && alias_key.is_none() {
+            cursor = at + 5;
+            continue;
+        }
+        let Some(end) = url_end(bytes, token_end) else {
             cursor = at + 5;
             continue;
         };
-        let Some(end) = url_end(bytes, end_id) else {
-            cursor = at + 5;
-            continue;
-        };
-        links.push(BookLink { start, end, id });
+        links.push(BookLink {
+            start,
+            end,
+            id: canonical_id.unwrap_or(0),
+            alias_key,
+        });
         cursor = end;
     }
     links
@@ -206,18 +236,45 @@ pub(super) async fn enrich(
     actor: i64,
     messages: &[Message],
 ) -> Vec<PreviewedText> {
-    let links: Vec<_> = messages.iter().map(|m| extract_links(&m.body)).collect();
+    let mut links: Vec<_> = messages.iter().map(|m| extract_links(&m.body)).collect();
     let mut ids = Vec::new();
-    let mut seen = HashSet::new();
+    let mut alias_keys = Vec::new();
+    let mut seen_ids = HashSet::new();
+    let mut seen_aliases = HashSet::new();
+    let mut refs = 0;
     for link in links.iter().flatten() {
-        if seen.insert(link.id) {
-            if ids.len() == PER_PAGE {
-                break;
+        if refs == PER_PAGE {
+            break;
+        }
+        if let Some(alias) = &link.alias_key {
+            if seen_aliases.insert(alias.clone()) {
+                alias_keys.push(alias.clone());
+                refs += 1;
             }
+        } else if seen_ids.insert(link.id) {
             ids.push(link.id);
+            refs += 1;
         }
     }
     let pool = state.accounts.pool().clone();
+    // A shared alias is only a pointer, never an access grant. B's repository
+    // enforces visibility and active owner ACL *before* returning canonical IDs.
+    let alias_ids = PgCatalog::new(pool.clone())
+        .resolve_visible_mail_aliases(actor, &alias_keys)
+        .await
+        .unwrap_or_default();
+    for message_links in &mut links {
+        for link in message_links {
+            if let Some(alias) = &link.alias_key {
+                link.id = alias_ids.get(alias).copied().unwrap_or(0);
+            }
+        }
+    }
+    for &id in alias_ids.values() {
+        if seen_ids.insert(id) {
+            ids.push(id);
+        }
+    }
     let mut titles = HashMap::new();
     let mut missing_public = Vec::new();
     for batch in ids.chunks(CONCURRENT_LOOKUPS) {
@@ -314,6 +371,40 @@ mod tests {
         assert_eq!(projected.body_without_book_links, "  Prefix  \n");
     }
 
+
+    #[test]
+    fn e08_legacy_alias_links_are_bounded_and_never_guess_numeric_keys() {
+        let body = "/book/Legacy-Book https://tor.test/books/ALIAS.v2?from=mail. \
+                    /books/42 /books/003 /books/1abc /books/../../etc";
+        let refs = extract_links(body);
+        assert_eq!(refs.len(), PER_MESSAGE);
+        assert_eq!(refs[0].alias_key.as_deref(), Some("legacy-book"));
+        assert_eq!(refs[1].alias_key.as_deref(), Some("alias.v2"));
+        assert_eq!(refs[2].id, 42);
+        assert!(extract_links("/books/003 /books/1abc /books/.hidden").is_empty());
+        assert!(extract_links(&format!("/books/{}", "a".repeat(129))).is_empty());
+    }
+
+    #[test]
+    fn e08_legacy_alias_card_only_uses_a_resolved_canonical_book() {
+        let mut refs = extract_links("/books/legacy-ref and /books/42 and /books/missing");
+        assert_eq!(refs.len(), PER_MESSAGE);
+        // The only metadata supplied here has already passed actor-bound B
+        // lookup; unresolved alias IDs remain zero and their text is retained.
+        refs[0].id = 42;
+        let titles = HashMap::from([(42, "Published".to_owned())]);
+        let projected = project(
+            "/books/legacy-ref and /books/42 and /books/missing",
+            &refs,
+            &titles,
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(projected.book_previews.len(), 1);
+        assert_eq!(projected.book_previews[0].url, "/books/42");
+        assert!(!projected.body_without_book_links.contains("/books/legacy-ref"));
+        assert!(projected.body_without_book_links.contains("/books/missing"));
+    }
     #[test]
     fn e08_owned_draft_preview_never_gets_a_public_cover() {
         let body = "/books/13";
