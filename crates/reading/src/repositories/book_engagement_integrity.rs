@@ -151,30 +151,28 @@ impl PgBookEngagementIntegrity {
         Ok(decision)
     }
 
-    /// Record the existing hard 20/minute throttle in the same audit stream.
+    /// Record the hard 20/minute refusal without an additional rate-bucket
+    /// evaluation. Only one refusal per user/book/action/minute is persisted.
+    /// A hard-limit decision is independent of the fraud risk score.
     pub async fn record_hard_limit(
         &self,
         user_id: i64,
         book_id: i64,
         liked: bool,
-        decision: &LikeIntegrityDecision,
     ) -> Result<(), sqlx::Error> {
-        let reasons = vec!["hard_limit_20_per_minute".to_owned()];
         sqlx::query(
             "INSERT INTO book_engagement_integrity_events
                 (user_id,book_id,action,subject_action_1m,subject_action_1h,
                  subject_any_1m,target_action_10m,risk_score,risk_bucket,
-                 recommended_action,decision,stats_trusted,reasons)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,100,'critical','throttle','throttle',FALSE,$8)",
+                 recommended_action,decision,stats_trusted,reasons,hard_limit_minute)
+             VALUES ($1,$2,$3,0,0,0,0,0,'low','throttle','throttle',FALSE,
+                     ARRAY['hard_limit_20_per_minute']::TEXT[],
+                     date_trunc('minute', clock_timestamp()))
+             ON CONFLICT DO NOTHING",
         )
         .bind(user_id)
         .bind(book_id)
         .bind(if liked { "book_like" } else { "book_unlike" })
-        .bind(decision.signals.subject_action_1m)
-        .bind(decision.signals.subject_action_1h)
-        .bind(decision.signals.subject_any_1m)
-        .bind(decision.signals.target_action_10m)
-        .bind(reasons)
         .execute(&self.pool)
         .await?;
         Ok(())
