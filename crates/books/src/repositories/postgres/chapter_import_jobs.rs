@@ -220,6 +220,40 @@ impl PgAuthoring {
         .transpose()
     }
 
+    pub async fn latest_active_chapter_import(
+        &self,
+        actor: i64,
+        book: i64,
+    ) -> Result<Option<(i64, ChapterImportStatus)>, AuthorError> {
+        let row = sqlx::query(
+            "SELECT j.id,j.status,j.attempts,j.saved_count,j.last_error_code
+             FROM chapter_import_jobs j JOIN books b ON b.id=j.book_id
+             WHERE j.book_id=$1 AND j.actor_user_id=$2
+               AND b.owner_user_id=$2 AND NOT b.is_deleted AND NOT b.admin_hold
+               AND j.status IN ('queued','running')
+             ORDER BY j.id DESC LIMIT 1",
+        )
+        .bind(book)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        row.map(|r| {
+            Ok((
+                r.try_get("id").map_err(|_| AuthorError::Unavailable)?,
+                ChapterImportStatus {
+                    status: r.try_get("status").map_err(|_| AuthorError::Unavailable)?,
+                    attempts: r.try_get("attempts").map_err(|_| AuthorError::Unavailable)?,
+                    saved_count: r.try_get("saved_count").map_err(|_| AuthorError::Unavailable)?,
+                    error_code: r
+                        .try_get("last_error_code")
+                        .map_err(|_| AuthorError::Unavailable)?,
+                },
+            ))
+        })
+        .transpose()
+    }
+
     pub async fn owned_chapter_import_status(
         &self,
         actor: i64,
