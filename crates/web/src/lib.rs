@@ -27,8 +27,6 @@ mod catalog_http;
 mod chapter_import_assets;
 pub mod chapter_import_queue_http;
 pub mod chapter_import_worker;
-#[cfg(feature = "s3-chapter-import")]
-pub mod chapter_import_s3;
 pub mod cover_delivery;
 mod cover_http;
 mod referral_book_http;
