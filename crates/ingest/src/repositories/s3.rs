@@ -4,7 +4,8 @@
 use crate::domain::cover::CoverError;
 use crate::services::cover_jobs::CoverObjectStore;
 use async_trait::async_trait;
-use aws_sdk_s3::{primitives::ByteStream, Client};
+use aws_sdk_s3::{presigning::PresigningConfig, primitives::ByteStream, Client};
+use std::time::Duration;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 
@@ -12,6 +13,7 @@ use tokio::io::AsyncReadExt;
 pub struct S3CoverStore {
     client: Client,
     private_bucket: String,
+    direct_origin: Option<String>,
 }
 impl S3CoverStore {
     pub fn new(client: Client, private_bucket: String) -> Result<Self, CoverError> {
@@ -21,8 +23,19 @@ impl S3CoverStore {
         Ok(Self {
             client,
             private_bucket,
+            direct_origin: None,
         })
     }
+    /// The public origin is pinned by the operator, never supplied by a browser.
+    /// Presigned host must match; no redirect to a backend-only S3 address.
+    pub fn with_direct_origin(mut self, origin: String) -> Result<Self, CoverError> {
+        if !origin.starts_with("https://") || origin.ends_with('/') || origin.contains('?') || origin.contains('#') || origin.contains('@') || origin.contains('/') && origin[8..].contains('/') {
+            return Err(CoverError::Invalid);
+        }
+        self.direct_origin = Some(origin);
+        Ok(self)
+    }
+
     fn permitted(key: &str) -> bool {
         key.starts_with("staging/covers/")
             && key.len() <= 512
@@ -40,6 +53,28 @@ impl S3CoverStore {
 
 #[async_trait]
 impl CoverObjectStore for S3CoverStore {
+    fn direct_read_origin(&self) -> Option<&str> {
+        self.direct_origin.as_deref()
+    }
+
+    async fn presign_variant_get(&self, key: &str, ttl: Duration) -> Result<String, CoverError> {
+        let origin = self.direct_origin.as_deref().ok_or(CoverError::Forbidden)?;
+        if !key.starts_with("staging/covers/variants/") || !Self::permitted(key)
+            || ttl.as_secs() == 0 || ttl.as_secs() > 120
+        {
+            return Err(CoverError::Invalid);
+        }
+        let signed = self.client.get_object()
+            .bucket(&self.private_bucket).key(key)
+            .presigned(PresigningConfig::expires_in(ttl).map_err(|_| CoverError::Invalid)?)
+            .await.map_err(|_| CoverError::Unavailable)?;
+        let url = signed.uri().to_string();
+        if !url.starts_with(&format!("{origin}/")) {
+            return Err(CoverError::Unavailable);
+        }
+        Ok(url)
+    }
+
     async fn put_source_verified(
         &self,
         key: &str,
