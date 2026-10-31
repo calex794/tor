@@ -26,6 +26,7 @@ use tor_books::{
     },
 };
 use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
+use tor_imports::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
