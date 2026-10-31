@@ -46,12 +46,19 @@ python3 tools/audit_sqlx_history.py inventory \
   --csv private_history.csv --migrations migrations
 \`\`\`
 
-Exit 2 means incomplete evidence or drift. \`BLOCK\` means a failed,
-unknown, altered-description, or altered-checksum applied migration.
-\`NO_APPLIED_DRIFT_DETECTED\` means only that the scanned applied rows
-match the supplied tree; it is **not deployment approval**. Pending local
-migrations are listed separately; an older-than-latest pending version
-needs tested upgrade ordering.
+Exit 2 means incomplete evidence or drift. `BLOCK` means a failed,
+unknown, altered-description, or altered-checksum applied migration, **or
+two distinct applied versions reusing an identical SHA-384 checksum**.
+The script also rejects a supplied migration checkout that has **different
+version numbers but byte-identical SQL content**. In both cases it reports
+version numbers only, not SQL bodies or raw installed checksums.
+
+`NO_APPLIED_DRIFT_DETECTED` means only that the scanned applied rows
+match the supplied tree and no exact repeated applied checksum was found;
+it is **not deployment approval**. Pending local migrations are listed
+separately; an older-than-latest pending version needs tested upgrade
+ordering. Semantically equivalent SQL with different bytes is not detected,
+and duplicate no-op/checkpoint migrations require migration-owner review.
 
 Repeat for **each retained primary, standby, backup/restore candidate
 that may become authoritative**, plus any rollout environment holding
