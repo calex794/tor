@@ -14,6 +14,7 @@ pub enum MoneyError {
     InvalidId,
     InvalidWalletOwner,
     InvalidIdempotencyKey,
+    InvalidDiscountOffer,
 }
 
 /// Nonnegative integer RUB kopecks. Never accepts floats.
@@ -146,14 +147,28 @@ impl IdempotencyKey {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PurchaseDiscountOffer {
+    pub campaign_id: PositiveId,
+    pub campaign_revision: i32,
+    pub follow_period_id: PositiveId,
+    pub discount_percent: i16,
+    pub min_follow_days: i16,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PurchaseCommand {
     pub actor_id: PositiveId,
     pub wallet_id: WalletId,
     pub edition: ChapterVersionRef,
+    /// Final amount the reader agreed to pay, in kopecks.
     pub expected_price: MoneyMinor,
+    /// Original list price, pinned separately from the final amount.
+    pub expected_base_price: MoneyMinor,
+    /// Exact campaign and continuous follow period shown in the quote.
+    pub expected_discount_offer: Option<PurchaseDiscountOffer>,
     pub idempotency_key: IdempotencyKey,
-    /// Derived from typed values, never supplied by a browser or JSON client.
+    /// Derived from all typed quote values, never supplied as a hash by a client.
     pub canonical_request_sha256: [u8; 32],
 }
 
@@ -171,26 +186,82 @@ impl PurchaseCommand {
         if expected_price.get() == 0 {
             return Err(MoneyError::NegativePrice);
         }
-        let mut hash = Sha256::new();
-        hash.update(b"tor.chapter.purchase.v1");
-        for value in [
-            actor_id.get(),
-            wallet_id.get(),
-            edition.chapter_id.get(),
-            edition.version_id.get(),
-            expected_price.get(),
-        ] {
-            hash.update(value.to_be_bytes());
-        }
-        let canonical_request_sha256 = hash.finalize().into();
-        Ok(Self {
+        let mut command = Self {
             actor_id,
             wallet_id,
             edition,
             expected_price,
+            expected_base_price: expected_price,
+            expected_discount_offer: None,
             idempotency_key,
-            canonical_request_sha256,
-        })
+            canonical_request_sha256: [0; 32],
+        };
+        command.refresh_hash();
+        Ok(command)
+    }
+
+    /// Bind a discounted purchase to the exact list price, campaign revision,
+    /// and uninterrupted creator-follow period displayed to the reader.
+    pub fn with_discount_offer(
+        mut self,
+        base_price: MoneyMinor,
+        campaign_id: i64,
+        campaign_revision: i32,
+        follow_period_id: i64,
+        discount_percent: i16,
+        min_follow_days: i16,
+    ) -> Result<Self, MoneyError> {
+        if base_price.get() <= self.expected_price.get()
+            || campaign_revision <= 0
+            || !(1..=90).contains(&discount_percent)
+            || !matches!(min_follow_days, 0 | 90)
+        {
+            return Err(MoneyError::InvalidDiscountOffer);
+        }
+        let campaign_id = PositiveId::new(campaign_id)?;
+        let follow_period_id = PositiveId::new(follow_period_id)?;
+        let discount_minor =
+            i128::from(base_price.get()) * i128::from(discount_percent) / 100_i128;
+        let paid_minor = i128::from(base_price.get()) - discount_minor;
+        if discount_minor <= 0 || paid_minor <= 0 || paid_minor != i128::from(self.expected_price.get()) {
+            return Err(MoneyError::InvalidDiscountOffer);
+        }
+        self.expected_base_price = base_price;
+        self.expected_discount_offer = Some(PurchaseDiscountOffer {
+            campaign_id,
+            campaign_revision,
+            follow_period_id,
+            discount_percent,
+            min_follow_days,
+        });
+        self.refresh_hash();
+        Ok(self)
+    }
+
+    fn refresh_hash(&mut self) {
+        let mut hash = Sha256::new();
+        hash.update(b"tor.chapter.purchase.v2");
+        for value in [
+            self.actor_id.get(),
+            self.wallet_id.get(),
+            self.edition.chapter_id.get(),
+            self.edition.version_id.get(),
+            self.expected_base_price.get(),
+            self.expected_price.get(),
+        ] {
+            hash.update(value.to_be_bytes());
+        }
+        let offer = self.expected_discount_offer;
+        for value in [
+            offer.map_or(0, |v| v.campaign_id.get()),
+            i64::from(offer.map_or(0, |v| v.campaign_revision)),
+            offer.map_or(0, |v| v.follow_period_id.get()),
+            i64::from(offer.map_or(0, |v| v.discount_percent)),
+            i64::from(offer.map_or(0, |v| v.min_follow_days)),
+        ] {
+            hash.update(value.to_be_bytes());
+        }
+        self.canonical_request_sha256 = hash.finalize().into();
     }
 }
 
@@ -331,6 +402,35 @@ mod tests {
         assert_ne!(
             request(100, 1).unwrap().canonical_request_sha256,
             request(101, 1).unwrap().canonical_request_sha256
+        );
+        let plain = request(80, 1).unwrap();
+        let discounted = request(80, 1)
+            .unwrap()
+            .with_discount_offer(
+                MoneyMinor::new(100).unwrap(),
+                10,
+                1,
+                20,
+                20,
+                90,
+            )
+            .unwrap();
+        assert_ne!(
+            plain.canonical_request_sha256,
+            discounted.canonical_request_sha256,
+            "the idempotency identity includes the original price and discount provenance"
+        );
+        assert_eq!(
+            request(81, 1).unwrap().with_discount_offer(
+                MoneyMinor::new(100).unwrap(),
+                10,
+                1,
+                20,
+                20,
+                90,
+            ),
+            Err(MoneyError::InvalidDiscountOffer),
+            "the final price must equal the exact integer discount calculation"
         );
     }
 }
