@@ -167,6 +167,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert_eq!(next.thanks, 3);
     assert_eq!(next.bookmarks, 1);
     assert_eq!(next.likes, 1);
+    assert_eq!(next.untrusted_likes, 1);
     assert_eq!(next.work_rating, RatingStat { sum: 7, votes: 2 });
     assert_eq!(next.top_by_thanks.first().map(|row| row.count), Some(2));
     // Book holding must suppress further telemetry; history stays private for

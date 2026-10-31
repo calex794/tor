@@ -206,7 +206,7 @@ fn decide_like_signals(signals: LikeRateSignals) -> LikeIntegrityDecision {
         score += 20;
         reasons.push("target_action_rate_10m");
     }
-    let risk_score = score.min(100) as u8;
+    let risk_score = u8::try_from(score.min(100)).expect("score is capped at 100");
     let risk_bucket = if risk_score >= 90 {
         "critical"
     } else if risk_score >= 70 {
