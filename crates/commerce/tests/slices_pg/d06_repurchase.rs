@@ -44,7 +44,10 @@ async fn d_06_repurchase_after_approved_refund_keeps_full_old_money_history() {
         Err(CheckoutError::Unavailable),
         "refunded chapter may not be offered while D-08 posting is off"
     );
-    let quote = enabled.quote_single(f.buyer, book, f.chapter).await.unwrap();
+    let quote = enabled
+        .quote_single(f.buyer, book, f.chapter)
+        .await
+        .unwrap();
     assert_eq!(
         quote.final_price_minor, 300,
         "approved refund must permit a fresh, exact purchase quote"

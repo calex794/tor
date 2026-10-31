@@ -377,7 +377,6 @@ async fn d_07_expired_offer_is_not_applied_and_will_not_block_replacement() {
     assert_ne!(replacement, id);
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL tor_ci"]
 async fn d_07_same_final_amount_with_changed_base_price_is_stale() {
@@ -411,13 +410,12 @@ async fn d_07_same_final_amount_with_changed_base_price_is_stale() {
         Err(CheckoutError::StaleOffer),
         "same final kopecks do not make a changed list price the same quote"
     );
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(f.reader)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(f.reader)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(balance, 200);
 }
 
@@ -470,7 +468,6 @@ async fn d_07_same_amount_with_new_campaign_revision_is_stale() {
     assert_eq!(revision, 2);
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL tor_ci"]
 async fn d_07_thirty_day_tier_uses_the_same_continuous_period_authority() {
@@ -513,14 +510,16 @@ async fn d_07_thirty_day_tier_uses_the_same_continuous_period_authority() {
     assert_eq!(snapshot, (1, 30));
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL tor_ci"]
 async fn d_07_180_day_tier_is_supported_and_snapshotted() {
     let f = fixture("one_eighty_day", 200, 100).await;
     let campaigns = PgAuthorDiscounts::new(f.pool.clone());
     let checkout = PgCheckout::new(f.pool.clone());
-    campaigns.create(f.owner, f.book, 20, 180, 30).await.unwrap();
+    campaigns
+        .create(f.owner, f.book, 20, 180, 30)
+        .await
+        .unwrap();
     let period = follow(&f, 179).await;
     let early = checkout
         .quote_single(f.reader, f.book, f.chapter)

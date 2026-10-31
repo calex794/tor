@@ -224,8 +224,7 @@ impl CheckoutRepository for PgCheckout {
             }
             _ => false,
         };
-        if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version
-            || !quote_matches
+        if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version || !quote_matches
         {
             return Err(CheckoutError::StaleOffer);
         }

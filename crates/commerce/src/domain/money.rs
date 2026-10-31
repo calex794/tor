@@ -221,12 +221,15 @@ impl PurchaseCommand {
         {
             return Err(MoneyError::InvalidDiscountOffer);
         }
-        let campaign_id = PositiveId::new(campaign_id)?;
-        let follow_period_id = PositiveId::new(follow_period_id)?;
-        let discount_minor =
-            i128::from(base_price.get()) * i128::from(discount_percent) / 100_i128;
+        let campaign_id = PositiveId::new(campaign_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
+        let follow_period_id =
+            PositiveId::new(follow_period_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
+        let discount_minor = i128::from(base_price.get()) * i128::from(discount_percent) / 100_i128;
         let paid_minor = i128::from(base_price.get()) - discount_minor;
-        if discount_minor <= 0 || paid_minor <= 0 || paid_minor != i128::from(self.expected_price.get()) {
+        if discount_minor <= 0
+            || paid_minor <= 0
+            || paid_minor != i128::from(self.expected_price.get())
+        {
             return Err(MoneyError::InvalidDiscountOffer);
         }
         self.expected_base_price = base_price;
@@ -411,19 +414,10 @@ mod tests {
         let plain = request(80, 1).unwrap();
         let discounted = request(80, 1)
             .unwrap()
-            .with_discount_offer(
-                MoneyMinor::new(100).unwrap(),
-                10,
-                1,
-                1,
-                20,
-                20,
-                90,
-            )
+            .with_discount_offer(MoneyMinor::new(100).unwrap(), 10, 1, 1, 20, 20, 90)
             .unwrap();
         assert_ne!(
-            plain.canonical_request_sha256,
-            discounted.canonical_request_sha256,
+            plain.canonical_request_sha256, discounted.canonical_request_sha256,
             "the idempotency identity includes the original price and discount provenance"
         );
         assert_eq!(

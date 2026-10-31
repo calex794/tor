@@ -141,7 +141,15 @@ pub(super) async fn buy(
             Some(percent),
             Some(days),
         ) => match MoneyMinor::new(base).and_then(|base| {
-            command.with_discount_offer(base, campaign, revision, rule_version, period, percent, days)
+            command.with_discount_offer(
+                base,
+                campaign,
+                revision,
+                rule_version,
+                period,
+                percent,
+                days,
+            )
         }) {
             Ok(command) => command,
             Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
