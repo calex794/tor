@@ -61,7 +61,7 @@ pub(super) struct GroupsQuery {
 pub(super) struct CreateForm {
     title: String,
     peer_one: i64,
-    peer_two: i64,
+    peer_two: Option<String>,
     csrf_token: String,
 }
 
@@ -110,9 +110,9 @@ fn render_index(
         }
     }
     body.push_str("</section><section class=\"me-section\"><h2>Создать группу</h2>");
-    if contacts.len() < 2 {
+    if contacts.is_empty() {
         body.push_str(
-            "<p>Для создания группы нужны два собеседника из личной почты. Начните переписку через профиль пользователя.</p>",
+            "<p>Для создания группы нужен хотя бы один собеседник из личной почты. Начните переписку через профиль пользователя.</p>",
         );
     } else {
         write!(
@@ -121,13 +121,13 @@ fn render_index(
             escape_html(csrf)
         )
         .expect("group create form");
-        for (field, caption) in [
-            ("peer_one", "Первый участник"),
-            ("peer_two", "Второй участник"),
+        for (field, caption, required) in [
+            ("peer_one", "Первый участник", "required"),
+            ("peer_two", "Второй участник (необязательно)", ""),
         ] {
             write!(
                 body,
-                r#"<label for="{field}">{caption}</label><select id="{field}" name="{field}" required><option value="">Выберите собеседника</option>"#
+                r#"<label for="{field}">{caption}</label><select id="{field}" name="{field}" {required}><option value="">Выберите собеседника</option>"#
             )
             .expect("group peer selector");
             for (id, name) in contacts {
@@ -247,12 +247,20 @@ pub(super) async fn create(
     if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
         return deny(status);
     }
-    if form.peer_one <= 0 || form.peer_two <= 0 || form.peer_one == form.peer_two {
+    if form.peer_one <= 0 {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    match group_store(&state)
-        .create(actor, &[form.peer_one, form.peer_two], &form.title)
-        .await
+    let mut members = vec![form.peer_one];
+    if let Some(raw) = form.peer_two.as_deref() {
+        let raw = raw.trim();
+        if !raw.is_empty() {
+            match raw.parse::<i64>() {
+                Ok(peer) if peer > 0 && peer != form.peer_one => members.push(peer),
+                _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+            }
+        }
+    }
+    match group_store(&state).create(actor, &members, &form.title).await
     {
         Ok(id) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
         Err(error) => deny(super::mail::status(error)),

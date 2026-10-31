@@ -134,6 +134,46 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
+    // The pinned NEwBOO start_group_conversation accepts the creator plus
+    // exactly one invited member. An empty optional selector must be valid.
+    let pair_form = format!(
+        "title=Two%20readers&peer_one={}&peer_two=&csrf_token={}",
+        users[1], tokens[0]
+    );
+    let pair_created = call(&app, "POST", "/mail/groups", &cookies[0], &pair_form, &[]).await;
+    assert_eq!(pair_created.status(), StatusCode::SEE_OTHER);
+    let pair_path = pair_created.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        call(&app, "GET", &pair_path, &cookies[1], "", &[]).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&app, "GET", &pair_path, &cookies[2], "", &[]).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    let missing_second = format!(
+        "title=Also%20two&peer_one={}&csrf_token={}",
+        users[1], tokens[0]
+    );
+    assert_eq!(
+        call(&app, "POST", "/mail/groups", &cookies[0], &missing_second, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let invalid_second = format!(
+        "title=Invalid&peer_one={}&peer_two=not-a-number&csrf_token={}",
+        users[1], tokens[0]
+    );
+    assert_eq!(
+        call(&app, "POST", "/mail/groups", &cookies[0], &invalid_second, &[])
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
     let created = call(&app, "POST", "/mail/groups", &cookies[0], &form, &[]).await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
     let path = created.headers()[header::LOCATION]
