@@ -73,6 +73,7 @@ pub struct BookStatsReport {
     pub completed: i64,
     pub thanks: i64,
     pub bookmarks: i64,
+    pub likes: i64,
     pub work_rating: RatingStat,
     pub translation_rating: RatingStat,
     pub chapters: Vec<ChapterStats>,
@@ -203,7 +204,8 @@ impl PgBookStats {
                   JOIN chapters c ON c.id=p.chapter_id WHERE c.book_id=$1),0)::BIGINT AS gross,
                (SELECT COUNT(*) FROM reader_chapter_completions WHERE book_id=$1) AS completed,
                (SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1) AS thanks,
-               (SELECT COUNT(*) FROM reader_library_items WHERE book_id=$1) AS bookmarks",
+               (SELECT COUNT(*) FROM reader_library_items WHERE book_id=$1) AS bookmarks,
+               (SELECT COUNT(*) FROM book_likes WHERE book_id=$1) AS likes",
         )
         .bind(book_id)
         .fetch_one(&self.pool)
@@ -406,6 +408,7 @@ impl PgBookStats {
             completed: totals.try_get("completed")?,
             thanks: totals.try_get("thanks")?,
             bookmarks: totals.try_get("bookmarks")?,
+            likes: totals.try_get("likes")?,
             work_rating: RatingStat {
                 sum: ratings.try_get("work_sum")?,
                 votes: ratings.try_get("work_votes")?,

@@ -533,8 +533,9 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query(
-            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-             SELECT c.id,p.version_id FROM chapters c
+            "INSERT INTO chapter_first_release_events
+             (chapter_id,version_id,creator_user_id)
+             SELECT c.id,p.version_id,$2 FROM chapters c
              JOIN chapter_publications p ON p.chapter_id=c.id
              WHERE c.book_id=$1 AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted
@@ -542,6 +543,7 @@ impl PgAuthoring {
              ON CONFLICT (chapter_id) DO NOTHING",
         )
         .bind(book_id)
+        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
