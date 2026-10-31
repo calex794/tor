@@ -753,3 +753,5 @@ mod d06_direct_exposure;
 mod d06_refund_requests;
 #[path = "slices_pg/d08_revenue_allocation.rs"]
 mod d08_revenue_allocation;
+#[path = "slices_pg/d06_refund_approval.rs"]
+mod d06_refund_approval;
