@@ -282,16 +282,20 @@ async fn enqueue(
         .await
     {
         Ok(job_id) => job_id,
+        // Do not delete this deterministic S3 key on an uncertain database
+        // outcome: another identical concurrent request may already have
+        // committed the job and its worker may be reading the same object.
+        // Unreferenced staging objects are removed by private bucket lifecycle.
         Err(ImportJobsError::Conflict) => {
-            let _ = state.storage.delete(&key).await;
-            return fail(StatusCode::CONFLICT, "Для книги уже выполняется импорт или изменились данные.");
+            return fail(
+                StatusCode::CONFLICT,
+                "Для книги уже выполняется импорт или изменились данные.",
+            );
         }
         Err(ImportJobsError::Invalid) => {
-            let _ = state.storage.delete(&key).await;
             return fail(StatusCode::UNPROCESSABLE_ENTITY, "Недопустимые данные импорта.");
         }
         Err(_) => {
-            let _ = state.storage.delete(&key).await;
             return fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось поставить импорт в очередь.");
         }
     };
