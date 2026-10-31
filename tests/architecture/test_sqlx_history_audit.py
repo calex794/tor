@@ -398,6 +398,32 @@ class SQLxAuditTests(unittest.TestCase):
                 self.assertIn('"202610310293"', output.getvalue())
                 self.assertNotIn('"202610310292"', output.getvalue())
 
+    def test_focus_detects_main_vs_open_pr_sqlx_collision(self):
+        # #365 was merged into main with version 293; #348 still claims it.
+        report = {
+            "open_pr_numbers": [348, 364],
+            "collisions": [{
+                "version": "202610310293",
+                "variants": [
+                    {"owners": ["main"], "path": "migrations/202610310293_d06_refund_admin_step_up.sql"},
+                    {"owners": ["#348"], "path": "migrations/202610310293_author_subscriber_discounts.sql"},
+                ],
+            }],
+            "cross_version_identical_sql": [],
+            "notice": "Read-only snapshot.",
+        }
+        focused = focus_report_on_pr(report, 348)
+        self.assertEqual([item["version"] for item in focused["collisions"]],
+                         ["202610310293"])
+        with patch("audit_sqlx_history.scan_live", return_value=report):
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(audit_main([
+                    "scan-open-prs", "--focus-pr", "348", "--fail-on-conflict"
+                ]), 2)
+        # A merged PR is no longer an OPEN target, even if main owns its SQL.
+        with self.assertRaisesRegex(AuditError, "not in the verified OPEN"):
+            focus_report_on_pr(report, 365)
+
     def test_focus_pr_no_own_conflicts_is_not_blocked_by_other_open_drafts(self):
         report = {
             "open_pr_numbers": [348, 364, 365, 400],
