@@ -60,7 +60,9 @@ pub(super) async fn load_terms(
     .map_err(|_| CheckoutError::Unavailable)?;
     let mut shares = Vec::with_capacity(rows.len());
     for row in rows {
-        let id: i64 = row.try_get("user_id").map_err(|_| CheckoutError::Unavailable)?;
+        let id: i64 = row
+            .try_get("user_id")
+            .map_err(|_| CheckoutError::Unavailable)?;
         let percent: i16 = row
             .try_get("share_percent")
             .map_err(|_| CheckoutError::Unavailable)?;

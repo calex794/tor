@@ -229,14 +229,9 @@ impl PgCheckout {
             }
             let terms = if self.creator_posting_enabled {
                 Some(
-                    super::revenue::load_terms(
-                        &mut tx,
-                        book,
-                        revision,
-                        offer.expected_price.get(),
-                    )
-                    .await
-                    .map_err(BatchCheckoutError::from)?,
+                    super::revenue::load_terms(&mut tx, book, revision, offer.expected_price.get())
+                        .await
+                        .map_err(BatchCheckoutError::from)?,
                 )
             } else {
                 None

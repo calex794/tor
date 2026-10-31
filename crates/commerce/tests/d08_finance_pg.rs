@@ -211,13 +211,12 @@ async fn d_08_single_purchase_posts_exact_credit_and_hold_once() {
     assert!(replay.replayed);
     assert_eq!(replay.purchase_id, purchased.purchase_id);
     assert_eq!(balance(&f).await, 750);
-    let rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM finance_creator_earnings WHERE purchase_id=$1",
-    )
-    .bind(purchased.purchase_id.get())
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM finance_creator_earnings WHERE purchase_id=$1")
+            .bind(purchased.purchase_id.get())
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(rows, 1);
     f.pool.close().await;
 }
@@ -228,19 +227,16 @@ async fn d_08_missing_published_terms_fails_closed_before_debit() {
     let f = fixture("missing").await;
     let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
     assert_eq!(
-        checkout
-            .checkout_once(&buy_one(&f, f.offers[0], 'B'))
-            .await,
+        checkout.checkout_once(&buy_one(&f, f.offers[0], 'B')).await,
         Err(CheckoutError::Unavailable)
     );
     assert_eq!(balance(&f).await, 1000);
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM chapter_purchase_facts WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_purchase_facts WHERE user_id=$1")
+            .bind(f.buyer)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(count, 0);
     f.pool.close().await;
 }
@@ -270,7 +266,10 @@ async fn d_08_batch_postings_are_atomic_and_replayed_without_duplication() {
     assert_eq!(rows, vec![(101, 20, 81), (102, 20, 82)]);
     let replay = checkout.checkout_batch_once(&command).await.unwrap();
     assert!(replay.replayed);
-    assert_eq!(replay.purchases[0].purchase_id, result.purchases[0].purchase_id);
+    assert_eq!(
+        replay.purchases[0].purchase_id,
+        result.purchases[0].purchase_id
+    );
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM finance_creator_earnings e
          JOIN chapter_purchase_facts p ON p.id=e.purchase_id
@@ -352,13 +351,11 @@ async fn d_08_missing_hold_rejects_commit_and_rolls_back_wallet_and_rights() {
     .execute(&mut *tx)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO finance_platform_credits(purchase_id,amount_minor) VALUES($1,50)",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO finance_platform_credits(purchase_id,amount_minor) VALUES($1,50)")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
 
     // Intentionally OMIT the creator's authoritative credit/hold. The
     // deferred finance invariant must reject the whole transaction.
