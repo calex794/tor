@@ -39,7 +39,7 @@ pub fn extract_docx_text(source: &[u8]) -> Result<String, ImportError> {
     }
     let mut archive =
         zip::ZipArchive::new(Cursor::new(source)).map_err(|_| ImportError::InvalidArchive)?;
-    if archive.len() == 0 || archive.len() > MAX_ENTRIES {
+    if archive.is_empty() || archive.len() > MAX_ENTRIES {
         return Err(ImportError::InvalidArchive);
     }
     let (mut total, mut content_types, mut document) = (0_u64, false, None);
