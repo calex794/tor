@@ -4,7 +4,18 @@ use tor_commerce::repositories::{
     swap_intent::DirectSwapIntent,
 };
 
-pub(super) async fn swap_fixture(tag: &str, target_price: i64) -> (PgPool, DirectSwapIntent, i64, i64) {
+pub(super) async fn swap_fixture(
+    tag: &str,
+    target_price: i64,
+) -> (PgPool, DirectSwapIntent, i64, i64) {
+    swap_fixture_with_window(tag, target_price, 86_400).await
+}
+
+async fn swap_fixture_with_window(
+    tag: &str,
+    target_price: i64,
+    refund_window_seconds: i64,
+) -> (PgPool, DirectSwapIntent, i64, i64) {
     let (pool, buyer, source_book, chapter, version) = fixture(tag, 1000, 300).await;
     let owner: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
         .bind(source_book)
@@ -18,11 +29,12 @@ pub(super) async fn swap_fixture(tag: &str, target_price: i64) -> (PgPool, Direc
           (version,approval_reference,approved_by_user_id,
            approved_at,effective_at,window_seconds)
          VALUES($1,$2,$3,now()-INTERVAL '2 days',
-                now()-INTERVAL '1 day',86400)",
+                now()-INTERVAL '1 day',$4)",
     )
     .bind(&legal)
     .bind(format!("ci:swap:approval:{buyer}"))
     .bind(owner)
+    .bind(refund_window_seconds)
     .execute(&pool)
     .await
     .unwrap();
@@ -40,11 +52,12 @@ pub(super) async fn swap_fixture(tag: &str, target_price: i64) -> (PgPool, Direc
             "INSERT INTO finance_revenue_terms
              (book_id,policy_version,platform_fee_bps,
               refund_policy_version,refund_window_seconds)
-             VALUES($1,$2,2000,$3,86400)",
+             VALUES($1,$2,2000,$3,$4)",
         )
         .bind(book)
         .bind(&terms)
         .bind(&legal)
+        .bind(refund_window_seconds)
         .execute(&pool)
         .await
         .unwrap();
@@ -384,7 +397,9 @@ async fn d_06_swap_rejects_changed_price_without_wallet_or_rights_mutation() {
         .unwrap();
     let key = IdempotencyKey::parse(&format!("{}8", "P".repeat(42))).unwrap();
     assert_eq!(
-        PgDirectSwaps::new(pool.clone()).swap_once(intent, &key).await,
+        PgDirectSwaps::new(pool.clone())
+            .swap_once(intent, &key)
+            .await,
         Err(SwapError::Changed)
     );
     let result: (i64, i64, i64) = sqlx::query_as(
@@ -417,12 +432,11 @@ async fn d_06_swap_rejects_hidden_target_and_changed_owner() {
                 .await
                 .unwrap();
         } else {
-            let target_book: i64 =
-                sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
-                    .bind(intent.target_chapter_id)
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
+            let target_book: i64 = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+                .bind(intent.target_chapter_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
             sqlx::query("UPDATE books SET owner_user_id=$1 WHERE id=$2")
                 .bind(intent.buyer_id)
                 .bind(target_book)
@@ -432,7 +446,9 @@ async fn d_06_swap_rejects_hidden_target_and_changed_owner() {
         }
         let key = IdempotencyKey::parse(&format!("{}8", "Q".repeat(42))).unwrap();
         assert_eq!(
-            PgDirectSwaps::new(pool.clone()).swap_once(intent, &key).await,
+            PgDirectSwaps::new(pool.clone())
+                .swap_once(intent, &key)
+                .await,
             Err(SwapError::Ineligible)
         );
         let result: (i64, i64, i64) = sqlx::query_as(
@@ -462,7 +478,10 @@ async fn d_06_swap_equal_and_cheaper_prices_post_once() {
         let key = IdempotencyKey::parse(&format!("{}8", key_char.repeat(42))).unwrap();
         let swaps = PgDirectSwaps::new(pool.clone());
         let receipt = swaps.swap_once(intent, &key).await.unwrap();
-        assert_eq!((receipt.delta_minor, receipt.balance_after), (delta, balance));
+        assert_eq!(
+            (receipt.delta_minor, receipt.balance_after),
+            (delta, balance)
+        );
         assert!(!receipt.replayed);
         let retry = swaps.swap_once(intent, &key).await.unwrap();
         assert!(retry.replayed);
@@ -483,4 +502,100 @@ async fn d_06_swap_equal_and_cheaper_prices_post_once() {
         assert_eq!((wallet, postings, credits), (balance, 1, 1));
         pool.close().await;
     }
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_rejects_replaced_published_target_version() {
+    let (pool, intent, _, _) = swap_fixture("d06_swap_replaced_version", 450).await;
+    let newer_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Новая редакция для проверки обмена') RETURNING id",
+    )
+    .bind(intent.target_chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(intent.target_chapter_id)
+        .bind(newer_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let key = IdempotencyKey::parse(&format!("{}8", "U".repeat(42))).unwrap();
+    assert_eq!(
+        PgDirectSwaps::new(pool.clone())
+            .swap_once(intent, &key)
+            .await,
+        Err(SwapError::Changed)
+    );
+    let (balance, postings, revoked, target_purchases): (i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT balance_minor,
+               (SELECT COUNT(*) FROM finance_direct_swap_postings
+                WHERE source_purchase_id=$2),
+               (SELECT COUNT(*) FROM chapter_purchase_revocations
+                WHERE purchase_id=$2),
+               (SELECT COUNT(*) FROM chapter_purchase_facts
+                WHERE user_id=$1 AND chapter_id=$3)
+             FROM reader_wallet_accounts WHERE user_id=$1",
+        )
+        .bind(intent.buyer_id)
+        .bind(intent.source_purchase_id)
+        .bind(intent.target_chapter_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!((balance, postings, revoked, target_purchases), (700, 0, 0, 0));
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_expired_source_purchase_preserves_wallet_and_access() {
+    let (pool, intent, source_chapter, source_version) =
+        swap_fixture_with_window("d06_swap_expired", 450, 1).await;
+    let deadline: bool = sqlx::query_scalar(
+        "SELECT clock_timestamp() <= refund_deadline_at
+         FROM chapter_purchase_facts WHERE id=$1",
+    )
+    .bind(intent.source_purchase_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(deadline, "the fixture must start inside its refund window");
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let key = IdempotencyKey::parse(&format!("{}8", "V".repeat(42))).unwrap();
+    assert_eq!(
+        PgDirectSwaps::new(pool.clone())
+            .swap_once(intent, &key)
+            .await,
+        Err(SwapError::Expired)
+    );
+    let (balance, postings, revoked): (i64, i64, i64) = sqlx::query_as(
+        "SELECT balance_minor,
+           (SELECT COUNT(*) FROM finance_direct_swap_postings
+            WHERE source_purchase_id=$2),
+           (SELECT COUNT(*) FROM chapter_purchase_revocations
+            WHERE purchase_id=$2)
+         FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(intent.buyer_id)
+    .bind(intent.source_purchase_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((balance, postings, revoked), (700, 0, 0));
+    let readable: bool = sqlx::query_scalar(
+        "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
+    )
+    .bind(intent.buyer_id)
+    .bind(intent.source_purchase_id)
+    .bind(source_chapter)
+    .bind(source_version)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(readable, "the original purchased edition must remain readable");
+    pool.close().await;
 }
