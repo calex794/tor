@@ -187,7 +187,7 @@ impl PgAuthoring {
         let row = sqlx::query(
             "SELECT status,lease_epoch,actor_user_id,book_id,command_key,
                     approved_fingerprint,expected_chapter_count,
-                    locked_until > now() AS lease_valid
+                    COALESCE(locked_until > now(), FALSE) AS lease_valid
              FROM chapter_import_jobs WHERE id=$1 FOR UPDATE",
         )
         .bind(claim.job_id)
