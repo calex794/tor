@@ -252,27 +252,40 @@ impl PgAuthoring {
     }
 
     /// A row lock serializes cancellation with the final transaction's job lock.
+    /// The private key is returned only to trusted cleanup code, never to HTTP.
+    pub async fn cancel_chapter_import_source(
+        &self,
+        actor: i64,
+        book: i64,
+        job: i64,
+    ) -> Result<Option<String>, AuthorError> {
+        sqlx::query_scalar(
+            "UPDATE chapter_import_jobs j SET status='cancelled',locked_until=NULL,
+                    lease_epoch=j.lease_epoch+1,updated_at=now(),finished_at=now()
+             FROM books b WHERE j.id=$1 AND j.book_id=$2 AND j.actor_user_id=$3
+               AND b.id=j.book_id AND b.owner_user_id=$3
+               AND NOT b.is_deleted AND NOT b.admin_hold
+               AND j.status IN ('queued','running')
+             RETURNING j.source_key",
+        )
+        .bind(job)
+        .bind(book)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)
+    }
+
     pub async fn cancel_chapter_import(
         &self,
         actor: i64,
         book: i64,
         job: i64,
     ) -> Result<bool, AuthorError> {
-        let changed = sqlx::query(
-            "UPDATE chapter_import_jobs j SET status='cancelled',locked_until=NULL,
-                    lease_epoch=j.lease_epoch+1,updated_at=now(),finished_at=now()
-             FROM books b WHERE j.id=$1 AND j.book_id=$2 AND j.actor_user_id=$3
-               AND b.id=j.book_id AND b.owner_user_id=$3
-               AND NOT b.is_deleted AND NOT b.admin_hold
-               AND j.status IN ('queued','running')",
-        )
-        .bind(job)
-        .bind(book)
-        .bind(actor)
-        .execute(&self.pool)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
-        Ok(changed.rows_affected() == 1)
+        Ok(self
+            .cancel_chapter_import_source(actor, book, job)
+            .await?
+            .is_some())
     }
 
     pub async fn fail_chapter_import(
