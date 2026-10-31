@@ -79,10 +79,11 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
         bytes: &[u8],
         sha256: &[u8; 32],
     ) -> Result<(), StoreError> {
+        let actual: [u8; 32] = Sha256::digest(bytes).into();
         if !Self::valid_key(key)
             || bytes.is_empty()
             || bytes.len() > 700_000
-            || <[u8; 32]>::from(Sha256::digest(bytes)) != *sha256
+            || actual != *sha256
         {
             return Err(StoreError::Invalid);
         }
@@ -112,13 +113,19 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
                 }
                 // A retry after an unknown PUT result is accepted only when
                 // the immutable object already present is byte-for-byte equal.
+                if !self
+                    .verify_head(key, bytes.len() as i64, sha256)
+                    .await?
+                {
+                    return Err(StoreError::Conflict);
+                }
                 let existing = self
                     .get_verified(key, bytes.len() as i64, sha256, 700_000)
                     .await?;
                 return if existing == bytes {
                     Ok(())
                 } else {
-                    Err(StoreError::Conflict)
+                    Err(StoreError::Corrupt)
                 };
             }
         }
@@ -178,8 +185,8 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
             .read_to_end(&mut bytes)
             .await
             .map_err(|_| StoreError::Unavailable)?;
-        if bytes.len() != expected_size as usize
-            || <[u8; 32]>::from(Sha256::digest(&bytes)) != *sha256
+        let actual: [u8; 32] = Sha256::digest(&bytes).into();
+        if bytes.len() != expected_size as usize || actual != *sha256
         {
             return Err(StoreError::Corrupt);
         }
@@ -200,3 +207,6 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
