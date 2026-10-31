@@ -63,6 +63,18 @@ fn bounded(text: &str, min: usize, max: usize) -> bool {
     count >= min && count <= max && !text.contains('\0') && text.trim() == text
 }
 
+pub struct NewTextIssue<'a> {
+    pub actor: i64,
+    pub chapter_id: i64,
+    pub version_id: i64,
+    pub block_index: i32,
+    pub selection_start: i32,
+    pub selection_end: i32,
+    pub quote: &'a str,
+    pub suggestion: &'a str,
+    pub issue_type: &'a str,
+}
+
 impl PgTextIssues {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -70,18 +82,11 @@ impl PgTextIssues {
 
     /// The published, free and currently accessible ChapterVersion is locked
     /// until the insert commits. A concurrent publication cannot retarget it.
-    pub async fn create_free(
-        &self,
-        actor: i64,
-        chapter_id: i64,
-        version_id: i64,
-        block_index: i32,
-        selection_start: i32,
-        selection_end: i32,
-        quote: &str,
-        suggestion: &str,
-        issue_type: &str,
-    ) -> Result<CreatedIssue, IssueError> {
+    pub async fn create_free(&self, new_issue: NewTextIssue<'_>) -> Result<CreatedIssue, IssueError> {
+        let NewTextIssue {
+            actor, chapter_id, version_id, block_index, selection_start,
+            selection_end, quote, suggestion, issue_type,
+        } = new_issue;
         if actor <= 0
             || chapter_id <= 0
             || version_id <= 0
