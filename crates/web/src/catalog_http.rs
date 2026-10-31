@@ -1,9 +1,9 @@
 //! TOR F-02 catalogue HTTP projection, kept separate from routing shell.
-use super::{cover_http, pages, public_cards, AppState};
+use super::{cover_http, direct_cover_page, pages, public_cards, AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::Html,
+    response::Response,
 };
 use serde::Deserialize;
 use tor_books::services::DEFAULT_PAGE_SIZE;
@@ -41,7 +41,7 @@ fn requested_page(query: &CatalogQuery) -> Result<u32, StatusCode> {
 pub(super) async fn catalog(
     State(state): State<AppState>,
     Query(query): Query<CatalogQuery>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<Response, StatusCode> {
     if let Some(search) = state.search.as_ref() {
         // Always page the real PG catalog, even without a text filter.
         // Demo mode remains a separate legacy-compatible path.
@@ -108,7 +108,7 @@ pub(super) async fn catalog(
             })
             .collect();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::catalog_search_with_covers(
+        return Ok(direct_cover_page::page(pages::catalog_search_with_covers(
             &cards,
             pages::CatalogPageQuery {
                 query: query.q.as_deref().unwrap_or(""),
@@ -124,7 +124,7 @@ pub(super) async fn catalog(
                 options: options.as_ref(),
             },
             &covers,
-        ));
+        ), state.direct_cover_origin.as_deref()));
     }
     if query.q.is_some()
         || query.after.is_some()
@@ -138,9 +138,9 @@ pub(super) async fn catalog(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    Ok(pages::catalog(
+    Ok(direct_cover_page::page(pages::catalog(
         &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
-    ))
+    ), state.direct_cover_origin.as_deref()))
 }
 
 #[cfg(test)]
