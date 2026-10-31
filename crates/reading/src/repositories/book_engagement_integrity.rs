@@ -45,7 +45,9 @@ impl PgBookEngagementIntegrity {
         liked: bool,
     ) -> Result<LikeIntegrityDecision, sqlx::Error> {
         if user_id <= 0 || book_id <= 0 {
-            return Err(sqlx::Error::Protocol("invalid book engagement identity".into()));
+            return Err(sqlx::Error::Protocol(
+                "invalid book engagement identity".into(),
+            ));
         }
         let action = if liked { "book_like" } else { "book_unlike" };
         let user_action = scope_hash(&format!("user:{user_id}:action:{action}"));
@@ -53,11 +55,10 @@ impl PgBookEngagementIntegrity {
         let target_action = scope_hash(&format!("book:{book_id}:action:{action}"));
 
         let mut tx = self.pool.begin().await?;
-        let bucket: i64 = sqlx::query_scalar(
-            "SELECT floor(extract(epoch FROM clock_timestamp()) / 10)::BIGINT",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let bucket: i64 =
+            sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()) / 10)::BIGINT")
+                .fetch_one(&mut *tx)
+                .await?;
 
         for (scope, owner_user, owner_book) in [
             (user_action, Some(user_id), None),
