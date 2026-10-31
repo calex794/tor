@@ -24,6 +24,9 @@ cleanup() {
     ip netns pids "$ns" 2>/dev/null | xargs -r kill 2>/dev/null || true
     ip netns del "$ns" 2>/dev/null || true
   done
+  # Test logs are synthetic. Permit the unprivileged Actions artifact step
+  # to read root-created reports even when a test exits unsuccessfully.
+  chmod -R a+rX "$REPORT" 2>/dev/null || true
   rm -rf "$TMP"
 }
 trap cleanup EXIT
