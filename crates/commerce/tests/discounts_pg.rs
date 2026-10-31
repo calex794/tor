@@ -173,7 +173,21 @@ async fn d_07_exact_ninety_day_discount_freezes_paid_amount_and_replay() {
         Err(CheckoutError::StaleOffer),
         "falsely claimed discount must not reach the wallet"
     );
-    let period = follow(&f, 91).await;
+    let period = follow(&f, 89).await;
+    let not_yet_eligible = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(not_yet_eligible.final_price_minor, 100);
+    assert_eq!(not_yet_eligible.discount_percent, None);
+    sqlx::query(
+        "UPDATE creator_follow_periods
+         SET started_at=now()-interval '90 days' WHERE id=$1",
+    )
+    .bind(period)
+    .execute(&f.pool)
+    .await
+    .unwrap();
     let offer = checkout
         .quote_single(f.reader, f.book, f.chapter)
         .await
@@ -359,4 +373,97 @@ async fn d_07_expired_offer_is_not_applied_and_will_not_block_replacement() {
     );
     let replacement = campaigns.create(f.owner, f.book, 30, 0, 4).await.unwrap();
     assert_ne!(replacement, id);
+}
+
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_07_same_final_amount_with_changed_base_price_is_stale() {
+    // 20% of 104 and 105 kopeks both round down to a 20/21-kopek discount
+    // whose final amount is 84 kopeks. The original list price must still bind.
+    let f = fixture("base_plateau", 200, 104).await;
+    let campaigns = PgAuthorDiscounts::new(f.pool.clone());
+    let checkout = PgCheckout::new(f.pool.clone());
+    campaigns.create(f.owner, f.book, 20, 0, 30).await.unwrap();
+    follow(&f, 1).await;
+    let quote = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!((quote.base_price_minor, quote.final_price_minor), (104, 84));
+    sqlx::query("UPDATE chapters SET price_amount=105 WHERE id=$1")
+        .bind(f.chapter)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    let changed = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(changed.final_price_minor, quote.final_price_minor);
+    assert_ne!(changed.base_price_minor, quote.base_price_minor);
+    assert_eq!(
+        checkout
+            .checkout_once(&command_for_quote(&f, &quote, 'G'))
+            .await,
+        Err(CheckoutError::StaleOffer),
+        "same final kopecks do not make a changed list price the same quote"
+    );
+    let balance: i64 = sqlx::query_scalar(
+        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(f.reader)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(balance, 200);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_07_same_amount_with_new_campaign_revision_is_stale() {
+    let f = fixture("revision", 200, 100).await;
+    let campaigns = PgAuthorDiscounts::new(f.pool.clone());
+    let checkout = PgCheckout::new(f.pool.clone());
+    let campaign = campaigns.create(f.owner, f.book, 20, 90, 30).await.unwrap();
+    follow(&f, 91).await;
+    let quote = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(quote.final_price_minor, 80);
+    assert_eq!(quote.campaign_revision, Some(1));
+    sqlx::query(
+        "UPDATE author_discount_campaigns
+         SET ends_at=ends_at+interval '1 day' WHERE id=$1",
+    )
+    .bind(campaign)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let revised = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(revised.final_price_minor, quote.final_price_minor);
+    assert_eq!(revised.campaign_revision, Some(2));
+    assert_eq!(
+        checkout
+            .checkout_once(&command_for_quote(&f, &quote, 'H'))
+            .await,
+        Err(CheckoutError::StaleOffer),
+        "campaign revision is part of the quote even when the final price is unchanged"
+    );
+    let receipt = checkout
+        .checkout_once(&command_for_quote(&f, &revised, 'I'))
+        .await
+        .unwrap();
+    let revision: i32 = sqlx::query_scalar(
+        "SELECT campaign_revision FROM chapter_purchase_discount_snapshots WHERE purchase_id=$1",
+    )
+    .bind(receipt.purchase_id.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(revision, 2);
 }
