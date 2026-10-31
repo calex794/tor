@@ -191,8 +191,13 @@ pub fn detail_with_covers_with_demand_page(
         String::new()
     };
     let discounts_link = if published && discounts_enabled {
-        format!("<p><a href=\"/me/books/{}/discounts\">Скидки подписчикам</a></p>",book.id)
-    } else { String::new() };
+        format!(
+            "<p><a href=\"/me/books/{}/discounts\">Скидки подписчикам</a></p>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let demand_panel = if published {
         format!(
             "<section class=\"author-demand\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"account-profile__hint\">Только подтверждённые читатели текущей границы книги.</p></section>"

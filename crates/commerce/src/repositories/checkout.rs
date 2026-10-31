@@ -155,7 +155,10 @@ impl CheckoutRepository for PgCheckout {
         )
         .await?;
         if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version
-            || discount.as_ref().map_or(base_price, |value| value.paid_minor) != price
+            || discount
+                .as_ref()
+                .map_or(base_price, |value| value.paid_minor)
+                != price
         {
             return Err(CheckoutError::StaleOffer);
         }

@@ -26,7 +26,7 @@ pub(super) struct FormBuy {
 }
 
 fn money(amount: i64) -> String {
-    format!("{},{:02} ₽",amount/100,amount%100)
+    format!("{},{:02} ₽", amount / 100, amount % 100)
 }
 
 fn shell(book_id: i64, body: &str) -> Html<String> {
@@ -48,9 +48,11 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
             "<p>Обычная цена: {}. Скидка {}% для подписчика{}.</p>",
             money(quote.base_price_minor),
             percent,
-            if quote.requires_follow_days==Some(90) {
+            if quote.requires_follow_days == Some(90) {
                 " со стажем от 90 дней"
-            } else { "" },
+            } else {
+                ""
+            },
         )
     } else {
         "<p>Скидка для этого читателя сейчас не действует.</p>".to_owned()
@@ -83,78 +85,95 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
 }
 
 fn failed(book_id: i64, error: CheckoutError) -> Response {
-    let (status,message) = match error {
-        CheckoutError::Inaccessible => (
-            StatusCode::NOT_FOUND,"Глава недоступна."
-        ),
+    let (status, message) = match error {
+        CheckoutError::Inaccessible => (StatusCode::NOT_FOUND, "Глава недоступна."),
         CheckoutError::StaleOffer => (
             StatusCode::CONFLICT,
-            "Цена, акция, стаж подписки или редакция изменилась. Обновите предложение."
+            "Цена, акция, стаж подписки или редакция изменилась. Обновите предложение.",
         ),
         CheckoutError::AlreadyOwned => (
             StatusCode::CONFLICT,
-            "Глава уже куплена. Повторного списания нет."
+            "Глава уже куплена. Повторного списания нет.",
         ),
         CheckoutError::InsufficientBalance => (
             StatusCode::CONFLICT,
-            "Недостаточно средств во внутреннем кошельке."
+            "Недостаточно средств во внутреннем кошельке.",
         ),
         _ => (
             checkout_status(error),
-            "Не удалось подтвердить покупку. Списание не выполнено."
+            "Не удалось подтвердить покупку. Списание не выполнено.",
         ),
     };
-    private_response((status,shell(book_id,&format!(
+    private_response(
+        (
+            status,
+            shell(
+                book_id,
+                &format!(
         "<p role=\"alert\">{message}</p><p><a href=\"/me/library\">Моя библиотека</a></p>",
-    ))),&[])
+    ),
+            ),
+        ),
+        &[],
+    )
 }
 
 pub(super) async fn page(
     State(state): State<AuthState>,
-    Path((book_id,chapter_id)): Path<(i64,i64)>,
+    Path((book_id, chapter_id)): Path<(i64, i64)>,
     headers: HeaderMap,
 ) -> Response {
-    if !state.paid_checkout_enabled || book_id<=0 || chapter_id<=0 {
+    if !state.paid_checkout_enabled || book_id <= 0 || chapter_id <= 0 {
         return deny(StatusCode::NOT_FOUND);
     }
-    let actor=match session_user(&state,&headers).await {
-        Ok(Some(actor))=>actor,
-        Ok(None)=>return private_response(Redirect::to("/login"),&[]),
-        Err(status)=>return deny(status),
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
     };
-    let quote=match state.checkout.quote_single(actor,book_id,chapter_id).await {
-        Ok(offer)=>offer,
-        Err(error)=>return failed(book_id,error),
+    let quote = match state
+        .checkout
+        .quote_single(actor, book_id, chapter_id)
+        .await
+    {
+        Ok(offer) => offer,
+        Err(error) => return failed(book_id, error),
     };
-    let (csrf,cookies)=state.cookies.csrf_for_page(&headers);
-    private_response(confirm(&quote,&csrf),&cookies)
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(confirm(&quote, &csrf), &cookies)
 }
 
 pub(super) async fn submit(
     State(state): State<AuthState>,
-    Path((book_id,chapter_id)): Path<(i64,i64)>,
+    Path((book_id, chapter_id)): Path<(i64, i64)>,
     headers: HeaderMap,
     Form(form): Form<FormBuy>,
 ) -> Response {
-    if !state.paid_checkout_enabled || book_id<=0 || chapter_id<=0 {
+    if !state.paid_checkout_enabled || book_id <= 0 || chapter_id <= 0 {
         return deny(StatusCode::NOT_FOUND);
     }
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers,form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let actor=match session_user(&state,&headers).await {
-        Ok(Some(actor))=>actor,
-        Ok(None)=>return deny(StatusCode::UNAUTHORIZED),
-        Err(status)=>return deny(status),
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
     };
     // The authenticated chapter must actually belong to this public book.
     // Rechecking the quote here is a path guard; D rechecks price, E period,
     // campaign and pinned version under locks in the purchase transaction.
-    match state.checkout.quote_single(actor,book_id,chapter_id).await {
+    match state
+        .checkout
+        .quote_single(actor, book_id, chapter_id)
+        .await
+    {
         Ok(_) | Err(CheckoutError::AlreadyOwned) => {}
-        Err(error) => return failed(book_id,error),
+        Err(error) => return failed(book_id, error),
     }
     let command = (|| {
         PurchaseCommand::new(
@@ -166,9 +185,10 @@ pub(super) async fn submit(
             },
             MoneyMinor::new(form.expected_price_minor).ok()?,
             IdempotencyKey::parse(&form.command_key).ok()?,
-        ).ok()
+        )
+        .ok()
     })();
-    let Some(command)=command else {
+    let Some(command) = command else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
     match state.checkout.checkout_once(&command).await {
@@ -179,17 +199,28 @@ pub(super) async fn submit(
                     receipt.purchase_id.get(),
                 )
             } else {
-                "<p>Защищённая читалка доступна после включения доставки платных глав.</p>".to_owned()
+                "<p>Защищённая читалка доступна после включения доставки платных глав.</p>"
+                    .to_owned()
             };
-            private_response(shell(book_id,&format!(
-                "<p role=\"status\">Глава куплена. Списано {}. Остаток {}.</p>\
+            private_response(
+                shell(
+                    book_id,
+                    &format!(
+                        "<p role=\"status\">Глава куплена. Списано {}. Остаток {}.</p>\
                  <p>{}</p>{reader_link}<p><a href=\"/me/purchases\">Мои покупки</a></p>",
-                money(receipt.amount.get()),
-                money(receipt.balance_after.get()),
-                if receipt.replayed { "Повторное подтверждение: новых списаний нет." } else { "" },
-            )),&[])
+                        money(receipt.amount.get()),
+                        money(receipt.balance_after.get()),
+                        if receipt.replayed {
+                            "Повторное подтверждение: новых списаний нет."
+                        } else {
+                            ""
+                        },
+                    ),
+                ),
+                &[],
+            )
         }
-        Err(error)=>failed(book_id,error),
+        Err(error) => failed(book_id, error),
     }
 }
 
@@ -198,14 +229,19 @@ mod tests {
     use super::*;
     #[test]
     fn quote_escapes_untrusted_titles_and_shows_exact_minor() {
-        let quote=SingleChapterQuote {
-            book_id:1,chapter_id:2,chapter_no:3,
-            chapter_title:"<script>bad</script>".to_owned(),
-            book_title:"Книга".to_owned(),version_id:4,
-            base_price_minor:100,final_price_minor:80,
-            discount_percent:Some(20),requires_follow_days:Some(90),
+        let quote = SingleChapterQuote {
+            book_id: 1,
+            chapter_id: 2,
+            chapter_no: 3,
+            chapter_title: "<script>bad</script>".to_owned(),
+            book_title: "Книга".to_owned(),
+            version_id: 4,
+            base_price_minor: 100,
+            final_price_minor: 80,
+            discount_percent: Some(20),
+            requires_follow_days: Some(90),
         };
-        let html=confirm(&quote,"csrf").0;
+        let html = confirm(&quote, "csrf").0;
         assert!(html.contains("К списанию: 0,80 ₽"));
         assert!(html.contains("Обычная цена: 1,00 ₽"));
         assert!(html.contains("со стажем от 90 дней"));

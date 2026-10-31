@@ -68,16 +68,17 @@ pub(super) async fn eligible_discount(
     let Some(period) = period else {
         return Ok(None);
     };
-    if !period.try_get::<bool, _>("mature").map_err(|_| CheckoutError::Unavailable)? {
+    if !period
+        .try_get::<bool, _>("mature")
+        .map_err(|_| CheckoutError::Unavailable)?
+    {
         return Ok(None);
     }
 
     // Exact integer calculation. percent<=90 ensures positive paid amount.
     // Small chapter prices with a zero-kopek rounding discount stay full price.
-    let discount = i64::try_from(
-        i128::from(base_price_minor) * i128::from(percent) / 100_i128
-    )
-    .map_err(|_| CheckoutError::Unavailable)?;
+    let discount = i64::try_from(i128::from(base_price_minor) * i128::from(percent) / 100_i128)
+        .map_err(|_| CheckoutError::Unavailable)?;
     if discount == 0 {
         return Ok(None);
     }
@@ -87,7 +88,9 @@ pub(super) async fn eligible_discount(
         .ok_or(CheckoutError::Unavailable)?;
     Ok(Some(DiscountApplied {
         campaign_id,
-        follow_period_id: period.try_get("id").map_err(|_| CheckoutError::Unavailable)?,
+        follow_period_id: period
+            .try_get("id")
+            .map_err(|_| CheckoutError::Unavailable)?,
         base_price_minor,
         discount_minor: discount,
         paid_minor: paid,

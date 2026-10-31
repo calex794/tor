@@ -84,7 +84,9 @@ impl PgAuthorDiscounts {
         .map_err(|_| DiscountCampaignError::Unavailable)?;
         result.map_or(Ok(None), |row| {
             Ok(Some(ActiveAuthorDiscount {
-                id: row.try_get("id").map_err(|_| DiscountCampaignError::Unavailable)?,
+                id: row
+                    .try_get("id")
+                    .map_err(|_| DiscountCampaignError::Unavailable)?,
                 book_id: book,
                 discount_percent: row
                     .try_get("discount_percent")
@@ -109,14 +111,19 @@ impl PgAuthorDiscounts {
         min_follow_days: i16,
         duration_days: i16,
     ) -> Result<i64, DiscountCampaignError> {
-        if owner <= 0 || book <= 0
+        if owner <= 0
+            || book <= 0
             || !(1..=90).contains(&discount_percent)
-            || ![0,90].contains(&min_follow_days)
+            || ![0, 90].contains(&min_follow_days)
             || !(1..=90).contains(&duration_days)
         {
             return Err(DiscountCampaignError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| DiscountCampaignError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DiscountCampaignError::Unavailable)?;
         if !Self::owned_book(&mut tx, owner, book).await? {
             return Err(DiscountCampaignError::NotFound);
         }
@@ -170,7 +177,9 @@ impl PgAuthorDiscounts {
                 DiscountCampaignError::Unavailable
             }
         })?;
-        tx.commit().await.map_err(|_| DiscountCampaignError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| DiscountCampaignError::Unavailable)?;
         Ok(id)
     }
 
@@ -178,7 +187,11 @@ impl PgAuthorDiscounts {
         if owner <= 0 || book <= 0 {
             return Err(DiscountCampaignError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| DiscountCampaignError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DiscountCampaignError::Unavailable)?;
         if !Self::owned_book(&mut tx, owner, book).await? {
             return Err(DiscountCampaignError::NotFound);
         }
@@ -191,7 +204,9 @@ impl PgAuthorDiscounts {
         .execute(&mut *tx)
         .await
         .map_err(|_| DiscountCampaignError::Unavailable)?;
-        tx.commit().await.map_err(|_| DiscountCampaignError::Unavailable)?;
+        tx.commit()
+            .await
+            .map_err(|_| DiscountCampaignError::Unavailable)?;
         Ok(())
     }
 }

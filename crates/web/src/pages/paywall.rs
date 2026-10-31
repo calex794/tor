@@ -6,7 +6,7 @@ use tor_reading::services::PublicPaidChapterPreview;
 /// No paid body, purchase token, signed URL, S3 key or false purchase form.
 /// The real checkout is separately authenticated and feature-gated in D.
 pub fn paid_chapter_paywall(chapter: &PublicPaidChapterPreview) -> Html<String> {
-    paid_chapter_paywall_with_checkout(chapter,0,false)
+    paid_chapter_paywall_with_checkout(chapter, 0, false)
 }
 
 pub fn paid_chapter_paywall_with_checkout(
@@ -14,9 +14,14 @@ pub fn paid_chapter_paywall_with_checkout(
     chapter_id: u64,
     checkout_enabled: bool,
 ) -> Html<String> {
-    let buy_link = if checkout_enabled && chapter.price_minor>0 && chapter_id>0 {
-        format!("<a class=\"button\" href=\"/me/books/{}/buy-chapter/{chapter_id}\">Купить главу</a>",chapter.book_id)
-    } else { String::new() };
+    let buy_link = if checkout_enabled && chapter.price_minor > 0 && chapter_id > 0 {
+        format!(
+            "<a class=\"button\" href=\"/me/books/{}/buy-chapter/{chapter_id}\">Купить главу</a>",
+            chapter.book_id
+        )
+    } else {
+        String::new()
+    };
     let book = escape_html(&chapter.book_title);
     let title = escape_html(&chapter.chapter_title);
     let price = if chapter.price_minor > 0 {

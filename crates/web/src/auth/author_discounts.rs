@@ -7,9 +7,7 @@ use axum::{
     response::{Html, Redirect, Response},
 };
 use serde::Deserialize;
-use tor_commerce::repositories::discount_campaigns::{
-    ActiveAuthorDiscount, DiscountCampaignError,
-};
+use tor_commerce::repositories::discount_campaigns::{ActiveAuthorDiscount, DiscountCampaignError};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,7 +28,12 @@ fn status(error: DiscountCampaignError) -> StatusCode {
     }
 }
 
-fn render(book_id: i64, title: &str, csrf: &str, active: Option<&ActiveAuthorDiscount>) -> Html<String> {
+fn render(
+    book_id: i64,
+    title: &str,
+    csrf: &str,
+    active: Option<&ActiveAuthorDiscount>,
+) -> Html<String> {
     let title = pages::escape_html(title);
     let action = if let Some(active) = active {
         let terms = if active.min_follow_days == 90 {
@@ -79,7 +82,11 @@ fn render(book_id: i64, title: &str, csrf: &str, active: Option<&ActiveAuthorDis
          <p><a href=\"/me/books/{book_id}\">Вернуться к книге</a></p>\
          </div></div></section>"
     );
-    pages::layout("Скидки подписчикам", "Управление скидками своей книги.", &body)
+    pages::layout(
+        "Скидки подписчикам",
+        "Управление скидками своей книги.",
+        &body,
+    )
 }
 
 pub(super) async fn page(
@@ -87,25 +94,28 @@ pub(super) async fn page(
     Path(book_id): Path<i64>,
     headers: HeaderMap,
 ) -> Response {
-    if !state.paid_checkout_enabled || book_id<=0 {
+    if !state.paid_checkout_enabled || book_id <= 0 {
         return deny(StatusCode::NOT_FOUND);
     }
-    let actor = match session_user(&state,&headers).await {
+    let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"),&[]),
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(error) => return deny(error),
     };
-    let book = match state.authoring.owned_book(actor,book_id).await {
+    let book = match state.authoring.owned_book(actor, book_id).await {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let active = match state.discounts.current(actor,book_id).await {
+    let active = match state.discounts.current(actor, book_id).await {
         Ok(active) => active,
         Err(error) => return deny(status(error)),
     };
-    let (csrf,cookies)=state.cookies.csrf_for_page(&headers);
-    private_response(render(book_id,&book.title,&csrf,active.as_ref()),&cookies)
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    private_response(
+        render(book_id, &book.title, &csrf, active.as_ref()),
+        &cookies,
+    )
 }
 
 pub(super) async fn submit(
@@ -114,32 +124,50 @@ pub(super) async fn submit(
     headers: HeaderMap,
     Form(form): Form<CampaignForm>,
 ) -> Response {
-    if !state.paid_checkout_enabled || book_id<=0 {
+    if !state.paid_checkout_enabled || book_id <= 0 {
         return deny(StatusCode::NOT_FOUND);
     }
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers,form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let actor = match session_user(&state,&headers).await {
+    let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(error) => return deny(error),
     };
+    match state.authoring.owned_book(actor, book_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let result = match form.action.as_str() {
-        "create" => match (form.discount_percent,form.min_follow_days,form.duration_days) {
-            (Some(percent),Some(days),Some(duration)) =>
-                state.discounts.create(actor,book_id,percent,days,duration).await.map(|_|()),
+        "create" => match (
+            form.discount_percent,
+            form.min_follow_days,
+            form.duration_days,
+        ) {
+            (Some(percent), Some(days), Some(duration)) => state
+                .discounts
+                .create(actor, book_id, percent, days, duration)
+                .await
+                .map(|_| ()),
             _ => Err(DiscountCampaignError::Invalid),
         },
-        "stop" if form.discount_percent.is_none()
-            && form.min_follow_days.is_none() && form.duration_days.is_none() =>
-                state.discounts.stop(actor,book_id).await,
+        "stop"
+            if form.discount_percent.is_none()
+                && form.min_follow_days.is_none()
+                && form.duration_days.is_none() =>
+        {
+            state.discounts.stop(actor, book_id).await
+        }
         _ => Err(DiscountCampaignError::Invalid),
     };
     match result {
-        Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}/discounts")),&[]),
+        Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}/discounts")), &[]),
         Err(error) => deny(status(error)),
     }
 }
@@ -149,11 +177,14 @@ mod tests {
     use super::*;
     #[test]
     fn owner_form_is_bounded_and_escapes_book_title() {
-        let html=render(12,"<script>unsafe</script>","csrf",None).0;
+        let html = render(12, "<script>unsafe</script>", "csrf", None).0;
         assert!(html.contains("&lt;script&gt;unsafe&lt;/script&gt;"));
         assert!(!html.contains("<script>unsafe</script>"));
         assert!(html.contains("Скидки подписчикам"));
         assert!(html.contains("name=\"min_follow_days\""));
-        assert_eq!(status(DiscountCampaignError::NotFound),StatusCode::NOT_FOUND);
+        assert_eq!(
+            status(DiscountCampaignError::NotFound),
+            StatusCode::NOT_FOUND
+        );
     }
 }

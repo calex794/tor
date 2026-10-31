@@ -83,8 +83,8 @@ mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
 mod session_security;
-mod single_chapter_checkout;
 mod settings_routes;
+mod single_chapter_checkout;
 mod sync_actions;
 mod types;
 use types::*;
@@ -177,7 +177,9 @@ fn router_inner(
         tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
-    let discounts = tor_commerce::repositories::discount_campaigns::PgAuthorDiscounts::new(accounts.pool().clone());
+    let discounts = tor_commerce::repositories::discount_campaigns::PgAuthorDiscounts::new(
+        accounts.pool().clone(),
+    );
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
