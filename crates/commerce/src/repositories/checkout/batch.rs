@@ -227,7 +227,16 @@ impl PgCheckout {
             if sum != 100 {
                 return Err(CheckoutError::Unavailable.into());
             }
-            books_and_revisions.push((book, revision));
+            let terms = if self.creator_posting_enabled {
+                Some(
+                    super::revenue::load_terms(&mut tx, book, revision, offer.expected_price.get())
+                        .await
+                        .map_err(BatchCheckoutError::from)?,
+                )
+            } else {
+                None
+            };
+            books_and_revisions.push((book, revision, terms));
         }
 
         let balance = sqlx::query_scalar::<_, i64>(
@@ -258,7 +267,7 @@ impl PgCheckout {
         }
 
         let mut purchases: Vec<PurchaseReceipt> = Vec::with_capacity(command.offers().len());
-        for (index, (offer, (book, revision))) in
+        for (index, (offer, (book, revision, terms))) in
             command.offers().iter().zip(books_and_revisions).enumerate()
         {
             let price = offer.expected_price.get();
@@ -282,14 +291,22 @@ impl PgCheckout {
             let version = offer.edition.version_id.get();
             let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO chapter_purchase_facts
-                   (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
-                 VALUES($1,$2,$3,$4,$5,'RUB') RETURNING id",
+                   (user_id,chapter_id,version_id,settlement_reference,amount_minor,
+                    currency,first_grant_tracking_version,
+                    refund_policy_version,refund_deadline_at)
+                 VALUES($1,$2,$3,$4,$5,'RUB','c06-first-issue-v1',$6,
+                        CASE WHEN $6::TEXT IS NULL THEN NULL
+                            ELSE transaction_timestamp() +
+                                 ($7::BIGINT * INTERVAL '1 second') END)
+                 RETURNING id",
             )
             .bind(actor)
             .bind(chapter)
             .bind(version)
             .bind(&journal_reference)
             .bind(price)
+            .bind(terms.as_ref().map(|t| t.refund_policy_version.as_str()))
+            .bind(terms.as_ref().map(|t| t.refund_window_seconds))
             .fetch_one(&mut *tx)
             .await
             .map_err(|error| {
@@ -342,6 +359,11 @@ impl PgCheckout {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
+            if let Some(terms) = &terms {
+                super::revenue::post_purchase(&mut tx, id, book, revision, terms)
+                    .await
+                    .map_err(BatchCheckoutError::from)?;
+            }
             sqlx::query(
                 "INSERT INTO chapter_batch_items
                    (user_id,command_key,position,purchase_id)
