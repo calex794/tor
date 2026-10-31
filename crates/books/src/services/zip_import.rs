@@ -134,7 +134,7 @@ pub fn extract_zip_text(source: &[u8], encoding: &str) -> Result<String, ImportE
     let mut filenames = HashSet::new();
     let mut members: Vec<(String, Vec<u8>)> = Vec::new();
     for index in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(index)
             .map_err(|_| ImportError::InvalidArchive)?;
         let name = entry.name().to_owned();

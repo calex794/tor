@@ -180,6 +180,8 @@ function makeDocxXml(xml) {
         const extracted = await page.locator('#chapter-import-text').inputValue();
         assert(extracted.includes('Глава 4: Ворд') && extracted.includes('Текст & проверка'),
           name + ': DOCX extraction lost Russian text or XML entities');
+        // The editable text area is intentionally collapsed inside <details>.
+        await page.getByText('Исправить текст и ошибочные границы глав перед импортом').click();
         await page.locator('#chapter-import-text').fill(
           extracted.replace('Текст & проверка', 'Текст исправлен автором'));
         assert(await page.getByRole('button', { name: 'Подтвердить и создать главы' }).isDisabled(),
