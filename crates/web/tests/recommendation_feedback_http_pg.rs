@@ -50,11 +50,11 @@ async fn call(
     method: &str,
     path: &str,
     cookie: &str,
-    origin: &str,
-    csrf: &str,
+    auth: (&str, &str),
     body: &str,
     json_body: bool,
 ) -> Response {
+    let (origin, csrf) = auth;
     let req = Request::builder()
         .method(method)
         .uri(path)
@@ -151,8 +151,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/api/v1/admin/recommendations/quality",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false
         )
@@ -166,8 +165,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/me/recommendations/manage",
             "",
-            ORIGIN,
-            "",
+            (ORIGIN, ""),
             "",
             false
         )
@@ -181,8 +179,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/api/v1/recommendations",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false,
         )
@@ -202,8 +199,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "POST",
             "/me/recommendations/consent",
             &cookie,
-            "https://evil.invalid",
-            &csrf,
+            ("https://evil.invalid", &csrf),
             &enable,
             false
         )
@@ -217,8 +213,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "POST",
             "/me/recommendations/consent",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             &enable,
             false
         )
@@ -232,8 +227,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/api/v1/recommendations?surface=home",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false,
         )
@@ -244,7 +238,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|i| i["book_id"] == book.to_string())
+        .find(|i| i["book_id"] == book)
         .unwrap();
     let ticket = item["ticket"].as_str().unwrap().to_owned();
     let visible=json!({"items":[{"ticket":ticket,"visible_fraction_per_mille":500,"continuous_visible_ms":1000,"document_visible":true}]}).to_string();
@@ -254,8 +248,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "POST",
             "/api/v1/recommendations/impressions",
             &cookie,
-            ORIGIN,
-            "wrong",
+            (ORIGIN, "wrong"),
             &visible,
             true
         )
@@ -270,8 +263,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
                 "POST",
                 "/api/v1/recommendations/impressions",
                 &cookie,
-                ORIGIN,
-                &csrf,
+                (ORIGIN, &csrf),
                 &visible,
                 true
             )
@@ -286,8 +278,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         "POST",
         "/api/v1/recommendations/activate",
         &other_cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &activate,
         false
     )
@@ -299,8 +290,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         "POST",
         "/api/v1/recommendations/activate",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &activate,
         false,
     )
@@ -315,8 +305,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         "GET",
         &format!("/books/{book}"),
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         "",
         false,
     )
@@ -331,8 +320,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         "PUT",
         "/api/v1/me/progress/free",
         &cookie,
-        ORIGIN,
-        &csrf,
+        (ORIGIN, &csrf),
         &start,
         true,
     )
@@ -349,8 +337,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "PUT",
             "/api/v1/me/progress/free",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             &finish,
             true
         )
@@ -371,8 +358,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "POST",
             "/api/v1/me/recommendation-feedback",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             &forbidden,
             true
         )
@@ -388,8 +374,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
                 "POST",
                 "/api/v1/me/recommendation-feedback",
                 &cookie,
-                ORIGIN,
-                &csrf,
+                (ORIGIN, &csrf),
                 &hide,
                 true
             )
@@ -404,8 +389,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/api/v1/recommendations",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false,
         )
@@ -416,15 +400,14 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .as_array()
         .unwrap()
         .iter()
-        .all(|i| i["book_id"] != book.to_string()));
+        .all(|i| i["book_id"] != book));
     let their = data(
         call(
             &app,
             "GET",
             "/api/v1/recommendations",
             &other_cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false,
         )
@@ -435,15 +418,14 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|i| i["book_id"] == book.to_string()));
+        .any(|i| i["book_id"] == book));
     assert_eq!(
         call(
             &app,
             "GET",
             &format!("/me/books/{book}/recommendations"),
             &other_cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false
         )
@@ -461,8 +443,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/api/v1/admin/recommendations/quality",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false
         )
@@ -477,8 +458,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "GET",
             "/api/v1/admin/recommendations/quality",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             "",
             false
         )
@@ -497,8 +477,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "POST",
             "/me/recommendations/consent",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             &revoke,
             false
         )
@@ -514,8 +493,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             "POST",
             "/api/v1/recommendations/activate",
             &cookie,
-            ORIGIN,
-            &csrf,
+            (ORIGIN, &csrf),
             &activate,
             false
         )
