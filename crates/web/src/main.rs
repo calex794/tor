@@ -200,6 +200,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
                 if chapter_import_worker_enabled {
+                    tor_books::repositories::postgres::PgAuthoring::new(pool.clone())
+                        .probe_chapter_import_jobs()
+                        .await
+                        .map_err(|_| "S023 chapter import migration is not applied")?;
                     let storage = chapter_import_store
                         .as_ref()
                         .expect("validated chapter import S3 configuration")
