@@ -399,6 +399,7 @@ def scan_live(repo):
         "repository": repo,
         "main_sha": main_sha,
         "open_prs_scanned": len(observed),
+        "open_pr_numbers": sorted(initial_prs),
         "collisions": scan_conflicts(main_files, observed),
         "cross_version_identical_sql": scan_cross_version_identical_sql(main_files, observed),
         "notice": (
@@ -408,6 +409,46 @@ def scan_live(repo):
             "different SQL bytes may still be semantically identical. "
             "Main and PR head/base snapshots checked twice, not atomic. "
             "Inherited, removed, and renamed paths require integration review."
+        ),
+    }
+
+
+def focus_report_on_pr(report, pr_number):
+    """Only report global SQLx collisions involving one open PR.
+
+    The scan itself remains global and uses the same double-checked refs.
+    This is a convenience for triage, not a merged-tree or installed-DB gate.
+    """
+    if (isinstance(pr_number, bool) or not isinstance(pr_number, int)
+            or pr_number <= 0):
+        raise AuditError("Focus PR number must be a positive integer")
+    members = report.get("open_pr_numbers")
+    if not isinstance(members, list) or pr_number not in members:
+        raise AuditError("Focus PR is not in the verified OPEN PR snapshot")
+    owner = f"#{pr_number}"
+    numeric = [
+        item for item in report["collisions"]
+        if any(owner in variant["owners"] for variant in item["variants"])
+    ]
+    repeated = [
+        item for item in report["cross_version_identical_sql"]
+        if any(
+            owner in record["owners"]
+            for version in item["versions"]
+            for record in version["files"]
+        )
+    ]
+    return {
+        **report,
+        "focus_pr": pr_number,
+        "global_numeric_collisions": len(report["collisions"]),
+        "global_cross_version_reuses": len(report["cross_version_identical_sql"]),
+        "collisions": numeric,
+        "cross_version_identical_sql": repeated,
+        "notice": (
+            report["notice"] + f" Focus is only changed migration files "
+            f"owned by open PR #{pr_number}; this is not a reservation, "
+            "permission to rename, or evidence of an approved DB ledger."
         ),
     }
 
@@ -426,6 +467,7 @@ def main(argv=None):
     )
     scan = commands.add_parser("scan-open-prs", help="Read-only GitHub version collision report")
     scan.add_argument("--repo", default="calex794/tor")
+    scan.add_argument("--focus-pr", type=int, help="Only report collisions involving one verified open PR")
     scan.add_argument("--fail-on-conflict", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -441,6 +483,8 @@ def main(argv=None):
             blocked = report["status"] == "BLOCK"
         else:
             report = scan_live(args.repo)
+            if args.focus_pr is not None:
+                report = focus_report_on_pr(report, args.focus_pr)
             blocked = args.fail_on_conflict and bool(
                 report["collisions"] or report["cross_version_identical_sql"]
             )
