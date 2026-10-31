@@ -91,6 +91,11 @@ SQLx history. A clean CI \`tor_test\` is not a substitute.
 \`\`\`sh
 python3 tools/audit_sqlx_history.py scan-open-prs --repo calex794/tor \
   > migration-pr-collisions.json
+
+# To check a single draft (e.g. #365) against all other open drafts,
+# while still scanning the complete repository:
+python3 tools/audit_sqlx_history.py scan-open-prs --repo calex794/tor \
+  --focus-pr 365 --fail-on-conflict > migration-pr-365-conflicts.json
 \`\`\`
 
 This uses read-only public GitHub REST queries, optionally
@@ -119,7 +124,16 @@ could still escape detection. Revalidate exact refs before planning a merge.
 
 The default scan reports candidates without failing unrelated PRs;
 `--fail-on-conflict` exits 2 if **either** numeric collision or exact
-cross-version reuse is found. This is a PR-diff inventory, not an applied-DB
+cross-version reuse is found. For day-to-day PR work, optional
+`--focus-pr N` still performs the **same full double-checked OPEN PR scan**,
+but returns only collisions actually involving PR `N` and exits 2 on
+those when `--fail-on-conflict` is supplied. It also reports counts of
+the global conflicts separately so a clean focused result cannot be
+mistaken for a clean repository. A missing/closed target PR fails closed,
+rather than silently saying that all its versions are free.
+This helps avoid blind reassignment of a contested version (e.g.
+`202610310292` to `202610310293` when the latter is already owned by
+a different Draft), but does **not reserve** a number or approve a merge. This is a PR-diff inventory, not an applied-DB
 check or simulated merge, and possible renames/removals require human review.
 Never renumber a migration applied in any retained/restore-capable DB without
 a privately approved compatibility plan.
