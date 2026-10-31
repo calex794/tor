@@ -283,13 +283,39 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
             StatusCode::TOO_MANY_REQUESTS
         );
     }
+    // The hard limit is per account. Rotating books or toggling the action
+    // cannot bypass either the rate limit or its one-per-minute audit cap.
+    let another_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:likes-limit-rotate:{nonce}','ru','Limit rotation fixture','public')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let another_like_path = format!("/books/{another_book}/like");
+    assert_eq!(
+        call(&app, "POST", &another_like_path, &cookie_b, ORIGIN, &add)
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        call(&app, "POST", &like, &cookie_b, ORIGIN, &remove)
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(likes.public_count(another_book).await.unwrap(), Some(0));
     // Repeated blocked POSTs must not create unlimited audit rows or
     // perform extra rate-bucket updates after the 20/minute hard limit.
     let refused_events: i64 = pg(
         &url,
         &format!(
             "SELECT COUNT(*) FROM book_engagement_integrity_events
-             WHERE user_id={user_b} AND book_id={book} AND decision='throttle'"
+             WHERE user_id={user_b} AND decision='throttle'"
         ),
     )
     .parse()
@@ -302,7 +328,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         &format!(
             "SELECT COUNT(DISTINCT hard_limit_minute)
              FROM book_engagement_integrity_events
-             WHERE user_id={user_b} AND book_id={book} AND decision='throttle'"
+             WHERE user_id={user_b} AND decision='throttle'"
         ),
     )
     .parse()
