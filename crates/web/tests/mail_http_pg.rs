@@ -692,9 +692,16 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     // under the blocker's own authenticated session before testing previews.
     let unblock = format!("blocked=false&csrf_token={}", csrf[1]);
     assert_eq!(
-        call(&reopened, "POST", &format!("{path}/block"), &cookies[1], &unblock, &[])
-            .await
-            .status(),
+        call(
+            &reopened,
+            "POST",
+            &format!("{path}/block"),
+            &cookies[1],
+            &unblock,
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert!(
