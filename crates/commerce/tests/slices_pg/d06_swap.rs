@@ -129,3 +129,30 @@ async fn d06_swap_short_wallet_rolls_back_all_postings_and_access() {
     assert_eq!((wallet,swap_count,credits,revocations,target_purchases),(700,0,0,0,0));
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d06_two_concurrent_swap_keys_cannot_reverse_same_source_twice() {
+    let (pool,intent,_,_)=swap_fixture("d06_swap_race",320).await;
+    let a=IdempotencyKey::parse(&format!("{}8","J".repeat(42))).unwrap();
+    let b=IdempotencyKey::parse(&format!("{}8","K".repeat(42))).unwrap();
+    let swaps=PgDirectSwaps::new(pool.clone());
+    let (left,right)=tokio::join!(
+        swaps.swap_once(intent,&a),swaps.swap_once(intent,&b)
+    );
+    assert_eq!(usize::from(left.is_ok())+usize::from(right.is_ok()),1);
+    let (balance,postings,credits,target_debits): (i64,i64,i64,i64)=sqlx::query_as(
+        "SELECT a.balance_minor,
+           (SELECT count(*) FROM finance_direct_swap_postings
+            WHERE source_purchase_id=$2),
+           (SELECT count(*) FROM reader_wallet_entries
+            WHERE purchase_id=$2 AND kind='chapter_swap_credit'),
+           (SELECT count(*) FROM reader_wallet_entries e
+            JOIN chapter_purchase_facts p ON p.id=e.purchase_id
+            WHERE p.user_id=$1 AND p.chapter_id=$3 AND e.kind='chapter_purchase')
+         FROM reader_wallet_accounts a WHERE a.user_id=$1",
+    ).bind(intent.buyer_id).bind(intent.source_purchase_id)
+     .bind(intent.target_chapter_id).fetch_one(&pool).await.unwrap();
+    assert_eq!((balance,postings,credits,target_debits),(680,1,1,1));
+    pool.close().await;
+}
