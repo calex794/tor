@@ -91,6 +91,14 @@ accidental double-numbering of the **same exact SQL bytes**, but it does
 not detect equivalent SQL whose whitespace, comments or formatting changed.
 Neither category proves that the migration was applied in a retained DB.
 
+GitHub's \`/pulls/{number}/files\` endpoint is mutable. The scanner
+pins \`main\` and the complete OPEN PR number/head/base map before file reads,
+then checks both again afterwards. Changed main, PR membership, heads or
+bases produces **INCOMPLETE** (exit 2, no accepted JSON even without
+\`--fail-on-conflict\`). These checks add two read-only GitHub requests.
+They are **not an atomic GitHub snapshot**: a rapid update-and-revert
+could still escape detection. Revalidate exact refs before planning a merge.
+
 The default scan reports candidates without failing unrelated PRs;
 `--fail-on-conflict` exits 2 if **either** numeric collision or exact
 cross-version reuse is found. This is a PR-diff inventory, not an applied-DB

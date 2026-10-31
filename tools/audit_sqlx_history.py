@@ -288,20 +288,64 @@ def scan_cross_version_identical_sql(main_files, pull_requests):
     return reused
 
 
+def snapshot_open_prs(prs):
+    """Validate the complete OPEN PR number -> (head SHA, base SHA) map.
+
+    PR file-list GETs are mutable. Never report a mixed PR snapshot as
+    accepted conflict evidence when the repo changes mid-scan.
+    """
+    if not isinstance(prs, list):
+        raise AuditError("Open PR inventory is not a list")
+    snapshot = {}
+    for pr in prs:
+        if not isinstance(pr, dict):
+            raise AuditError("Malformed open PR inventory")
+        number, head, base = pr.get("number"), pr.get("head"), pr.get("base")
+        if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+            raise AuditError("Invalid open PR number")
+        if number in snapshot:
+            raise AuditError("Duplicate open PR number in paginated snapshot")
+        if not isinstance(head, dict) or not isinstance(base, dict):
+            raise AuditError("Missing open PR head/base identity")
+        shas = (head.get("sha"), base.get("sha"))
+        if any(not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha)
+               for sha in shas):
+            raise AuditError("Invalid open PR head/base SHA")
+        snapshot[number] = shas
+    return snapshot
+
+
+def checked_main_sha(root, token):
+    sha = github_json(f"{root}/branches/main", token)["commit"]["sha"]
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise AuditError("Invalid main SHA in GitHub response")
+    return sha
+
+
 def scan_live(repo):
     if not REPOSITORY.fullmatch(repo):
         raise AuditError("Repository must be in owner/name format")
     token = os.environ.get("GITHUB_TOKEN")
     root = f"/repos/{repo}"
-    main_sha = github_json(f"{root}/branches/main", token)["commit"]["sha"]
+    main_sha = checked_main_sha(root, token)
     main_files = github_json(f"{root}/contents/migrations?ref={main_sha}", token)
     if not isinstance(main_files, list):
         raise AuditError("Could not enumerate main migrations")
     prs = github_pages(f"{root}/pulls?state=open&per_page=100", token)
+    initial_prs = snapshot_open_prs(prs)
     observed = []
     for pr in prs:
         files = github_pages(f"{root}/pulls/{pr['number']}/files?per_page=100", token)
         observed.append({"number": pr["number"], "head": pr["head"]["sha"], "files": files})
+    # The file-list endpoint is not SHA-pinned. Fail closed if current main,
+    # PR membership, heads or bases moved during the paginated file reads.
+    if checked_main_sha(root, token) != main_sha:
+        raise AuditError("main moved during open-PR SQLx scan; retry with stable refs")
+    final_prs = snapshot_open_prs(
+        github_pages(f"{root}/pulls?state=open&per_page=100", token)
+    )
+    if final_prs != initial_prs:
+        raise AuditError("Open PR membership/head/base changed during SQLx scan; retry")
     return {
         "repository": repo,
         "main_sha": main_sha,
@@ -313,6 +357,7 @@ def scan_live(repo):
             "not a merged-tree or applied-database verification. "
             "Exact SQL blob reuse under different versions is also reported; "
             "different SQL bytes may still be semantically identical. "
+            "Main and PR head/base snapshots checked twice, not atomic. "
             "Inherited, removed, and renamed paths require integration review."
         ),
     }

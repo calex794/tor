@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from audit_sqlx_history import (
     AuditError, evaluate_history, local_migrations, parse_inventory,
-    read_from_psql, scan_conflicts, scan_cross_version_identical_sql,
+    read_from_psql, scan_conflicts, scan_cross_version_identical_sql, scan_live,
     main as audit_main,
 )
 
@@ -278,6 +278,77 @@ class SQLxAuditTests(unittest.TestCase):
                     audit_main(["scan-open-prs", "--fail-on-conflict"]), 2
                 )
                 self.assertEqual(audit_main(["scan-open-prs"]), 0)
+
+
+    @staticmethod
+    def live_pr(number=400, head="a" * 40, base="b" * 40):
+        return {"number": number, "head": {"sha": head}, "base": {"sha": base}}
+
+    def mocked_open_pr_scan(self, initial_prs, final_prs, *,
+                            initial_main="c" * 40, final_main=None):
+        main_versions = iter([initial_main, final_main or initial_main])
+        pr_versions = iter([initial_prs, final_prs])
+
+        def fake_json(path, token=None):
+            if path.endswith("/branches/main"):
+                return {"commit": {"sha": next(main_versions)}}
+            if "/contents/migrations?ref=" in path:
+                return [{
+                    "path": "migrations/202610290003_batch_chapter_purchases.sql",
+                    "sha": "1" * 40,
+                }]
+            self.fail(f"Unexpected GitHub GET path: {path}")
+
+        def fake_pages(path, token=None):
+            if path.endswith("/pulls?state=open&per_page=100"):
+                return next(pr_versions)
+            if "/pulls/" in path and path.endswith("/files?per_page=100"):
+                return [{
+                    "filename": "migrations/202611010042_other_feature.sql",
+                    "sha": "2" * 40, "status": "added",
+                }]
+            self.fail(f"Unexpected paginated GitHub GET path: {path}")
+
+        with patch("audit_sqlx_history.github_json", side_effect=fake_json):
+            with patch("audit_sqlx_history.github_pages", side_effect=fake_pages):
+                return scan_live("calex794/tor")
+
+    def test_live_scan_stable_snapshot_succeeds(self):
+        prs = [self.live_pr()]
+        report = self.mocked_open_pr_scan(prs, prs)
+        self.assertEqual(report["main_sha"], "c" * 40)
+        self.assertEqual(report["open_prs_scanned"], 1)
+        self.assertEqual(report["collisions"], [])
+        self.assertEqual(report["cross_version_identical_sql"], [])
+
+    def test_live_scan_moving_pr_head_fails_closed(self):
+        before = [self.live_pr()]
+        after = [self.live_pr(head="d" * 40)]
+        with self.assertRaisesRegex(AuditError, "membership/head/base changed"):
+            self.mocked_open_pr_scan(before, after)
+
+    def test_live_scan_moving_pr_base_fails_closed(self):
+        before = [self.live_pr()]
+        after = [self.live_pr(base="e" * 40)]
+        with self.assertRaisesRegex(AuditError, "membership/head/base changed"):
+            self.mocked_open_pr_scan(before, after)
+
+    def test_live_scan_added_or_closed_pr_fails_closed(self):
+        before = [self.live_pr()]
+        for after in [[], [self.live_pr(), self.live_pr(401)]]:
+            with self.subTest(after_count=len(after)):
+                with self.assertRaisesRegex(AuditError, "membership/head/base changed"):
+                    self.mocked_open_pr_scan(before, after)
+
+    def test_live_scan_moving_main_fails_closed(self):
+        prs = [self.live_pr()]
+        with self.assertRaisesRegex(AuditError, "main moved"):
+            self.mocked_open_pr_scan(prs, prs, final_main="e" * 40)
+
+    def test_live_scan_duplicate_paginated_pr_fails_closed(self):
+        prs = [self.live_pr(), self.live_pr()]
+        with self.assertRaisesRegex(AuditError, "Duplicate open PR"):
+            self.mocked_open_pr_scan(prs, prs)
 
 
 if __name__ == "__main__":
