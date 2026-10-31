@@ -119,6 +119,7 @@ fn command_for_quote(f: &Fixture, quote: &SingleChapterQuote, key: char) -> Purc
         MoneyMinor::new(quote.base_price_minor).unwrap(),
         quote.campaign_id.unwrap(),
         quote.campaign_revision.unwrap(),
+        quote.rule_version.unwrap(),
         quote.follow_period_id.unwrap(),
         quote.discount_percent.unwrap(),
         quote.requires_follow_days.unwrap(),
@@ -209,7 +210,7 @@ async fn d_07_exact_ninety_day_discount_freezes_paid_amount_and_replay() {
     assert_eq!(receipt.balance_after.get(), 220);
     assert_eq!(receipt.pinned.version_id.get(), f.version);
     let snapshot = sqlx::query(
-        "SELECT campaign_id,campaign_revision,follow_period_id,base_price_minor,discount_minor,
+        "SELECT campaign_id,campaign_revision,rule_version,follow_period_id,base_price_minor,discount_minor,
                 paid_minor,discount_percent,min_follow_days
          FROM chapter_purchase_discount_snapshots WHERE purchase_id=$1",
     )
@@ -219,6 +220,7 @@ async fn d_07_exact_ninety_day_discount_freezes_paid_amount_and_replay() {
     .unwrap();
     assert_eq!(snapshot.get::<i64, _>("campaign_id"), campaign_id);
     assert_eq!(snapshot.get::<i32, _>("campaign_revision"), 1);
+    assert_eq!(snapshot.get::<i16, _>("rule_version"), 1);
     assert_eq!(snapshot.get::<i64, _>("follow_period_id"), period);
     assert_eq!(snapshot.get::<i64, _>("base_price_minor"), 100);
     assert_eq!(snapshot.get::<i64, _>("discount_minor"), 20);
