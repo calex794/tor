@@ -3,9 +3,7 @@
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
 use tor_commerce::{
-    domain::money::{
-        CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
-    },
+    domain::money::{CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId},
     repositories::checkout::PgCheckout,
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
@@ -128,14 +126,16 @@ fn claim() -> &'static str {
 }
 
 async fn assert_original_unchanged(f: &Case) {
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
-    assert_eq!(balance, 400, "a rejected swap cannot modify the buyer wallet");
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(f.buyer)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        balance, 400,
+        "a rejected swap cannot modify the buyer wallet"
+    );
     let claims: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM finance_direct_swap_commands WHERE buyer_user_id=$1",
     )
@@ -143,7 +143,10 @@ async fn assert_original_unchanged(f: &Case) {
     .fetch_one(&f.pool)
     .await
     .unwrap();
-    assert_eq!(claims, 0, "an incomplete idempotency claim must not survive");
+    assert_eq!(
+        claims, 0,
+        "an incomplete idempotency claim must not survive"
+    );
     let postings: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM finance_direct_swap_postings WHERE buyer_user_id=$1",
     )
@@ -152,21 +155,17 @@ async fn assert_original_unchanged(f: &Case) {
     .await
     .unwrap();
     assert_eq!(postings, 0);
-    let active: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM library_purchased_chapters WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let active: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM library_purchased_chapters WHERE user_id=$1")
+            .bind(f.buyer)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(active, 1, "old access survives a failed private swap");
 }
 
 fn is_integrity_rejection(err: &sqlx::Error) -> bool {
-    err.as_database_error()
-        .and_then(|db| db.code())
-        .as_deref()
-        == Some("23514")
+    err.as_database_error().and_then(|db| db.code()).as_deref() == Some("23514")
 }
 
 #[tokio::test]
@@ -184,7 +183,10 @@ async fn d_06_swap_claim_without_balanced_postings_cannot_commit() {
         .execute(&mut *tx)
         .await
         .unwrap();
-    let err = tx.commit().await.expect_err("unfinished claim must roll back");
+    let err = tx
+        .commit()
+        .await
+        .expect_err("unfinished claim must roll back");
     assert!(is_integrity_rejection(&err), "unexpected SQL error: {err}");
     assert_original_unchanged(&f).await;
 }
@@ -224,13 +226,11 @@ async fn d_06_swap_intent_is_immutable_before_any_settlement() {
 async fn d_06_swap_wallet_credit_without_finance_posting_cannot_commit() {
     let f = fixture().await;
     let mut tx = f.pool.begin().await.unwrap();
-    sqlx::query(
-        "UPDATE reader_wallet_accounts SET balance_minor=500 WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE reader_wallet_accounts SET balance_minor=500 WHERE user_id=$1")
+        .bind(f.buyer)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO reader_wallet_entries
          (user_id,kind,delta_minor,balance_after_minor,reference,purchase_id)
@@ -242,7 +242,10 @@ async fn d_06_swap_wallet_credit_without_finance_posting_cannot_commit() {
     .execute(&mut *tx)
     .await
     .unwrap();
-    let err = tx.commit().await.expect_err("orphan wallet credit must fail");
+    let err = tx
+        .commit()
+        .await
+        .expect_err("orphan wallet credit must fail");
     assert!(is_integrity_rejection(&err), "unexpected SQL error: {err}");
     assert_original_unchanged(&f).await;
 }
@@ -262,7 +265,10 @@ async fn d_06_swap_revocation_without_finance_posting_cannot_commit() {
     .execute(&mut *tx)
     .await
     .unwrap();
-    let err = tx.commit().await.expect_err("orphan swap revocation must fail");
+    let err = tx
+        .commit()
+        .await
+        .expect_err("orphan swap revocation must fail");
     assert!(is_integrity_rejection(&err), "unexpected SQL error: {err}");
     assert_original_unchanged(&f).await;
 }
