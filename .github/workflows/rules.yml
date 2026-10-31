@@ -2,8 +2,7 @@ name: Repository rules
 on:
   pull_request:
   push:
-    # Temporary exact-HEAD acceptance for conflicted #178; remove before merging to main.
-    branches: [main, feat/d05-layer-terms-20261028]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Read-only I-06 main ruleset proof on trusted push
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
