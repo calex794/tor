@@ -160,7 +160,7 @@ impl PgAuthoring {
         validate_batch(actor, book_id, command_key, chapters)?;
         let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
         let saved =
-            import_batch_in_transaction(&mut tx, actor, book_id, command_key, chapters).await?;
+            import_batch_in_transaction(&mut *tx, actor, book_id, command_key, chapters).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(saved)
     }
@@ -222,7 +222,7 @@ impl PgAuthoring {
         }
 
         let saved = import_batch_in_transaction(
-            &mut tx,
+            &mut *tx,
             claim.actor_id,
             claim.book_id,
             &claim.command_key,
