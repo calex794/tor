@@ -70,12 +70,22 @@ This uses read-only public GitHub REST queries, optionally
 including stacked Drafts, by numeric version, relative path and Git
 blob SHA. Repeated ownership of the **same path and blob** is de-duplicated.
 Different files with the same SQLx number, or the same file with
-different blob content, are flagged for reconciliation.
+different blob content, are flagged in `collisions` for reconciliation.
 
-The default scan reports conflicts without making unrelated PRs
-fail; \`--fail-on-conflict\` is available for a deliberate integration
-gate. This is a PR-diff inventory, not an applied-DB check or simulated
-merge, and possible renames/removals require human review.
+A separate diagnostic `cross_version_identical_sql` reports **the same Git
+blob SHA** (byte-identical migration SQL) appearing under *different*
+numeric versions, with each source path and owning PR. Repeated
+path/version/blob inherited by stacked PRs counts once. This catches
+accidental double-numbering of the **same exact SQL bytes**, but it does
+not detect equivalent SQL whose whitespace, comments or formatting changed.
+Neither category proves that the migration was applied in a retained DB.
+
+The default scan reports candidates without failing unrelated PRs;
+`--fail-on-conflict` exits 2 if **either** numeric collision or exact
+cross-version reuse is found. This is a PR-diff inventory, not an applied-DB
+check or simulated merge, and possible renames/removals require human review.
+Never renumber a migration applied in any retained/restore-capable DB without
+a privately approved compatibility plan.
 
 ## 4. Release gate remains closed
 
