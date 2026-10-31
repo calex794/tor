@@ -1,7 +1,10 @@
 //! NEwBOO book-statistics facts must survive retry and never leak role data.
 #![forbid(unsafe_code)]
 use sqlx::PgPool;
-use tor_reading::repositories::book_stats::PgBookStats;
+use tor_reading::repositories::{
+    book_stats::{PgBookStats, RatingStat},
+    LikeMutation, PgBookLikes, PgChapterThanks, PgLibrary, ThanksMutation,
+};
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL tor_ci migrated through SQLx"]
@@ -56,6 +59,79 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
             .unwrap();
         chapter_ids.push(chapter);
     }
+    let second_user: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Second stats reader','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("book-stats-second-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let thanks = PgChapterThanks::new(pool.clone());
+    assert_eq!(
+        thanks
+            .thank_visible_free(user, chapter_ids[0])
+            .await
+            .unwrap(),
+        ThanksMutation::Added
+    );
+    assert_eq!(
+        thanks
+            .thank_visible_free(user, chapter_ids[0])
+            .await
+            .unwrap(),
+        ThanksMutation::Repeated
+    );
+    assert_eq!(
+        thanks
+            .thank_visible_free(second_user, chapter_ids[0])
+            .await
+            .unwrap(),
+        ThanksMutation::Added
+    );
+    assert_eq!(
+        thanks
+            .thank_visible_free(user, chapter_ids[1])
+            .await
+            .unwrap(),
+        ThanksMutation::Added
+    );
+    // A repeated bookmark and a removed bookmark must not inflate live totals.
+    let bookmarks = PgLibrary::new(pool.clone());
+    bookmarks.add_book(user, book).await.unwrap();
+    bookmarks.add_book(user, book).await.unwrap();
+    bookmarks.add_book(second_user, book).await.unwrap();
+    bookmarks.remove_book(second_user, book).await.unwrap();
+    let likes = PgBookLikes::new(pool.clone());
+    assert_eq!(
+        likes.set_like(user, book, true).await.unwrap(),
+        LikeMutation::Added
+    );
+    assert_eq!(
+        likes.set_like(user, book, true).await.unwrap(),
+        LikeMutation::AlreadyLiked
+    );
+    assert_eq!(
+        likes.set_like(second_user, book, true).await.unwrap(),
+        LikeMutation::Added
+    );
+    assert_eq!(
+        likes.set_like(second_user, book, false).await.unwrap(),
+        LikeMutation::Removed
+    );
+
+    // F-05 records are inserted directly for this read-model test.
+    // Authorization and completion prerequisites have their own F-05 tests.
+    sqlx::query(
+        "INSERT INTO user_book_star_ratings(user_id,book_id,rating_kind,rating)
+         VALUES($1,$2,'work',5),($3,$2,'work',2),($1,$2,'translation',4)",
+    )
+    .bind(user)
+    .bind(book)
+    .bind(second_user)
+    .execute(&pool)
+    .await
+    .unwrap();
     let repo = PgBookStats::new(pool.clone());
     for chapter in &chapter_ids {
         repo.record_open(*chapter, Some(user)).await.unwrap();
@@ -64,6 +140,17 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     repo.record_open(chapter_ids[0], None).await.unwrap();
     let report = repo.report(book, None).await.unwrap().unwrap();
     assert_eq!(report.opens, 12);
+    assert_eq!(report.thanks, 3);
+    assert_eq!(report.bookmarks, 1);
+    assert_eq!(report.likes, 1);
+    assert_eq!(report.work_rating, RatingStat { sum: 7, votes: 2 });
+    assert_eq!(report.work_rating.average().as_deref(), Some("3.50"));
+    assert_eq!(report.translation_rating, RatingStat { sum: 4, votes: 1 });
+    assert_eq!(report.translation_rating.average().as_deref(), Some("4.00"));
+    assert_eq!(report.chapters[0].thanks, 2);
+    assert_eq!(report.chapters[1].thanks, 1);
+    assert_eq!(report.top_by_thanks.first().map(|row| row.count), Some(2));
+    assert_eq!(report.daily.iter().map(|day| day.thanks).sum::<i64>(), 3);
     assert_eq!(report.unique_registered, 1);
     assert_eq!(report.anonymous_opens, 1);
     assert_eq!(report.repeat_authenticated, 1);
@@ -80,6 +167,11 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
         .unwrap();
     assert_eq!(next.chapters.len(), 5);
     assert!(next.chapters.iter().all(|chapter| chapter.number > 5));
+    assert_eq!(next.thanks, 3);
+    assert_eq!(next.bookmarks, 1);
+    assert_eq!(next.likes, 1);
+    assert_eq!(next.work_rating, RatingStat { sum: 7, votes: 2 });
+    assert_eq!(next.top_by_thanks.first().map(|row| row.count), Some(2));
     // Book holding must suppress further telemetry; history stays private for
     // moderation but the public reader must never start another open.
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
@@ -101,6 +193,49 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
         .await
         .unwrap();
     assert_eq!(count, 0);
+    let remaining_thanks: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_thanks, 1, "other reader's thanks must survive");
+    let other_stars: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_book_star_ratings WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        other_stars, 1,
+        "erasure must retain only the other reader's vote"
+    );
+    let bookmarks_after_delete: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM reader_library_items WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(bookmarks_after_delete, 0);
+    let remaining_likes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_likes WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_likes, 0, "deleted reader's like must disappear");
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(second_user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let after_delete: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after_delete, 0);
     // Transactional counters have no resurrected reader identity.
     pool.close().await;
 }

@@ -251,6 +251,34 @@ async function inspect(page, viewport, name) {
         assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
           viewport + ': new active creator period absent');
 
+        // The author publishes a new chapter in the same account after the
+        // reader follows the author. This is not a BookFollow: the feed entry
+        // must be produced by the creator-follow period alone.
+        await page.goto(base + '/me/books/' + bookId);
+        await page.getByRole('link', { name: 'Добавить главу' }).click();
+        await page.waitForURL('**/chapters/new');
+        await page.getByLabel('Номер главы').fill('3');
+        await page.getByLabel('Название главы').fill('Глава после подписки');
+        await page.getByLabel('Текст главы').fill('Новая глава после подписки автора.');
+        await page.getByRole('button', { name: 'Сохранить главу' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId);
+        await reader.goto(base + '/me/library');
+        const updates = reader.locator('#new-chapters');
+        assert(await updates.getByRole('heading', { name: 'Новые главы подписок' }).isVisible(),
+          viewport + ': release feed missing');
+        assert(await updates.getByText('Глава после подписки').isVisible(),
+          viewport + ': release by followed author in same account was not delivered to feed');
+        const newRelease = updates.locator('a[href^="/reader/"]').last();
+        assert(await newRelease.isVisible(), viewport + ': free author release has no reader link');
+        const newReleaseHref = await newRelease.getAttribute('href');
+        assert(/^\/reader\/\d+$/.test(newReleaseHref),
+          viewport + ': author release link is not a reader route');
+        await newRelease.click();
+        await reader.waitForURL(base + newReleaseHref);
+        assert(await reader.getByText('Новая глава после подписки автора.').isVisible(),
+          viewport + ': reader could not open the author release');
+        await inspect(reader, viewport, 'author-release-feed');
+
         const privateReader = await reader.goto(base + '/read/' + chapterId);
         assert(privateReader && privateReader.status() === 200,
           viewport + ': account-only free reader failed');

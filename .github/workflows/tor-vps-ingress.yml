@@ -1,0 +1,49 @@
+name: TOR disposable VPS ingress over WireGuard
+on:
+  pull_request:
+    paths:
+      - .github/workflows/tor-vps-ingress.yml
+      - tests/load/vps_ingress_ci.sh
+      - tests/load/vps_ingress_backend.py
+      - docs/infra/vps-ingress-sizing.md
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  isolated-proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install standalone network test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            nginx wireguard-tools wrk iproute2 iputils-ping curl openssl sysstat
+      - name: Static syntax check
+        run: |
+          bash -n tests/load/vps_ingress_ci.sh
+          python3 -m py_compile tests/load/vps_ingress_backend.py
+      - name: Run disposable three-namespace gateway test
+        run: |
+          sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            RUNNER_TEMP="$RUNNER_TEMP" bash tests/load/vps_ingress_ci.sh
+      - name: Show test summary
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/tor-vps-ingress/summary.md"; then
+            cat "$RUNNER_TEMP/tor-vps-ingress/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve isolated measurements and tunnel proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tor-vps-ingress-lab
+          path: ${{ runner.temp }}/tor-vps-ingress/
+          if-no-files-found: warn
+          retention-days: 14
