@@ -29,7 +29,12 @@ impl S3CoverStore {
     /// The public origin is pinned by the operator, never supplied by a browser.
     /// Presigned host must match; no redirect to a backend-only S3 address.
     pub fn with_direct_origin(mut self, origin: String) -> Result<Self, CoverError> {
-        if !origin.starts_with("https://") || origin.ends_with('/') || origin.contains('?') || origin.contains('#') || origin.contains('@') || origin.contains('/') && origin[8..].contains('/') {
+        let local_test = origin.starts_with("http://127.0.0.1:")
+            || origin.starts_with("http://localhost:");
+        let secure = origin.starts_with("https://");
+        let host_part = if secure { &origin[8..] } else if local_test { &origin[7..] } else { "" };
+        if host_part.is_empty() || host_part.contains('/') || host_part.contains('@')
+            || host_part.contains('?') || host_part.contains('#') || origin.ends_with('/') {
             return Err(CoverError::Invalid);
         }
         self.direct_origin = Some(origin);
