@@ -63,8 +63,9 @@ CREATE INDEX book_engagement_integrity_events_user_idx
 CREATE INDEX book_engagement_integrity_events_book_idx
     ON book_engagement_integrity_events (book_id, observed_at DESC);
 
--- Keep a blocked user from generating unbounded refusal rows. The other
--- observe-only risk events remain independent of this minute deduplication.
+-- The HTTP hard limit is per user, not per book or action. A caller
+-- must not bypass audit deduplication by rotating book IDs or like/unlike.
+-- Only the first refused request is retained in each UTC minute.
 CREATE UNIQUE INDEX book_engagement_integrity_hard_limit_idx
-    ON book_engagement_integrity_events (user_id, book_id, action, hard_limit_minute)
+    ON book_engagement_integrity_events (user_id, hard_limit_minute)
     WHERE hard_limit_minute IS NOT NULL;
