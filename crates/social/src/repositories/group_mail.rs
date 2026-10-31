@@ -120,6 +120,25 @@ impl PgGroupMail {
         Ok(id)
     }
 
+    /// Lookup must check active membership before returning even the title.
+    pub async fn get(&self, actor: i64, group_id: i64) -> Result<GroupConversation, MailError> {
+        if actor <= 0 || group_id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "SELECT g.id,g.title FROM social_group_conversations g
+             JOIN social_group_members m ON m.group_id=g.id
+             WHERE g.id=$2 AND m.user_id=$1 AND m.status='active'",
+        )
+        .bind(actor)
+        .bind(group_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        row.map(|(id, title)| GroupConversation { id, title })
+            .ok_or(MailError::NotFound)
+    }
+
     /// Only active members can see even the group title or existence.
     /// Cursor filtering happens after the actor filter, never before it.
     pub async fn list(
