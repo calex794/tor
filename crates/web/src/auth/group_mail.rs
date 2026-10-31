@@ -260,7 +260,9 @@ pub(super) async fn create(
             }
         }
     }
-    match group_store(&state).create(actor, &members, &form.title).await
+    match group_store(&state)
+        .create(actor, &members, &form.title)
+        .await
     {
         Ok(id) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
         Err(error) => deny(super::mail::status(error)),

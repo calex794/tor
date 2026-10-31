@@ -147,11 +147,15 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .unwrap()
         .to_owned();
     assert_eq!(
-        call(&app, "GET", &pair_path, &cookies[1], "", &[]).await.status(),
+        call(&app, "GET", &pair_path, &cookies[1], "", &[])
+            .await
+            .status(),
         StatusCode::OK
     );
     assert_eq!(
-        call(&app, "GET", &pair_path, &cookies[2], "", &[]).await.status(),
+        call(&app, "GET", &pair_path, &cookies[2], "", &[])
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let missing_second = format!(
@@ -159,9 +163,16 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         users[1], tokens[0]
     );
     assert_eq!(
-        call(&app, "POST", "/mail/groups", &cookies[0], &missing_second, &[])
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            "/mail/groups",
+            &cookies[0],
+            &missing_second,
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     let invalid_second = format!(
@@ -169,9 +180,16 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         users[1], tokens[0]
     );
     assert_eq!(
-        call(&app, "POST", "/mail/groups", &cookies[0], &invalid_second, &[])
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            "/mail/groups",
+            &cookies[0],
+            &invalid_second,
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     let created = call(&app, "POST", "/mail/groups", &cookies[0], &form, &[]).await;
