@@ -1,11 +1,8 @@
 //! S023 private staging objects for owner-confirmed chapter imports.
+use crate::services::{ChapterImportObjectStore, ChapterImportStoreError as StoreError};
 use aws_sdk_s3::{error::ProvideErrorMetadata, primitives::ByteStream, Client};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
-use crate::services::{
-    ChapterImportObjectStore, ChapterImportStoreError as StoreError,
-};
-
 #[derive(Clone)]
 pub struct S3ChapterImportStore {
     client: Client,
@@ -16,10 +13,7 @@ impl S3ChapterImportStore {
     pub fn new(client: Client, bucket: String) -> Result<Self, StoreError> {
         let valid = (3..=63).contains(&bucket.len())
             && bucket.bytes().all(|byte| {
-                byte.is_ascii_lowercase()
-                    || byte.is_ascii_digit()
-                    || byte == b'-'
-                    || byte == b'.'
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'.'
             })
             && !bucket.starts_with('.')
             && !bucket.ends_with('.')
@@ -38,8 +32,7 @@ impl S3ChapterImportStore {
             && !key.contains("..")
             && !key.contains("//")
             && key.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric()
-                    || matches!(byte, b'/' | b'-' | b'_' | b'.')
+                byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.')
             })
     }
 
@@ -79,10 +72,7 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
         sha256: &[u8; 32],
     ) -> Result<(), StoreError> {
         let actual: [u8; 32] = Sha256::digest(bytes).into();
-        if !Self::valid_key(key)
-            || bytes.is_empty()
-            || bytes.len() > 700_000
-            || actual != *sha256
+        if !Self::valid_key(key) || bytes.is_empty() || bytes.len() > 700_000 || actual != *sha256
         {
             return Err(StoreError::Invalid);
         }
@@ -112,10 +102,7 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
                 }
                 // A retry after an unknown PUT result is accepted only when
                 // the immutable object already present is byte-for-byte equal.
-                if !self
-                    .verify_head(key, bytes.len() as i64, sha256)
-                    .await?
-                {
+                if !self.verify_head(key, bytes.len() as i64, sha256).await? {
                     return Err(StoreError::Conflict);
                 }
                 let existing = self
@@ -128,10 +115,7 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
                 };
             }
         }
-        if !self
-            .verify_head(key, bytes.len() as i64, sha256)
-            .await?
-        {
+        if !self.verify_head(key, bytes.len() as i64, sha256).await? {
             return Err(StoreError::Corrupt);
         }
         let stored = self
@@ -185,8 +169,7 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
             .await
             .map_err(|_| StoreError::Unavailable)?;
         let actual: [u8; 32] = Sha256::digest(&bytes).into();
-        if bytes.len() != expected_size as usize || actual != *sha256
-        {
+        if bytes.len() != expected_size as usize || actual != *sha256 {
             return Err(StoreError::Corrupt);
         }
         Ok(bytes)
