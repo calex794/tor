@@ -401,6 +401,17 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         pg(
             &url,
             &format!(
+                "SELECT count(*) FROM notification_event_recipient_intents
+                 WHERE event_id='{event_id}'::uuid"
+            )
+        ),
+        "1",
+        "only the subscribed reader may receive the internal staged intent"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
                 "SELECT count(*) FROM event_deliveries
                  WHERE event_id='{event_id}'::uuid AND consumer='subscription-inbox-v1'"
             )
