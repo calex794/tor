@@ -184,7 +184,11 @@ pub fn extract_zip_text(source: &[u8], encoding: &str) -> Result<String, ImportE
     if members.is_empty() {
         return Err(ImportError::NoChapters);
     }
-    members.sort_by(|left, right| natural_compare(&left.0, &right.0));
+    members.sort_by(|left, right| {
+        let left_name = left.0.rsplit('/').next().unwrap_or("");
+        let right_name = right.0.rsplit('/').next().unwrap_or("");
+        natural_compare(left_name, right_name).then_with(|| natural_compare(&left.0, &right.0))
+    });
     let mut assembled = String::new();
     for (name, bytes) in members {
         let part = if name.to_lowercase().ends_with(".docx") {
@@ -245,10 +249,10 @@ mod tests {
                 .iter()
                 .map(|chapter| chapter.number)
                 .collect::<Vec<_>>(),
-            vec![1, 10, 2]
+            vec![1, 2, 10]
         );
-        // Natural sorting applies to the full member path; the folder member
-        // is still intact and no chapter is silently skipped.
+        // Sort by natural chapter filenames regardless of parent directories.
+        // Use the full path only to break ties between equal basenames.
         assert_eq!(chapters.len(), 3);
         assert!(text.contains("Текст второй"));
     }
