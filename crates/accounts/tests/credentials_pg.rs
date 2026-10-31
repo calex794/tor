@@ -81,7 +81,6 @@ async fn a_07_stale_login_and_concurrent_password_rotation_fail_closed() {
     assert_eq!(remaining, 1);
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn a_07_admin_refund_step_up_binds_live_session_and_password_rotation() {
@@ -123,8 +122,7 @@ async fn a_07_admin_refund_step_up_binds_live_session_and_password_rotation() {
         .await
         .unwrap();
     let digest: [u8; 32] = Sha256::digest(b"exact refund approval intent").into();
-    let verified =
-        verify_password_for_step_up("ValidModeratorPassword2026", &first_hash).unwrap();
+    let verified = verify_password_for_step_up("ValidModeratorPassword2026", &first_hash).unwrap();
     let token = accounts
         .issue_administrator_refund_step_up(actor, &session_digest, &verified, 5, 1, &digest)
         .await
@@ -154,7 +152,10 @@ async fn a_07_admin_refund_step_up_binds_live_session_and_password_rotation() {
     assert_eq!(stored_hash, session_token_digest(&token).to_vec());
     assert_ne!(stored_hash.as_slice(), token.as_bytes());
     assert_eq!(stored_scope, "finance.refund.approve.v1");
-    assert_eq!((resource, revision, payload_match, ttl_valid, used), (5, 1, true, true, false));
+    assert_eq!(
+        (resource, revision, payload_match, ttl_valid, used),
+        (5, 1, true, true, false)
+    );
     assert_eq!(token.len(), 43);
 
     assert!(verify_password_for_step_up("wrong password", &first_hash).is_none());

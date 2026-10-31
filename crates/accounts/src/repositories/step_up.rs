@@ -2,9 +2,7 @@
 //! No commerce repository, financial mutation or request ownership lookup here.
 
 use super::postgres::PgAccounts;
-use crate::services::security::{
-    generate_session_token, session_token_digest, VerifiedPassword,
-};
+use crate::services::security::{generate_session_token, session_token_digest, VerifiedPassword};
 use sqlx::Row;
 
 const REFUND_SCOPE: &str = "finance.refund.approve.v1";

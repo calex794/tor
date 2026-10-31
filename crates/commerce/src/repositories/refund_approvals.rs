@@ -69,7 +69,6 @@ impl PgDirectRefundApprovals {
         Self { pool }
     }
 
-
     /// Writer lock order: active moderator -> current session -> buyer wallet
     /// -> purchase -> refund request. The one-time step-up proof is consumed
     /// inside this transaction. The purchase lock serializes approval against

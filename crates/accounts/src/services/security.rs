@@ -30,8 +30,6 @@ pub fn verify_password(password: &str, stored_hash: &str) -> bool {
         .verify_password(password.as_bytes(), &parsed)
         .is_ok()
 }
-
-
 /// An in-memory proof that a password was freshly verified against one exact
 /// stored credential hash. It carries no password and is intentionally not
 /// serializable or debuggable.
@@ -55,10 +53,7 @@ impl VerifiedPassword {
 
 /// Verify a password for a high-risk action. Call from the bounded password
 /// worker; the returned capability expires after 30 seconds.
-pub fn verify_password_for_step_up(
-    password: &str,
-    stored_hash: &str,
-) -> Option<VerifiedPassword> {
+pub fn verify_password_for_step_up(password: &str, stored_hash: &str) -> Option<VerifiedPassword> {
     if password.is_empty() || password.len() > 512 || !verify_password(password, stored_hash) {
         return None;
     }

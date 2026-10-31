@@ -97,7 +97,6 @@ pub(super) async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> Refu
     }
 }
 
-
 async fn issue_refund_step_up(f: &RefundFixture, reason: &str) -> ([u8; 32], String) {
     // D tests own the financial decision boundary only. A tests verify
     // password re-authentication and session-bound proof issuance.
