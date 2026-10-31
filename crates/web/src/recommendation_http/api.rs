@@ -151,7 +151,9 @@ fn idempotency_error(code: &'static str) -> Response {
 /// 32 random bytes encoded as canonical 43-byte base64url without padding.
 /// Last sextet must have its two unused bits set to zero.
 fn idempotency_key(headers: &HeaderMap) -> Result<&str, &'static str> {
-    let raw = headers.get("idempotency-key").ok_or("IDEMPOTENCY_KEY_REQUIRED")?;
+    let raw = headers
+        .get("idempotency-key")
+        .ok_or("IDEMPOTENCY_KEY_REQUIRED")?;
     match raw.to_str() {
         Ok(token)
             if valid_token(token)
