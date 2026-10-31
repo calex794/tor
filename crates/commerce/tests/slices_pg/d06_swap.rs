@@ -372,3 +372,115 @@ async fn d_06_swap_racing_refund_request_cannot_reverse_source_twice() {
     }
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_rejects_changed_price_without_wallet_or_rights_mutation() {
+    let (pool, intent, _, _) = swap_fixture("d06_swap_price_changed", 450).await;
+    sqlx::query("UPDATE chapters SET price_amount=451 WHERE id=$1")
+        .bind(intent.target_chapter_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let key = IdempotencyKey::parse(&format!("{}8", "P".repeat(42))).unwrap();
+    assert_eq!(
+        PgDirectSwaps::new(pool.clone()).swap_once(intent, &key).await,
+        Err(SwapError::Changed)
+    );
+    let result: (i64, i64, i64) = sqlx::query_as(
+        "SELECT balance_minor,
+          (SELECT COUNT(*) FROM chapter_purchase_revocations WHERE purchase_id=$2),
+          (SELECT COUNT(*) FROM finance_direct_swap_postings WHERE source_purchase_id=$2)
+         FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(intent.buyer_id)
+    .bind(intent.source_purchase_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(result, (700, 0, 0));
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_rejects_hidden_target_and_changed_owner() {
+    for (tag, change) in [
+        ("d06_swap_hidden", "hidden"),
+        ("d06_swap_owner_changed", "owner"),
+    ] {
+        let (pool, intent, _, _) = swap_fixture(tag, 450).await;
+        if change == "hidden" {
+            sqlx::query("UPDATE chapters SET visibility='draft' WHERE id=$1")
+                .bind(intent.target_chapter_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        } else {
+            let target_book: i64 =
+                sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+                    .bind(intent.target_chapter_id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            sqlx::query("UPDATE books SET owner_user_id=$1 WHERE id=$2")
+                .bind(intent.buyer_id)
+                .bind(target_book)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let key = IdempotencyKey::parse(&format!("{}8", "Q".repeat(42))).unwrap();
+        assert_eq!(
+            PgDirectSwaps::new(pool.clone()).swap_once(intent, &key).await,
+            Err(SwapError::Ineligible)
+        );
+        let result: (i64, i64, i64) = sqlx::query_as(
+            "SELECT balance_minor,
+              (SELECT COUNT(*) FROM chapter_purchase_revocations WHERE purchase_id=$2),
+              (SELECT COUNT(*) FROM finance_direct_swap_postings WHERE source_purchase_id=$2)
+             FROM reader_wallet_accounts WHERE user_id=$1",
+        )
+        .bind(intent.buyer_id)
+        .bind(intent.source_purchase_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(result, (700, 0, 0));
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_equal_and_cheaper_prices_post_once() {
+    for (tag, amount, delta, balance, key_char) in [
+        ("d06_swap_equal", 300, 0, 700, "R"),
+        ("d06_swap_cheaper", 250, -50, 750, "T"),
+    ] {
+        let (pool, intent, _, _) = swap_fixture(tag, amount).await;
+        let key = IdempotencyKey::parse(&format!("{}8", key_char.repeat(42))).unwrap();
+        let swaps = PgDirectSwaps::new(pool.clone());
+        let receipt = swaps.swap_once(intent, &key).await.unwrap();
+        assert_eq!((receipt.delta_minor, receipt.balance_after), (delta, balance));
+        assert!(!receipt.replayed);
+        let retry = swaps.swap_once(intent, &key).await.unwrap();
+        assert!(retry.replayed);
+        assert_eq!(retry.new_purchase, receipt.new_purchase);
+        let (wallet, postings, credits): (i64, i64, i64) = sqlx::query_as(
+            "SELECT balance_minor,
+               (SELECT COUNT(*) FROM finance_direct_swap_postings
+                WHERE source_purchase_id=$2),
+               (SELECT COUNT(*) FROM reader_wallet_entries
+                WHERE purchase_id=$2 AND kind='chapter_swap_credit')
+             FROM reader_wallet_accounts WHERE user_id=$1",
+        )
+        .bind(intent.buyer_id)
+        .bind(intent.source_purchase_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!((wallet, postings, credits), (balance, 1, 1));
+        pool.close().await;
+    }
+}
