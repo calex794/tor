@@ -221,7 +221,8 @@ impl PurchaseCommand {
         {
             return Err(MoneyError::InvalidDiscountOffer);
         }
-        let campaign_id = PositiveId::new(campaign_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
+        let campaign_id =
+            PositiveId::new(campaign_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
         let follow_period_id =
             PositiveId::new(follow_period_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
         let discount_minor = i128::from(base_price.get()) * i128::from(discount_percent) / 100_i128;
