@@ -3,7 +3,8 @@
 use sqlx::{PgPool, Row};
 use tor_commerce::{
     domain::money::{
-        CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
+        CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand,
+        PurchaseDiscountOffer, WalletId,
     },
     repositories::{
         checkout::{PgCheckout, SingleChapterQuote},
@@ -117,12 +118,15 @@ fn command_for_quote(f: &Fixture, quote: &SingleChapterQuote, key: char) -> Purc
     .unwrap()
     .with_discount_offer(
         MoneyMinor::new(quote.base_price_minor).unwrap(),
-        quote.campaign_id.unwrap(),
-        quote.campaign_revision.unwrap(),
-        quote.rule_version.unwrap(),
-        quote.follow_period_id.unwrap(),
-        quote.discount_percent.unwrap(),
-        quote.requires_follow_days.unwrap(),
+        PurchaseDiscountOffer::new(
+            quote.campaign_id.unwrap(),
+            quote.campaign_revision.unwrap(),
+            quote.rule_version.unwrap(),
+            quote.follow_period_id.unwrap(),
+            quote.discount_percent.unwrap(),
+            quote.requires_follow_days.unwrap(),
+        )
+        .unwrap(),
     )
     .unwrap()
 }

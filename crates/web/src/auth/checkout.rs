@@ -11,7 +11,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_commerce::domain::money::{
-    CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
+    CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand,
+    PurchaseDiscountOffer, WalletId,
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
@@ -141,15 +142,8 @@ pub(super) async fn buy(
             Some(percent),
             Some(days),
         ) => match MoneyMinor::new(base).and_then(|base| {
-            command.with_discount_offer(
-                base,
-                campaign,
-                revision,
-                rule_version,
-                period,
-                percent,
-                days,
-            )
+            PurchaseDiscountOffer::new(campaign, revision, rule_version, period, percent, days)
+                .and_then(|offer| command.with_discount_offer(base, offer))
         }) {
             Ok(command) => command,
             Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),

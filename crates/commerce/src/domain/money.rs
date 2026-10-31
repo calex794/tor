@@ -157,6 +157,29 @@ pub struct PurchaseDiscountOffer {
     pub min_follow_days: i16,
 }
 
+impl PurchaseDiscountOffer {
+    /// Validate the two IDs before binding this exact offer to a purchase.
+    pub fn new(
+        campaign_id: i64,
+        campaign_revision: i32,
+        rule_version: i16,
+        follow_period_id: i64,
+        discount_percent: i16,
+        min_follow_days: i16,
+    ) -> Result<Self, MoneyError> {
+        Ok(Self {
+            campaign_id: PositiveId::new(campaign_id)
+                .map_err(|_| MoneyError::InvalidDiscountOffer)?,
+            campaign_revision,
+            rule_version,
+            follow_period_id: PositiveId::new(follow_period_id)
+                .map_err(|_| MoneyError::InvalidDiscountOffer)?,
+            discount_percent,
+            min_follow_days,
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PurchaseCommand {
     pub actor_id: PositiveId,
@@ -206,26 +229,18 @@ impl PurchaseCommand {
     pub fn with_discount_offer(
         mut self,
         base_price: MoneyMinor,
-        campaign_id: i64,
-        campaign_revision: i32,
-        rule_version: i16,
-        follow_period_id: i64,
-        discount_percent: i16,
-        min_follow_days: i16,
+        offer: PurchaseDiscountOffer,
     ) -> Result<Self, MoneyError> {
         if base_price.get() <= self.expected_price.get()
-            || campaign_revision <= 0
-            || rule_version != 1
-            || !(1..=90).contains(&discount_percent)
-            || !matches!(min_follow_days, 0 | 30 | 90 | 180)
+            || offer.campaign_revision <= 0
+            || offer.rule_version != 1
+            || !(1..=90).contains(&offer.discount_percent)
+            || !matches!(offer.min_follow_days, 0 | 30 | 90 | 180)
         {
             return Err(MoneyError::InvalidDiscountOffer);
         }
-        let campaign_id =
-            PositiveId::new(campaign_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
-        let follow_period_id =
-            PositiveId::new(follow_period_id).map_err(|_| MoneyError::InvalidDiscountOffer)?;
-        let discount_minor = i128::from(base_price.get()) * i128::from(discount_percent) / 100_i128;
+        let discount_minor =
+            i128::from(base_price.get()) * i128::from(offer.discount_percent) / 100_i128;
         let paid_minor = i128::from(base_price.get()) - discount_minor;
         if discount_minor <= 0
             || paid_minor <= 0
@@ -234,14 +249,7 @@ impl PurchaseCommand {
             return Err(MoneyError::InvalidDiscountOffer);
         }
         self.expected_base_price = base_price;
-        self.expected_discount_offer = Some(PurchaseDiscountOffer {
-            campaign_id,
-            campaign_revision,
-            rule_version,
-            follow_period_id,
-            discount_percent,
-            min_follow_days,
-        });
+        self.expected_discount_offer = Some(offer);
         self.refresh_hash();
         Ok(self)
     }
@@ -412,25 +420,28 @@ mod tests {
             request(100, 1).unwrap().canonical_request_sha256,
             request(101, 1).unwrap().canonical_request_sha256
         );
+        let offer = PurchaseDiscountOffer::new(10, 1, 1, 20, 20, 90).unwrap();
+        assert_eq!(
+            PurchaseDiscountOffer::new(0, 1, 1, 20, 20, 90),
+            Err(MoneyError::InvalidDiscountOffer),
+        );
+        assert_eq!(
+            PurchaseDiscountOffer::new(10, 1, 1, 0, 20, 90),
+            Err(MoneyError::InvalidDiscountOffer),
+        );
         let plain = request(80, 1).unwrap();
         let discounted = request(80, 1)
             .unwrap()
-            .with_discount_offer(MoneyMinor::new(100).unwrap(), 10, 1, 1, 20, 20, 90)
+            .with_discount_offer(MoneyMinor::new(100).unwrap(), offer)
             .unwrap();
         assert_ne!(
             plain.canonical_request_sha256, discounted.canonical_request_sha256,
             "the idempotency identity includes the original price and discount provenance"
         );
         assert_eq!(
-            request(81, 1).unwrap().with_discount_offer(
-                MoneyMinor::new(100).unwrap(),
-                10,
-                1,
-                1,
-                20,
-                20,
-                90,
-            ),
+            request(81, 1)
+                .unwrap()
+                .with_discount_offer(MoneyMinor::new(100).unwrap(), offer),
             Err(MoneyError::InvalidDiscountOffer),
             "the final price must equal the exact integer discount calculation"
         );

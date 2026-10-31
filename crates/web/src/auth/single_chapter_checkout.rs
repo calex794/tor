@@ -10,7 +10,8 @@ use serde::Deserialize;
 use tor_accounts::services::security::generate_session_token;
 use tor_commerce::{
     domain::money::{
-        CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
+        CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand,
+        PurchaseDiscountOffer, WalletId,
     },
     repositories::checkout::SingleChapterQuote,
 };
@@ -218,17 +219,16 @@ pub(super) async fn submit(
         {
             (base == MoneyMinor::new(form.expected_price_minor).ok()?).then_some(command)
         } else {
-            command
-                .with_discount_offer(
-                    base,
-                    form.expected_campaign_id,
-                    form.expected_campaign_revision,
-                    form.expected_rule_version,
-                    form.expected_follow_period_id,
-                    form.expected_discount_percent,
-                    form.expected_min_follow_days,
-                )
-                .ok()
+            let offer = PurchaseDiscountOffer::new(
+                form.expected_campaign_id,
+                form.expected_campaign_revision,
+                form.expected_rule_version,
+                form.expected_follow_period_id,
+                form.expected_discount_percent,
+                form.expected_min_follow_days,
+            )
+            .ok()?;
+            command.with_discount_offer(base, offer).ok()
         }
     })();
     let Some(command) = command else {
