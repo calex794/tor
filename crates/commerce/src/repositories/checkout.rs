@@ -1,6 +1,7 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
 mod batch;
+mod revenue;
 pub use batch::SelectableBatchOffer;
 
 use crate::domain::money::{
@@ -13,6 +14,8 @@ use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 #[derive(Clone)]
 pub struct PgCheckout {
     pool: PgPool,
+    // Explicit staged activation, false for all currently exposed routes.
+    creator_posting_enabled: bool,
 }
 
 fn unavailable(_: sqlx::Error) -> CheckoutError {
@@ -21,7 +24,17 @@ fn unavailable(_: sqlx::Error) -> CheckoutError {
 
 impl PgCheckout {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            creator_posting_enabled: false,
+        }
+    }
+
+    /// Only enable after operator-published, immutable revenue/refund terms.
+    /// An absent policy fails closed before the buyer wallet is charged.
+    pub fn with_creator_posting(mut self, enabled: bool) -> Self {
+        self.creator_posting_enabled = enabled;
+        self
     }
 }
 
@@ -168,6 +181,11 @@ impl CheckoutRepository for PgCheckout {
         if share_total != 100 {
             return Err(CheckoutError::Unavailable);
         }
+        let finance_terms = if self.creator_posting_enabled {
+            Some(revenue::load_terms(&mut tx, economic_book_id, share_revision, price).await?)
+        } else {
+            None
+        };
 
         // Lock the wallet across DISTINCT purchase keys to prohibit overspend.
         let balance = sqlx::query_scalar::<_, i64>(
@@ -214,14 +232,20 @@ impl CheckoutRepository for PgCheckout {
         // it from mutation. A failure there also rolls the wallet debit back.
         let purchase_id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO chapter_purchase_facts
-              (user_id, chapter_id, version_id, settlement_reference, amount_minor, currency)
-             VALUES ($1, $2, $3, $4, $5, 'RUB') RETURNING id",
+              (user_id, chapter_id, version_id, settlement_reference, amount_minor,
+               currency, refund_policy_version, refund_deadline_at)
+             VALUES ($1, $2, $3, $4, $5, 'RUB', $6,
+                     CASE WHEN $6::text IS NULL THEN NULL
+                          ELSE transaction_timestamp() + ($7::bigint * INTERVAL '1 second') END)
+             RETURNING id",
         )
         .bind(actor)
         .bind(chapter)
         .bind(version)
         .bind(&settlement)
         .bind(price)
+        .bind(finance_terms.as_ref().map(|t| t.refund_policy_version.as_str()))
+        .bind(finance_terms.as_ref().map(|t| t.refund_window_seconds))
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| {
@@ -279,6 +303,17 @@ impl CheckoutRepository for PgCheckout {
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
+
+        if let Some(terms) = &finance_terms {
+            revenue::post_purchase(
+                &mut tx,
+                purchase_id,
+                economic_book_id,
+                share_revision,
+                terms,
+            )
+            .await?;
+        }
 
         sqlx::query(
             "UPDATE chapter_purchase_commands SET purchase_id=$3
