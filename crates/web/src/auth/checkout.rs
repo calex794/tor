@@ -24,6 +24,7 @@ pub(super) struct BuyChapter {
     expected_base_price_minor: Option<i64>,
     expected_campaign_id: Option<i64>,
     expected_campaign_revision: Option<i32>,
+    expected_rule_version: Option<i16>,
     expected_follow_period_id: Option<i64>,
     expected_discount_percent: Option<i16>,
     expected_min_follow_days: Option<i16>,
@@ -124,21 +125,23 @@ pub(super) async fn buy(
         input.expected_base_price_minor,
         input.expected_campaign_id,
         input.expected_campaign_revision,
+        input.expected_rule_version,
         input.expected_follow_period_id,
         input.expected_discount_percent,
         input.expected_min_follow_days,
     ) {
-        (Ok(command), None, None, None, None, None, None) => command,
+        (Ok(command), None, None, None, None, None, None, None) => command,
         (
             Ok(command),
             Some(base),
             Some(campaign),
             Some(revision),
+            Some(rule_version),
             Some(period),
             Some(percent),
             Some(days),
         ) => match MoneyMinor::new(base).and_then(|base| {
-            command.with_discount_offer(base, campaign, revision, period, percent, days)
+            command.with_discount_offer(base, campaign, revision, rule_version, period, percent, days)
         }) {
             Ok(command) => command,
             Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
