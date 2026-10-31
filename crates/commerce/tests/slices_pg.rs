@@ -757,3 +757,5 @@ mod d06_refund_requests;
 mod d06_repurchase;
 #[path = "slices_pg/d08_revenue_allocation.rs"]
 mod d08_revenue_allocation;
+#[path = "slices_pg/d06_swap.rs"]
+mod d06_swap;
