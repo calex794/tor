@@ -2,7 +2,8 @@ name: TOR integration CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # Temporary exact-HEAD acceptance for conflicted #178; remove before merging to main.
+    branches: [main, feat/d05-layer-terms-20261028]
   workflow_dispatch:
 permissions:
   contents: read
