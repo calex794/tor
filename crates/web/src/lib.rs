@@ -69,6 +69,17 @@ struct AppState {
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
+async fn text_issue_script() -> Response {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/javascript; charset=utf-8",
+        )],
+        include_str!("../assets/newboo-text-issues.js"),
+    )
+        .into_response()
+}
+
 async fn health() -> &'static str {
     "ok"
 }
@@ -459,6 +470,7 @@ fn make_router(
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
+        .route("/assets/newboo-text-issues.js", get(text_issue_script))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
