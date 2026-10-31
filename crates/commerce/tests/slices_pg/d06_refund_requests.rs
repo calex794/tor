@@ -175,7 +175,10 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!((state.as_str(), rev, actor_in_audit), ("rejected", 2, owner));
+    assert_eq!(
+        (state.as_str(), rev, actor_in_audit),
+        ("rejected", 2, owner)
+    );
     assert!(sqlx::query(
         "UPDATE finance_direct_refund_requests SET state='pending',
          revision=revision+1 WHERE id=$1"

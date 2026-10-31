@@ -178,7 +178,10 @@ async fn d_s035_batch_exactly_once_and_historic_receipts() {
     .fetch_one(&f.pool)
     .await
     .unwrap();
-    assert_eq!(tracked, 2, "every batch purchase must track first paid grant");
+    assert_eq!(
+        tracked, 2,
+        "every batch purchase must track first paid grant"
+    );
     assert_eq!(paid.purchases[0].balance_after.get(), 900);
     assert_eq!(paid.purchases[1].balance_after.get(), 700);
     let again = store.checkout_batch_once(&quote).await.unwrap();

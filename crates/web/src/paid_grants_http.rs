@@ -217,7 +217,13 @@ async fn grant(
             // bearer URL. A concurrent revocation or PG error denies response.
             if let Err(error) = state
                 .first_direct_grant
-                .record(actor_id, chapter_id, version, purchase_id, DirectGrantKind::Chapter)
+                .record(
+                    actor_id,
+                    chapter_id,
+                    version,
+                    purchase_id,
+                    DirectGrantKind::Chapter,
+                )
                 .await
             {
                 return deny(status(error));

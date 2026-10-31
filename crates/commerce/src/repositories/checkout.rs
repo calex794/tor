@@ -246,7 +246,11 @@ impl CheckoutRepository for PgCheckout {
         .bind(version)
         .bind(&settlement)
         .bind(price)
-        .bind(finance_terms.as_ref().map(|t| t.refund_policy_version.as_str()))
+        .bind(
+            finance_terms
+                .as_ref()
+                .map(|t| t.refund_policy_version.as_str()),
+        )
         .bind(finance_terms.as_ref().map(|t| t.refund_window_seconds))
         .fetch_one(&mut *tx)
         .await
