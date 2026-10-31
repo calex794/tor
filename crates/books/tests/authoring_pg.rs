@@ -187,6 +187,15 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
         released_events, 0,
         "hidden book has no public release event"
     );
+    let hidden_outbox: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(saved.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(hidden_outbox, 0, "draft save cannot notify subscribers");
     assert_eq!(
         author.release_book(outsider, book_id).await,
         Err(AuthorError::Missing),
@@ -212,6 +221,21 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
         release_creator,
         Some(user),
         "first release of a draft book must snapshot its verified owner"
+    );
+    let outbox: (i64, bool) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint,
+                BOOL_AND((payload->>'first_release')::boolean)
+         FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(saved.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        outbox,
+        (1, true),
+        "repeated book release must not enqueue again"
     );
     let late_key = "n".repeat(43);
     let late_chapter = save_chapter(SaveChapterRequest {
