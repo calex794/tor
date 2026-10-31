@@ -111,7 +111,7 @@ async fn public_cards(
         .collect())
 }
 
-async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
+async fn homepage(State(state): State<AppState>) -> Result<Response, StatusCode> {
     if let Some(catalog) = state.postgres {
         // The F-04 repository filters draft/held/deleted rows before LIMIT.
         // Do not label the original ascending demo catalogue as "newest".
@@ -139,9 +139,15 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
             })
             .collect::<Vec<_>>();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::home_recent_with_covers(&cards, &covers));
+        return Ok(direct_cover_page::page(
+            pages::home_recent_with_covers(&cards, &covers),
+            state.direct_cover_origin.as_deref(),
+        ));
     }
-    Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
+    Ok(direct_cover_page::page(
+        pages::home(&public_cards(state.books.as_ref(), 6).await?),
+        state.direct_cover_origin.as_deref(),
+    ))
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
@@ -258,10 +264,14 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
-            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            let (html, direct) = direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
+            let response = book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            return direct_cover_page::apply_policy(response, state.direct_cover_origin.as_deref(), direct);
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
-        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        let (html, direct) = direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
+        let response = book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        return direct_cover_page::apply_policy(response, state.direct_cover_origin.as_deref(), direct);
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
