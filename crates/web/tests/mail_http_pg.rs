@@ -18,6 +18,9 @@ use tor_reading::repositories::PgReader;
 use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
+#[path = "support/e08_notification_preferences.rs"]
+mod notification_preferences;
+
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(
     app: &Router,
@@ -449,85 +452,15 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         .unwrap()
         .iter()
         .all(|r| r.is_read));
-    // Per-kind NEwBOO preferences must bind to the verified session actor.
-    let settings_page = text(call(&app, "GET", "/notifications", &cookies[1], "", &[]).await).await;
-    assert!(settings_page.contains("action=\"/notifications/preferences\""));
-    assert!(settings_page.contains("name=\"pref_mail\" value=\"on\" checked"));
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/notifications/preferences",
-            &cookies[1],
-            "csrf_token=forged&pref_friendship=on",
-            &[],
-        )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/notifications/preferences",
-            &cookies[1],
-            &format!(
-                "csrf_token={}&pref_friendship=on&user_id={}",
-                csrf[1], users[2]
-            ),
-            &[("origin", "https://evil.invalid")],
-        )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-    let saved_preferences = call(
+    notification_preferences::verify(
         &app,
-        "POST",
-        "/notifications/preferences",
         &cookies[1],
-        &format!(
-            "csrf_token={}&pref_friendship=on&user_id={}",
-            csrf[1], users[2]
-        ),
-        &[],
+        &csrf[1],
+        users[1],
+        users[2],
+        &notifications,
     )
     .await;
-    assert_eq!(saved_preferences.status(), StatusCode::SEE_OTHER);
-    assert_eq!(
-        saved_preferences.headers()[header::LOCATION],
-        "/notifications?notice=preferences_saved"
-    );
-    let saved = notifications.preferences(users[1]).await.unwrap();
-    assert!(!saved.iter().find(|p| p.kind == "mail").unwrap().enabled);
-    assert!(
-        saved
-            .iter()
-            .find(|p| p.kind == "friendship")
-            .unwrap()
-            .enabled
-    );
-    assert!(notifications
-        .preferences(users[2])
-        .await
-        .unwrap()
-        .iter()
-        .all(|p| p.enabled));
-    let notice_page = text(
-        call(
-            &app,
-            "GET",
-            "/notifications?notice=preferences_saved",
-            &cookies[1],
-            "",
-            &[],
-        )
-        .await,
-    )
-    .await;
-    assert!(notice_page.contains("Настройки уведомлений сохранены."));
-    assert!(notice_page.contains("name=\"pref_mail\" value=\"on\">"));
 
     assert_eq!(
         call(
