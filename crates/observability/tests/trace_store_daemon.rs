@@ -256,7 +256,10 @@ fn writer_crash_does_not_block_publisher_and_restart_recovers_old_traces() {
         assert_eq!(counts.failed, prior.failed + 1);
         failed_after_restart += 1;
     }
-    assert!(recovered_ack, "restarted writer must acknowledge a real frame");
+    assert!(
+        recovered_ack,
+        "restarted writer must acknowledge a real frame"
+    );
     assert_eq!(publisher.counts().sent, 2);
     let recovered = lookup::request(&socket, after.trace_id).unwrap();
     assert_eq!(recovered.found.unwrap().1, after);
