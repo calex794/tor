@@ -228,8 +228,18 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(data.contains("\"'=2+3 Stats\""), "formula must not execute");
     assert!(data.contains("book,0,"));
     assert!(data.contains("gross_minor,completed,thanks"));
-    assert!(data.contains("thanks,bookmarks,work_rating_avg,work_rating_votes,translation_rating_avg,translation_rating_votes"));
-    let book_row = data.lines().find(|line| line.starts_with("book,0,")).unwrap();
+    assert!(data.contains("thanks,bookmarks,work_rating_avg,work_rating_votes,"));
+    assert!(data.contains("translation_rating_avg,translation_rating_votes"));
+    // This fixture contains no commas in titles: every CSV row must have
+    // all 16 columns, even when chapter/day scores are intentionally blank.
+    assert!(
+        data.lines().all(|line| line.split(',').count() == 16),
+        "book, chapter and day rows must agree with the CSV header"
+    );
+    let book_row = data
+        .lines()
+        .find(|line| line.starts_with("book,0,"))
+        .unwrap();
     assert!(book_row.ends_with(",1,1,4.00,1,5.00,1"));
     assert!(data
         .lines()
