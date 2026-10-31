@@ -20,8 +20,12 @@ async fn insert_user(pool: &PgPool, email: String, name: &str) -> i64 {
 
 async fn insert_draft_book(pool: &PgPool, actor: i64, identity: String) -> i64 {
     sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru','Queue fixture','draft',$2) RETURNING id",
+        "INSERT INTO books
+         (source_identity,target_language,title,visibility,owner_user_id,
+          author_name,genres,tags,fandoms,description,access_level)
+         VALUES($1,'ru','Queue fixture','draft',$2,'',
+                ARRAY[]::text[],ARRAY[]::text[],ARRAY[]::text[],'','basic')
+         RETURNING id",
     )
     .bind(identity)
     .bind(actor)
