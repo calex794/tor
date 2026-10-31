@@ -39,13 +39,21 @@ impl PgCheckout {
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                AND (b.owner_user_id IS NULL OR b.owner_user_id<>$2)
                AND NOT EXISTS (
-                   SELECT 1 FROM chapter_purchase_facts owned
+                   SELECT 1 FROM library_purchased_chapters owned
                    WHERE owned.user_id=$2 AND owned.chapter_id=c.id
+                     AND (
+                         NOT $3::BOOLEAN
+                         OR NOT EXISTS (
+                           SELECT 1 FROM finance_direct_refund_postings refund
+                           WHERE refund.purchase_id=owned.purchase_id
+                         )
+                     )
                )
              ORDER BY c.chapter_no,c.id LIMIT 101",
         )
         .bind(book_id)
         .bind(actor)
+        .bind(self.creator_posting_enabled)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| CheckoutError::Unavailable)?;
@@ -249,17 +257,28 @@ impl PgCheckout {
         .map_err(unavailable)?
         .unwrap_or(0);
         for offer in command.offers() {
-            let already_owned = sqlx::query_scalar::<_, i64>(
-                "SELECT purchase_id FROM library_purchased_chapters
-                 WHERE user_id=$1 AND chapter_id=$2",
+            let already_owned = sqlx::query(
+                "SELECT l.purchase_id,
+                        EXISTS (
+                            SELECT 1 FROM finance_direct_refund_postings refund
+                            WHERE refund.purchase_id=l.purchase_id
+                        ) AS settled_refund
+                 FROM library_purchased_chapters l
+                 WHERE l.user_id=$1 AND l.chapter_id=$2",
             )
             .bind(actor)
             .bind(offer.edition.chapter_id.get())
             .fetch_optional(&mut *tx)
             .await
             .map_err(unavailable)?;
-            if already_owned.is_some() {
-                return Err(CheckoutError::AlreadyOwned.into());
+            if let Some(row) = already_owned {
+                let refunded: bool = row.try_get("settled_refund").map_err(unavailable)?;
+                if !refunded {
+                    return Err(CheckoutError::AlreadyOwned.into());
+                }
+                if !self.creator_posting_enabled {
+                    return Err(CheckoutError::Unavailable.into());
+                }
             }
         }
         if balance < command.total().get() {
