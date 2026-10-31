@@ -101,12 +101,8 @@ pub(super) fn conversation(
                     )
                     .expect("mail preview cover");
                 }
-                write!(
-                    body,
-                    "<span>{}</span></a>",
-                    escape_html(&preview.title)
-                )
-                .expect("mail preview title");
+                write!(body, "<span>{}</span></a>", escape_html(&preview.title))
+                    .expect("mail preview title");
             }
         }
         write!(

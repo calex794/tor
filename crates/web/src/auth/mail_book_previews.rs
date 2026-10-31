@@ -37,8 +37,18 @@ fn boundary(c: u8) -> bool {
     c.is_ascii_whitespace()
         || matches!(
             c,
-            b'.' | b',' | b';' | b':' | b'!' | b'?' | b')' | b']' | b'}' | b'>' | b'<'
-                | b'"' | b'\''
+            b'.' | b','
+                | b';'
+                | b':'
+                | b'!'
+                | b'?'
+                | b')'
+                | b']'
+                | b'}'
+                | b'>'
+                | b'<'
+                | b'"'
+                | b'\''
         )
 }
 
@@ -233,8 +243,14 @@ mod tests {
         let body = "See /book/12, https://tor.test/books/34?from=mail. \
                     /books/99/chapters /books/003 https://tor.test/else/books/55 /books/77";
         let refs = extract_links(body);
-        assert_eq!(refs.iter().map(|x| x.id).collect::<Vec<_>>(), vec![12, 34, 77]);
-        assert_eq!(&body[refs[1].start..refs[1].end], "https://tor.test/books/34?from=mail");
+        assert_eq!(
+            refs.iter().map(|x| x.id).collect::<Vec<_>>(),
+            vec![12, 34, 77]
+        );
+        assert_eq!(
+            &body[refs[1].start..refs[1].end],
+            "https://tor.test/books/34?from=mail"
+        );
         assert!(extract_links("bad/books/3 /books/0 /books/-4 /books/1xyz").is_empty());
     }
 

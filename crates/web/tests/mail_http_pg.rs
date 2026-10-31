@@ -728,7 +728,10 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         &format!("{path}/messages"),
         &cookies[0],
         &form,
-        &[("accept", "application/json"), ("x-requested-with", "fetch")],
+        &[
+            ("accept", "application/json"),
+            ("x-requested-with", "fetch"),
+        ],
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -736,7 +739,10 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let message = &json["message"];
     assert_eq!(message["book_previews"].as_array().unwrap().len(), 1);
     assert_eq!(message["book_previews"][0]["title"], "Visible <safe>");
-    assert_eq!(message["book_previews"][0]["url"], format!("/books/{public}"));
+    assert_eq!(
+        message["book_previews"][0]["url"],
+        format!("/books/{public}")
+    );
     assert_eq!(message["book_previews"][0]["cover_url"], "");
     let remaining = message["body_without_book_links"].as_str().unwrap();
     assert!(!remaining.contains(&format!("/books/{public}")));
