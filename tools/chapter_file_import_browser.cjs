@@ -71,6 +71,38 @@ function assert(ok, why) {
           path: path.join(out, 'chapter-import-' + name + '-saved.png'),
           fullPage: true,
         });
+        // A genuine Windows-1251 file is not accepted as UTF-8 by default.
+        await importLink.click();
+        await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        await page.locator('#chapter-import-file').setInputFiles({
+          name: 'chapters-legacy.txt', mimeType: 'text/plain',
+          buffer: Buffer.from([0xc3,0xeb,0xe0,0xe2,0xe0,0x20,0x33,0x3a,0x20,0xd2,0xf0,0xe5,0xf2,0xfc,0xff,0xa,0xd2,0xe5,0xea,0xf1,0xf2,0x20,0xe2,0x20,0xf1,0xf2,0xe0,0xf0,0xee,0xe9,0x20,0xea,0xee,0xe4,0xe8,0xf0,0xee,0xe2,0xea,0xe5]),
+        });
+        await page.getByText(/Файл повреждён или имеет другую кодировку/).waitFor();
+        assert(await page.getByRole('button', { name: 'Проверить главы' }).isDisabled(),
+          name + ': legacy bytes silently accepted as UTF-8');
+        await page.getByLabel('Кодировка файла').selectOption('windows-1251');
+        await page.getByText(/Файл прочитан/).waitFor();
+        await page.getByRole('button', { name: 'Проверить главы' }).click();
+        await page.getByText(/Найдено глав: 1/).waitFor();
+        assert((await page.locator('#chapter-import-results').innerText()).includes('Третья'),
+          name + ': CP1251 title was decoded incorrectly');
+        await page.getByRole('button', { name: 'Подтвердить и создать главы' }).click();
+        await page.waitForURL(base + '/me/books/' + id);
+        assert(await page.getByText(/№3/).isVisible(),
+          name + ': decoded chapter was not saved');
+
+        // Original 350001-byte CP1251 can expand beyond 700000 UTF-8 bytes.
+        await importLink.click();
+        await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        await page.getByLabel('Кодировка файла').selectOption('windows-1251');
+        await page.locator('#chapter-import-file').setInputFiles({
+          name: 'expanded-too-large.txt', mimeType: 'text/plain',
+          buffer: Buffer.alloc(350001, 0xc0),
+        });
+        await page.getByText(/После преобразования в UTF-8 текст больше 700 КБ/).waitFor();
+        assert(await page.getByRole('button', { name: 'Проверить главы' }).isDisabled(),
+          name + ': expanded UTF-8 limit was bypassed');
         const guest = await browser.newContext({ viewport: { width, height } });
         try {
           const guestPage = await guest.newPage();

@@ -6,7 +6,9 @@ Any settings change invalidates the pin and requires an admin re-review.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from fnmatch import fnmatchcase
+import re
 
 REPO = "calex794/tor"
 APP_ID = 15368  # GitHub Actions; no "any app" fallback
@@ -19,6 +21,27 @@ REQUIRED_RULES = {"pull_request", "required_status_checks", "deletion", "non_fas
 REVIEWED_RULESET_ID = 26235453
 REVIEWED_RULESET_UPDATED = "2026-10-31T00:28:58.370+05:00"
 
+# GitHub can serialize the same ruleset updated_at in Z or an explicit
+# timezone offset. Pin the exact instant, not one textual representation.
+_RFC3339 = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})\Z")
+
+
+def _revision_instant(value: object) -> datetime | None:
+    if not isinstance(value, str) or not _RFC3339.fullmatch(value):
+        return None
+    try:
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return instant.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
+def same_ruleset_revision(first: object, second: object) -> bool:
+    """Require both well-formed aware timestamps representing the same instant."""
+    first_instant = _revision_instant(first)
+    second_instant = _revision_instant(second)
+    return (first_instant is not None and second_instant is not None
+            and first_instant == second_instant)
 
 def _ref_matches(ref: str) -> bool:
     return ref in {"~DEFAULT_BRANCH", "~ALL", "refs/heads/main"}
@@ -76,29 +99,46 @@ def _actions_checks(items: object, provider_key: str) -> bool:
 
 def _classic_is_enforced(branch: dict) -> bool:
     policy = branch.get("protection")
-    if not isinstance(policy, dict) or policy.get("enabled") is False:
+    # The compact branches/main response cannot prove PR-only merge,
+    # administrator enforcement or force-push/deletion restrictions. Never
+    # infer them from protected=true or a successful status check alone.
+    if not isinstance(policy, dict) or policy.get("enabled") is not True:
         return False
     status = policy.get("required_status_checks")
-    return (isinstance(status, dict) and status.get("enforcement_level") == "everyone"
-            and _actions_checks(status.get("checks"), "app_id"))
+    return (
+        isinstance(policy.get("enforce_admins"), dict)
+        and policy["enforce_admins"].get("enabled") is True
+        and isinstance(policy.get("required_pull_request_reviews"), dict)
+        and isinstance(policy.get("allow_force_pushes"), dict)
+        and policy["allow_force_pushes"].get("enabled") is False
+        and isinstance(policy.get("allow_deletions"), dict)
+        and policy["allow_deletions"].get("enabled") is False
+        and isinstance(status, dict)
+        and status.get("enforcement_level") == "everyone"
+        and _actions_checks(status.get("checks"), "app_id")
+    )
 
 
 def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
     if (item.get("target") != "branch" or item.get("enforcement") != "active"
             or not isinstance(item.get("id"), int)
-            or not _applies_to_main(item)
-            or item.get("current_user_can_bypass") != "never"):
+            or not _applies_to_main(item)):
         return False
 
-    # GitHub hides this field from tokens without write rights to rulesets.
-    # Absence is not evidence of an empty bypass list: require reviewed version.
-    bypass = item.get("bypass_actors")
-    if bypass is not None:
-        if bypass != []:
-            return False
-    elif (item["id"] != REVIEWED_RULESET_ID
-          or item.get("updated_at") != REVIEWED_RULESET_UPDATED
-          or item.get("source_type") != "Repository"):
+    # The read-only GitHub REST API can omit BOTH the viewer-bypass field
+    # and the configured bypass list. Explicit bypass always blocks release.
+    viewer_bypass = item.get("current_user_can_bypass")
+    bypass_actors = item.get("bypass_actors")
+    if viewer_bypass not in (None, "never") or bypass_actors not in (None, []):
+        return False
+    # Hidden information is safe only for the administrator-reviewed exact
+    # ruleset revision; a changed timestamp, ID or source fails closed.
+    if (viewer_bypass is None or bypass_actors is None) and (
+        item["id"] != REVIEWED_RULESET_ID
+        or item.get("source_type") != "Repository"
+        or item.get("source") != REPO
+        or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
+    ):
         return False
 
     rows = item.get("rules")
@@ -149,7 +189,27 @@ def evaluate_branch_policy(
         return "fail", "ruleset pagination cannot be verified"
     if _classic_is_enforced(branch):
         return "pass", "classic main protection requires both Actions checks for admins"
+    reasons = []
     for item in rulesets:
         if _ruleset_is_enforced(item, effective_rules):
             return "pass", f"active effective ruleset #{item['id']} enforces main"
-    return "fail", "no verified active main policy with PR and both Actions checks"
+        if item.get("enforcement") != "active":
+            reasons.append("inactive ruleset")
+        elif not _applies_to_main(item):
+            reasons.append("ruleset scope does not include main")
+        elif item.get("current_user_can_bypass") not in (None, "never"):
+            reasons.append("viewer has bypass permission")
+        elif item.get("bypass_actors") not in (None, []):
+            reasons.append("bypass actors configured")
+        elif (item.get("current_user_can_bypass") is None
+              or item.get("bypass_actors") is None) and (
+            item.get("id") != REVIEWED_RULESET_ID
+            or item.get("source_type") != "Repository"
+            or item.get("source") != REPO
+            or not same_ruleset_revision(item.get("updated_at"), REVIEWED_RULESET_UPDATED)
+        ):
+            reasons.append("hidden bypass metadata and unreviewed revision")
+        else:
+            reasons.append("ruleset/effective-rule evidence mismatch")
+    return "fail", ("no verified active main policy: " + ", ".join(sorted(set(reasons)))
+                    if reasons else "no verified active main policy: no active rulesets")

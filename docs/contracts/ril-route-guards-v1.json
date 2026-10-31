@@ -221,6 +221,20 @@
     },
     {
       "method": "GET",
+      "template": "/books/{id}/stats",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stats_http::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/stats/export.csv",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_stats_http::export",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/catalog",
       "source": "crates/web/src/lib.rs",
       "handler": "catalog_http::catalog",
@@ -368,6 +382,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/creators",
+      "source": "crates/web/src/auth.rs",
+      "handler": "creator_follows::page",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/me/inbox",
       "source": "crates/web/src/auth.rs",
       "handler": "inbox::page",
@@ -505,6 +526,13 @@
       "source": "crates/web/src/lib.rs",
       "handler": "reader_page",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::page",
+      "policy": "scoped"
     },
     {
       "method": "GET",
@@ -760,6 +788,13 @@
     },
     {
       "method": "POST",
+      "template": "/me/books/{id}/follow-creator",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_follow_actions::follow_creator",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/publish",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "publish_book",
@@ -785,6 +820,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::unfollow",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/creators/{id}/unfollow",
+      "source": "crates/web/src/auth.rs",
+      "handler": "creator_follows::unfollow",
+      "policy": "session"
     },
     {
       "method": "POST",
@@ -910,6 +952,13 @@
       "template": "/read/{id}/want-continuation",
       "source": "crates/web/src/auth.rs",
       "handler": "continuation_demand::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{id}/thanks",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_thanks::submit",
       "policy": "scoped"
     },
     {

@@ -8,6 +8,7 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "$TEST_DATABASE_URL" != postgresql://tor_
 fi
 root="${RUNNER_TEMP:-/tmp}/rec13-browser"
 mkdir -p "$root/shots" "$root/node"
+exec > >(tee "$root/browser.log") 2>&1
 cargo build -p tor-web
 npm install --prefix "$root/node" --no-save playwright@1.56.1
 "$root/node/node_modules/.bin/playwright" install --with-deps chromium

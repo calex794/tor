@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 132] = [
+const ROUTES: [RouteRegistration; 139] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -126,22 +126,29 @@ const ROUTES: [RouteRegistration; 132] = [
     RouteRegistration::new("/me/books/{id}/chapters/import-preview", "POST", "/me/", Prefix, Page, Dashboard, Write), // 113
     RouteRegistration::new("/me/books/{id}/chapters/import-confirm", "POST", "/me/", Prefix, Page, Dashboard, Write), // 114
     RouteRegistration::new("/assets/newboo-chapter-import.js", "GET", "/assets/", Exact, Static, System, Free), // 115
-    RouteRegistration::new("/api/v1/recommendations", "GET", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Read), // 116
-    RouteRegistration::new("/api/v1/books/{id}/recommendations", "GET", "/api/v1/books/", Prefix, Api, ProductArea::Recommendations, Read), // 117
-    RouteRegistration::new("/api/v1/recommendations/impressions", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 118
-    RouteRegistration::new("/api/v1/recommendations/activate", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 119
-    RouteRegistration::new("/api/v1/me/recommendation-feedback", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 120
-    RouteRegistration::new("/api/v1/me/recommendation-feedback", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 121
-    RouteRegistration::new("/me/recommendations", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read), // 122
-    RouteRegistration::new("/me/recommendations/consent", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 123
-    RouteRegistration::new("/me/recommendations/feedback", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 124
-    RouteRegistration::new("/api/v1/admin/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 125
-    RouteRegistration::new("/api/v1/admin/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 126
-    RouteRegistration::new("/me/recommendations/manage", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 127
-    RouteRegistration::new("/me/recommendations/manage", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 128
-    RouteRegistration::new("/me/books/{id}/recommendations", "GET", "/me/", Prefix, Page, ProductArea::Recommendations, Read), // 129
-    RouteRegistration::new("/me/books/{id}/recommendations", "POST", "/me/", Prefix, Page, ProductArea::Recommendations, Write), // 130
-    RouteRegistration::new("/assets/recommendations.js", "GET", "/assets/", Exact, Static, System, Free), // 131
+    RouteRegistration::new("/books/{id}/stats", "GET", "/books/", Prefix, Page, Dashboard, Read), // 116
+    RouteRegistration::new("/books/{id}/stats/export.csv", "GET", "/books/", Prefix, Page, Dashboard, Read), // 117
+    RouteRegistration::new("/reader/{id}/thanks", "GET", "/reader/", Prefix, Page, Reading, Read), // 118
+    RouteRegistration::new("/reader/{id}/thanks", "POST", "/reader/", Prefix, Page, Reading, Write), // 119
+    RouteRegistration::new("/me/creators", "GET", "/me/", Exact, Page, Dashboard, Read), // 120
+    RouteRegistration::new("/me/creators/{id}/unfollow", "POST", "/me/", Prefix, Page, Dashboard, Write), // 121
+    RouteRegistration::new("/me/books/{id}/follow-creator", "POST", "/me/", Prefix, Page, Reading, Write), // 122
+    RouteRegistration::new("/api/v1/recommendations", "GET", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Read), // 123
+    RouteRegistration::new("/api/v1/books/{id}/recommendations", "GET", "/api/v1/books/", Prefix, Api, ProductArea::Recommendations, Read), // 124
+    RouteRegistration::new("/api/v1/recommendations/impressions", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 125
+    RouteRegistration::new("/api/v1/recommendations/activate", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 126
+    RouteRegistration::new("/api/v1/me/recommendation-feedback", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 127
+    RouteRegistration::new("/api/v1/me/recommendation-feedback", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 128
+    RouteRegistration::new("/me/recommendations", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read), // 129
+    RouteRegistration::new("/me/recommendations/consent", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 130
+    RouteRegistration::new("/me/recommendations/feedback", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 131
+    RouteRegistration::new("/api/v1/admin/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 132
+    RouteRegistration::new("/api/v1/admin/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 133
+    RouteRegistration::new("/me/recommendations/manage", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 134
+    RouteRegistration::new("/me/recommendations/manage", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 135
+    RouteRegistration::new("/me/books/{id}/recommendations", "GET", "/me/", Prefix, Page, ProductArea::Recommendations, Read), // 136
+    RouteRegistration::new("/me/books/{id}/recommendations", "POST", "/me/", Prefix, Page, ProductArea::Recommendations, Write), // 137
+    RouteRegistration::new("/assets/recommendations.js", "GET", "/assets/", Exact, Static, System, Free), // 138
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

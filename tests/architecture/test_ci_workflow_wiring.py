@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    CI_REQUIRED_JOB, CI_WORKFLOW, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
+    ACCEPTANCE_WORKFLOWS, CI_REQUIRED_JOB, CI_WORKFLOW, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -150,10 +150,31 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", text)
         self.assertIn("python3 tools/select_feature_tests.py", text)
 
+    def test_rec13_acceptance_tests_committed_source_without_rewriting(self):
+        self.assertEqual(ACCEPTANCE_WORKFLOWS, {"rec-feedback-acceptance.yml"})
+        text = (WORKFLOWS / "rec-feedback-acceptance.yml").read_text()
+        self.assertIn("contents: read", text)
+        self.assertNotIn("contents: write", text)
+        self.assertNotIn("pull_request_target", text)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertIn("git diff --exit-code", text)
+        for command in (
+            "cargo fmt --all -- --check",
+            "cargo test -p tor-recommendations --test feedback_pg -- --ignored",
+            "cargo test -p tor-recommendations --test generations_pg -- --ignored",
+            "cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored",
+            "bash tools/rec13_browser_acceptance.sh",
+            "cargo clippy --workspace --all-targets -- -D warnings",
+        ):
+            self.assertIn(command, text)
+        for forbidden in ("rec13_integrate.py", "rec13_harden.py", "rec13_publish_tree.py"):
+            self.assertNotIn(forbidden, text)
+
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
                  | {CI_WORKFLOW, "rules.yml", "ci-selection.yml"}
-                 | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS)
+                 | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS | ACCEPTANCE_WORKFLOWS)
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))
         self.assertEqual(len(set(SUITE_JOB_IDS.values())), len(SUITES))

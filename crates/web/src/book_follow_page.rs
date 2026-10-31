@@ -6,11 +6,13 @@ use axum::http::{HeaderMap, StatusCode};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::postgres::PgAuthoring;
 use tor_reading::repositories::PgBookFollows;
+use tor_social::services::follow::PgCreatorFollows;
 
 #[derive(Clone)]
 pub(super) struct FollowBookControl {
     accounts: PgAccounts,
     follows: PgBookFollows,
+    creator_follows: PgCreatorFollows,
     authoring: PgAuthoring,
     cookies: CookiePolicy,
 }
@@ -18,10 +20,12 @@ pub(super) struct FollowBookControl {
 impl FollowBookControl {
     pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
         let follows = PgBookFollows::new(accounts.pool().clone());
+        let creator_follows = PgCreatorFollows::new(accounts.pool().clone());
         let authoring = PgAuthoring::new(accounts.pool().clone());
         Self {
             accounts,
             follows,
+            creator_follows,
             authoring,
             cookies: CookiePolicy { secure, origin },
         }
@@ -31,6 +35,20 @@ impl FollowBookControl {
     /// Keep referral writes in F-owned repositories, never the public HTML renderer.
     pub(super) fn browser_context(&self) -> (&PgAccounts, &CookiePolicy) {
         (&self.accounts, &self.cookies)
+    }
+
+    /// Resolve a reader from the verified active account session only.
+    pub(super) async fn verified_reader(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<Option<i64>, StatusCode> {
+        let Some(token) = self.cookies.session_token(headers) else {
+            return Ok(None);
+        };
+        self.accounts
+            .active_session_user(&session_token_digest(&token))
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
     }
 
     /// Only called after the public book visibility check succeeded.
@@ -79,9 +97,37 @@ impl FollowBookControl {
         } else {
             ("follow", "Следить за книгой")
         };
-        let html = format!(
+        let mut html = format!(
             "<form method=\"post\" action=\"/me/books/{book_id}/{action}\" class=\"book-hero-actions__follow\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{label}</button></form>"
         );
+        // Creator identity comes from the B-owned row, never from a credit
+        // string or client-supplied author id. A BookFollow remains separate.
+        let creator = self
+            .creator_follows
+            .creator_for_public_book(book_id_sql)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        if let Some(creator) = creator.filter(|owner| *owner != user_id) {
+            let active = self
+                .creator_follows
+                .is_following(user_id, creator)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let (route, text) = if active {
+                (
+                    format!("/me/creators/{creator}/unfollow"),
+                    "Отписаться от автора",
+                )
+            } else {
+                (
+                    format!("/me/books/{book_id}/follow-creator"),
+                    "Следить за автором",
+                )
+            };
+            html.push_str(&format!(
+                "<form method=\"post\" action=\"{route}\" class=\"book-hero-actions__follow\"><input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\"><button class=\"ui-button ui-button--ghost\" type=\"submit\">{text}</button></form>"
+            ));
+        }
         Ok((html, cookies, is_owner))
     }
 }

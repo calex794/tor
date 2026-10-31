@@ -43,6 +43,8 @@ MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
+# Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
+ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml"}
 POSTGRES_SUITES = {
     "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
@@ -54,7 +56,7 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 CRITICAL_PACKAGES = {
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence", "tor-referrals",
+    "tor-route_intelligence", "tor-referrals", "tor-social",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
@@ -84,6 +86,7 @@ TEST_SUITES = {
     "crates/search/tests/perf233_projection_pg.rs": {"rust", "postgres"},
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/social/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/accounts/tests/referral_signup_decision_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},

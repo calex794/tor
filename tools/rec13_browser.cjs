@@ -1,6 +1,7 @@
 'use strict';
 // Real browser-generated visibility, activation, C progress and explicit feedback.
 const {chromium} = require('playwright');
+const {createHash} = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -70,12 +71,19 @@ async function register(page, email) {
     const disabledJS=await browser.newContext({javaScriptEnabled:false,viewport:{width:1440,height:900}});
     await disabledJS.addCookies(await desktop.cookies());
     const plain=await disabledJS.newPage();
-    const viewsBefore=scalar(`SELECT count(*) FROM rec_assignments a JOIN rec_subjects s ON s.subject_id=a.subject_id WHERE s.user_id=${user} AND a.viewed_at IS NOT NULL`);
     await plain.goto(base+'/');
     assert.ok(await plain.locator(`a[data-rec-link][href='/books/${book}']`).count());
+    // Scope this assertion to the assignments issued to the no-JS page.
+    // Another live desktop tab may legitimately report its own visible cards.
+    const plainTickets=await plain.locator('[data-rec-ticket]').evaluateAll(
+      cards=>cards.map(card=>card.dataset.recTicket)
+    );
+    assert.ok(plainTickets.length>0,'no-JS page must still contain server assignments');
+    const hashes=plainTickets.map(ticket=>createHash('sha256').update(ticket).digest('hex'));
+    const assignmentFilter=hashes.map(hash=>`decode('${hash}','hex')`).join(',');
+    assert.equal(scalar(`SELECT count(*) FROM rec_assignments WHERE ticket_digest IN(${assignmentFilter})`),hashes.length);
     await plain.waitForTimeout(1200);
-    const viewsAfter=scalar(`SELECT count(*) FROM rec_assignments a JOIN rec_subjects s ON s.subject_id=a.subject_id WHERE s.user_id=${user} AND a.viewed_at IS NOT NULL`);
-    assert.equal(viewsBefore,viewsAfter,'no-JS must not create view telemetry');
+    assert.equal(scalar(`SELECT count(*) FROM rec_assignments WHERE ticket_digest IN(${assignmentFilter}) AND viewed_at IS NOT NULL`),0,'no-JS assignments must not create view telemetry');
     await disabledJS.close();
     // Five real SSR surfaces carry permitted cards, never paid rights.
     for (const target of ['/', '/catalog', `/books/${book}`, '/me/library', `/read/${chapter}`]) {

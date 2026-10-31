@@ -55,9 +55,12 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
+mod book_stats_http;
+mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod creator_follows;
 mod follow_read_state;
 mod followed_purchase_links;
 mod inbox;
@@ -165,6 +168,8 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let creator_follows =
+        tor_social::services::follow::PgCreatorFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let achievements =
@@ -192,6 +197,7 @@ fn router_inner(
         bookmarks,
         demand,
         book_follows,
+        creator_follows,
         follow_updates,
         reader,
         rankings,
@@ -215,6 +221,15 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/me/creators", get(creator_follows::page))
+        .route(
+            "/me/creators/{id}/unfollow",
+            post(creator_follows::unfollow),
+        )
+        .route(
+            "/me/books/{id}/follow-creator",
+            post(book_follow_actions::follow_creator),
+        )
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
@@ -239,6 +254,10 @@ fn router_inner(
         .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
         )
         .route(
             "/books/{id}/comments",
@@ -286,6 +305,8 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route("/books/{id}/stats", get(book_stats_http::page))
+        .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),

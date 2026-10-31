@@ -747,3 +747,5 @@ async fn b_10_pg_legacy_unknown_economics_denies_paid_checkout_without_debit() {
     assert_eq!(purchases, 0);
     pool.close().await;
 }
+#[path = "slices_pg/d08_revenue_allocation.rs"]
+mod d08_revenue_allocation;
