@@ -379,3 +379,127 @@ async fn d_08_missing_hold_rejects_commit_and_rolls_back_wallet_and_rights() {
     }
     f.pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_08_immutable_share_revision_keeps_historic_creator_amounts() {
+    let f = fixture("split").await;
+    publish_terms(&f, "ci-finance-split-v1", 2000).await;
+    let translator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('d08_translator_split@example.test','D08 translator','$argon2id$ci')
+         RETURNING id",
+    )
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO book_members(book_id,user_id,role,is_active)
+         VALUES($1,$2,'translator',true)",
+    )
+    .bind(f.book)
+    .bind(translator)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    let mut tx = f.pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_versions(book_id,revision,changed_by_user_id,reason)
+         VALUES($1,2,$2,'d08_split_test')",
+    )
+    .bind(f.book)
+    .bind(f.owner)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for user in [f.owner, translator] {
+        sqlx::query(
+            "INSERT INTO revenue_share_assignments(book_id,revision,user_id,share_percent)
+             VALUES($1,2,$2,50)",
+        )
+        .bind(f.book)
+        .bind(user)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "UPDATE revenue_share_states SET current_revision=2
+         WHERE book_id=$1 AND current_revision=1",
+    )
+    .bind(f.book)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
+    let first = checkout
+        .checkout_once(&buy_one(&f, f.offers[1], 'D'))
+        .await
+        .unwrap();
+    let amounts: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT user_id,amount_minor FROM finance_creator_earnings
+         WHERE purchase_id=$1 ORDER BY user_id",
+    )
+    .bind(first.purchase_id.get())
+    .fetch_all(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(amounts, vec![(f.owner, 41), (translator, 40)]);
+
+    let mut tx = f.pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_versions(book_id,revision,changed_by_user_id,reason)
+         VALUES($1,3,$2,'d08_new_split_test')",
+    )
+    .bind(f.book)
+    .bind(f.owner)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO revenue_share_assignments(book_id,revision,user_id,share_percent)
+         VALUES($1,3,$2,100)",
+    )
+    .bind(f.book)
+    .bind(f.owner)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE revenue_share_states SET current_revision=3
+         WHERE book_id=$1 AND current_revision=2",
+    )
+    .bind(f.book)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    let later = checkout
+        .checkout_once(&buy_one(&f, f.offers[2], 'E'))
+        .await
+        .unwrap();
+    let next_amount: i64 = sqlx::query_scalar(
+        "SELECT amount_minor FROM finance_creator_earnings
+         WHERE purchase_id=$1 AND user_id=$2",
+    )
+    .bind(later.purchase_id.get())
+    .bind(f.owner)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(next_amount, 82);
+    let old: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT user_id,amount_minor FROM finance_creator_earnings
+         WHERE purchase_id=$1 ORDER BY user_id",
+    )
+    .bind(first.purchase_id.get())
+    .fetch_all(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(old, amounts, "later Book shares may not rewrite old money");
+    f.pool.close().await;
+}
