@@ -152,12 +152,11 @@ async fn s023_b_finalizer_fences_lease_and_cancel_atomically() {
     .fetch_optional(&pool);
     let (completed, cancelled) = tokio::join!(finalize, cancel);
     let cancelled = cancelled.unwrap().is_some();
-    let status: String =
-        sqlx::query_scalar("SELECT status FROM chapter_import_jobs WHERE id=$1")
-            .bind(third_job)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let status: String = sqlx::query_scalar("SELECT status FROM chapter_import_jobs WHERE id=$1")
+        .bind(third_job)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM chapters WHERE book_id=$1")
         .bind(book_id)
         .fetch_one(&pool)
