@@ -150,10 +150,26 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", text)
         self.assertIn("python3 tools/select_feature_tests.py", text)
 
+    def test_home_gateway_is_ci_only_without_live_host_or_secret_access(self):
+        text = (WORKFLOWS / "tor-home-gateway.yml").read_text()
+        self.assertIn("  pull_request:", text)
+        self.assertIn("  workflow_dispatch:", text)
+        self.assertIn("    paths:", text)
+        self.assertNotIn("  push:", text)
+        self.assertNotIn("  pull_request_target:", text)
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn("environment:", text)
+        self.assertNotIn("ssh ", text)
+        self.assertNotIn("scp ", text)
+        self.assertNotIn("deploy", text)
+        self.assertIn('  contents: read', text)
+        self.assertIn("python3 -m unittest discover -s tests/infra", text)
+
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
                  | {CI_WORKFLOW, "rules.yml", "ci-selection.yml"}
-                 | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS)
+                 | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS
+                 | {"tor-home-gateway.yml"})
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))
         self.assertEqual(len(set(SUITE_JOB_IDS.values())), len(SUITES))
