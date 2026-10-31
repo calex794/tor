@@ -21,6 +21,14 @@ CREATE TABLE book_engagement_rate_buckets (
 CREATE INDEX book_engagement_rate_buckets_started_idx
     ON book_engagement_rate_buckets (bucket_start);
 
+-- PostgreSQL does not index FK columns automatically. These indexes keep
+-- user/book erasure from scanning every live ten-second rate bucket.
+CREATE INDEX book_engagement_rate_buckets_user_idx
+    ON book_engagement_rate_buckets (user_id) WHERE user_id IS NOT NULL;
+
+CREATE INDEX book_engagement_rate_buckets_book_idx
+    ON book_engagement_rate_buckets (book_id) WHERE book_id IS NOT NULL;
+
 -- Persist only risk observations, not every successful click. No IP, session
 -- token, User-Agent, raw URL, or behavior-path history is stored here.
 CREATE TABLE book_engagement_integrity_events (
