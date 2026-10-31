@@ -189,8 +189,10 @@ BEGIN
     )
     SELECT COUNT(*) INTO invalid_lines
     FROM exact x
-    FULL OUTER JOIN finance_creator_earnings e
-      ON e.purchase_id=NEW.purchase_id AND e.user_id=x.user_id
+    FULL OUTER JOIN (
+        SELECT user_id,amount_minor,share_percent,clear_at
+        FROM finance_creator_earnings WHERE purchase_id=NEW.purchase_id
+    ) e ON e.user_id=x.user_id
     WHERE x.user_id IS NULL
        OR (x.expected_minor=0 AND e.user_id IS NOT NULL)
        OR (x.expected_minor>0 AND (
