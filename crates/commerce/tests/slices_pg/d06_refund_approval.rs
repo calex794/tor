@@ -7,17 +7,17 @@ use tor_commerce::repositories::{
 };
 use tor_contracts::paid_delivery::{DeliveryError, PositiveId};
 
-struct RefundFixture {
-    pool: PgPool,
-    buyer: i64,
-    moderator: i64,
-    chapter: i64,
-    version: i64,
-    purchase: i64,
-    request: i64,
+pub(super) struct RefundFixture {
+    pub(super) pool: PgPool,
+    pub(super) buyer: i64,
+    pub(super) moderator: i64,
+    pub(super) chapter: i64,
+    pub(super) version: i64,
+    pub(super) purchase: i64,
+    pub(super) request: i64,
 }
 
-async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> RefundFixture {
+pub(super) async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> RefundFixture {
     let (pool, buyer, book, chapter, version) = fixture(tag, 1000, 300).await;
     let moderator: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
         .bind(book)
@@ -94,7 +94,7 @@ async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> RefundFixture {
     }
 }
 
-async fn d06_approval_cleanup(f: RefundFixture) {
+pub(super) async fn d06_approval_cleanup(f: RefundFixture) {
     // All tests share one disposable DB in the CI suite: do not leave an
     // extra global administrator behind for Line A's last-admin invariant.
     sqlx::query(
