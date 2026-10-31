@@ -227,13 +227,12 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     // Deleting the first (trusted) reader must retain the other reader's
     // untrusted personal like, but it must not restore trusted popularity.
     assert_eq!(remaining_likes, 1, "other reader's like must survive");
-    let remaining_trusted_likes: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM book_likes WHERE book_id=$1 AND stats_trusted",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let remaining_trusted_likes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_likes WHERE book_id=$1 AND stats_trusted")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(remaining_trusted_likes, 0);
     let surviving_other_like: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM book_likes WHERE book_id=$1 AND user_id=$2 AND NOT stats_trusted",
@@ -249,13 +248,12 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
         .execute(&pool)
         .await
         .unwrap();
-    let remaining_likes_after_both_deletes: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM book_likes WHERE book_id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let remaining_likes_after_both_deletes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_likes WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(remaining_likes_after_both_deletes, 0);
     let after_delete: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1")
