@@ -184,6 +184,9 @@ mod tests {
         assert!(!html.contains("<script>unsafe</script>"));
         assert!(html.contains("Скидки подписчикам"));
         assert!(html.contains("name=\"min_follow_days\""));
+        assert!(html.contains("value=\"30\""));
+        assert!(html.contains("value=\"90\""));
+        assert!(html.contains("value=\"180\""));
         assert_eq!(
             status(DiscountCampaignError::NotFound),
             StatusCode::NOT_FOUND
