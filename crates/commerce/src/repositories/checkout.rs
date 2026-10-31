@@ -51,11 +51,14 @@ impl CheckoutRepository for PgCheckout {
         let chapter = command.edition.chapter_id.get();
         let version = command.edition.version_id.get();
         let price = command.expected_price.get();
+        let base_price_expected = command.expected_base_price.get();
+        let expected_discount = command.expected_discount_offer;
         if actor <= 0
             || command.wallet_id.get() != actor
             || chapter <= 0
             || version <= 0
             || price <= 0
+            || base_price_expected < price
         {
             return Err(CheckoutError::Inaccessible);
         }
@@ -66,8 +69,10 @@ impl CheckoutRepository for PgCheckout {
         // replica. A failed checkout rolls the claim back with the wallet.
         let claimed = sqlx::query_scalar::<_, i64>(
             "INSERT INTO chapter_purchase_commands
-              (user_id, command_key, chapter_id, expected_version_id, expected_price_minor)
-             VALUES ($1, $2, $3, $4, $5)
+              (user_id, command_key, chapter_id, expected_version_id, expected_price_minor,
+               expected_base_price_minor, expected_campaign_id, expected_campaign_revision,
+               expected_follow_period_id, expected_discount_percent, expected_min_follow_days)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
              ON CONFLICT (user_id, command_key) DO NOTHING RETURNING user_id",
         )
         .bind(actor)
@@ -75,12 +80,21 @@ impl CheckoutRepository for PgCheckout {
         .bind(chapter)
         .bind(version)
         .bind(price)
+        .bind(base_price_expected)
+        .bind(expected_discount.map(|offer| offer.campaign_id.get()))
+        .bind(expected_discount.map(|offer| offer.campaign_revision))
+        .bind(expected_discount.map(|offer| offer.follow_period_id.get()))
+        .bind(expected_discount.map(|offer| offer.discount_percent))
+        .bind(expected_discount.map(|offer| offer.min_follow_days))
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
 
         let prior = sqlx::query(
-            "SELECT chapter_id, expected_version_id, expected_price_minor, purchase_id
+            "SELECT chapter_id, expected_version_id, expected_price_minor,
+                    expected_base_price_minor, expected_campaign_id,
+                    expected_campaign_revision, expected_follow_period_id,
+                    expected_discount_percent, expected_min_follow_days, purchase_id
              FROM chapter_purchase_commands
              WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
         )
@@ -98,6 +112,30 @@ impl CheckoutRepository for PgCheckout {
                 .try_get::<i64, _>("expected_price_minor")
                 .map_err(unavailable)?
                 != price
+            || prior
+                .try_get::<i64, _>("expected_base_price_minor")
+                .map_err(unavailable)?
+                != base_price_expected
+            || prior
+                .try_get::<Option<i64>, _>("expected_campaign_id")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.campaign_id.get())
+            || prior
+                .try_get::<Option<i32>, _>("expected_campaign_revision")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.campaign_revision)
+            || prior
+                .try_get::<Option<i64>, _>("expected_follow_period_id")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.follow_period_id.get())
+            || prior
+                .try_get::<Option<i16>, _>("expected_discount_percent")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.discount_percent)
+            || prior
+                .try_get::<Option<i16>, _>("expected_min_follow_days")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.min_follow_days)
         {
             return Err(CheckoutError::DuplicateKeyDifferentRequest);
         }
@@ -167,11 +205,21 @@ impl CheckoutRepository for PgCheckout {
             base_price,
         )
         .await?;
+        let quote_matches = match (discount.as_ref(), expected_discount) {
+            (None, None) => base_price == base_price_expected && price == base_price,
+            (Some(actual), Some(expected)) => {
+                actual.base_price_minor == base_price_expected
+                    && actual.paid_minor == price
+                    && actual.campaign_id == expected.campaign_id.get()
+                    && actual.campaign_revision == expected.campaign_revision
+                    && actual.follow_period_id == expected.follow_period_id.get()
+                    && actual.discount_percent == expected.discount_percent
+                    && actual.min_follow_days == expected.min_follow_days
+            }
+            _ => false,
+        };
         if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version
-            || discount
-                .as_ref()
-                .map_or(base_price, |value| value.paid_minor)
-                != price
+            || !quote_matches
         {
             return Err(CheckoutError::StaleOffer);
         }
@@ -324,12 +372,13 @@ impl CheckoutRepository for PgCheckout {
         if let Some(discount) = discount {
             sqlx::query(
                 "INSERT INTO chapter_purchase_discount_snapshots
-                 (purchase_id,campaign_id,follow_period_id,base_price_minor,
+                 (purchase_id,campaign_id,campaign_revision,follow_period_id,base_price_minor,
                   discount_minor,paid_minor,discount_percent,min_follow_days)
-                 VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
             )
             .bind(purchase_id)
             .bind(discount.campaign_id)
+            .bind(discount.campaign_revision)
             .bind(discount.follow_period_id)
             .bind(discount.base_price_minor)
             .bind(discount.discount_minor)
