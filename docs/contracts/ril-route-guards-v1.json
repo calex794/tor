@@ -144,6 +144,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/newboo-direct-cover.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::direct_cover_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/assets/newboo-paid-reader.mjs",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::paid_reader_script",
@@ -196,6 +203,13 @@
       "template": "/catalog",
       "source": "crates/web/src/lib.rs",
       "handler": "catalog_http::catalog",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/covers/{id}/{variant}/direct-grant",
+      "source": "crates/web/src/lib.rs",
+      "handler": "cover_http::cover_direct_grant",
       "policy": "public"
     },
     {
