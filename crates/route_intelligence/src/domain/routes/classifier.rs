@@ -135,6 +135,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/follow-creator"), "POST") => Some(122),
         (Some("/books/{id}/like"), "GET") => Some(123),
         (Some("/books/{id}/like"), "POST") => Some(124),
+        (Some("/api/v1/covers/{id}/{variant}/direct-grant"), "GET") => Some(125),
+        (Some("/assets/newboo-direct-cover.mjs"), "GET") => Some(126),
         _ => None,
     };
     index

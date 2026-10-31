@@ -1,6 +1,7 @@
 //! G-07 job lifecycle; SQLx remains in repositories and B owns slot mutation.
 use crate::domain::cover::{CoverClaim, CoverError, CoverVariant};
 use async_trait::async_trait;
+use std::time::Duration;
 
 #[async_trait]
 pub trait CoverJobs: Send + Sync {
@@ -35,6 +36,18 @@ pub trait CoverObjectStore: Send + Sync {
     ) -> Result<(), CoverError> {
         Err(CoverError::Forbidden)
     }
+    /// Only a separately configured, operator-approved public S3 endpoint may
+    /// issue direct-reader URLs. Legacy/mock providers remain proxy-only.
+    fn direct_read_origin(&self) -> Option<&str> {
+        None
+    }
+
+    /// Sign only a previously authorized public cover variant. No source uploads.
+    /// This method must never read or return the object bytes through TOR.
+    async fn presign_variant_get(&self, _key: &str, _ttl: Duration) -> Result<String, CoverError> {
+        Err(CoverError::Forbidden)
+    }
+
     /// Implementations MUST stop at max_bytes+1 while streaming, never collect unbounded.
     async fn get_bounded(&self, key: &str, max_bytes: usize) -> Result<Vec<u8>, CoverError>;
     /// MUST verify HEAD/sha/length after idempotent upload.

@@ -486,6 +486,20 @@ pub async fn paid_reader_script() -> impl IntoResponse {
     )
 }
 
+/// Opt-in browser runtime; no signed URLs, object keys or credentials embedded.
+pub async fn direct_cover_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-direct-cover.mjs"),
+    )
+}
+
 /// Local cover-selection preview, based on NEwBOO book-settings.js.
 pub async fn cover_picker_script() -> impl IntoResponse {
     (

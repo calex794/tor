@@ -82,6 +82,7 @@ jobs:
           chmod 700 "$RUNNER_TEMP/$release"
           mkdir -p "$RUNNER_TEMP/tor-cover-minio"
           MINIO_ROOT_USER="$TOR_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$TOR_TEST_S3_SECRET_KEY" \
+            MINIO_API_CORS_ALLOW_ORIGIN="http://127.0.0.1:3098" \
             nohup "$RUNNER_TEMP/$release" server "$RUNNER_TEMP/tor-cover-minio" \
               --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
               > "$RUNNER_TEMP/minio.log" 2>&1 &
@@ -122,6 +123,8 @@ jobs:
       - name: Real owner session, S3 upload, PostgreSQL worker, browser layout and public WebP
         env:
           TOR_COVER_S3_BUCKET: tor-private-cover-ci
+          TOR_COVER_S3_DIRECT_ORIGIN: http://127.0.0.1:9000
+          TOR_DIRECT_COVER_BROWSER: '1'
           TOR_COVER_WORKER_ENABLED: '1'
           TOR_AUTH_ENABLED: '1'
           TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098

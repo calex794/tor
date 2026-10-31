@@ -31,6 +31,45 @@ impl CoverDelivery {
             .map_err(|_| CoverError::Unavailable)
     }
 
+    /// Signed URL plus trustworthy metadata; no cover bytes traverse TOR.
+    pub async fn direct_grant(
+        &self,
+        book_id: u64,
+        kind: PublicCoverKind,
+    ) -> Result<Option<(String, [u8; 32], i64)>, CoverError> {
+        if self.objects.direct_read_origin().is_none() {
+            return Err(CoverError::Forbidden);
+        }
+        let book_id = i64::try_from(book_id).map_err(|_| CoverError::Invalid)?;
+        let object = self
+            .slots
+            .public_variant(book_id, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?;
+        let Some(object) = object else {
+            return Ok(None);
+        };
+        if object.size_bytes <= 0 || object.size_bytes > 8 * 1024 * 1024 {
+            return Err(CoverError::Invalid);
+        }
+        let signed = self
+            .objects
+            .presign_variant_get(&object.storage_key, Duration::from_secs(60))
+            .await?;
+        // The book may have been hidden or its cover replaced during signing.
+        if self
+            .slots
+            .public_variant(book_id, kind)
+            .await
+            .map_err(|_| CoverError::Unavailable)?
+            .as_ref()
+            != Some(&object)
+        {
+            return Ok(None);
+        }
+        Ok(Some((signed, object.sha256, object.size_bytes)))
+    }
+
     /// Return None for invisible, stale or unknown covers. Return Unavailable
     /// for failed private storage and integrity checks, never partial bytes.
     pub async fn read(

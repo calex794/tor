@@ -27,6 +27,7 @@ mod catalog_http;
 mod chapter_import_assets;
 pub mod cover_delivery;
 mod cover_http;
+mod direct_cover_page;
 mod referral_book_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
@@ -68,6 +69,7 @@ struct AppState {
     paid_batch_browser_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
+    direct_cover_origin: Option<String>,
 }
 async fn health() -> &'static str {
     "ok"
@@ -109,7 +111,7 @@ async fn public_cards(
         .collect())
 }
 
-async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusCode> {
+async fn homepage(State(state): State<AppState>) -> Result<Response, StatusCode> {
     if let Some(catalog) = state.postgres {
         // The F-04 repository filters draft/held/deleted rows before LIMIT.
         // Do not label the original ascending demo catalogue as "newest".
@@ -137,9 +139,15 @@ async fn homepage(State(state): State<AppState>) -> Result<Html<String>, StatusC
             })
             .collect::<Vec<_>>();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(pages::home_recent_with_covers(&cards, &covers));
+        return Ok(direct_cover_page::page(
+            pages::home_recent_with_covers(&cards, &covers),
+            state.direct_cover_origin.as_deref(),
+        ));
     }
-    Ok(pages::home(&public_cards(state.books.as_ref(), 6).await?))
+    Ok(direct_cover_page::page(
+        pages::home(&public_cards(state.books.as_ref(), 6).await?),
+        state.direct_cover_origin.as_deref(),
+    ))
 }
 #[derive(Default, Deserialize)]
 struct TocQuery {
@@ -266,11 +274,27 @@ async fn book_detail(
                 "<!--BOOK_LIKES-->",
                 &pages::book_likes_strip(book.id, count),
             ));
-            return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            let (html, direct) =
+                direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
+            let response =
+                book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            return direct_cover_page::apply_policy(
+                response,
+                state.direct_cover_origin.as_deref(),
+                direct,
+            );
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
         let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
-        return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        let (html, direct) =
+            direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
+        let response =
+            book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        return direct_cover_page::apply_policy(
+            response,
+            state.direct_cover_origin.as_deref(),
+            direct,
+        );
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -456,11 +480,19 @@ fn make_router(
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
+        .route(
+            "/api/v1/covers/{id}/{variant}/direct-grant",
+            get(cover_http::cover_direct_grant),
+        )
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
+        .route(
+            "/assets/newboo-direct-cover.mjs",
+            get(pages::direct_cover_script),
+        )
         .route(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
@@ -498,6 +530,10 @@ fn make_router(
         .clone()
         .map(tor_search::api::router)
         .unwrap_or_default();
+    let direct_cover_origin = objects
+        .as_ref()
+        .and_then(|store| store.direct_read_origin())
+        .map(str::to_owned);
     let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
         cover_delivery::CoverDelivery::new(
             tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),
@@ -512,6 +548,7 @@ fn make_router(
         paid_batch_browser_enabled: active_auth
             && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
         covers,
+        direct_cover_origin,
         follow_control,
     })
     .merge(api)

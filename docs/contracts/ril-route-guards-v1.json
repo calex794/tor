@@ -890,6 +890,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_likes::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/covers/{id}/{variant}/direct-grant",
+      "source": "crates/web/src/lib.rs",
+      "handler": "cover_http::cover_direct_grant",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-direct-cover.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::direct_cover_script",
+      "policy": "public"
     }
   ]
 }
