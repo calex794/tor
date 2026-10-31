@@ -209,14 +209,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .expect("validated chapter import S3 configuration")
                         .clone();
                     pending_chapter_import_worker = Some((catalog.clone(), storage.clone()));
-                    pending_chapter_import_routes = Some(
-                        tor_web::chapter_import_queue_http::router(
+                    pending_chapter_import_routes =
+                        Some(tor_web::chapter_import_queue_http::router(
                             accounts.clone(),
                             secure,
                             origin.clone(),
                             storage,
-                        ),
-                    );
+                        ));
                 }
                 #[cfg(feature = "s3-paid")]
                 let (paid_storage, paid_author): (
@@ -354,13 +353,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
-    let _chapter_import_worker =
-        pending_chapter_import_worker.map(|(catalog, storage)| {
-            println!("TOR chapter import worker enabled");
-            tor_web::chapter_import_worker::start_chapter_import_worker_background(
-                catalog, storage,
-            )
-        });
+    let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
+        println!("TOR chapter import worker enabled");
+        tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)
+    });
     // C completion events remain durable if the server restarts.
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =
