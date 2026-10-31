@@ -49,10 +49,12 @@ impl PgImportJobs {
         };
         let matches = row.try_get::<i64, _>("book_id").ok() == Some(book)
             && row.try_get::<String, _>("source_filename").ok().as_deref() == Some(filename)
-            && row.try_get::<Vec<u8>, _>("source_sha256").ok().as_deref()
-                == Some(hash.as_slice())
+            && row.try_get::<Vec<u8>, _>("source_sha256").ok().as_deref() == Some(hash.as_slice())
             && row.try_get::<i64, _>("source_bytes").ok() == Some(size)
-            && row.try_get::<Vec<u8>, _>("approved_fingerprint").ok().as_deref()
+            && row
+                .try_get::<Vec<u8>, _>("approved_fingerprint")
+                .ok()
+                .as_deref()
                 == Some(fingerprint.as_slice())
             && row.try_get::<i32, _>("expected_chapter_count").ok() == Some(count);
         if !matches {
@@ -86,9 +88,9 @@ impl PgImportJobs {
             || key.contains("..")
             || key.len() < 32
             || key.len() > 512
-            || !key.bytes().all(|b| {
-                b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'-' | b'_')
-            })
+            || !key
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'.' | b'-' | b'_'))
             || filename.is_empty()
             || filename.len() > 128
             || filename.contains('/')
@@ -175,8 +177,12 @@ impl PgImportJobs {
         .map_err(|_| ImportJobsError::Unavailable)?;
         row.map(|row| {
             Ok(ChapterImportClaim {
-                job_id: row.try_get("id").map_err(|_| ImportJobsError::Unavailable)?,
-                book_id: row.try_get("book_id").map_err(|_| ImportJobsError::Unavailable)?,
+                job_id: row
+                    .try_get("id")
+                    .map_err(|_| ImportJobsError::Unavailable)?,
+                book_id: row
+                    .try_get("book_id")
+                    .map_err(|_| ImportJobsError::Unavailable)?,
                 actor_id: row
                     .try_get("actor_user_id")
                     .map_err(|_| ImportJobsError::Unavailable)?,
@@ -293,9 +299,7 @@ impl PgImportJobs {
     ) -> Result<bool, ImportJobsError> {
         if code.is_empty()
             || code.len() > 100
-            || !code
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b == b'_')
+            || !code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
         {
             return Err(ImportJobsError::Invalid);
         }
