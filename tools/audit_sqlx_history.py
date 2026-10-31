@@ -49,6 +49,7 @@ def local_migrations(directory):
     if not files:
         raise AuditError("Migration directory is empty")
     found = {}
+    seen_checksum_versions = {}
     for path in files:
         version, description = migration_identity(path)
         if version in found:
@@ -58,10 +59,17 @@ def local_migrations(directory):
             sql.decode("utf-8")
         except UnicodeDecodeError as error:
             raise AuditError(f"Migration {path.name} is not UTF-8") from error
+        checksum = hashlib.sha384(sql).hexdigest()
+        if checksum in seen_checksum_versions:
+            raise AuditError(
+                "Identical SQLx SQL bytes under different local versions: "
+                f"{seen_checksum_versions[checksum]}, {version}"
+            )
+        seen_checksum_versions[checksum] = version
         found[version] = {
             "filename": path.name,
             "description": description,
-            "checksum": hashlib.sha384(sql).hexdigest(),
+            "checksum": checksum,
         }
     return found
 
@@ -104,7 +112,9 @@ def evaluate_history(local, database, applied):
     blocked = []
     matched = []
     pending = []
+    applied_checksum_versions = defaultdict(list)
     for version, installed in sorted(applied.items()):
+        applied_checksum_versions[installed["checksum"]].append(version)
         expected = local.get(version)
         if not installed["success"]:
             blocked.append(f"{version}: failed SQLx migration recorded")
@@ -118,6 +128,12 @@ def evaluate_history(local, database, applied):
         if (installed["success"] and installed["description"] == expected["description"]
                 and installed["checksum"] == expected["checksum"]):
             matched.append(version)
+    for versions in applied_checksum_versions.values():
+        if len(versions) > 1:
+            blocked.append(
+                "Identical applied SQLx checksum under different versions: "
+                + ", ".join(versions)
+            )
     for version in sorted(local):
         if version not in applied:
             pending.append(version)
