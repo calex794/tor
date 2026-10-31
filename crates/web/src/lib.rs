@@ -440,7 +440,10 @@ fn make_router(
         .route("/catalog", get(catalog_http::catalog))
         .merge(book_router)
         .route("/covers/{id}/{variant}", get(cover_http::cover_image))
-        .route("/api/v1/covers/{id}/{variant}/direct-grant", get(cover_http::cover_direct_grant))
+        .route(
+            "/api/v1/covers/{id}/{variant}/direct-grant",
+            get(cover_http::cover_direct_grant),
+        )
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
