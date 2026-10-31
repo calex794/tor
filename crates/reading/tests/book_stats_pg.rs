@@ -3,7 +3,7 @@
 use sqlx::PgPool;
 use tor_reading::repositories::{
     book_stats::{PgBookStats, RatingStat},
-    PgChapterThanks, PgLibrary, ThanksMutation,
+    LikeMutation, PgBookLikes, PgChapterThanks, PgLibrary, ThanksMutation,
 };
 
 #[tokio::test]
@@ -102,6 +102,23 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     bookmarks.add_book(user, book).await.unwrap();
     bookmarks.add_book(second_user, book).await.unwrap();
     bookmarks.remove_book(second_user, book).await.unwrap();
+    let likes = PgBookLikes::new(pool.clone());
+    assert_eq!(
+        likes.set_like(user, book, true).await.unwrap(),
+        LikeMutation::Added
+    );
+    assert_eq!(
+        likes.set_like(user, book, true).await.unwrap(),
+        LikeMutation::AlreadyLiked
+    );
+    assert_eq!(
+        likes.set_like(second_user, book, true).await.unwrap(),
+        LikeMutation::Added
+    );
+    assert_eq!(
+        likes.set_like(second_user, book, false).await.unwrap(),
+        LikeMutation::Removed
+    );
 
     // F-05 records are inserted directly for this read-model test.
     // Authorization and completion prerequisites have their own F-05 tests.
@@ -125,6 +142,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert_eq!(report.opens, 12);
     assert_eq!(report.thanks, 3);
     assert_eq!(report.bookmarks, 1);
+    assert_eq!(report.likes, 1);
     assert_eq!(report.work_rating, RatingStat { sum: 7, votes: 2 });
     assert_eq!(report.work_rating.average().as_deref(), Some("3.50"));
     assert_eq!(report.translation_rating, RatingStat { sum: 4, votes: 1 });
@@ -151,6 +169,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert!(next.chapters.iter().all(|chapter| chapter.number > 5));
     assert_eq!(next.thanks, 3);
     assert_eq!(next.bookmarks, 1);
+    assert_eq!(next.likes, 1);
     assert_eq!(next.work_rating, RatingStat { sum: 7, votes: 2 });
     assert_eq!(next.top_by_thanks.first().map(|row| row.count), Some(2));
     // Book holding must suppress further telemetry; history stays private for
@@ -198,6 +217,13 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
             .await
             .unwrap();
     assert_eq!(bookmarks_after_delete, 0);
+    let remaining_likes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_likes WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_likes, 0, "deleted reader's like must disappear");
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(second_user)
         .execute(&pool)

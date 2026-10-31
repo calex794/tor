@@ -876,6 +876,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::follow_creator",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::submit",
+      "policy": "scoped"
     }
   ]
 }

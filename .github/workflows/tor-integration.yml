@@ -232,6 +232,7 @@ jobs:
           cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test chapter_thanks_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test book_stats_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test book_likes_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
@@ -264,6 +265,7 @@ jobs:
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
