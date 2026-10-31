@@ -18,7 +18,6 @@ fn assert_layer_delete_denied(error: sqlx::Error) {
     );
 }
 
-
 fn assert_layer_paid_owner_update_denied(error: sqlx::Error) {
     let database = error.as_database_error().expect("expected SQL error");
     assert_eq!(database.code().as_deref(), Some("23514"));
