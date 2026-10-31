@@ -81,6 +81,7 @@ mod referral_dashboard;
 mod referral_routes;
 mod reply_read_state;
 mod reset_delivery;
+mod revision_read_state;
 mod security_retention;
 mod session_security;
 mod settings_routes;
@@ -171,6 +172,8 @@ fn router_inner(
     let creator_follows =
         tor_social::services::follow::PgCreatorFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
+    let staged_revisions =
+        tor_reading::repositories::PgStagedRevisions::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let achievements =
         tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
@@ -199,6 +202,7 @@ fn router_inner(
         book_follows,
         creator_follows,
         follow_updates,
+        staged_revisions,
         reader,
         rankings,
         achievements,
@@ -249,6 +253,10 @@ fn router_inner(
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
+        )
+        .route(
+            "/me/revisions/{id}/read-state",
+            post(revision_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
         .route(

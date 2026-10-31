@@ -155,6 +155,22 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
     .await
     .unwrap();
     assert_eq!(first, (initial.chapter_id, initial.version_id));
+    let published_events: Vec<(i64, bool)> = sqlx::query_as(
+        "SELECT (payload->>'version_id')::bigint,
+                (payload->>'first_release')::boolean
+         FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1
+         ORDER BY (payload->>'first_release')::boolean DESC",
+    )
+    .bind(initial.chapter_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        published_events,
+        vec![(initial.version_id, true), (saved.version_id, false)],
+        "V1 emits first release, V2 emits a distinct edition event"
+    );
     let unchanged_working: i64 =
         sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(initial.chapter_id)
@@ -225,6 +241,15 @@ async fn bkr96_published_free_edit_is_visible_immediately_and_old_version_is_imm
             .await
             .unwrap();
     assert_eq!(version_count, 2);
+    let published_events_after_noop: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM outbox_events
+         WHERE event_type='ChapterPublished' AND aggregate_id=$1",
+    )
+    .bind(initial.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(published_events_after_noop, 2, "no-op edit emits no event");
     pool.close().await;
 }
 

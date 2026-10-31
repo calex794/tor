@@ -47,6 +47,24 @@ pub(super) async fn my_library(
         Ok(updates) => updates,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let revision_cursor = match query.revisions_after.as_deref() {
+        Some(value) => match tor_reading::repositories::RevisionCursor::parse(value) {
+            Some(cursor) => Some(cursor),
+            None => return deny(StatusCode::BAD_REQUEST),
+        },
+        None => None,
+    };
+    let revisions = match state
+        .staged_revisions
+        .latest(user_id, revision_cursor)
+        .await
+    {
+        Ok(revisions) => revisions,
+        Err(tor_reading::repositories::StagedRevisionError::Invalid) => {
+            return deny(StatusCode::BAD_REQUEST);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let owned = match followed_purchase_links::for_reader(&state, user_id, &updates).await {
         Ok(owned) => owned,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -58,7 +76,7 @@ pub(super) async fn my_library(
         &csrf,
         state.paid_reader_available,
         state.paid_checkout_enabled,
-        &updates,
+        (&updates, &revisions),
         &owned,
     );
     private_response(page, &cookies)

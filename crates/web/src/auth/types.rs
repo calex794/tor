@@ -33,6 +33,7 @@ pub(super) struct AuthState {
     pub(super) book_follows: tor_reading::repositories::PgBookFollows,
     pub(super) creator_follows: tor_social::services::follow::PgCreatorFollows,
     pub(super) follow_updates: PgFollowUpdates,
+    pub(super) staged_revisions: tor_reading::repositories::PgStagedRevisions,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
     pub(super) achievements: tor_recommendations::repositories::PgAchievements,
@@ -60,6 +61,7 @@ pub(super) struct SavePlaceForm {
 pub(super) struct LibraryQuery {
     pub(super) after: Option<i64>,
     pub(super) updates_after: Option<String>,
+    pub(super) revisions_after: Option<String>,
     pub(super) limit: Option<u16>,
 }
 
