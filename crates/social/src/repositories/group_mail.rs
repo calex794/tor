@@ -145,6 +145,43 @@ impl PgGroupMail {
         .ok_or(MailError::NotFound)
     }
 
+    /// Return display names only to a currently active participant. Lock
+    /// the actor membership row so leaving cannot race with this disclosure.
+    pub async fn members(
+        &self,
+        actor: i64,
+        group_id: i64,
+    ) -> Result<Vec<(i64, String)>, MailError> {
+        if actor <= 0 || group_id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM social_group_members
+             WHERE group_id=$1 AND user_id=$2 FOR SHARE",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if status.as_deref() != Some("active") {
+            return Err(MailError::NotFound);
+        }
+        let rows = sqlx::query_as::<_, (i64, String)>(
+            "SELECT m.user_id,u.display_name FROM social_group_members m
+             JOIN users u ON u.id=m.user_id
+             WHERE m.group_id=$1 AND m.status='active'
+             ORDER BY m.user_id LIMIT 32",
+        )
+        .bind(group_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(rows)
+    }
+
     /// Only active members can see even the group title or existence.
     /// Cursor filtering happens after the actor filter, never before it.
     pub async fn list(

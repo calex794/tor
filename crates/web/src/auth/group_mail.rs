@@ -149,6 +149,7 @@ fn render_index(
 fn render_detail(
     group: &GroupConversation,
     messages: &[GroupMessage],
+    members: &[(i64, String)],
     csrf: &str,
     command_key: &str,
     actor: i64,
@@ -158,6 +159,22 @@ fn render_detail(
         r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a></p></header><section class="me-section" aria-label="Сообщения группы">"#,
         escape_html(&group.title)
     );
+    write!(
+        body,
+        r#"<div class="group-participants"><h2>Участники ({})</h2><ul>"#,
+        members.len()
+    )
+    .expect("group member count");
+    for (member_id, name) in members {
+        let suffix = if *member_id == actor { " (вы)" } else { "" };
+        write!(
+            body,
+            r#"<li data-member-id="{member_id}">{}{suffix}</li>"#,
+            escape_html(name)
+        )
+        .expect("group member");
+    }
+    body.push_str("</ul></div>");
     for message in messages {
         let sender = if message.sender_id == actor {
             "Вы".to_owned()
@@ -289,11 +306,16 @@ pub(super) async fn detail(
         Ok(messages) => messages,
         Err(error) => return deny(super::mail::status(error)),
     };
+    let members = match store.members(actor, id).await {
+        Ok(members) => members,
+        Err(error) => return deny(super::mail::status(error)),
+    };
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
         render_detail(
             &group,
             &messages,
+            &members,
             &csrf_token,
             &generate_session_token(),
             actor,
@@ -361,8 +383,12 @@ mod tests {
             sender_id: 2,
             body: "<img src=x onerror=alert(1)>".to_owned(),
         }];
-        let html = render_detail(&group, &messages, "<csrf>", &"x".repeat(43), 1).0;
+        let members = vec![(1, "<svg onload=alert(1)>".to_owned())];
+        let html = render_detail(&group, &messages, &members, "<csrf>", &"x".repeat(43), 1).0;
         assert!(html.contains("&lt;script&gt;unsafe&lt;/script&gt;"));
+        assert!(html.contains("Участники (1)"));
+        assert!(html.contains("&lt;svg onload=alert(1)&gt;"));
+        assert!(!html.contains("<svg onload=alert(1)>"));
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
         assert!(!html.contains("<script>unsafe</script>"));
         assert!(!html.contains("<img src=x onerror=alert(1)>"));

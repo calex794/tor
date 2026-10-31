@@ -82,6 +82,10 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     assert!(groups.list(outsider, None, 10).await.unwrap().is_empty());
     assert_eq!(groups.get(a, id).await.unwrap().title, "Private crew");
     assert_eq!(groups.get(b, id).await.unwrap().id, id);
+    let current_members = groups.members(a, id).await.unwrap();
+    assert_eq!(current_members.len(), 2);
+    assert!(current_members.iter().any(|(user_id, _)| *user_id == b));
+    assert_eq!(groups.members(outsider, id).await, Err(MailError::NotFound));
     assert_eq!(groups.get(outsider, id).await, Err(MailError::NotFound));
     assert_eq!(
         groups.messages(outsider, id, None, 50).await,
@@ -168,6 +172,8 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     );
     assert!(groups.list(b, None, 10).await.unwrap().is_empty());
     assert_eq!(groups.get(b, id).await, Err(MailError::NotFound));
+    assert_eq!(groups.members(b, id).await, Err(MailError::NotFound));
+    assert_eq!(groups.members(a, id).await.unwrap().len(), 1);
     assert_eq!(groups.get(a, id).await.unwrap().id, id);
     assert_eq!(groups.leave(b, id).await, Err(MailError::NotFound));
     assert_eq!(groups.messages(a, id, None, 50).await.unwrap().len(), 2);
