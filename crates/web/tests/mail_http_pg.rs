@@ -321,20 +321,56 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert!(list_html.contains("Mail reader 0 написал вам"));
     assert!(!list_html.contains("PRIVATE\\n"));
     // Source notification tabs: SQL filters must not expose private mail as a release.
-    let system_page =
-        text(call(&app, "GET", "/notifications?tab=system", &cookies[1], "", &[]).await).await;
+    let system_page = text(
+        call(
+            &app,
+            "GET",
+            "/notifications?tab=system",
+            &cookies[1],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(system_page.contains("Новое сообщение"));
     assert!(system_page.contains("href=\"/notifications?tab=system\" aria-current=\"page\""));
-    let releases_page =
-        text(call(&app, "GET", "/notifications?tab=releases", &cookies[1], "", &[]).await)
-            .await;
+    let releases_page = text(
+        call(
+            &app,
+            "GET",
+            "/notifications?tab=releases",
+            &cookies[1],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(!releases_page.contains("Новое сообщение"));
     assert!(releases_page.contains("Пока нет уведомлений о релизах."));
-    let invalid_tab =
-        text(call(&app, "GET", "/notifications?tab=invalid", &cookies[1], "", &[]).await).await;
+    let invalid_tab = text(
+        call(
+            &app,
+            "GET",
+            "/notifications?tab=invalid",
+            &cookies[1],
+            "",
+            &[],
+        )
+        .await,
+    )
+    .await;
     assert!(invalid_tab.contains("Новое сообщение"));
-    let discussions_tab =
-        call(&app, "GET", "/notifications?tab=discussions", &cookies[1], "", &[]).await;
+    let discussions_tab = call(
+        &app,
+        "GET",
+        "/notifications?tab=discussions",
+        &cookies[1],
+        "",
+        &[],
+    )
+    .await;
     assert_eq!(discussions_tab.status(), StatusCode::SEE_OTHER);
     assert_eq!(discussions_tab.headers()[header::LOCATION], "/me/inbox");
 

@@ -49,7 +49,12 @@ pub(super) async fn page(
         Err(status) => return deny(status),
     };
     // Only allow known source tabs; never interpolate raw user input into HTML.
-    let requested_tab = query.tab.as_deref().unwrap_or_default().trim().to_ascii_lowercase();
+    let requested_tab = query
+        .tab
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
     let tab = match requested_tab.as_str() {
         "releases" => "releases",
         "system" => "system",
@@ -76,7 +81,11 @@ pub(super) async fn page(
         ("system", "Система", "/notifications?tab=system"),
     ] {
         let active = if value == tab { " is-active" } else { "" };
-        let current = if value == tab { " aria-current=\"page\"" } else { "" };
+        let current = if value == tab {
+            " aria-current=\"page\""
+        } else {
+            ""
+        };
         write!(
             tab_links,
             "<a class=\"ui-button ui-button--small{active}\" href=\"{href}\"{current}>{label}</a>"

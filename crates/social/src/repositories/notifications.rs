@@ -188,7 +188,8 @@ impl PgNotifications {
         before: Option<i64>,
         limit: u16,
     ) -> Result<Vec<UserNotification>, MailError> {
-        self.list_section(actor, before, limit, "notifications").await
+        self.list_section(actor, before, limit, "notifications")
+            .await
     }
 
     /// Source notification tabs, filtered before LIMIT so later matching rows
