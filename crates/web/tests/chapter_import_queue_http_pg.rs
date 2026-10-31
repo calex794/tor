@@ -187,15 +187,32 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         "fingerprint":fingerprint_hex(&cancelled_fp),
     });
     let queue_path = format!("/me/books/{book_id}/chapters/import-queue");
-    assert_eq!(
-        call(&app, &queue_path, "POST", &owner_cookie, Some(json!({
-            "filename":"cancel.txt","text":cancelled_text,"csrf_token":csrf,
-            "command_key":cancelled_key,"fingerprint":fingerprint_hex(&cancelled_fp)
-        })))
-        .await
-        .0,
-        StatusCode::OK
-    );
+    let mut bad_payload = cancelled_payload.clone();
+    bad_payload["csrf_token"] = json!("invalid-token");
+    let rejected = call(
+        &app,
+        &queue_path,
+        "POST",
+        &owner_cookie,
+        Some(bad_payload),
+    )
+    .await;
+    assert_eq!(rejected.0, StatusCode::FORBIDDEN);
+    assert!(store.0.lock().await.is_empty(), "CSRF failure must not write S3");
+
+    let first = call(
+        &app,
+        &queue_path,
+        "POST",
+        &owner_cookie,
+        Some(cancelled_payload.clone()),
+    )
+    .await;
+    assert_eq!(first.0, StatusCode::OK, "{}", first.1);
+    let first_json: Value = serde_json::from_str(&first.1).unwrap();
+    let first_job = first_json["job_id"].as_i64().unwrap();
+
+    // Replaying the exact command returns the same durable job, not a second one.
     let queued = call(
         &app,
         &queue_path,
@@ -207,6 +224,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     assert_eq!(queued.0, StatusCode::OK, "{}", queued.1);
     let queued_json: Value = serde_json::from_str(&queued.1).unwrap();
     let cancelled_job = queued_json["job_id"].as_i64().unwrap();
+    assert_eq!(cancelled_job, first_job);
     assert_eq!(queued_json["status"], "queued");
     let status_path =
         format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}");
@@ -232,6 +250,25 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     );
     let cancel_path =
         format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}/cancel");
+    let bad_cancel = call(
+        &app,
+        &cancel_path,
+        "POST",
+        &owner_cookie,
+        Some(json!({"csrf_token":"invalid-token"})),
+    )
+    .await;
+    assert_eq!(bad_cancel.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        serde_json::from_str::<Value>(
+            &call(&app, &status_path, "GET", &owner_cookie, None)
+                .await
+                .1
+        )
+        .unwrap()["status"],
+        "queued",
+        "invalid CSRF must not cancel the job"
+    );
     let cancelled = call(
         &app,
         &cancel_path,
