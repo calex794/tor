@@ -82,7 +82,7 @@ impl PgImportJobs {
         if actor <= 0
             || book <= 0
             || !valid_command_key(command_key)
-            || !key.starts_with("staging/chapters/")
+            || key != format!("staging/chapters/{actor}/{book}/{command_key}")
             || key.contains("..")
             || key.len() < 32
             || key.len() > 512
