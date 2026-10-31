@@ -876,6 +876,34 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::follow_creator",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{book_id}/chapters/import-queue",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "enqueue",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{book_id}/chapters/import-jobs/latest",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "latest",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{book_id}/chapters/import-jobs/{job_id}",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "status",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{book_id}/chapters/import-jobs/{job_id}/cancel",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "cancel",
+      "policy": "owner"
     }
   ]
 }
