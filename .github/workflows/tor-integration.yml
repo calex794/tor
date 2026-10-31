@@ -125,6 +125,11 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
       - name: Combined S3 feature Clippy
         run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
+      # Cargo's restored build artifacts can contain a stale sqlx::migrate!
+      # inventory. Recompile this small crate against the checked-out SQL files.
+      # Do not alter the installed SQLx ledger or loosen its 67-main invariant.
+      - name: Rebuild embedded migration inventory after cache restore
+        run: cargo clean -p tor-migrations
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
