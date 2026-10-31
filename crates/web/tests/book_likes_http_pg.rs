@@ -13,7 +13,7 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
-use tor_reading::repositories::{PgBookLikes, PgReader};
+use tor_reading::repositories::{PgBookEngagementIntegrity, PgBookLikes, PgReader};
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -86,6 +86,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         .as_nanos();
     let token_a = generate_session_token();
     let token_b = generate_session_token();
+    let token_c = generate_session_token();
     let csrf = generate_session_token();
     let user_a = accounts
         .register_with_session(
@@ -103,6 +104,16 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
             "Liker B",
             &hash_password("BookLikeBrowserPassword2026!").unwrap(),
             &session_token_digest(&token_b),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let user_c = accounts
+        .register_with_session(
+            &format!("book-like-http-c-{nonce}@example.invalid"),
+            "Liker C",
+            &hash_password("BookLikeBrowserPassword2026!").unwrap(),
+            &session_token_digest(&token_c),
             std::num::NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -150,11 +161,13 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     );
     let cookie_a = format!("tor-dev-session={token_a}; tor-dev-csrf={csrf}");
     let cookie_b = format!("tor-dev-session={token_b}; tor-dev-csrf={csrf}");
+    let cookie_c = format!("tor-dev-session={token_c}; tor-dev-csrf={csrf}");
     let detail = format!("/books/{book}");
     let like = format!("/books/{book}/like");
     let add = format!("csrf_token={csrf}&liked=1");
     let remove = format!("csrf_token={csrf}&liked=0");
     let likes = PgBookLikes::new(pool.clone());
+    let integrity = PgBookEngagementIntegrity::new(pool.clone());
 
     let public = call(&app, "GET", &detail, "", ORIGIN, "").await;
     assert_eq!(public.status(), StatusCode::OK);
@@ -267,6 +280,45 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         .await
         .contains("Нравится: 2"));
 
+    let suspect_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:likes-suspect:{nonce}','ru','Suspicious rate fixture','public')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    for _ in 0..30 {
+        integrity.evaluate_like(user_c, suspect_book, true).await.unwrap();
+    }
+    let suspect_path = format!("/books/{suspect_book}/like");
+    assert_eq!(
+        call(&app, "POST", &suspect_path, &cookie_c, ORIGIN, &add)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(likes.public_count(suspect_book).await.unwrap(), Some(0));
+    let suspect_summary = likes
+        .visible_summary(user_c, suspect_book)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(suspect_summary.liked);
+    assert_eq!(suspect_summary.count, 0);
+    let suspect_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM book_engagement_integrity_events
+         WHERE user_id=$1 AND book_id=$2",
+    )
+    .bind(user_c)
+    .bind(suspect_book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(suspect_events, 1);
+
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
@@ -298,5 +350,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
     pg(&url, &format!("DELETE FROM users WHERE id={user_b}"));
     assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
+    pg(&url, &format!("DELETE FROM users WHERE id={user_c}"));
+    assert_eq!(likes.public_count(suspect_book).await.unwrap(), Some(0));
     pool.close().await;
 }

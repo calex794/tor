@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use sqlx::PgPool;
-use tor_reading::repositories::{LikeMutation, PgBookLikes};
+use tor_reading::repositories::{LikeMutation, PgBookEngagementIntegrity, PgBookLikes};
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci"]
@@ -42,14 +42,14 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
     assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
     assert_eq!(likes.public_count(0).await.unwrap(), None);
     assert_eq!(
-        likes.set_like(first, 0, true).await.unwrap(),
+        likes.set_like(first, 0, true, true).await.unwrap(),
         LikeMutation::NotVisible
     );
 
     // A concurrent double-click produces exactly one active row.
     let (a, b) = tokio::join!(
-        likes.set_like(first, book, true),
-        likes.set_like(first, book, true)
+        likes.set_like(first, book, true, true),
+        likes.set_like(first, book, true, true)
     );
     let (a, b) = (a.unwrap(), b.unwrap());
     assert!(
@@ -57,6 +57,36 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
             || (b == LikeMutation::Added && a == LikeMutation::AlreadyLiked)
     );
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
+
+    let integrity = PgBookEngagementIntegrity::new(pool.clone());
+    let mut decision = integrity.evaluate_like(second, book, true).await.unwrap();
+    for _ in 1..31 {
+        decision = integrity.evaluate_like(second, book, true).await.unwrap();
+    }
+    assert_eq!(decision.signals.subject_action_1m, 31);
+    assert_eq!(decision.risk_score, 45);
+    assert_eq!(decision.risk_bucket, "watch");
+    assert_eq!(decision.recommended_action, "observe");
+    assert!(!decision.stats_trusted);
+    assert_eq!(
+        likes.set_like(second, book, true, decision.stats_trusted).await.unwrap(),
+        LikeMutation::Added
+    );
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
+    let second_summary = likes.visible_summary(second, book).await.unwrap().unwrap();
+    assert!(second_summary.liked);
+    assert_eq!(second_summary.count, 1);
+    let recorded_risk: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM book_engagement_integrity_events
+         WHERE user_id=$1 AND book_id=$2",
+    )
+    .bind(second)
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(recorded_risk, 1);
+
     let first_liked = likes
         .visible_summary(first, book)
         .await
@@ -70,24 +100,29 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .unwrap()
         .unwrap()
         .liked;
-    assert!(!second_liked);
+    assert!(second_liked);
 
     assert_eq!(
-        likes.set_like(second, book, true).await.unwrap(),
-        LikeMutation::Added
+        likes.set_like(second, book, true, true).await.unwrap(),
+        LikeMutation::AlreadyLiked
     );
-    assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
     assert_eq!(
-        likes.set_like(first, book, false).await.unwrap(),
+        likes.set_like(second, book, false, true).await.unwrap(),
+        LikeMutation::Removed
+    );
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
+    assert_eq!(
+        likes.set_like(first, book, false, true).await.unwrap(),
         LikeMutation::Removed
     );
     assert_eq!(
-        likes.set_like(first, book, false).await.unwrap(),
+        likes.set_like(first, book, false, true).await.unwrap(),
         LikeMutation::AlreadyRemoved
     );
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
     assert_eq!(
-        likes.set_like(first, book, true).await.unwrap(),
+        likes.set_like(first, book, true, true).await.unwrap(),
         LikeMutation::Added
     );
 
@@ -100,7 +135,7 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
     assert_eq!(likes.public_count(book).await.unwrap(), None);
     assert!(likes.visible_summary(first, book).await.unwrap().is_none());
     assert_eq!(
-        likes.set_like(first, book, false).await.unwrap(),
+        likes.set_like(first, book, false, true).await.unwrap(),
         LikeMutation::NotVisible
     );
     sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
@@ -108,7 +143,7 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
+    assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
 
     // Account erasure removes only that account's row.
     sqlx::query("DELETE FROM users WHERE id=$1")
@@ -123,6 +158,22 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .await
         .unwrap();
     assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
+    let erased_buckets: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM book_engagement_rate_buckets WHERE user_id=$1",
+    )
+    .bind(second)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(erased_buckets, 0);
+    let erased_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM book_engagement_integrity_events WHERE user_id=$1",
+    )
+    .bind(second)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(erased_events, 0);
     sqlx::query("DELETE FROM books WHERE id=$1")
         .bind(book)
         .execute(&pool)

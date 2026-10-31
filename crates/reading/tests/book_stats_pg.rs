@@ -104,20 +104,16 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     bookmarks.remove_book(second_user, book).await.unwrap();
     let likes = PgBookLikes::new(pool.clone());
     assert_eq!(
-        likes.set_like(user, book, true).await.unwrap(),
+        likes.set_like(user, book, true, true).await.unwrap(),
         LikeMutation::Added
     );
     assert_eq!(
-        likes.set_like(user, book, true).await.unwrap(),
+        likes.set_like(user, book, true, true).await.unwrap(),
         LikeMutation::AlreadyLiked
     );
     assert_eq!(
-        likes.set_like(second_user, book, true).await.unwrap(),
+        likes.set_like(second_user, book, true, false).await.unwrap(),
         LikeMutation::Added
-    );
-    assert_eq!(
-        likes.set_like(second_user, book, false).await.unwrap(),
-        LikeMutation::Removed
     );
 
     // F-05 records are inserted directly for this read-model test.
@@ -143,6 +139,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert_eq!(report.thanks, 3);
     assert_eq!(report.bookmarks, 1);
     assert_eq!(report.likes, 1);
+    assert_eq!(report.untrusted_likes, 1);
     assert_eq!(report.work_rating, RatingStat { sum: 7, votes: 2 });
     assert_eq!(report.work_rating.average().as_deref(), Some("3.50"));
     assert_eq!(report.translation_rating, RatingStat { sum: 4, votes: 1 });
