@@ -3,8 +3,8 @@ use super::{auth, auth_cookies, cover_delivery, make_router, pages, ril, AppStat
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
-    response::Response,
-    Router,
+    response::{IntoResponse, Response},
+    Json, Router,
 };
 use std::sync::Arc;
 use tor_books::repositories::PgCatalog;
@@ -46,6 +46,39 @@ pub(super) async fn cover_image(
             auth_cookies::private_response(([(header::CONTENT_TYPE, "image/webp")], bytes), &[])
         }
         Ok(None) => auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        Err(_) => auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
+    }
+}
+
+/// Direct-reader grant contains no object key and cannot be shared-cached.
+/// An opt-in only endpoint: old proxy routes stay unchanged until browser CI passes.
+pub(super) async fn cover_direct_grant(
+    State(state): State<AppState>,
+    Path((id, variant)): Path<(String, String)>,
+) -> Response {
+    let Ok(id) = id.parse::<u64>() else {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    };
+    let kind = match variant.as_str() {
+        "card.webp" => tor_books::repositories::cover_slots::PublicCoverKind::Card,
+        "main.webp" => tor_books::repositories::cover_slots::PublicCoverKind::Main,
+        _ => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+    };
+    let Some(covers) = state.covers else {
+        return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
+    };
+    match covers.direct_grant(id, kind).await {
+        Ok(Some((url, digest, size))) => {
+            let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+            auth_cookies::private_response(Json(serde_json::json!({
+                "url": url, "sha256": sha256, "size_bytes": size,
+                "content_type": "image/webp", "expires_in_seconds": 60
+            })).into_response(), &[])
+        }
+        Ok(None) => auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        Err(tor_ingest::domain::cover::CoverError::Forbidden) => {
+            auth_cookies::private_response(StatusCode::NOT_FOUND, &[])
+        }
         Err(_) => auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     }
 }
