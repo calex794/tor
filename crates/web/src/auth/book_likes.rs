@@ -110,10 +110,7 @@ pub(super) async fn submit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     let integrity = PgBookEngagementIntegrity::new(state.accounts.pool().clone());
-    let decision = match integrity.evaluate_like(actor, id, liked).await {
-        Ok(decision) => decision,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
+    // Reject over-limit requests before the more expensive rate-signal writes.
     // Shared PostgreSQL limit across web processes; retries count even when
     // a duplicate would not increase the public count. Separate from login.
     let key = session_token_digest(&format!("action:book_like:user:{actor}"));
@@ -123,7 +120,7 @@ pub(super) async fn submit(
     };
     if !allowed {
         if integrity
-            .record_hard_limit(actor, id, liked, &decision)
+            .record_hard_limit(actor, id, liked)
             .await
             .is_err()
         {
@@ -136,6 +133,10 @@ pub(super) async fn submit(
         );
         return response;
     }
+    let decision = match integrity.evaluate_like(actor, id, liked).await {
+        Ok(decision) => decision,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let outcome = match likes
         .set_like(actor, id, liked, decision.stats_trusted)
         .await
