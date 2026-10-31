@@ -72,7 +72,11 @@ fn preview_source(
         if !input.text.is_empty() || !(is_docx || is_zip) {
             return Err(ImportError::InvalidFilename);
         }
-        let max_bytes = if is_zip { MAX_ZIP_BYTES } else { MAX_DOCX_BYTES };
+        let max_bytes = if is_zip {
+            MAX_ZIP_BYTES
+        } else {
+            MAX_DOCX_BYTES
+        };
         if encoded.len() > max_bytes.div_ceil(3) * 4 {
             return Err(ImportError::TooLarge);
         }
@@ -80,10 +84,7 @@ fn preview_source(
             .decode(encoded)
             .map_err(|_| ImportError::InvalidArchive)?;
         let extracted = if is_zip {
-            extract_zip_text(
-                &bytes,
-                input.archive_encoding.as_deref().unwrap_or("utf-8"),
-            )?
+            extract_zip_text(&bytes, input.archive_encoding.as_deref().unwrap_or("utf-8"))?
         } else {
             extract_docx_text(&bytes)?
         };

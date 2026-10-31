@@ -63,8 +63,14 @@ fn natural_compare(left: &str, right: &str) -> Ordering {
             }
             let a_number = &a[start_i..i];
             let b_number = &b[start_j..j];
-            let a_nonzero = a_number.iter().position(|byte| *byte != b'0').unwrap_or(a_number.len());
-            let b_nonzero = b_number.iter().position(|byte| *byte != b'0').unwrap_or(b_number.len());
+            let a_nonzero = a_number
+                .iter()
+                .position(|byte| *byte != b'0')
+                .unwrap_or(a_number.len());
+            let b_nonzero = b_number
+                .iter()
+                .position(|byte| *byte != b'0')
+                .unwrap_or(b_number.len());
             let na = &a_number[a_nonzero..];
             let nb = &b_number[b_nonzero..];
             let order = na.len().cmp(&nb.len()).then_with(|| na.cmp(nb));
@@ -84,7 +90,9 @@ fn natural_compare(left: &str, right: &str) -> Ordering {
             j += 1;
         }
     }
-    a.len().saturating_sub(i).cmp(&b.len().saturating_sub(j))
+    a.len()
+        .saturating_sub(i)
+        .cmp(&b.len().saturating_sub(j))
         .then_with(|| left.cmp(right))
 }
 
@@ -131,7 +139,9 @@ pub fn extract_zip_text(source: &[u8], encoding: &str) -> Result<String, ImportE
             .map_err(|_| ImportError::InvalidArchive)?;
         let name = entry.name().to_owned();
         if !safe_member_path(&name)
-            || entry.unix_mode().is_some_and(|mode| mode & 0o170000 == 0o120000)
+            || entry
+                .unix_mode()
+                .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
             return Err(ImportError::InvalidArchive);
         }
@@ -218,13 +228,25 @@ mod tests {
     #[test]
     fn extracts_naturally_sorted_numbered_chapters() {
         let zip = build_zip(&[
-            ("chapter10.txt", "Глава 10: Десятая\nТекст десятый".as_bytes()),
-            ("folder/chapter2.md", "# Глава 2: Вторая\nТекст второй".as_bytes()),
+            (
+                "chapter10.txt",
+                "Глава 10: Десятая\nТекст десятый".as_bytes(),
+            ),
+            (
+                "folder/chapter2.md",
+                "# Глава 2: Вторая\nТекст второй".as_bytes(),
+            ),
             ("chapter1.txt", "Глава 1: Первая\nТекст первый".as_bytes()),
         ]);
         let text = extract_zip_text(&zip, "utf-8").unwrap();
         let chapters = parse_text("assembled.txt", &text).unwrap();
-        assert_eq!(chapters.iter().map(|chapter| chapter.number).collect::<Vec<_>>(), vec![1, 10, 2]);
+        assert_eq!(
+            chapters
+                .iter()
+                .map(|chapter| chapter.number)
+                .collect::<Vec<_>>(),
+            vec![1, 10, 2]
+        );
         // Natural sorting applies to the full member path; the folder member
         // is still intact and no chapter is silently skipped.
         assert_eq!(chapters.len(), 3);
@@ -239,10 +261,33 @@ mod tests {
             ("1.txt", "Глава 1: Первая\nТекст".as_bytes()),
         ]);
         let parsed = parse_text("all.txt", &extract_zip_text(&zip, "utf-8").unwrap()).unwrap();
-        assert_eq!(parsed.iter().map(|chapter| chapter.number).collect::<Vec<_>>(), vec![1, 2, 10]);
-        let cp1251 = build_zip(&[("chapter1.txt", &[0xc3, 0xeb, 0xe0, 0xe2, 0xe0, 0x20, 0x31, 0x3a, 0x20, 0xd2, 0xe5, 0xf1, 0xf2, 0x0a, 0xd2, 0xe5, 0xea, 0xf1, 0xf2])]);
-        assert_eq!(extract_zip_text(&cp1251, "utf-8"), Err(ImportError::InvalidEncoding));
-        assert_eq!(parse_text("all.txt", &extract_zip_text(&cp1251, "windows-1251").unwrap()).unwrap()[0].number, 1);
+        assert_eq!(
+            parsed
+                .iter()
+                .map(|chapter| chapter.number)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 10]
+        );
+        let cp1251 = build_zip(&[(
+            "chapter1.txt",
+            &[
+                0xc3, 0xeb, 0xe0, 0xe2, 0xe0, 0x20, 0x31, 0x3a, 0x20, 0xd2, 0xe5, 0xf1, 0xf2, 0x0a,
+                0xd2, 0xe5, 0xea, 0xf1, 0xf2,
+            ],
+        )]);
+        assert_eq!(
+            extract_zip_text(&cp1251, "utf-8"),
+            Err(ImportError::InvalidEncoding)
+        );
+        assert_eq!(
+            parse_text(
+                "all.txt",
+                &extract_zip_text(&cp1251, "windows-1251").unwrap()
+            )
+            .unwrap()[0]
+                .number,
+            1
+        );
     }
 
     #[test]
@@ -255,19 +300,34 @@ mod tests {
             ("1.txt", "Глава 1: Первая\nТекст".as_bytes()),
             ("2.txt", "Глава 1: Другая\nТекст".as_bytes()),
         ]);
-        assert_eq!(extract_zip_text(&duplicate, "utf-8"), Err(ImportError::DuplicateNumber));
+        assert_eq!(
+            extract_zip_text(&duplicate, "utf-8"),
+            Err(ImportError::DuplicateNumber)
+        );
         let headerless = build_zip(&[
             ("1.txt", "Глава 1: Первая\nТекст".as_bytes()),
             ("2.txt", "без заголовка".as_bytes()),
         ]);
-        assert_eq!(extract_zip_text(&headerless, "utf-8"), Err(ImportError::UnexpectedPreamble));
+        assert_eq!(
+            extract_zip_text(&headerless, "utf-8"),
+            Err(ImportError::UnexpectedPreamble)
+        );
     }
 
     #[test]
     fn oversized_archive_and_invalid_encoding_are_rejected() {
-        assert_eq!(extract_zip_text(b"broken", "utf-8"), Err(ImportError::InvalidArchive));
-        assert_eq!(extract_zip_text(&vec![0; MAX_ZIP_BYTES + 1], "utf-8"), Err(ImportError::TooLarge));
+        assert_eq!(
+            extract_zip_text(b"broken", "utf-8"),
+            Err(ImportError::InvalidArchive)
+        );
+        assert_eq!(
+            extract_zip_text(&vec![0; MAX_ZIP_BYTES + 1], "utf-8"),
+            Err(ImportError::TooLarge)
+        );
         let zip = build_zip(&[("1.txt", "Глава 1: Первая\nТекст".as_bytes())]);
-        assert_eq!(extract_zip_text(&zip, "unknown"), Err(ImportError::InvalidEncoding));
+        assert_eq!(
+            extract_zip_text(&zip, "unknown"),
+            Err(ImportError::InvalidEncoding)
+        );
     }
 }
