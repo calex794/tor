@@ -85,7 +85,7 @@ pub fn router(
 ) -> Router {
     let pool = accounts.pool();
     let authoring = PgAuthoring::new(pool.clone());
-    let jobs = PgImportJobs::new(pool);
+    let jobs = PgImportJobs::new(pool.clone());
     let state = QueueState {
         accounts,
         authoring,
