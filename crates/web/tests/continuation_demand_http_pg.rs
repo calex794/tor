@@ -457,6 +457,78 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     )
     .await;
     assert!(returned.contains("C15 reader return"));
+    // C-16 first-release read acknowledgement is separate from C-18 V2
+    // per-event read state. Neither acknowledgement completes a chapter.
+    let release_read_path = format!("/me/updates/{released}/read-state");
+    let release_read_form = format!("csrf_token={csrf}&state=read");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &release_read_path,
+            &reader_cookie,
+            "https://evil.invalid",
+            &release_read_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &release_read_path,
+            &owner_cookie,
+            ORIGIN,
+            &release_read_form
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "a non-follower cannot mark another reader's release as read"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &release_read_path,
+                &reader_cookie,
+                ORIGIN,
+                &release_read_form
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER,
+            "explicit C-16 acknowledgement must replay idempotently"
+        );
+    }
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "1",
+        "a followed release has one C-16 read marker"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT read_at IS NULL FROM notification_event_recipient_intents
+                 WHERE event_id='{event_id}'::uuid AND user_id={reader}"
+            )
+        ),
+        "t",
+        "C-16 chapter acknowledgement must not alter G-08 per-event state"
+    );
+    let marked_library =
+        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    assert!(marked_library.contains("Отметить непрочитанной"));
     assert_eq!(
         pg(
             &url,
