@@ -39,6 +39,15 @@ async fn build(store: &PgRecommendations) -> String {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn rec13_generation_visibility_cas_and_rollback() {
     let (pool, store, actor, books) = setup().await;
+    // This shared disposable DB also runs HTTP/browser suites. Restore the
+    // exact entry policy instead of leaking our activated fixture generation.
+    let policy: (Option<String>, Option<String>, i64, i16, bool) = sqlx::query_as(
+        "SELECT active_generation::text,previous_generation::text,revision,rollout_percent,hold
+         FROM rec_runtime_policy WHERE singleton",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let before = store.feed(None, Some(books[0]), 20).await.unwrap();
     assert!(before
         .items
@@ -143,4 +152,16 @@ async fn rec13_generation_visibility_cas_and_rollback() {
         store.feed(None, None, 21).await.err(),
         Some(FeedbackError::Invalid)
     );
+    sqlx::query(
+        "UPDATE rec_runtime_policy SET active_generation=$1::uuid,previous_generation=$2::uuid,
+         revision=$3,rollout_percent=$4,hold=$5 WHERE singleton",
+    )
+    .bind(policy.0)
+    .bind(policy.1)
+    .bind(policy.2)
+    .bind(policy.3)
+    .bind(policy.4)
+    .execute(&pool)
+    .await
+    .unwrap();
 }

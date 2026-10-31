@@ -91,6 +91,8 @@ jobs:
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
       - name: Unit and PostgreSQL acceptance
         run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          exec > >(tee "$RUNNER_TEMP/rec13-browser/acceptance.log") 2>&1
           cargo test -p tor-recommendations --all-targets
           cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
@@ -99,6 +101,7 @@ jobs:
         run: bash tools/rec13_browser_acceptance.sh
       - name: Workspace regression
         run: |
+          exec > >(tee "$RUNNER_TEMP/rec13-browser/regression.log") 2>&1
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
           python3 -m unittest discover -s tests/architecture -v
