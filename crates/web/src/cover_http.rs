@@ -50,6 +50,15 @@ pub(super) async fn cover_image(
     }
 }
 
+#[derive(serde::Serialize)]
+struct DirectCoverGrant {
+    url: String,
+    sha256: String,
+    size_bytes: i64,
+    content_type: &'static str,
+    expires_in_seconds: u64,
+}
+
 /// Direct-reader grant contains no object key and cannot be shared-cached.
 /// An opt-in only endpoint: old proxy routes stay unchanged until browser CI passes.
 pub(super) async fn cover_direct_grant(
@@ -70,10 +79,10 @@ pub(super) async fn cover_direct_grant(
     match covers.direct_grant(id, kind).await {
         Ok(Some((url, digest, size))) => {
             let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-            auth_cookies::private_response(Json(serde_json::json!({
-                "url": url, "sha256": sha256, "size_bytes": size,
-                "content_type": "image/webp", "expires_in_seconds": 60
-            })).into_response(), &[])
+            auth_cookies::private_response(Json(DirectCoverGrant {
+                url, sha256, size_bytes: size,
+                content_type: "image/webp", expires_in_seconds: 60,
+            }).into_response(), &[])
         }
         Ok(None) => auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
         Err(tor_ingest::domain::cover::CoverError::Forbidden) => {
