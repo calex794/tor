@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 125)  # C-16 plus authenticated password rotation.
-        self.assertEqual(report["route_pairs"], 123)  # Password GET/POST preserve prior route IDs.
+        self.assertEqual(report["route_bindings"], 129)  # Four E-12 correction routes, including guarded author mutations.
+        self.assertEqual(report["route_pairs"], 127)  # Every E-12 method+template is registered in the RIL taxonomy.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
