@@ -36,7 +36,8 @@ impl PgBookLikes {
             return Ok(None);
         }
         sqlx::query_scalar(
-            "SELECT (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT
+            "SELECT (SELECT COUNT(*) FROM book_likes l
+                       WHERE l.book_id=b.id AND l.stats_trusted)::BIGINT
              FROM books b WHERE b.id=$1 AND b.visibility='public'
                AND NOT b.admin_hold AND NOT b.is_deleted",
         )
@@ -55,7 +56,8 @@ impl PgBookLikes {
         }
         let row = sqlx::query(
             "SELECT b.title,
-                    (SELECT COUNT(*) FROM book_likes l WHERE l.book_id=b.id)::BIGINT AS count,
+                    (SELECT COUNT(*) FROM book_likes l
+                     WHERE l.book_id=b.id AND l.stats_trusted)::BIGINT AS count,
                     EXISTS (SELECT 1 FROM book_likes l
                             WHERE l.book_id=b.id AND l.user_id=$2) AS liked
              FROM books b WHERE b.id=$1 AND b.visibility='public'
@@ -83,6 +85,7 @@ impl PgBookLikes {
         user_id: i64,
         book_id: i64,
         liked: bool,
+        stats_trusted: bool,
     ) -> Result<LikeMutation, sqlx::Error> {
         if user_id <= 0 || book_id <= 0 {
             return Ok(LikeMutation::NotVisible);
@@ -94,8 +97,8 @@ impl PgBookLikes {
                      WHERE id=$1 AND visibility='public'
                        AND NOT admin_hold AND NOT is_deleted
                  ), added AS (
-                     INSERT INTO book_likes (book_id,user_id)
-                     SELECT id,$2 FROM visible
+                     INSERT INTO book_likes (book_id,user_id,stats_trusted)
+                     SELECT id,$2,$3 FROM visible
                      ON CONFLICT (user_id,book_id) DO NOTHING
                      RETURNING book_id
                  )
@@ -104,6 +107,7 @@ impl PgBookLikes {
             )
             .bind(book_id)
             .bind(user_id)
+            .bind(stats_trusted)
             .fetch_one(&self.pool)
             .await?
         } else {
