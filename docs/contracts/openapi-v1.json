@@ -4185,6 +4185,318 @@
           }
         ]
       }
+    },
+    "/api/v1/recommendations": {
+      "get": {
+        "operationId": "rec13_api_feed",
+        "summary": "REC-13 api::feed",
+        "responses": {
+          "200": {
+            "description": "Bounded result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+      }
+    },
+    "/api/v1/recommendations/impressions": {
+      "post": {
+        "operationId": "rec13_api_impressions",
+        "summary": "REC-13 api::impressions",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          },
+          "202": {
+            "description": "Claims accepted, never trusted reading"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecImpressionBatch"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/recommendations/activate": {
+      "post": {
+        "operationId": "rec13_api_activate",
+        "summary": "REC-13 api::activate",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          },
+          "303": {
+            "description": "Canonical book navigation, not paid entitlement"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/RecActivation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/recommendation-feedback": {
+      "get": {
+        "operationId": "rec13_api_feedback_list",
+        "summary": "REC-13 api::feedback_list",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+      },
+      "post": {
+        "operationId": "rec13_feedback",
+        "summary": "Own explicit feedback; actor from session",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecFeedbackCommand"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Idempotent own revision"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/recommendations/quality": {
+      "get": {
+        "operationId": "rec13_admin_quality",
+        "summary": "REC-13 admin::quality",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+      }
+    },
+    "/api/v1/admin/recommendations/control": {
+      "post": {
+        "operationId": "rec13_admin_control",
+        "summary": "REC-13 admin::control",
+        "responses": {
+          "200": {
+            "description": "Bounded result"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Http409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Http429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecOperatorCommand"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4729,6 +5041,18 @@
               "popularity",
               "related_books"
             ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "ticket": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "feedback_revision": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "required": [
@@ -4759,6 +5083,9 @@
               "string",
               "null"
             ]
+          },
+          "personalized": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4766,6 +5093,138 @@
           "generation_id",
           "next_cursor"
         ]
+      },
+      "RecImpressionBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ticket",
+                "visible_fraction_per_mille",
+                "continuous_visible_ms",
+                "document_visible"
+              ],
+              "properties": {
+                "ticket": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{43}$"
+                },
+                "visible_fraction_per_mille": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "continuous_visible_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 60000
+                },
+                "document_visible": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RecFeedbackCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "book_id",
+          "choice",
+          "expected_revision",
+          "command_key"
+        ],
+        "properties": {
+          "book_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "choice": {
+            "enum": [
+              "not_interested",
+              "clear"
+            ]
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "command_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        }
+      },
+      "RecActivation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ticket",
+          "csrf_token"
+        ],
+        "properties": {
+          "ticket": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "csrf_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        }
+      },
+      "RecOperatorCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "properties": {
+          "action": {
+            "enum": [
+              "refresh",
+              "activate",
+              "hold",
+              "rollback"
+            ]
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "percent": {
+            "enum": [
+              0,
+              1,
+              5,
+              10,
+              25,
+              50,
+              100,
+              null
+            ]
+          }
+        }
       }
     },
     "responses": {
