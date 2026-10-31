@@ -55,12 +55,10 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
     // (for example 202610310293) without changing any old SQL bytes.
     assert!(baseline.migrations.len() >= 67);
     assert!(baseline.version_exists(202610310291));
-    assert!(
-        baseline
-            .migrations
-            .last()
-            .is_some_and(|migration| migration.version >= 202610310291)
-    );
+    assert!(baseline
+        .migrations
+        .last()
+        .is_some_and(|migration| migration.version >= 202610310291));
     for version in E08_VERSIONS {
         assert!(MIGRATOR.version_exists(version));
         assert!(!baseline.version_exists(version));
