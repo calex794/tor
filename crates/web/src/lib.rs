@@ -450,6 +450,10 @@ fn make_router(
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
+            "/assets/newboo-direct-cover.mjs",
+            get(pages::direct_cover_script),
+        )
+        .route(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
         )
