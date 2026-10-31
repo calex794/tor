@@ -108,8 +108,9 @@ pub(super) async fn catalog(
             })
             .collect();
         let covers = cover_http::cover_card_ids(state.covers.as_ref(), &cards).await?;
-        return Ok(direct_cover_page::page(pages::catalog_search_with_covers(
-            &cards,
+        return Ok(direct_cover_page::page(
+            pages::catalog_search_with_covers(
+                &cards,
             pages::CatalogPageQuery {
                 query: query.q.as_deref().unwrap_or(""),
                 language: query.language.as_deref(),
@@ -123,8 +124,10 @@ pub(super) async fn catalog(
                 total,
                 options: options.as_ref(),
             },
-            &covers,
-        ), state.direct_cover_origin.as_deref()));
+                &covers,
+            ),
+            state.direct_cover_origin.as_deref(),
+        ));
     }
     if query.q.is_some()
         || query.after.is_some()
@@ -138,9 +141,10 @@ pub(super) async fn catalog(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    Ok(direct_cover_page::page(pages::catalog(
-        &public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?,
-    ), state.direct_cover_origin.as_deref()))
+    Ok(direct_cover_page::page(
+        pages::catalog(&public_cards(state.books.as_ref(), DEFAULT_PAGE_SIZE).await?),
+        state.direct_cover_origin.as_deref(),
+    ))
 }
 
 #[cfg(test)]

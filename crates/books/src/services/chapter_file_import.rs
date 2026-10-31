@@ -19,6 +19,7 @@ pub enum ImportError {
     Empty,
     InvalidFilename,
     InvalidEncoding,
+    InvalidArchive,
     TooLarge,
     NoChapters,
     TooManyChapters,

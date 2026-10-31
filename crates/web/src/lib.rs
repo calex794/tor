@@ -257,6 +257,12 @@ async fn book_detail(
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
+            let likes = tor_reading::repositories::PgBookLikes::new(catalog.pool().clone());
+            let count = match likes.public_count(id).await {
+                Ok(Some(count)) => count,
+                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
+            };
             let html = if state.paid_batch_browser_enabled {
                 pages::book_detail_with_chapters_cover_stars_batch(
                     &book, limit, has_cover, &stars, true,
@@ -264,14 +270,31 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
-            let (html, direct) = direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
-            let response = book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
-            return direct_cover_page::apply_policy(response, state.direct_cover_origin.as_deref(), direct);
+            let html = Html(html.0.replace(
+                "<!--BOOK_LIKES-->",
+                &pages::book_likes_strip(book.id, count),
+            ));
+            let (html, direct) =
+                direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
+            let response =
+                book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+            return direct_cover_page::apply_policy(
+                response,
+                state.direct_cover_origin.as_deref(),
+                direct,
+            );
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
-        let (html, direct) = direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
-        let response = book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
-        return direct_cover_page::apply_policy(response, state.direct_cover_origin.as_deref(), direct);
+        let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
+        let (html, direct) =
+            direct_cover_page::decorate(html, state.direct_cover_origin.as_deref());
+        let response =
+            book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
+        return direct_cover_page::apply_policy(
+            response,
+            state.direct_cover_origin.as_deref(),
+            direct,
+        );
     }
     let repo = state.books.as_ref();
     let book = match GetPublicBook::new(repo).execute(id).await {
@@ -286,7 +309,12 @@ async fn book_detail(
         author_name: None,
         genres: Vec::new(),
     });
-    Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", "")).into_response()
+    Html(
+        html.0
+            .replace("<!--BOOK_FOLLOW_ACTION-->", "")
+            .replace("<!--BOOK_LIKES-->", ""),
+    )
+    .into_response()
 }
 /// Keep the security-reviewed public route identity stable while isolating
 /// the actual S005/C-10 reader logic in the C/H feature module.
@@ -502,7 +530,10 @@ fn make_router(
         .clone()
         .map(tor_search::api::router)
         .unwrap_or_default();
-    let direct_cover_origin = objects.as_ref().and_then(|store| store.direct_read_origin()).map(str::to_owned);
+    let direct_cover_origin = objects
+        .as_ref()
+        .and_then(|store| store.direct_read_origin())
+        .map(str::to_owned);
     let covers = postgres.as_ref().zip(objects).map(|(catalog, store)| {
         cover_delivery::CoverDelivery::new(
             tor_books::repositories::cover_slots::PgCoverSlots::new(catalog.pool()),

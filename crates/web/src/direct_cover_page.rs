@@ -30,8 +30,7 @@ pub(super) fn decorate(html: Html<String>, origin: Option<&str>) -> (Html<String
         } else {
             None
         };
-        if !id.is_empty() && !id.starts_with('0') && variant.is_some() {
-            let (kind, consumed) = variant.expect("checked variant");
+        if let (false, Some((kind, consumed))) = (id.is_empty() || id.starts_with('0'), variant) {
             result.push_str(&format!(
                 "data-direct-cover=\"/api/v1/covers/{id}/{kind}/direct-grant\""
             ));
