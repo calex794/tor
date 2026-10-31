@@ -1,14 +1,45 @@
 //! D-06: private PostgreSQL-only approval for an unopened direct chapter.
 //! This is internal wallet reversal, NOT an external banking settlement.
-//! No public route is mounted. Approval must additionally require moderator
-//! step-up before HTTP wiring. All money and right changes commit together.
+//! No public route is mounted. Approval requires a fresh, one-time moderator
+//! step-up bound to this session, request revision and decision reason.
+//! The proof is consumed in the same transaction as all money and right changes.
 
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use tor_accounts::services::security::VerifiedPassword;
+
+const REFUND_APPROVAL_STEP_UP_SCOPE: &str = "finance.refund.approve.v1";
+const REFUND_APPROVAL_STEP_UP_TTL_SECONDS: f64 = 300.0;
+
+fn valid_step_up_token(value: &str) -> bool {
+    value.len() == 43
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn approval_step_up_payload_digest(
+    actor: i64,
+    request_id: i64,
+    revision: i64,
+    reason: &str,
+) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(REFUND_APPROVAL_STEP_UP_SCOPE.as_bytes());
+    digest.update(actor.to_be_bytes());
+    digest.update(request_id.to_be_bytes());
+    digest.update(revision.to_be_bytes());
+    digest.update((reason.len() as u64).to_be_bytes());
+    digest.update(reason.as_bytes());
+    digest.finalize().into()
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DirectRefundApproveError {
     InvalidRequest,
     Forbidden,
+    StepUpRequired,
+    InvalidStepUp,
     NotFound,
     RevisionConflict,
     Conflict,
@@ -40,14 +71,143 @@ impl PgDirectRefundApprovals {
         Self { pool }
     }
 
-    /// Writer lock order: active moderator -> buyer wallet -> purchase ->
-    /// refund request. The purchase's FOR UPDATE lock serializes approval
-    /// against C-06's first protected grant and prevents the open/refund race.
-    /// Identical successful retries return the same receipt without any new
-    /// wallet movement. A different decision, actor or reason is a conflict.
+
+    /// Mint a one-time proof only after the web layer has verified the
+    /// administrator's current password in PasswordJobs. The capability is
+    /// short-lived, tied to this active session and exact decision payload.
+    /// A new proof replaces any previous outstanding proof in this session.
+    pub async fn issue_step_up(
+        &self,
+        actor: i64,
+        session_digest: &[u8; 32],
+        verified_password: &VerifiedPassword,
+        request_id: i64,
+        expected_revision: i64,
+        reason: &str,
+        proof_token: &str,
+    ) -> Result<(), DirectRefundApproveError> {
+        let reason = reason.trim();
+        if actor <= 0
+            || request_id <= 0
+            || expected_revision <= 0
+            || reason.is_empty()
+            || reason.chars().count() > 1000
+            || !valid_step_up_token(proof_token)
+        {
+            return Err(DirectRefundApproveError::InvalidRequest);
+        }
+        if !verified_password.is_fresh() {
+            return Err(DirectRefundApproveError::StepUpRequired);
+        }
+
+        let proof_hash = Sha256::digest(proof_token.as_bytes());
+        let payload_digest =
+            approval_step_up_payload_digest(actor, request_id, expected_revision, reason);
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DirectRefundApproveError::Unavailable)?;
+
+        let allowed: Option<i64> = sqlx::query_scalar(
+            "SELECT r.user_id FROM account_roles r
+             JOIN users u ON u.id=r.user_id
+             WHERE r.user_id=$1 AND r.role='administrator' AND r.is_active
+               AND u.account_state='active'
+             FOR SHARE OF r,u",
+        )
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        if allowed.is_none() {
+            return Err(DirectRefundApproveError::Forbidden);
+        }
+
+        let stored_hash: Option<String> = sqlx::query_scalar(
+            "SELECT u.password_hash
+             FROM sessions s JOIN users u ON u.id=s.user_id
+             WHERE s.user_id=$1 AND s.token_hash=$2
+               AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()
+               AND u.account_state='active'
+             FOR UPDATE OF s",
+        )
+        .bind(actor)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        let stored_hash = stored_hash.ok_or(DirectRefundApproveError::StepUpRequired)?;
+        if !verified_password.matches_hash(&stored_hash) {
+            return Err(DirectRefundApproveError::StepUpRequired);
+        }
+
+        let request = sqlx::query(
+            "SELECT state,revision FROM finance_direct_refund_requests
+             WHERE id=$1 FOR SHARE",
+        )
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?
+        .ok_or(DirectRefundApproveError::NotFound)?;
+        let state: String = request
+            .try_get("state")
+            .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        let revision: i64 = request
+            .try_get("revision")
+            .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        if state != "pending" {
+            return Err(DirectRefundApproveError::Conflict);
+        }
+        if revision != expected_revision {
+            return Err(DirectRefundApproveError::RevisionConflict);
+        }
+
+        let updated = sqlx::query(
+            "UPDATE sessions
+             SET step_up_proof_hash=$3,step_up_scope=$4,
+                 step_up_resource_id=$5,step_up_revision=$6,
+                 step_up_payload_digest=$7,
+                 step_up_issued_at=clock_timestamp(),
+                 step_up_expires_at=clock_timestamp()
+                     + ($8::double precision * INTERVAL '1 second'),
+                 step_up_used_at=NULL
+             WHERE token_hash=$1 AND user_id=$2
+               AND revoked_at IS NULL AND expires_at>clock_timestamp()",
+        )
+        .bind(session_digest.as_slice())
+        .bind(actor)
+        .bind(proof_hash.as_slice())
+        .bind(REFUND_APPROVAL_STEP_UP_SCOPE)
+        .bind(request_id)
+        .bind(expected_revision)
+        .bind(payload_digest.as_slice())
+        .bind(REFUND_APPROVAL_STEP_UP_TTL_SECONDS)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        if updated.rows_affected() != 1 {
+            return Err(DirectRefundApproveError::StepUpRequired);
+        }
+
+        tx.commit()
+            .await
+            .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        Ok(())
+    }
+
+    /// Writer lock order: active moderator -> current session -> buyer wallet
+    /// -> purchase -> refund request. The one-time step-up proof is consumed
+    /// inside this transaction. The purchase lock serializes approval against
+    /// C-06's first protected grant and prevents the open/refund race.
+    /// Identical successful retries return the original receipt without a
+    /// second wallet movement; replay does not create a new decision.
     pub async fn approve_once(
         &self,
         actor: i64,
+        session_digest: &[u8; 32],
+        step_up_token: &str,
         request_id: i64,
         expected_revision: i64,
         reason: &str,
@@ -58,9 +218,13 @@ impl PgDirectRefundApprovals {
             || expected_revision <= 0
             || reason.is_empty()
             || reason.chars().count() > 1000
+            || !valid_step_up_token(step_up_token)
         {
             return Err(DirectRefundApproveError::InvalidRequest);
         }
+        let proof_hash = Sha256::digest(step_up_token.as_bytes());
+        let payload_digest =
+            approval_step_up_payload_digest(actor, request_id, expected_revision, reason);
 
         let mut tx = self
             .pool
@@ -82,6 +246,23 @@ impl PgDirectRefundApprovals {
         .map_err(|_| DirectRefundApproveError::Unavailable)?;
         if allowed.is_none() {
             return Err(DirectRefundApproveError::Forbidden);
+        }
+
+        // The proof lives on the existing opaque session row: revoking or
+        // rotating that session automatically invalidates this authorization.
+        let live_session: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM sessions
+             WHERE user_id=$1 AND token_hash=$2
+               AND revoked_at IS NULL AND expires_at>clock_timestamp()
+             FOR UPDATE",
+        )
+        .bind(actor)
+        .bind(session_digest.as_slice())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        if live_session.is_none() {
+            return Err(DirectRefundApproveError::StepUpRequired);
         }
 
         let meta = sqlx::query(
@@ -191,6 +372,52 @@ impl PgDirectRefundApprovals {
         if revision != expected_revision {
             return Err(DirectRefundApproveError::RevisionConflict);
         }
+
+        // A fresh proof must match this administrator, active session, request,
+        // revision and normalized reason. It is consumed in this same PG tx.
+        let proof_valid: Option<bool> = sqlx::query_scalar(
+            "SELECT COALESCE(
+                step_up_proof_hash=$1
+                AND step_up_scope=$2
+                AND step_up_resource_id=$3
+                AND step_up_revision=$4
+                AND step_up_payload_digest=$5
+                AND step_up_issued_at<=clock_timestamp()
+                AND step_up_expires_at>clock_timestamp()
+                AND step_up_used_at IS NULL,
+                FALSE
+             )
+             FROM sessions WHERE token_hash=$6 AND user_id=$7",
+        )
+        .bind(proof_hash.as_slice())
+        .bind(REFUND_APPROVAL_STEP_UP_SCOPE)
+        .bind(request_id)
+        .bind(expected_revision)
+        .bind(payload_digest.as_slice())
+        .bind(session_digest.as_slice())
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        if !proof_valid.unwrap_or(false) {
+            return Err(DirectRefundApproveError::InvalidStepUp);
+        }
+        let consumed = sqlx::query(
+            "UPDATE sessions SET step_up_used_at=clock_timestamp()
+             WHERE token_hash=$1 AND user_id=$2
+               AND step_up_proof_hash=$3 AND step_up_used_at IS NULL
+               AND step_up_expires_at>clock_timestamp()",
+        )
+        .bind(session_digest.as_slice())
+        .bind(actor)
+        .bind(proof_hash.as_slice())
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        if consumed.rows_affected() != 1 {
+            return Err(DirectRefundApproveError::InvalidStepUp);
+        }
+
         if decision
             .try_get::<i64, _>("purchase_id")
             .map_err(|_| DirectRefundApproveError::Unavailable)?

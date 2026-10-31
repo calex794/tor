@@ -5,6 +5,9 @@ use tor_commerce::repositories::{
     refund_approvals::{DirectRefundApproveError, PgDirectRefundApprovals},
     refund_requests::PgDirectRefundRequests,
 };
+use tor_accounts::services::security::{
+    generate_session_token, hash_password, session_token_digest, verify_password_for_step_up,
+};
 use tor_contracts::paid_delivery::{DeliveryError, PositiveId};
 
 pub(super) struct RefundFixture {
@@ -94,6 +97,49 @@ pub(super) async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> Refu
     }
 }
 
+
+async fn issue_refund_step_up(
+    f: &RefundFixture,
+    reason: &str,
+) -> ([u8; 32], String) {
+    const PASSWORD: &str = "RefundModeratorStepUp2026";
+    let password_hash = hash_password(PASSWORD).unwrap();
+    sqlx::query("UPDATE users SET password_hash=$1 WHERE id=$2")
+        .bind(&password_hash)
+        .bind(f.moderator)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+
+    let session_token = generate_session_token();
+    let session_digest = session_token_digest(&session_token);
+    sqlx::query(
+        "INSERT INTO sessions(user_id,token_hash,expires_at)
+         VALUES($1,$2,clock_timestamp()+INTERVAL '1 hour')",
+    )
+    .bind(f.moderator)
+    .bind(session_digest.as_slice())
+    .execute(&f.pool)
+    .await
+    .unwrap();
+
+    let verified = verify_password_for_step_up(PASSWORD, &password_hash).unwrap();
+    let step_up_token = generate_session_token();
+    PgDirectRefundApprovals::new(f.pool.clone())
+        .issue_step_up(
+            f.moderator,
+            &session_digest,
+            &verified,
+            f.request,
+            1,
+            reason,
+            &step_up_token,
+        )
+        .await
+        .unwrap();
+    (session_digest, step_up_token)
+}
+
 pub(super) async fn d06_approval_cleanup(f: RefundFixture) {
     // All tests share one disposable DB in the CI suite: do not leave an
     // extra global administrator behind for Line A's last-admin invariant.
@@ -113,15 +159,30 @@ pub(super) async fn d06_approval_cleanup(f: RefundFixture) {
 async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split() {
     let f = d06_approval_fixture("d06_refund_approve_ok", 86400).await;
     let refunds = PgDirectRefundApprovals::new(f.pool.clone());
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "approved").await;
     assert_eq!(
         refunds
-            .approve_once(f.buyer, f.request, 1, "approved")
+            .approve_once(
+                f.buyer,
+                &session_digest,
+                &step_up_token,
+                f.request,
+                1,
+                "approved",
+            )
             .await,
         Err(DirectRefundApproveError::Forbidden)
     );
 
     let first = refunds
-        .approve_once(f.moderator, f.request, 1, "approved")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "approved",
+        )
         .await
         .unwrap();
     assert!(!first.replayed);
@@ -172,7 +233,14 @@ async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split(
     assert!(revoked);
 
     let replay = refunds
-        .approve_once(f.moderator, f.request, 1, "approved")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "approved",
+        )
         .await
         .unwrap();
     assert!(replay.replayed);
@@ -180,7 +248,14 @@ async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split(
     assert_eq!(replay.revision, 3);
     assert_eq!(
         refunds
-            .approve_once(f.moderator, f.request, 1, "different reason")
+            .approve_once(
+                f.moderator,
+                &session_digest,
+                &step_up_token,
+                f.request,
+                1,
+                "different reason",
+            )
             .await,
         Err(DirectRefundApproveError::Conflict)
     );
@@ -220,8 +295,16 @@ async fn d_06_refund_pending_then_first_grant_cannot_approve() {
         .await
         .unwrap();
 
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "not opened").await;
     let result = PgDirectRefundApprovals::new(f.pool.clone())
-        .approve_once(f.moderator, f.request, 1, "not opened")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "not opened",
+        )
         .await;
     assert_eq!(result, Err(DirectRefundApproveError::AlreadyOpened));
     let reverse_count: i64 = sqlx::query_scalar(
@@ -246,10 +329,18 @@ async fn d_06_refund_pending_then_first_grant_cannot_approve() {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_refund_pending_then_expired_cannot_approve() {
     let f = d06_approval_fixture("d06_refund_deadline", 1).await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "too late").await;
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     assert_eq!(
         PgDirectRefundApprovals::new(f.pool.clone())
-            .approve_once(f.moderator, f.request, 1, "too late")
+            .approve_once(
+                f.moderator,
+                &session_digest,
+                &step_up_token,
+                f.request,
+                1,
+                "too late",
+            )
             .await,
         Err(DirectRefundApproveError::WindowExpired)
     );
@@ -271,8 +362,16 @@ async fn d_06_refund_approval_and_first_grant_compete_under_purchase_lock() {
     let f = d06_approval_fixture("d06_refund_concurrency", 86400).await;
     let approvals = PgDirectRefundApprovals::new(f.pool.clone());
     let grants = PgDirectFirstExposure::new(f.pool.clone());
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "moderation").await;
     let (approved, issued) = tokio::join!(
-        approvals.approve_once(f.moderator, f.request, 1, "moderation"),
+        approvals.approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "moderation",
+        ),
         grants.record(
             PositiveId::new(f.buyer).unwrap(),
             PositiveId::new(f.chapter).unwrap(),
@@ -306,6 +405,7 @@ async fn d_06_refund_approval_and_first_grant_compete_under_purchase_lock() {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
     let f = d06_approval_fixture("d06_refund_failure_rollback", 86400).await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "approved").await;
     let reference = format!("d06:refund:{}", f.purchase);
     let mut tx = f.pool.begin().await.unwrap();
     // Intentionally simulate a broken writer: buyer credit, revocation,
@@ -394,7 +494,14 @@ async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
     );
     // The valid writer can retry after the failure without duplicate money.
     let correct = PgDirectRefundApprovals::new(f.pool.clone())
-        .approve_once(f.moderator, f.request, 1, "approved")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "approved",
+        )
         .await
         .unwrap();
     assert_eq!(correct.credited_minor, 300);
