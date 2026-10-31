@@ -29,7 +29,8 @@ BEGIN
        OR to_regclass('public.chapter_purchase_facts') IS NULL
        OR to_regclass('public.chapter_purchase_commands') IS NULL
        OR to_regclass('public.chapter_encrypted_release_events') IS NULL
-       OR to_regclass('public.chapter_version_assets') IS NULL THEN
+       OR to_regclass('public.chapter_version_assets') IS NULL
+       OR to_regclass('public.chapter_import_jobs') IS NULL THEN
         RAISE EXCEPTION 'Missing contract tables';
     END IF;
 
