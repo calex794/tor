@@ -3,7 +3,7 @@
 use aws_sdk_s3::{error::ProvideErrorMetadata, primitives::ByteStream, Client};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
-use tor_books::services::chapter_import_jobs::{
+use tor_imports::services::{
     ChapterImportObjectStore, ChapterImportStoreError as StoreError,
 };
 
