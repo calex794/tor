@@ -94,6 +94,10 @@ pub fn router(
             post(enqueue),
         )
         .route(
+            "/me/books/{book_id}/chapters/import-jobs/latest",
+            get(latest),
+        )
+        .route(
             "/me/books/{book_id}/chapters/import-jobs/{job_id}",
             get(status),
         )
@@ -291,6 +295,29 @@ async fn enqueue(
         }),
         &[],
     )
+}
+
+async fn latest(
+    State(state): State<QueueState>,
+    Path(book_id): Path<i64>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let actor_id = match actor(&state, &headers).await {
+        Ok(Some(actor_id)) => actor_id,
+        Ok(None) => return fail(StatusCode::UNAUTHORIZED, "Требуется войти в аккаунт."),
+        Err(status) => return fail(status, "Сервис временно недоступен."),
+    };
+    match state
+        .authoring
+        .latest_active_chapter_import(actor_id, book_id)
+        .await
+    {
+        Ok(Some((job_id, job))) => {
+            private_response(Json(status_response(job_id, job, book_id)), &[])
+        }
+        Ok(None) => fail(StatusCode::NOT_FOUND, "Активное задание не найдено."),
+        Err(_) => fail(StatusCode::SERVICE_UNAVAILABLE, "База данных недоступна."),
+    }
 }
 
 async fn status(
