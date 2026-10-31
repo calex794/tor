@@ -75,7 +75,9 @@ ALTER TABLE chapter_purchase_commands
              AND expected_campaign_revision IS NOT NULL
              AND expected_campaign_revision > 0
              AND expected_follow_period_id IS NOT NULL
+             AND expected_discount_percent IS NOT NULL
              AND expected_discount_percent BETWEEN 1 AND 90
+             AND expected_min_follow_days IS NOT NULL
              AND expected_min_follow_days IN (0,90)
              AND expected_base_price_minor > expected_price_minor)
         );
