@@ -512,3 +512,45 @@ async fn d_07_thirty_day_tier_uses_the_same_continuous_period_authority() {
     .unwrap();
     assert_eq!(snapshot, (1, 30));
 }
+
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL tor_ci"]
+async fn d_07_180_day_tier_is_supported_and_snapshotted() {
+    let f = fixture("one_eighty_day", 200, 100).await;
+    let campaigns = PgAuthorDiscounts::new(f.pool.clone());
+    let checkout = PgCheckout::new(f.pool.clone());
+    campaigns.create(f.owner, f.book, 20, 180, 30).await.unwrap();
+    let period = follow(&f, 179).await;
+    let early = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(early.final_price_minor, 100);
+    sqlx::query(
+        "UPDATE creator_follow_periods
+         SET started_at=now()-interval '180 days' WHERE id=$1",
+    )
+    .bind(period)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let mature = checkout
+        .quote_single(f.reader, f.book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(mature.final_price_minor, 80);
+    assert_eq!(mature.requires_follow_days, Some(180));
+    let receipt = checkout
+        .checkout_once(&command_for_quote(&f, &mature, 'K'))
+        .await
+        .unwrap();
+    let days: i16 = sqlx::query_scalar(
+        "SELECT min_follow_days FROM chapter_purchase_discount_snapshots WHERE purchase_id=$1",
+    )
+    .bind(receipt.purchase_id.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(days, 180);
+}
