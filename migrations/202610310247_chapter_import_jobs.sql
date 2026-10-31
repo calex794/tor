@@ -12,7 +12,8 @@ CREATE TABLE chapter_import_jobs (
     source_filename TEXT NOT NULL
         CHECK (char_length(source_filename) BETWEEN 1 AND 128
            AND position('/' in source_filename)=0
-           AND right(lower(source_filename),4) IN ('.txt','.md')),
+           AND (right(lower(source_filename),4)='.txt'
+                OR right(lower(source_filename),3)='.md')),
     source_sha256 BYTEA NOT NULL CHECK (octet_length(source_sha256)=32),
     source_bytes BIGINT NOT NULL CHECK (source_bytes BETWEEN 1 AND 700000),
     approved_fingerprint BYTEA NOT NULL CHECK (octet_length(approved_fingerprint)=32),
