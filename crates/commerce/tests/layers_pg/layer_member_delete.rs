@@ -3,12 +3,17 @@ use super::*;
 
 fn assert_layer_delete_denied(error: sqlx::Error) {
     assert_eq!(
-        error.as_database_error().and_then(|db| db.code()).as_deref(),
+        error
+            .as_database_error()
+            .and_then(|db| db.code())
+            .as_deref(),
         Some("23514"),
         "unexpected database error: {error}"
     );
     assert!(
-        error.to_string().contains("book membership deletion locked by Layer"),
+        error
+            .to_string()
+            .contains("book membership deletion locked by Layer"),
         "DELETE should be blocked by the Layer-specific fence: {error}"
     );
 }
@@ -21,14 +26,13 @@ async fn d_05_pg_raw_owner_member_delete_denied_for_live_layer() {
 
     // The ordinary owner membership must not disappear via raw DELETE while
     // its Book is in the current Layer, even before any term is purchased.
-    let error = sqlx::query(
-        "DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'",
-    )
-    .bind(book)
-    .bind(owner)
-    .execute(&pool)
-    .await
-    .expect_err("active owner membership must be locked by Layer");
+    let error =
+        sqlx::query("DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'")
+            .bind(book)
+            .bind(owner)
+            .execute(&pool)
+            .await
+            .expect_err("active owner membership must be locked by Layer");
     assert_layer_delete_denied(error);
     let still_owner: bool = sqlx::query_scalar(
         "SELECT EXISTS(
@@ -59,14 +63,13 @@ async fn d_05_pg_raw_owner_member_delete_denied_for_live_layer() {
     .execute(&pool)
     .await
     .unwrap();
-    let removed = sqlx::query(
-        "DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND NOT is_active",
-    )
-    .bind(book)
-    .bind(buyer)
-    .execute(&pool)
-    .await
-    .unwrap();
+    let removed =
+        sqlx::query("DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND NOT is_active")
+            .bind(book)
+            .bind(buyer)
+            .execute(&pool)
+            .await
+            .unwrap();
     assert_eq!(removed.rows_affected(), 1);
     pool.close().await;
 }
@@ -99,14 +102,13 @@ async fn d_05_pg_historical_paid_term_blocks_owner_member_delete_until_revoked()
     .unwrap();
     assert!(!currently_in_layer);
     assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
-    let error = sqlx::query(
-        "DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'",
-    )
-    .bind(book)
-    .bind(owner)
-    .execute(&pool)
-    .await
-    .expect_err("historical paid Layer rights still bind the owner membership");
+    let error =
+        sqlx::query("DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'")
+            .bind(book)
+            .bind(owner)
+            .execute(&pool)
+            .await
+            .expect_err("historical paid Layer rights still bind the owner membership");
     assert_layer_delete_denied(error);
 
     // Once the last paid obligation is legally revoked and the Book is no
@@ -121,14 +123,13 @@ async fn d_05_pg_historical_paid_term_blocks_owner_member_delete_until_revoked()
     .execute(&mut *tx)
     .await
     .unwrap();
-    let removed = sqlx::query(
-        "DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'",
-    )
-    .bind(book)
-    .bind(owner)
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    let removed =
+        sqlx::query("DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'")
+            .bind(book)
+            .bind(owner)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
     assert_eq!(removed.rows_affected(), 1);
     tx.rollback().await.unwrap();
     assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
