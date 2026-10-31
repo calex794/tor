@@ -7,6 +7,7 @@
   if (!root) return;
   const bookId = root.dataset.bookId;
   const fileInput = document.getElementById('chapter-import-file');
+  const encodingInput = document.getElementById('chapter-import-encoding');
   const textInput = document.getElementById('chapter-import-text');
   const previewButton = document.getElementById('chapter-import-preview');
   const confirmButton = document.getElementById('chapter-import-confirm');
@@ -43,8 +44,9 @@
     return data;
   }
 
-  fileInput.addEventListener('change', async () => {
+  async function readSelectedFile() {
     invalidate();
+    previewButton.disabled = true;
     textInput.value = '';
     filename = '';
     const selected = fileInput.files && fileInput.files[0];
@@ -68,17 +70,28 @@
     const serial = requestSerial;
     try {
       const bytes = await selected.arrayBuffer();
-      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      // A legacy code page is used only after explicit selection by the author.
+      const decoded = new TextDecoder(encodingInput.value, { fatal: true }).decode(bytes);
       if (serial !== requestSerial) return;
+      // The Rust parser applies its 700 kB limit to the UTF-8 text sent as JSON.
+      if (new TextEncoder().encode(decoded).byteLength > 700000) {
+        previewButton.disabled = true;
+        message('После преобразования в UTF-8 текст больше 700 КБ.');
+        return;
+      }
       filename = selected.name;
       textInput.value = decoded;
       previewButton.disabled = false;
       message('Файл прочитан. Проверьте главы.');
     } catch {
+      if (serial !== requestSerial) return;
       previewButton.disabled = true;
-      message('Файл повреждён или имеет не UTF-8 кодировку.');
+      message('Файл повреждён или имеет другую кодировку. Выберите кодировку вручную.');
     }
-  });
+  }
+
+  fileInput.addEventListener('change', readSelectedFile);
+  encodingInput.addEventListener('change', readSelectedFile);
 
   textInput.addEventListener('input', invalidate);
 
