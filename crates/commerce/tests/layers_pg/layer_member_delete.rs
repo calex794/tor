@@ -87,7 +87,7 @@ async fn d_05_pg_raw_owner_member_delete_denied_for_live_layer() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn d_05_pg_historical_paid_term_blocks_owner_member_delete_until_revoked() {
+async fn d_05_pg_historical_paid_term_blocks_owner_role_update_and_delete() {
     let (pool, repo, owner, buyer, book) = setup("member-delete-historical").await;
     let (layer, version, offer_id) = offer(&repo, owner, book, 210, false).await;
     let paid = repo
@@ -160,9 +160,11 @@ async fn d_05_pg_historical_paid_term_blocks_owner_member_delete_until_revoked()
     .unwrap();
     assert_eq!(collaborator_removed.rows_affected(), 1);
 
-    // Once the last paid obligation is legally revoked and the Book is no
-    // longer in any current Layer, the legacy B-09 cleanup path can proceed.
-    // Roll back the probe so test fixtures retain canonical owner identity.
+    // After all paid obligations are legally revoked, the D-05 historical
+    // fence releases a B-09 role transition. Do NOT expect DELETE to pass:
+    // B-10 revenue-share assignments may independently retain an immutable
+    // FK to this membership even after Layer rights have been revoked.
+    // Roll back the probe so canonical owner identity remains unchanged.
     let mut tx = pool.begin().await.unwrap();
     sqlx::query(
         "INSERT INTO commerce_layer_term_revocations(term_id,reason,reversal_reference)
@@ -172,14 +174,16 @@ async fn d_05_pg_historical_paid_term_blocks_owner_member_delete_until_revoked()
     .execute(&mut *tx)
     .await
     .unwrap();
-    let removed =
-        sqlx::query("DELETE FROM book_members WHERE book_id=$1 AND user_id=$2 AND role='owner'")
-            .bind(book)
-            .bind(owner)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-    assert_eq!(removed.rows_affected(), 1);
+    let changed = sqlx::query(
+        "UPDATE book_members SET role='translator'
+         WHERE book_id=$1 AND user_id=$2 AND role='owner'",
+    )
+    .bind(book)
+    .bind(owner)
+    .execute(&mut *tx)
+    .await
+    .expect("historical Layer fence should release after legal revocation");
+    assert_eq!(changed.rows_affected(), 1);
     tx.rollback().await.unwrap();
     assert!(repo.can_read_book(id(buyer), id(book)).await.unwrap());
     pool.close().await;
