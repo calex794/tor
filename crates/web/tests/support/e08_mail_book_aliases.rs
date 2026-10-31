@@ -86,29 +86,36 @@ pub(super) async fn verify(
 
     // Imported aliases are globally one-to-one. No second Book may claim
     // the same legacy ref and silently reassign previous mail links.
-    let pool = sqlx::PgPool::connect(db_url).await.unwrap();
-    let duplicate =
-        sqlx::query("INSERT INTO book_legacy_mail_refs(alias_key,book_id) VALUES($1,$2)")
-            .bind(&public_alias)
-            .bind(private)
-            .execute(&pool)
-            .await
-            .unwrap_err();
-    assert_eq!(
-        duplicate
-            .as_database_error()
-            .and_then(|e| e.code())
-            .as_deref(),
-        Some("23505")
-    );
+    // A contained PL/pgSQL exception verifies SQLSTATE 23505. If the
+    // duplicate insert unexpectedly succeeds, the block raises a different
+    // exception and the disposable tor_ci fixture fails closed.
+    pg(
+        db_url,
+        &format!(
+            "DO $e08$
+             BEGIN
+               BEGIN
+                 INSERT INTO book_legacy_mail_refs(alias_key,book_id)
+                 VALUES('{public_alias}',{private});
+                 RAISE EXCEPTION 'legacy alias uniqueness fence failed';
+               EXCEPTION WHEN unique_violation THEN NULL;
+               END;
+             END $e08$;"
+        ),
+    )
+    .await;
 
     // Revoking active owner membership also revokes alias lookup. The old
     // mail text survives, but no alias-derived private title is materialized.
-    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=(SELECT owner_user_id FROM books WHERE id=$1)")
-        .bind(private)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        db_url,
+        &format!(
+            "UPDATE book_members SET is_active=FALSE
+             WHERE book_id={private}
+               AND user_id=(SELECT owner_user_id FROM books WHERE id={private})"
+        ),
+    )
+    .await;
     let own_poll = call(
         app,
         "GET",
