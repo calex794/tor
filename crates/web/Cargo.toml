@@ -7,10 +7,11 @@ edition.workspace = true
 default = []
 s3-covers = ["tor-ingest/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
+s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
 axum = { workspace = true, features = ["multipart"] }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "io-util"] }
 tor-books = { path = "../books" }
 tor-discussions = { path = "../discussions" }
 tor-social = { path = "../social" }
@@ -20,6 +21,7 @@ tor-storage = { path = "../storage", features = ["pg", "s3"], optional = true }
 tor-search = { path = "../search" }
 tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
+tor-imports = { path = "../imports" }
 aws-config = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true }
 async-trait.workspace = true

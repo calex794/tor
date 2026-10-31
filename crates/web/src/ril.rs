@@ -83,6 +83,16 @@ pub(crate) fn instrument(router: Router) -> Router {
     instrument_with_recorder(router, recorder)
 }
 
+/// Instrument an additional router before it is merged into an already
+/// instrumented application. It shares the same process recorder but does not
+/// install a second fallback route.
+pub(crate) fn instrument_additional(router: Router) -> Router {
+    let recorder = TRAFFIC
+        .get_or_init(|| TrafficRecorder::start(10_000, 1_024))
+        .clone();
+    router.layer(middleware::from_fn_with_state(recorder, observe))
+}
+
 fn instrument_with_recorder(router: Router, recorder: TrafficRecorder) -> Router {
     // A known route returning 404 remains known; an unregistered URL is unknown.
     // Return the same 404 as Axum's default without echoing the URL.
@@ -166,7 +176,12 @@ async fn observe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::to_bytes, extract::Extension, http::Method, routing::get};
+    use axum::{
+        body::to_bytes,
+        extract::Extension,
+        http::Method,
+        routing::{get, post},
+    };
     use tor_route_intelligence::{CostClass, RoutePassport, StatusBucket};
     use tower::ServiceExt;
 
@@ -241,6 +256,32 @@ mod tests {
         assert!(response.headers().get("x-ril-passport").is_none());
         let text = to_bytes(response.into_body(), 256).await.unwrap();
         assert_eq!(text.as_ref(), b"/books/");
+    }
+
+    #[tokio::test]
+    async fn additional_router_keeps_ril_observation_when_merged_later() {
+        let app = instrument_additional(Router::new().route(
+            "/me/books/{book_id}/chapters/import-queue",
+            post(family),
+        ));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/me/books/42/chapters/import-queue")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let observed = response
+            .extensions()
+            .get::<RouteObservation>()
+            .expect("additional route must be observed");
+        assert!(observed.passport.route_known);
+        assert_eq!(observed.passport.route_family, "/me/");
+        assert_eq!(observed.passport.cost_class, CostClass::Write);
     }
 
     #[tokio::test]

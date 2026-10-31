@@ -25,6 +25,8 @@ mod book_error_pages;
 mod book_follow_page;
 mod catalog_http;
 mod chapter_import_assets;
+pub mod chapter_import_queue_http;
+pub mod chapter_import_worker;
 pub mod cover_delivery;
 mod cover_http;
 mod referral_book_http;
@@ -380,6 +382,12 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
         catalog.pool(),
     ));
+}
+
+/// Add a separately constructed route group to the same process-wide RIL
+/// recorder before merging it into the main application.
+pub fn instrument_additional_routes(router: Router) -> Router {
+    ril::instrument_additional(router)
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
