@@ -31,7 +31,7 @@ module.exports = async (browser, base, out) => {
   for (const [name, width] of [['desktop', 1440], ['mobile', 390]]) {
     const clients = [];
     try {
-      for (const suffix of ['a', 'b', 'c']) {
+      for (const suffix of ['a', 'b', 'c', 'd']) {
         const context = await browser.newContext({ viewport: { width, height: 900 } });
         const page = await context.newPage();
         await page.goto(base + '/register');
@@ -45,7 +45,7 @@ module.exports = async (browser, base, out) => {
         const id = fixtureUser(`mail.${name}.${suffix}@example.test`);
         clients.push({ context, page, id });
       }
-      const [a, b, c] = clients;
+      const [a, b, c, d] = clients;
       // E2E profile entry: no fixture POST or invented recipient picker.
       await a.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' b'));
       await a.page.getByRole('button', { name: 'Почта', exact: true }).click();
@@ -207,6 +207,81 @@ module.exports = async (browser, base, out) => {
         await plain.waitForURL(base + conversation);
         assert((await plain.locator('#mail-messages').innerText()).includes('Без JavaScript ' + name));
       } finally { await noJs.close(); }
+      // Exercise the actual group-mail UI rather than only compiling routes
+      // and testing HTTP forms. d remains a nonmember for negative checks.
+      await a.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' c'));
+      await a.page.getByRole('button', { name: 'Почта', exact: true }).click();
+      await a.page.waitForURL('**/mail/*');
+      await a.page.goto(base + '/mail/groups');
+      await a.page.locator('#group-title').fill('Группа <встреча> ' + name);
+      await a.page.locator('#peer_one').selectOption(String(b.id));
+      await a.page.locator('#peer_two').selectOption(String(c.id));
+      await a.page.getByRole('button', { name: 'Создать группу' }).click();
+      await a.page.waitForURL('**/mail/groups/*');
+      const groupPath = new URL(a.page.url()).pathname;
+      assert.match(groupPath, /^\/mail\/groups\/[1-9][0-9]*$/);
+      assert((await a.page.locator('h1').innerText()).includes('Группа <встреча> ' + name));
+      assert.equal(await a.page.locator('встреча').count(), 0, 'group title is escaped');
+      assert.equal((await d.context.request.get(base + groupPath)).status(), 404,
+        'uninvited account cannot view group title or transcript');
+
+      const groupForm = a.page.locator('form[action="' + groupPath + '/messages"]');
+      const groupKey = await groupForm.locator('[name="command_key"]').inputValue();
+      const groupCsrf = await groupForm.locator('[name="csrf_token"]').inputValue();
+      const groupBody = 'GROUP-MESSAGE-' + name + ' <img src=x onerror=alert(1)>';
+      await groupForm.getByLabel('Сообщение').fill(groupBody);
+      const sentGroup = a.page.waitForResponse(response =>
+        response.url().endsWith(groupPath + '/messages') && response.request().method() === 'POST');
+      await groupForm.getByRole('button', { name: 'Отправить сообщение' }).click();
+      assert.equal((await sentGroup).status(), 303, 'group form submits through protected HTTP route');
+      await a.page.locator('.mail-message-body').filter({ hasText: 'GROUP-MESSAGE-' + name })
+        .waitFor({ timeout: 15000 });
+      const groupReplay = await a.context.request.post(base + groupPath + '/messages', {
+        form: { body: groupBody, command_key: groupKey, csrf_token: groupCsrf },
+        headers: { Origin: base }, maxRedirects: 0,
+      });
+      assert.equal(groupReplay.status(), 303, 'group retry is idempotent');
+      const crossOriginGroup = await a.context.request.post(base + groupPath + '/messages', {
+        form: { body: groupBody, command_key: groupKey, csrf_token: groupCsrf },
+        headers: { Origin: 'https://attacker.invalid' }, maxRedirects: 0,
+      });
+      assert.equal(crossOriginGroup.status(), 403, 'group send rejects foreign origin');
+      await b.page.goto(base + groupPath);
+      await c.page.goto(base + groupPath);
+      assert.equal(await b.page.locator('.mail-message-body').count(), 1);
+      assert.equal(await c.page.locator('.mail-message-body').count(), 1);
+      assert.equal(await b.page.locator('.mail-message-body img').count(), 0,
+        'HTML in group message never becomes an element');
+      assert((await b.page.locator('.mail-message-body').innerText()).includes('<img src=x onerror=alert(1)>'));
+      await a.page.screenshot({ path: path.join(out, 'mail-group-' + name + '.png'), fullPage: true });
+      const groupSizes = await a.page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+      assert(groupSizes[0] <= groupSizes[1] + 1, 'group page has no horizontal overflow');
+
+      // C is a real member and must receive an on-site group notification,
+      // whereas the fourth account never gets any private group notification.
+      await c.page.goto(base + '/notifications');
+      let receivedGroupNotice = false;
+      for (let attempt = 0; attempt < 18; attempt++) {
+        await c.page.reload();
+        if (await c.page.locator('[data-notification-kind="mail"]')
+          .filter({ hasText: 'Новое сообщение в группе' }).count() === 1) {
+          receivedGroupNotice = true;
+          break;
+        }
+        await c.page.waitForTimeout(650);
+      }
+      assert(receivedGroupNotice, 'group notification must reach an active recipient');
+      const noGroupLeak = await d.context.request.get(base + groupPath);
+      assert.equal(noGroupLeak.status(), 404);
+      await b.page.goto(base + groupPath);
+      await b.page.locator('form[action="' + groupPath + '/leave"]')
+        .getByRole('button', { name: 'Выйти из группы' }).click();
+      await b.page.waitForURL('**/mail/groups');
+      assert.equal((await b.context.request.get(base + groupPath)).status(), 404,
+        'departed recipient loses access to the group immediately');
+      assert.equal((await c.context.request.get(base + groupPath)).status(), 200,
+        'other members retain access when someone exits');
+      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
   }
