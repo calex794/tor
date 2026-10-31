@@ -106,8 +106,10 @@ module.exports = async (browser, base, out) => {
         form: { csrf_token: bCsrf }, headers: { Origin: 'https://attacker.invalid' }, maxRedirects: 0,
       });
       assert.equal(wrongOrigin.status(), 403, 'notification mark-read rejects cross-origin requests');
-      await notification.getByRole('button', { name: 'Отметить прочитанным' }).click();
-      await b.page.waitForURL('**/notifications');
+      // Open acknowledges the alert and navigates to the source conversation.
+      await notification.getByRole('button', { name: 'Открыть', exact: true }).click();
+      await b.page.waitForURL('**' + conversation);
+      await b.page.goto(base + '/notifications');
       assert((await b.page.locator('[data-notification-id="' + notificationId + '"]').innerText()).includes('Прочитано'));
       await b.page.goto(base + conversation);
       assert.equal(await b.page.locator('#mail-messages img, #mail-messages script').count(), 0);
