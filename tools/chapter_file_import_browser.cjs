@@ -10,6 +10,62 @@ function assert(ok, why) {
   if (!ok) throw new Error(why);
 }
 
+function crc32(input) {
+  let crc = 0xffffffff;
+  for (const value of input) {
+    crc ^= value;
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+// Small valid DOCX stored ZIP fixture without a third-party JS ZIP package.
+function makeDocxXml(xml) {
+  const members = [
+    ['[Content_Types].xml', '<Types/>'],
+    ['word/document.xml', xml],
+  ];
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  let cdSize = 0;
+  for (const [filename, text] of members) {
+    const name = Buffer.from(filename);
+    const bytes = Buffer.from(text, 'utf8');
+    const crc = crc32(bytes);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(bytes.length, 18);
+    local.writeUInt32LE(bytes.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    localParts.push(local, name, bytes);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(bytes.length, 20);
+    central.writeUInt32LE(bytes.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    cdSize += central.length + name.length;
+    offset += local.length + name.length + bytes.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(members.length, 8);
+  end.writeUInt16LE(members.length, 10);
+  end.writeUInt32LE(cdSize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, ...centralParts, end]);
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -103,6 +159,36 @@ function assert(ok, why) {
         await page.getByText(/После преобразования в UTF-8 текст больше 700 КБ/).waitFor();
         assert(await page.getByRole('button', { name: 'Проверить главы' }).isDisabled(),
           name + ': expanded UTF-8 limit was bypassed');
+        // DOCX is validated on the authorized preview, then the plain text
+        // can be corrected by the owner before atomic PostgreSQL confirmation.
+        await importLink.click();
+        await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        const docx = makeDocxXml(
+          '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+          + '<w:body><w:p><w:r><w:t>Глава 4: Ворд</w:t></w:r></w:p>'
+          + '<w:p><w:r><w:t>Текст &amp; проверка</w:t></w:r></w:p>'
+          + '</w:body></w:document>');
+        await page.locator('#chapter-import-file').setInputFiles({
+          name: 'chapter.docx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          buffer: docx,
+        });
+        await page.getByText(/DOCX прочитан/).waitFor();
+        await page.getByRole('button', { name: 'Проверить главы' }).click();
+        await page.getByText(/Найдено глав: 1/).waitFor();
+        const extracted = await page.locator('#chapter-import-text').inputValue();
+        assert(extracted.includes('Глава 4: Ворд') && extracted.includes('Текст & проверка'),
+          name + ': DOCX extraction lost Russian text or XML entities');
+        await page.locator('#chapter-import-text').fill(
+          extracted.replace('Текст & проверка', 'Текст исправлен автором'));
+        assert(await page.getByRole('button', { name: 'Подтвердить и создать главы' }).isDisabled(),
+          name + ': changing DOCX text did not revoke preview confirmation');
+        await page.getByRole('button', { name: 'Проверить главы' }).click();
+        await page.getByText(/Найдено глав: 1/).waitFor();
+        await page.getByRole('button', { name: 'Подтвердить и создать главы' }).click();
+        await page.waitForURL(base + '/me/books/' + id);
+        assert(await page.getByText(/№4/).isVisible(),
+          name + ': extracted DOCX chapter not saved');
         const guest = await browser.newContext({ viewport: { width, height } });
         try {
           const guestPage = await guest.newPage();
