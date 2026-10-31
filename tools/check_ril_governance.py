@@ -37,6 +37,7 @@ OWNER_CALLS = {
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
+    "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -150,7 +151,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
 
 def _contains_scoped_call(body: str, names: set[str]) -> bool:
     for name in names:
-        if re.search(rf"\b{name}\s*\(\s*(?:actor|user_id)\b", body):
+        if re.search(rf"\b{name}\s*\(\s*(?:actor_id|actor|user_id)\b", body):
             return True
     return False
 
