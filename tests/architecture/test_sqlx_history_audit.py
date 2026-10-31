@@ -87,14 +87,30 @@ class SQLxAuditTests(unittest.TestCase):
         with self.assertRaises(AuditError):
             parse_inventory(inventory([self.valid, other]))
 
-    def test_pending_lower_number_is_visible_not_misreported_as_used(self):
+    def test_pending_lower_number_blocks_even_without_applied_drift(self):
         (self.root / "202610290002_layer_access.sql").write_text("SELECT 1;\n")
         current = local_migrations(self.root)
         name, installed = parse_inventory(inventory([self.valid]))
         result = evaluate_history(current, name, installed)
         self.assertEqual(result["pending"], ["202610290002"])
         self.assertEqual(result["out_of_order_pending"], ["202610290002"])
+        self.assertEqual(result["matched"], [self.version])
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertTrue(any(
+            "older than latest applied version" in blocker
+            and "202610290002" in blocker
+            for blocker in result["blockers"]
+        ))
+
+    def test_newer_pending_migration_is_not_applied_drift(self):
+        (self.root / "202611010020_future_table.sql").write_text("SELECT 42;\n")
+        current = local_migrations(self.root)
+        name, installed = parse_inventory(inventory([self.valid]))
+        result = evaluate_history(current, name, installed)
+        self.assertEqual(result["pending"], ["202611010020"])
+        self.assertEqual(result["out_of_order_pending"], [])
         self.assertEqual(result["status"], "NO_APPLIED_DRIFT_DETECTED")
+        self.assertEqual(result["blockers"], [])
 
     def test_malformed_csv_fails_closed(self):
         with self.assertRaises(AuditError):
