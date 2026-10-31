@@ -51,15 +51,15 @@ fn shell(book_id: i64, body: &str) -> Html<String> {
 
 fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
     let details = if let Some(percent) = quote.discount_percent {
+        let audience = match quote.requires_follow_days.unwrap_or(0) {
+            0 => "для подписчика".to_owned(),
+            days => format!("для подписчика со стажем от {days} дней"),
+        };
         format!(
-            "<p>Обычная цена: {}. Скидка {}% для подписчика{}.</p>",
+            "<p>Обычная цена: {}. Скидка {}% {}.</p>",
             money(quote.base_price_minor),
             percent,
-            if quote.requires_follow_days == Some(90) {
-                " со стажем от 90 дней"
-            } else {
-                ""
-            },
+            audience,
         )
     } else {
         "<p>Скидка для этого читателя сейчас не действует.</p>".to_owned()
