@@ -1,3 +1,5 @@
+mod social_notification_consumer;
+
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -101,6 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
+    let mut pending_social_notifications = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -116,6 +119,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 );
                 pending_referral_consumer =
                     Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
+                pending_social_notifications = Some(
+                    tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
+                );
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
@@ -288,6 +294,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
+    let _social_notification_consumer =
+        pending_social_notifications.map(social_notification_consumer::start);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

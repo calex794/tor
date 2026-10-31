@@ -30,6 +30,8 @@ SCOPE_CALLS = {
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
     "active_role",
+    "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
+    "send_unkeyed", "set_block", "request", "remove",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -189,6 +191,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             proof = {"follow"}
         elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
             proof = {"unfollow"}
+        mail_calls = {
+            "mail::index": {"mailbox"}, "mail::start": {"start"},
+            "mail::conversation": {"messages"}, "mail::send": {"send"},
+            "mail::block": {"set_block"},
+            "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
+            "friendship::request": {"request"}, "friendship::remove": {"remove"},
+            "friendship::block": {"set_block"},
+        }
+        proof = mail_calls.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/notifications.rs":
+            proof = {
+                "page": {"list_section"}, "mark_one": {"mark_read"},
+                "mark_all": {"mark_all_read"}, "save_preferences": {"set_preferences"},
+            }.get(entry["handler"], proof)
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:

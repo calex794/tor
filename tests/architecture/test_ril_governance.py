@@ -284,5 +284,68 @@ class RilGovernanceTests(unittest.TestCase):
         self.assert_detected("missing Origin+CSRF rejection")
 
 
+    def test_mail_block_cannot_lose_the_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            ".set_block(actor, page.peer_id, form.blocked)",
+            ".set_block(page.peer_id, form.blocked)",
+            start="pub(super) async fn block(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_mail_csrf_guard_removal_is_detected(self):
+        self.mutate(
+            "crates/web/src/auth/mail.rs",
+            "state.cookies.valid_csrf(headers, t)",
+            "state.cookies.valid_csrf_skip(headers, t)",
+            start="fn csrf(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_notification_feed_requires_verified_actor_scope(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "store.list_section(actor, query.before, 50, tab)",
+            "store.list_section(1, query.before, 50, tab)",
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_tabs_require_section_filtered_repository(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "store.list_section(actor, query.before, 50, tab)",
+            "store.list(actor, query.before, 50)",
+            start="pub(super) async fn page(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_preferences_save_is_actor_scoped(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            ".set_preferences(actor, &enabled_kinds)",
+            ".set_preferences(1, &enabled_kinds)",
+            start="pub(super) async fn save_preferences(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_notification_preferences_save_requires_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "if let Err(status) = csrf(",
+            "if let Err(status) = unchecked_csrf(",
+            start="pub(super) async fn save_preferences(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
+    def test_notification_read_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/notifications.rs",
+            "state.cookies.same_origin(headers)",
+            "state.cookies.unchecked_origin(headers)",
+            start="fn csrf(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
 if __name__ == "__main__":
     unittest.main()
