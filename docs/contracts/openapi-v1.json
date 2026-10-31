@@ -4235,6 +4235,9 @@
           "200": {
             "description": "Bounded result"
           },
+          "202": {
+            "description": "Claims accepted, never trusted reading"
+          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -4255,9 +4258,6 @@
           },
           "503": {
             "$ref": "#/components/responses/Http503"
-          },
-          "202": {
-            "description": "Claims accepted, never trusted reading"
           }
         },
         "x-tor-owner": "F/I",
@@ -4292,6 +4292,9 @@
           "200": {
             "description": "Bounded result"
           },
+          "303": {
+            "description": "Canonical book navigation, not paid entitlement"
+          },
           "400": {
             "$ref": "#/components/responses/Http400"
           },
@@ -4312,9 +4315,6 @@
           },
           "503": {
             "$ref": "#/components/responses/Http503"
-          },
-          "303": {
-            "description": "Canonical book navigation, not paid entitlement"
           }
         },
         "x-tor-owner": "F/I",
@@ -4395,6 +4395,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+            }
           }
         ],
         "responses": {
@@ -4406,6 +4415,9 @@
           },
           "409": {
             "$ref": "#/components/responses/Http409"
+          },
+          "422": {
+            "$ref": "#/components/responses/Http422"
           }
         }
       }
@@ -5143,8 +5155,7 @@
         "required": [
           "book_id",
           "choice",
-          "expected_revision",
-          "command_key"
+          "expected_revision"
         ],
         "properties": {
           "book_id": {
@@ -5160,10 +5171,6 @@
           "expected_revision": {
             "type": "integer",
             "minimum": 0
-          },
-          "command_key": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{43}$"
           }
         }
       },

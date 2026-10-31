@@ -73,6 +73,28 @@ async fn call(
         .unwrap();
     app.clone().oneshot(req).await.unwrap()
 }
+async fn feedback_json(
+    app: &Router,
+    cookie: &str,
+    csrf: &str,
+    key: Option<&str>,
+    body: &str,
+) -> Response {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/me/recommendation-feedback")
+        .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, ORIGIN)
+        .header("x-csrf-token", csrf)
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(key) = key {
+        request = request.header("idempotency-key", key);
+    }
+    app.clone()
+        .oneshot(request.body(Body::from(body.to_owned())).unwrap())
+        .await
+        .unwrap()
+}
 async fn text(response: Response) -> String {
     String::from_utf8(
         to_bytes(response.into_body(), 2 * 1024 * 1024)
@@ -352,38 +374,54 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
     store.refresh_quality().await.unwrap();
     assert_eq!(pg(&url,&format!("SELECT count(*) FROM reader_chapter_starts WHERE user_id={user} AND book_id={book}")),"1");
     assert_eq!(pg(&url,&format!("SELECT count(*) FROM rec_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id={user} AND c.book_id={book}")),"2");
-    let forbidden=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0,"command_key":generate_session_token(),"user_id":other}).to_string();
+    let key = generate_session_token();
+    let forbidden=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0,"user_id":other}).to_string();
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            "/api/v1/me/recommendation-feedback",
-            &cookie,
-            (ORIGIN, &csrf),
-            &forbidden,
-            true
-        )
-        .await
-        .status(),
-        StatusCode::UNPROCESSABLE_ENTITY
-    );
-    let hide=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0,"command_key":generate_session_token()}).to_string();
-    for _ in 0..2 {
-        assert_eq!(
-            call(
-                &app,
-                "POST",
-                "/api/v1/me/recommendation-feedback",
-                &cookie,
-                (ORIGIN, &csrf),
-                &hide,
-                true
-            )
+        feedback_json(&app, &cookie, &csrf, Some(&key), &forbidden)
             .await
             .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let hide=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0}).to_string();
+    let old_body=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0,"command_key":key}).to_string();
+    assert_eq!(
+        feedback_json(&app, &cookie, &csrf, Some(&key), &old_body)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "The deprecated JSON body key is a forbidden extra field"
+    );
+    let missing = feedback_json(&app, &cookie, &csrf, None, &hide).await;
+    assert_eq!(missing.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        data(missing).await["error"]["code"],
+        "IDEMPOTENCY_KEY_REQUIRED"
+    );
+    let noncanonical_key = "x".repeat(43);
+    for invalid in ["bad", noncanonical_key.as_str()] {
+        let rejected=feedback_json(&app, &cookie, &csrf, Some(invalid), &hide).await;
+        assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            data(rejected).await["error"]["code"],
+            "INVALID_IDEMPOTENCY_KEY"
+        );
+    }
+    for _ in 0..2 {
+        assert_eq!(
+            feedback_json(&app, &cookie, &csrf, Some(&key), &hide)
+                .await
+                .status(),
             StatusCode::OK
         );
     }
+    let changed=json!({"book_id":book.to_string(),"choice":"clear","expected_revision":0}).to_string();
+    assert_eq!(
+        feedback_json(&app, &cookie, &csrf, Some(&key), &changed)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "One actor and key cannot change its semantic payload"
+    );
     let after = data(
         call(
             &app,

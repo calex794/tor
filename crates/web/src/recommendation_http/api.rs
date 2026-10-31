@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tor_accounts::services::security::{generate_session_token, session_token_digest};
 use tor_recommendations::domain::feedback::{
-    book_id, Choice, Feed, FeedbackError, ImpressionClaim, Surface,
+    book_id, valid_token, Choice, Feed, FeedbackError, ImpressionClaim, Surface,
 };
 
 #[derive(Deserialize)]
@@ -36,7 +36,6 @@ pub(super) struct FeedbackCommand {
     pub book_id: String,
     pub choice: Choice,
     pub expected_revision: i64,
-    pub command_key: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,6 +120,48 @@ pub(super) fn error(value: FeedbackError) -> Response {
         ),
         &[],
     )
+}
+
+fn idempotency_error(code: &'static str, message: &'static str) -> Response {
+    private_response(
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ErrorEnvelope {
+                error: ErrorInfo {
+                    code,
+                    message,
+                    request_id: generate_session_token(),
+                },
+            }),
+        ),
+        &[],
+    )
+}
+
+/// 32 random bytes encoded as canonical 43-byte base64url without padding.
+/// Last sextet must have its two unused bits set to zero.
+fn idempotency_key(headers: &HeaderMap) -> Result<&str, Response> {
+    let Some(raw) = headers.get("idempotency-key") else {
+        return Err(idempotency_error(
+            "IDEMPOTENCY_KEY_REQUIRED",
+            "Не указан ключ повтора",
+        ));
+    };
+    match raw.to_str() {
+        Ok(token)
+            if valid_token(token)
+                && token
+                    .as_bytes()
+                    .last()
+                    .is_some_and(|last| b"AEIMQUYcgkosw048".contains(last)) =>
+        {
+            Ok(token)
+        }
+        _ => Err(idempotency_error(
+            "INVALID_IDEMPOTENCY_KEY",
+            "Некорректный ключ повтора",
+        )),
+    }
 }
 
 pub(super) async fn load(
@@ -254,6 +295,10 @@ pub(super) async fn feedback(
     if let Err(status) = csrf(&state, &headers, csrf_header(&headers)) {
         return deny(status);
     }
+    let key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     let (actor, _) = match actor(&state, &headers).await {
         Ok(value) => value,
         Err(status) => return deny(status),
@@ -269,7 +314,7 @@ pub(super) async fn feedback(
             book,
             body.choice,
             body.expected_revision,
-            &body.command_key,
+            key,
         )
         .await
     {
