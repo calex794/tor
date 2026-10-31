@@ -160,10 +160,12 @@ jobs:
           cargo test -p tor-web --test cover_worker_pg -- --ignored
           cargo test -p tor-books --test postgres_catalog -- --ignored
           cargo test -p tor-search --test search_pg -- --ignored
+          cargo test -p tor-search --test catalog_window_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test perf233_projection_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
+          cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
@@ -180,6 +182,9 @@ jobs:
           cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test completion_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test chapter_thanks_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test book_stats_pg -- --ignored --test-threads=1
+          cargo test -p tor-reading --test book_likes_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test continuation_demand_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test follow_updates_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test continuation_demand_http_pg -- --ignored --test-threads=1
@@ -187,12 +192,15 @@ jobs:
           cargo test -p tor-reading --test slices_pg c_10_ -- --ignored --test-threads=1
           cargo test -p tor-reading --test library_postgres -- --ignored
           cargo test -p tor-web --test book_follow_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_file_import_http_pg -- --ignored --test-threads=1
           cargo test -p tor-referrals --test slices_pg f_09_pg_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
+          cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
@@ -200,12 +208,18 @@ jobs:
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
+           cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_stats_http_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test book_likes_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_comments_http_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
@@ -259,6 +273,8 @@ jobs:
       - name: Line A credential and login audit PostgreSQL checks
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1

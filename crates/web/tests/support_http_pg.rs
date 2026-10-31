@@ -435,12 +435,6 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
         .status(),
         StatusCode::FORBIDDEN
     );
-    pg(
-        &url,
-        format!(
-            "DELETE FROM users WHERE id IN({},{},{})",
-            users[0], users[1], users[2]
-        ),
-    )
-    .await;
+    // Disposable tor_ci is dropped after the suite. Deleting referenced users
+    // here would violate account_roles/support foreign keys.
 }

@@ -166,6 +166,14 @@ pub fn detail_with_covers_with_demand_page(
         "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
         book.id
     );
+    let import_action = if published {
+        String::new()
+    } else {
+        format!(
+            "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/import\">Импорт глав из файла</a></p>",
+            book.id
+        )
+    };
     let cover_status = cover_status(latest_job);
     let upload = if uploads_enabled {
         format!(
@@ -194,8 +202,10 @@ pub fn detail_with_covers_with_demand_page(
         {demand_panel}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
+        <p><a href="/books/{id}/stats">Статистика книги</a></p>
         <h2>Главы</h2>{items}
         {add_action}
+        {import_action}
         {action}
         <p><a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
@@ -261,6 +271,19 @@ pub fn cover_settings(
             },
         );
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
+}
+
+/// H-09: only the author sees a private, unpublished-book import preview.
+pub fn import_chapters(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
+    let html = include_str!("../templates/author_import_chapters.html")
+        .replace("<!--BOOK_ID-->", &book_id.to_string())
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
+    layout(
+        "Импорт глав из файла",
+        "Проверка файла и явное подтверждение без автоматической публикации.",
+        &html,
+    )
 }
 
 pub fn new_chapter(

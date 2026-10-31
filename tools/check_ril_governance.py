@@ -21,13 +21,17 @@ PROTECTED = {"session", "scoped", "owner", "support_admin"}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
-    "own_ratings", "set_rating",
+    "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
+    "visible_summary", "set_like",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
+    "active_role",
+    "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
+    "send_unkeyed", "set_block", "request", "remove",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -140,7 +144,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "administrator"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load", "administrator"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body
@@ -210,6 +214,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             proof = {"follow"}
         elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
             proof = {"unfollow"}
+        mail_calls = {
+            "mail::index": {"mailbox"}, "mail::start": {"start"},
+            "mail::conversation": {"messages"}, "mail::send": {"send"},
+            "mail::block": {"set_block"},
+            "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
+            "friendship::request": {"request"}, "friendship::remove": {"remove"},
+            "friendship::block": {"set_block"},
+        }
+        proof = mail_calls.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/notifications.rs":
+            proof = {
+                "page": {"list_section"}, "mark_one": {"mark_read"},
+                "mark_all": {"mark_all_read"}, "save_preferences": {"set_preferences"},
+            }.get(entry["handler"], proof)
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:

@@ -13,6 +13,7 @@ use tor_books::{
     services::{CatalogError, GetPublicBook, ListPublicBooks, PublicBookRepository},
 };
 use tor_reading::{repositories::PgReader, services::ReadingError};
+pub mod achievement_consumer;
 mod auth;
 mod auth_cookies;
 mod author_chapter_http;
@@ -23,6 +24,7 @@ mod author_pages;
 mod book_error_pages;
 mod book_follow_page;
 mod catalog_http;
+mod chapter_import_assets;
 pub mod cover_delivery;
 mod cover_http;
 mod referral_book_http;
@@ -247,6 +249,12 @@ async fn book_detail(
                 Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
                 Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
             };
+            let likes = tor_reading::repositories::PgBookLikes::new(catalog.pool().clone());
+            let count = match likes.public_count(id).await {
+                Ok(Some(count)) => count,
+                Ok(None) => return book_error(&state, StatusCode::NOT_FOUND).await,
+                Err(_) => return book_error(&state, StatusCode::SERVICE_UNAVAILABLE).await,
+            };
             let html = if state.paid_batch_browser_enabled {
                 pages::book_detail_with_chapters_cover_stars_batch(
                     &book, limit, has_cover, &stars, true,
@@ -254,9 +262,14 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
+            let html = Html(html.0.replace(
+                "<!--BOOK_LIKES-->",
+                &pages::book_likes_strip(book.id, count),
+            ));
             return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
+        let html = Html(html.0.replace("<!--BOOK_LIKES-->", ""));
         return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
     }
     let repo = state.books.as_ref();
@@ -272,12 +285,22 @@ async fn book_detail(
         author_name: None,
         genres: Vec::new(),
     });
-    Html(html.0.replace("<!--BOOK_FOLLOW_ACTION-->", "")).into_response()
+    Html(
+        html.0
+            .replace("<!--BOOK_FOLLOW_ACTION-->", "")
+            .replace("<!--BOOK_LIKES-->", ""),
+    )
+    .into_response()
 }
 /// Keep the security-reviewed public route identity stable while isolating
 /// the actual S005/C-10 reader logic in the C/H feature module.
-async fn reader_page(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
-    public_reader_http::reader_page(State(state), Path(id)).await
+async fn reader_page(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+    headers: axum::http::HeaderMap,
+    method: axum::http::Method,
+) -> Response {
+    public_reader_http::reader_page(State(state), Path(id), headers, method).await
 }
 
 /// S3 delivery is not connected: deny every alternative reader API request.
@@ -445,6 +468,10 @@ fn make_router(
         .route(
             "/assets/newboo-cover-picker.js",
             get(pages::cover_picker_script),
+        )
+        .route(
+            "/assets/newboo-chapter-import.js",
+            get(chapter_import_assets::script),
         )
         .route(
             "/assets/brand/pandaolate-header.png",

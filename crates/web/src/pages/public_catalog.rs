@@ -1,11 +1,12 @@
 //! The original NEwBOO public catalogue layout, sourced from real TOR read data.
-use super::{escape_html, layout};
+use super::{escape_html, layout, layout_with_support_widget};
 use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
 use tor_search::domain::seo_urls::BookUrl;
 use tor_search::repositories::catalog::TaxonomyOptions;
 
 mod catalog_active_filters;
+mod catalog_pagination;
 mod catalog_taxonomy_selects;
 mod home_spotlight;
 
@@ -163,7 +164,7 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
                 String::new()
             },
         );
-    layout(
+    layout_with_support_widget(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
         &content,
@@ -216,6 +217,8 @@ pub struct CatalogPageQuery<'a> {
     pub tag: Option<&'a str>,
     pub fandom: Option<&'a str>,
     pub cursor: Option<&'a str>,
+    pub previous_cursor: Option<&'a str>,
+    pub page_number: u32,
     pub sort: &'a str,
     pub total: Option<u64>,
     pub options: Option<&'a TaxonomyOptions>,
@@ -227,13 +230,16 @@ pub fn catalog_search_with_covers(
     covers: &HashSet<u64>,
 ) -> Html<String> {
     let active_filters = catalog_active_filters::render(&request);
+    let pagination = catalog_pagination::render(&request);
     let CatalogPageQuery {
         query,
         language,
         genre,
         tag,
         fandom,
-        cursor,
+        cursor: _,
+        previous_cursor: _,
+        page_number: _,
         sort,
         total,
         options,
@@ -267,35 +273,6 @@ pub fn catalog_search_with_covers(
         );
     }
     controls = catalog_taxonomy_selects::apply(controls, options, genre, tag, fandom);
-    if let Some(cursor) = cursor {
-        let language_param = language
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;language={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let genre_param = genre
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;genre={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let tag_param = tag
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;tag={}", encode_search_term(value)))
-            .unwrap_or_default();
-        let fandom_param = fandom
-            .filter(|value| !value.is_empty())
-            .map(|value| format!("&amp;fandom={}", encode_search_term(value)))
-            .unwrap_or_default();
-        write!(
-            controls,
-            r#"<nav class="catalog-pagination" aria-label="Следующая страница поиска"><a class="ui-button ui-button--ghost" href="/catalog?q={}{}{}{}{}&amp;sort={}&amp;after={}">Показать ещё</a></nav>"#,
-            encode_search_term(query),
-            language_param,
-            genre_param,
-            tag_param,
-            fandom_param,
-            escape_html(sort),
-            escape_html(cursor),
-        ).expect("string write");
-    }
     let count_markup = total
         .map(|number| {
             format!("<p class=\"catalog-result-count\" role=\"status\">Найдено книг: {number}</p>")
@@ -317,7 +294,8 @@ pub fn catalog_search_with_covers(
             },
         )
         .replace("<!--SEARCH_FORM-->", &controls)
-        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"));
+        .replace("<!--ACTIVE_FILTERS-->", &format!("{active_filters}{count_markup}"))
+        .replace("<!--PAGINATION-->", &pagination);
     layout(
         "Каталог",
         "Поиск опубликованных книг на Пандаолейт.",
@@ -450,6 +428,8 @@ mod home_tests {
                 tag: None,
                 fandom: None,
                 cursor: None,
+                previous_cursor: None,
+                page_number: 1,
                 sort: "oldest",
                 total: Some(2),
                 options: None,
