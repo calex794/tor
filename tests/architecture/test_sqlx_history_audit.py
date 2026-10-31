@@ -206,7 +206,7 @@ class SQLxAuditTests(unittest.TestCase):
         with patch("audit_sqlx_history.read_from_psql", return_value=raw):
             with patch("sys.stdout", new_callable=io.StringIO) as stdout:
                 self.assertEqual(audit_main(command), 0)
-        self.assertEqual(output.read_text(encoding="utf-8"), raw)
+        self.assertEqual(output.read_bytes().decode("utf-8"), raw)
         self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
         self.assertNotIn(self.valid["checksum_sha384_hex"], stdout.getvalue())
 
@@ -215,7 +215,7 @@ class SQLxAuditTests(unittest.TestCase):
             with patch("sys.stderr", new_callable=io.StringIO):
                 with patch("sys.stdout", new_callable=io.StringIO):
                     self.assertEqual(audit_main(command), 2)
-        self.assertEqual(output.read_text(encoding="utf-8"), raw)
+        self.assertEqual(output.read_bytes().decode("utf-8"), raw)
 
     def test_private_export_rejects_world_readable_directory_and_symlink(self):
         private = self.root / "private"
@@ -270,7 +270,7 @@ class SQLxAuditTests(unittest.TestCase):
                     "inventory", "--from-psql", "--migrations", str(self.root),
                     "--save-raw-csv", str(output),
                 ]), 2)
-        self.assertEqual(output.read_text(encoding="utf-8"), bad)
+        self.assertEqual(output.read_bytes().decode("utf-8"), bad)
         self.assertIn('"status": "BLOCK"', stdout.getvalue())
 
     def test_open_pr_collision_by_version_or_modified_blob(self):
