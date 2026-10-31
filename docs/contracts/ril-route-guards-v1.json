@@ -878,6 +878,20 @@
       "policy": "session"
     },
     {
+      "method": "GET",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::submit",
+      "policy": "scoped"
+    },
+    {
       "method": "POST",
       "template": "/me/books/{book_id}/chapters/import-queue",
       "source": "crates/web/src/chapter_import_queue_http.rs",
