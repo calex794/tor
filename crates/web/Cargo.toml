@@ -21,6 +21,7 @@ tor-storage = { path = "../storage", features = ["pg", "s3"], optional = true }
 tor-search = { path = "../search" }
 tor-recommendations = { path = "../recommendations" }
 tor-ingest = { path = "../ingest" }
+tor-imports = { path = "../imports" }
 aws-config = { version = "1", optional = true }
 aws-sdk-s3 = { version = "1", optional = true }
 async-trait.workspace = true
