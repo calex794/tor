@@ -181,14 +181,16 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
             .await
             .unwrap();
     assert_eq!(remaining_thanks, 1, "other reader's thanks must survive");
-    let other_stars: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM user_book_star_ratings WHERE book_id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(other_stars, 1, "erasure must retain only the other reader's vote");
+    let other_stars: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_book_star_ratings WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        other_stars, 1,
+        "erasure must retain only the other reader's vote"
+    );
     let bookmarks_after_delete: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM reader_library_items WHERE book_id=$1")
             .bind(book)

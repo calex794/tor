@@ -55,11 +55,7 @@ impl RatingStat {
         if self.votes <= 0 || self.sum < self.votes || self.sum > self.votes.checked_mul(5)? {
             return None;
         }
-        let hundredths = self
-            .sum
-            .checked_mul(100)?
-            .checked_add(self.votes / 2)?
-            / self.votes;
+        let hundredths = self.sum.checked_mul(100)?.checked_add(self.votes / 2)? / self.votes;
         Some(format!("{}.{:02}", hundredths / 100, hundredths % 100))
     }
 }
