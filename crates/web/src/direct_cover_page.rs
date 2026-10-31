@@ -71,7 +71,7 @@ pub(super) fn apply_policy(
         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_SECURITY_POLICY, policy);
+    headers.insert("content-security-policy", policy);
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
     headers.insert(
         header::REFERRER_POLICY,
@@ -121,7 +121,7 @@ mod tests {
         assert!(html.0.contains("/api/v1/covers/42/main.webp/direct-grant"));
         assert_eq!(html.0.matches("newboo-direct-cover.mjs").count(), 1);
         let response = apply_policy(Html(html.0).into_response(), Some(ORIGIN), enabled);
-        let csp = response.headers()[header::CONTENT_SECURITY_POLICY]
+        let csp = response.headers()["content-security-policy"]
             .to_str()
             .unwrap();
         assert!(csp.contains("connect-src 'self' https://storage.example;"));
@@ -153,6 +153,6 @@ mod tests {
             Html("<html><body>Без обложек</body></html>".to_owned()),
             Some(ORIGIN),
         );
-        assert!(!response.headers().contains_key(header::CONTENT_SECURITY_POLICY));
+        assert!(!response.headers().contains_key("content-security-policy"));
     }
 }
