@@ -150,9 +150,11 @@ async fn d_06_repurchase_two_distinct_keys_only_one_new_wallet_debit() {
         .await
         .unwrap();
     let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
+    let command_left = command(f.buyer, f.chapter, f.version, 300, 'R');
+    let command_right = command(f.buyer, f.chapter, f.version, 300, 'S');
     let (left, right) = tokio::join!(
-        checkout.checkout_once(&command(f.buyer, f.chapter, f.version, 300, 'R')),
-        checkout.checkout_once(&command(f.buyer, f.chapter, f.version, 300, 'S'))
+        checkout.checkout_once(&command_left),
+        checkout.checkout_once(&command_right)
     );
     let success = [left, right]
         .into_iter()
