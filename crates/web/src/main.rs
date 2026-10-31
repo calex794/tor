@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok(bucket) => {
             let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
             let client = aws_sdk_s3::Client::new(&config);
-            let store = tor_web::chapter_import_s3::S3ChapterImportStore::new(client, bucket)
+            let store = tor_imports::repositories::s3::S3ChapterImportStore::new(client, bucket)
                 .map_err(|_| "Invalid TOR_CHAPTER_IMPORT_S3_BUCKET")?;
             Some(Arc::new(store))
         }
