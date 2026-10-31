@@ -14,7 +14,7 @@ use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     domain::access_audit::{LoginAuditContext, LoginEventKind},
-    repositories::credentials::PasswordRotation,
+    repositories::PasswordRotation,
     services::{
         security::{generate_session_token, hash_password, session_token_digest, verify_password},
         validation::password_change,

@@ -5,7 +5,7 @@ use std::{
 };
 use tor_accounts::{
     domain::access_audit::{LoginAuditContext, LoginEventKind, UserAgentFamily},
-    repositories::{credentials::PasswordRotation, PgAccounts},
+    repositories::{PasswordRotation, PgAccounts},
     services::security::session_token_digest,
 };
 

@@ -4,6 +4,7 @@ pub mod postgres;
 pub use postgres::PgAccounts;
 pub mod authority;
 mod credentials;
+pub use credentials::PasswordRotation;
 mod password_reset;
 pub mod profile;
 mod security_retention;
