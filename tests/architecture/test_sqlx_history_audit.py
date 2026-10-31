@@ -222,6 +222,7 @@ class SQLxAuditTests(unittest.TestCase):
         private.mkdir(mode=0o700)
         shared = self.root / "shared"
         shared.mkdir(mode=0o755)
+        shared.chmod(0o755)  # An operator's umask must not weaken this test.
         sensitive = private / "original.csv"
         sensitive.write_text("do not touch", encoding="utf-8")
         (private / "alias.csv").symlink_to(sensitive)
