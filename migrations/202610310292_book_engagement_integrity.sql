@@ -29,6 +29,9 @@ CREATE TABLE book_engagement_integrity_events (
     book_id BIGINT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
     action TEXT NOT NULL CHECK (action IN ('book_like', 'book_unlike')),
     observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Only hard-limit decisions populate this slot. One refusal per
+    -- user/book/action/minute is enough to audit automated throttling.
+    hard_limit_minute TIMESTAMPTZ,
     subject_action_1m BIGINT NOT NULL CHECK (subject_action_1m >= 0),
     subject_action_1h BIGINT NOT NULL CHECK (subject_action_1h >= 0),
     subject_any_1m BIGINT NOT NULL CHECK (subject_any_1m >= 0),
@@ -51,3 +54,9 @@ CREATE INDEX book_engagement_integrity_events_user_idx
 
 CREATE INDEX book_engagement_integrity_events_book_idx
     ON book_engagement_integrity_events (book_id, observed_at DESC);
+
+-- Keep a blocked user from generating unbounded refusal rows. The other
+-- observe-only risk events remain independent of this minute deduplication.
+CREATE UNIQUE INDEX book_engagement_integrity_hard_limit_idx
+    ON book_engagement_integrity_events (user_id, book_id, action, hard_limit_minute)
+    WHERE hard_limit_minute IS NOT NULL;
