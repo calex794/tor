@@ -266,6 +266,7 @@ jobs:
       - name: Line A credential and login audit PostgreSQL checks
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
           cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1

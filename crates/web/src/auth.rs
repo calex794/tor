@@ -60,6 +60,7 @@ mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod creator_follows;
 mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
@@ -173,6 +174,8 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let creator_follows =
+        tor_social::services::follow::PgCreatorFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
     let achievements =
@@ -200,6 +203,7 @@ fn router_inner(
         bookmarks,
         demand,
         book_follows,
+        creator_follows,
         follow_updates,
         reader,
         rankings,
@@ -224,6 +228,15 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/me/creators", get(creator_follows::page))
+        .route(
+            "/me/creators/{id}/unfollow",
+            post(creator_follows::unfollow),
+        )
+        .route(
+            "/me/books/{id}/follow-creator",
+            post(book_follow_actions::follow_creator),
+        )
         .route("/users/{display_name}", get(public_profile::page))
         .route("/users/{target_user_id}/friend", post(friendship::request))
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))

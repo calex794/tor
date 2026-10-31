@@ -1,12 +1,6 @@
-//! E-08/S057: participant-scoped direct mail, separate from discussion Inbox.
+//! E-owned social relations: creator follows and participant-scoped mail.
 #![forbid(unsafe_code)]
 
 pub mod domain;
-pub mod repositories {
-    pub mod friendships;
-    pub mod mail;
-    mod messages;
-    pub(super) mod notification_events;
-    pub mod notifications;
-}
+pub mod repositories;
 pub mod services;

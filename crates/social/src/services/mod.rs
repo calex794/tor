@@ -1,3 +1,5 @@
+pub mod follow;
+
 use crate::domain::{
     clean_body, valid_html_client_id, valid_key, Conversation, MailError, MessagePage, SentMessage,
 };
