@@ -63,6 +63,13 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
         Err(MailError::Blocked)
     );
     direct_blocks.set_block(b, a, false).await.unwrap();
+    // A blocked pair among invitees must not be smuggled into the group.
+    direct_blocks.set_block(b, outsider, true).await.unwrap();
+    assert_eq!(
+        groups.create(a, &[b, outsider], "Blocked invitees").await,
+        Err(MailError::Blocked)
+    );
+    direct_blocks.set_block(b, outsider, false).await.unwrap();
     let id = groups
         .create(a, &[b, b, a], "  Private crew  ")
         .await
