@@ -103,7 +103,8 @@ pub(super) async fn post_purchase(
           (purchase_id,book_id,share_revision,policy_version,
            refund_policy_version,refund_deadline_at,
            gross_minor,platform_fee_minor,creator_pool_minor)
-         SELECT p.id,$2,$3,$4,p.refund_policy_version,p.refund_deadline_at,
+         SELECT p.id,$2,$3,$4,$7,
+                p.acquired_at + ($8::bigint * INTERVAL '1 second'),
                 p.amount_minor,$5,$6
          FROM chapter_purchase_facts p WHERE p.id=$1",
     )
@@ -113,6 +114,8 @@ pub(super) async fn post_purchase(
     .bind(&a.policy_version)
     .bind(a.platform_fee_minor.get())
     .bind(a.creator_pool_minor.get())
+    .bind(&terms.refund_policy_version)
+    .bind(terms.refund_window_seconds)
     .execute(&mut **tx)
     .await
     .map_err(|_| CheckoutError::Unavailable)?;
@@ -127,11 +130,11 @@ pub(super) async fn post_purchase(
     .await
     .map_err(|_| CheckoutError::Unavailable)?;
 
-    // Use the original purchase's persisted refund deadline, not another
-    // independent now()+7d calculation after committing the buyer charge.
+    // Finance terms are frozen in this purchase's immutable posting header.
+    // D-06 later owns shared purchase refund columns; no second clock is used.
     let deadline: Option<i64> = sqlx::query_scalar(
         "SELECT EXTRACT(EPOCH FROM refund_deadline_at)::BIGINT
-         FROM chapter_purchase_facts WHERE id=$1",
+         FROM finance_chapter_postings WHERE purchase_id=$1",
     )
     .bind(purchase_id)
     .fetch_one(&mut **tx)
@@ -149,7 +152,7 @@ pub(super) async fn post_purchase(
                 (purchase_id,user_id,share_percent,amount_minor,clear_at)
              SELECT $1,$2,s.share_percent,$3,p.refund_deadline_at
              FROM chapter_purchase_share_lines s
-             JOIN chapter_purchase_facts p ON p.id=s.purchase_id
+             JOIN finance_chapter_postings p ON p.purchase_id=s.purchase_id
              WHERE s.purchase_id=$1 AND s.user_id=$2",
         )
         .bind(purchase_id)

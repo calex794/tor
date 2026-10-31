@@ -232,20 +232,14 @@ impl CheckoutRepository for PgCheckout {
         // it from mutation. A failure there also rolls the wallet debit back.
         let purchase_id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO chapter_purchase_facts
-              (user_id, chapter_id, version_id, settlement_reference, amount_minor,
-               currency, refund_policy_version, refund_deadline_at)
-             VALUES ($1, $2, $3, $4, $5, 'RUB', $6,
-                     CASE WHEN $6::text IS NULL THEN NULL
-                          ELSE transaction_timestamp() + ($7::bigint * INTERVAL '1 second') END)
-             RETURNING id",
+              (user_id, chapter_id, version_id, settlement_reference, amount_minor, currency)
+             VALUES ($1, $2, $3, $4, $5, 'RUB') RETURNING id",
         )
         .bind(actor)
         .bind(chapter)
         .bind(version)
         .bind(&settlement)
         .bind(price)
-        .bind(finance_terms.as_ref().map(|t| t.refund_policy_version.as_str()))
-        .bind(finance_terms.as_ref().map(|t| t.refund_window_seconds))
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| {

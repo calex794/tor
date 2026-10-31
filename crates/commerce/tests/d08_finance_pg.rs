@@ -175,8 +175,8 @@ async fn d_08_single_purchase_posts_exact_credit_and_hold_once() {
     let (gross, fee, pool, exact_deadline, exact_hold): (i64, i64, i64, bool, bool) =
         sqlx::query_as(
             "SELECT s.gross_minor,s.platform_fee_minor,s.creator_pool_minor,
-                    (s.refund_deadline_at=p.refund_deadline_at),
-                    (e.clear_at=p.refund_deadline_at)
+                    (s.refund_deadline_at=p.acquired_at + INTERVAL '604800 seconds'),
+                    (e.clear_at=s.refund_deadline_at)
              FROM finance_chapter_postings s
              JOIN chapter_purchase_facts p ON p.id=s.purchase_id
              JOIN finance_creator_earnings e ON e.purchase_id=s.purchase_id
@@ -300,10 +300,8 @@ async fn d_08_missing_hold_rejects_commit_and_rolls_back_wallet_and_rights() {
     .unwrap();
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_purchase_facts
-          (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency,
-           refund_policy_version,refund_deadline_at)
-         VALUES($1,$2,$3,$4,250,'RUB','ci-refund-7d-v1',
-                transaction_timestamp() + INTERVAL '7 days') RETURNING id",
+          (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,250,'RUB') RETURNING id",
     )
     .bind(f.buyer)
     .bind(f.offers[0].edition.chapter_id.get())
@@ -345,8 +343,9 @@ async fn d_08_missing_hold_rejects_commit_and_rolls_back_wallet_and_rights() {
         "INSERT INTO finance_chapter_postings
           (purchase_id,book_id,share_revision,policy_version,refund_policy_version,
            refund_deadline_at,gross_minor,platform_fee_minor,creator_pool_minor)
-         SELECT id,$2,1,'ci-finance-rollback-v1',refund_policy_version,
-                refund_deadline_at,250,50,200 FROM chapter_purchase_facts WHERE id=$1",
+         SELECT id,$2,1,'ci-finance-rollback-v1','ci-refund-7d-v1',
+                acquired_at + INTERVAL '604800 seconds',250,50,200
+         FROM chapter_purchase_facts WHERE id=$1",
     )
     .bind(id)
     .bind(f.book)

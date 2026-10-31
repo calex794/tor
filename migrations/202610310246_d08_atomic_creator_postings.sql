@@ -33,15 +33,9 @@ CREATE TABLE finance_revenue_term_states (
         REFERENCES finance_revenue_terms(book_id, policy_version) ON DELETE RESTRICT
 );
 
--- These optional fields exist only for NEW policy-backed purchases.
--- Old purchases are not assigned an invented refund window.
-ALTER TABLE chapter_purchase_facts
-    ADD COLUMN refund_policy_version TEXT,
-    ADD COLUMN refund_deadline_at TIMESTAMPTZ,
-    ADD CONSTRAINT d08_refund_policy_pair CHECK (
-        (refund_policy_version IS NULL AND refund_deadline_at IS NULL)
-        OR (refund_policy_version IS NOT NULL AND refund_deadline_at IS NOT NULL)
-    );
+-- D-06 owns shared purchase refund fields and its legal policy catalog.
+-- D-08 keeps a per-purchase immutable finance snapshot without claiming
+-- those columns; PR #332 can add them later without duplicate DDL.
 
 -- One immutable finance authority per purchase. There are no cash-out buttons
 -- and no writer to reader_wallet_accounts for creators: their cash-origin
@@ -125,9 +119,7 @@ BEGIN
         WHERE p.id=NEW.purchase_id
           AND p.amount_minor=NEW.gross_minor
           AND p.currency='RUB'
-          AND p.refund_policy_version=NEW.refund_policy_version
-          AND p.refund_deadline_at=NEW.refund_deadline_at
-          AND p.refund_deadline_at > p.acquired_at
+          AND NEW.refund_deadline_at > p.acquired_at
           AND s.book_id=NEW.book_id
           AND s.share_revision=NEW.share_revision
           AND s.gross_amount_minor=NEW.gross_minor
@@ -141,7 +133,7 @@ BEGIN
         JOIN chapter_purchase_facts p ON p.id=NEW.purchase_id
         WHERE t.book_id=NEW.book_id AND t.policy_version=NEW.policy_version
           AND t.refund_policy_version=NEW.refund_policy_version
-          AND p.refund_deadline_at =
+          AND NEW.refund_deadline_at =
               p.acquired_at + (t.refund_window_seconds * INTERVAL '1 second')
           AND NEW.platform_fee_minor =
               floor((NEW.gross_minor::numeric * t.platform_fee_bps + 5000)/10000)::BIGINT
