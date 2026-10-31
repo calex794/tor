@@ -220,6 +220,52 @@ def scan_conflicts(main_files, pull_requests):
     return collisions
 
 
+
+def scan_cross_version_identical_sql(main_files, pull_requests):
+    """Report exact Git blob reuse across distinct SQLx migration versions.
+
+    This detects byte-identical SQL content under different numeric versions,
+    not semantically equivalent SQL with different bytes. It is diagnostic:
+    a matching blob does not establish that a migration ran twice in any DB.
+    """
+    by_blob = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+
+    def add(owner, filename, blob_sha):
+        if not filename.startswith("migrations/") or not filename.endswith(".sql"):
+            return
+        version, _ = migration_identity(filename)
+        if not isinstance(blob_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", blob_sha):
+            raise AuditError(f"Missing Git blob SHA for {filename}")
+        by_blob[blob_sha][version][filename].add(owner)
+
+    for file in main_files:
+        add("main", file["path"], file["sha"])
+    for pr in pull_requests:
+        owner = f"#{pr['number']}"
+        for file in pr["files"]:
+            if file["status"] != "removed":
+                add(owner, file["filename"], file["sha"])
+
+    reused = []
+    for blob_sha, versions in sorted(by_blob.items()):
+        if len(versions) < 2:
+            continue
+        reused.append({
+            "blob_sha": blob_sha,
+            "versions": [
+                {
+                    "version": version,
+                    "files": [
+                        {"path": filename, "owners": sorted(owners)}
+                        for filename, owners in sorted(files.items())
+                    ],
+                }
+                for version, files in sorted(versions.items())
+            ],
+        })
+    return reused
+
+
 def scan_live(repo):
     if not REPOSITORY.fullmatch(repo):
         raise AuditError("Repository must be in owner/name format")
@@ -239,9 +285,12 @@ def scan_live(repo):
         "main_sha": main_sha,
         "open_prs_scanned": len(observed),
         "collisions": scan_conflicts(main_files, observed),
+        "cross_version_identical_sql": scan_cross_version_identical_sql(main_files, observed),
         "notice": (
             "Read-only candidate conflicts from changed files of OPEN PRs; "
             "not a merged-tree or applied-database verification. "
+            "Exact SQL blob reuse under different versions is also reported; "
+            "different SQL bytes may still be semantically identical. "
             "Inherited, removed, and renamed paths require integration review."
         ),
     }
@@ -268,7 +317,9 @@ def main(argv=None):
             blocked = report["status"] == "BLOCK"
         else:
             report = scan_live(args.repo)
-            blocked = args.fail_on_conflict and bool(report["collisions"])
+            blocked = args.fail_on_conflict and bool(
+                report["collisions"] or report["cross_version_identical_sql"]
+            )
         print(json.dumps(report, indent=2, ensure_ascii=False))
         return 2 if blocked else 0
     except (AuditError, OSError, UnicodeError, KeyError, TypeError) as error:
