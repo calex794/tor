@@ -189,6 +189,18 @@ async fn d_08_single_purchase_posts_exact_credit_and_hold_once() {
         .unwrap();
     assert_eq!((gross, fee, pool), (250, 50, 200));
     assert!(exact_deadline && exact_hold);
+    let snapshot: (bool, bool) = sqlx::query_as(
+        "SELECT p.refund_policy_version=fp.refund_policy_version,
+                p.refund_deadline_at=fp.refund_deadline_at
+         FROM chapter_purchase_facts p
+         JOIN finance_chapter_postings fp ON fp.purchase_id=p.id
+         WHERE p.id=$1",
+    )
+    .bind(purchased.purchase_id.get())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(snapshot, (true, true));
     let creator_amount: i64 = sqlx::query_scalar(
         "SELECT amount_minor FROM finance_creator_earnings
          WHERE purchase_id=$1 AND user_id=$2",
