@@ -3,7 +3,7 @@ use super::{auth, auth_cookies, cover_delivery, make_router, pages, ril, AppStat
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
     Json, Router,
 };
 use std::sync::Arc;
@@ -78,11 +78,20 @@ pub(super) async fn cover_direct_grant(
     };
     match covers.direct_grant(id, kind).await {
         Ok(Some((url, digest, size))) => {
-            let sha256 = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-            auth_cookies::private_response(Json(DirectCoverGrant {
-                url, sha256, size_bytes: size,
-                content_type: "image/webp", expires_in_seconds: 60,
-            }).into_response(), &[])
+            let sha256 = digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            auth_cookies::private_response(
+                Json(DirectCoverGrant {
+                    url,
+                    sha256,
+                    size_bytes: size,
+                    content_type: "image/webp",
+                    expires_in_seconds: 60,
+                }),
+                &[],
+            )
         }
         Ok(None) => auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
         Err(tor_ingest::domain::cover::CoverError::Forbidden) => {
