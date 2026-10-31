@@ -8,7 +8,9 @@ async fn main() -> ExitCode {
     match report().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(()) => {
-            eprintln!("Отчёт недоступен: проверьте подключение и права чтения. Это не отсутствие угроз.");
+            eprintln!(
+                "Отчёт недоступен: проверьте подключение и права чтения. Это не отсутствие угроз."
+            );
             ExitCode::FAILURE
         }
     }

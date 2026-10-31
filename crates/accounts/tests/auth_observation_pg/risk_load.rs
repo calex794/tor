@@ -58,6 +58,8 @@ async fn a_09_risk_query_uses_time_index_and_handles_large_history() {
         .await
         .unwrap();
     assert!(rows.len() <= 50);
-    assert!(rows.iter().all(|row| row.bad_passwords + row.unknown_accounts >= 10));
+    assert!(rows
+        .iter()
+        .all(|row| row.bad_passwords + row.unknown_accounts >= 10));
     tx.rollback().await.unwrap();
 }
