@@ -7,7 +7,8 @@ use axum::{
 };
 
 const COVER_SRC: &str = "src=\"/covers/";
-const SCRIPT: &str = "<script type=\"module\" src=\"/assets/newboo-direct-cover.mjs\"></script>\n</body>";
+const SCRIPT: &str =
+    "<script type=\"module\" src=\"/assets/newboo-direct-cover.mjs\"></script>\n</body>";
 
 pub(super) fn decorate(html: Html<String>, origin: Option<&str>) -> (Html<String>, bool) {
     if origin.is_none() || !html.0.contains("</body>") {
@@ -20,7 +21,10 @@ pub(super) fn decorate(html: Html<String>, origin: Option<&str>) -> (Html<String
     while let Some(at) = rest.find(COVER_SRC) {
         result.push_str(&rest[..at]);
         let value = &rest[at + COVER_SRC.len()..];
-        let digits = value.bytes().take_while(|byte| byte.is_ascii_digit()).count();
+        let digits = value
+            .bytes()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
         let id = &value[..digits];
         let tail = &value[digits..];
         let variant = if tail.starts_with("/card.webp\"") {
@@ -71,7 +75,10 @@ pub(super) fn apply_policy(
     };
     let headers = response.headers_mut();
     headers.insert("content-security-policy", policy);
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
     headers.insert(
         header::REFERRER_POLICY,
         HeaderValue::from_static("same-origin"),
@@ -96,9 +103,7 @@ mod tests {
 
     #[test]
     fn disabled_pages_keep_their_current_same_origin_images() {
-        let html = Html(
-            "<html><body><img src=\"/covers/42/card.webp\"></body></html>".to_owned(),
-        );
+        let html = Html("<html><body><img src=\"/covers/42/card.webp\"></body></html>".to_owned());
         let (html, enabled) = decorate(html, None);
         assert!(!enabled);
         assert!(html.0.contains("src=\"/covers/42/card.webp\""));
@@ -126,7 +131,10 @@ mod tests {
         assert!(csp.contains("connect-src 'self' https://storage.example;"));
         assert!(csp.contains("script-src 'self'"));
         assert!(csp.contains("img-src 'self' blob:"));
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "private, no-store");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
     }
 
     #[test]
