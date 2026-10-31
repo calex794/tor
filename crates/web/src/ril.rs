@@ -176,7 +176,12 @@ async fn observe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::to_bytes, extract::Extension, http::Method, routing::{get, post}};
+    use axum::{
+        body::to_bytes,
+        extract::Extension,
+        http::Method,
+        routing::{get, post},
+    };
     use tor_route_intelligence::{CostClass, RoutePassport, StatusBucket};
     use tower::ServiceExt;
 
