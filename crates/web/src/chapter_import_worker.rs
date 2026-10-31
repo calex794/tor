@@ -4,6 +4,7 @@ use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tor_books::{
     repositories::{postgres::PgAuthoring, PgCatalog},
     services::{
+        authoring::AuthorError,
         chapter_file_import::{fingerprint, parse_text, MAX_IMPORT_BYTES},
         chapter_import_jobs::{ChapterImportObjectStore, ChapterImportStoreError},
     },
@@ -44,8 +45,9 @@ impl ChapterImportWorker {
         let expected_hash: [u8; 32] = match claim.source_sha256.as_slice().try_into() {
             Ok(value) => value,
             Err(_) => {
-                self.fail(&claim, false, "invalid_source_hash").await?;
-                return Ok(ChapterImportWorkerResult::Failed);
+                return self
+                    .terminal_failure(&claim, "invalid_source_hash")
+                    .await;
             }
         };
         let bytes = match self
@@ -60,43 +62,33 @@ impl ChapterImportWorker {
         {
             Ok(bytes) => bytes,
             Err(ChapterImportStoreError::Unavailable) => {
-                let retry = claim.attempts < 8;
-                self.fail(&claim, retry, "source_store_unavailable").await?;
-                return Ok(if retry {
-                    ChapterImportWorkerResult::Retried
-                } else {
-                    ChapterImportWorkerResult::Failed
-                });
+                return self
+                    .retryable_failure(&claim, "source_store_unavailable")
+                    .await;
             }
-            Err(_) => {
-                self.fail(&claim, false, "source_object_invalid").await?;
-                let _ = self.storage.delete(&claim.source_key).await;
-                return Ok(ChapterImportWorkerResult::Failed);
-            }
+            Err(_) => return self.terminal_failure(&claim, "source_object_invalid").await,
         };
         let text = match String::from_utf8(bytes) {
             Ok(text) => text,
             Err(_) => {
-                self.fail(&claim, false, "source_encoding_invalid").await?;
-                let _ = self.storage.delete(&claim.source_key).await;
-                return Ok(ChapterImportWorkerResult::Failed);
+                return self
+                    .terminal_failure(&claim, "source_encoding_invalid")
+                    .await;
             }
         };
         let chapters = match parse_text(&claim.source_filename, &text) {
             Ok(chapters) => chapters,
             Err(_) => {
-                self.fail(&claim, false, "source_structure_invalid").await?;
-                let _ = self.storage.delete(&claim.source_key).await;
-                return Ok(ChapterImportWorkerResult::Failed);
+                return self
+                    .terminal_failure(&claim, "source_structure_invalid")
+                    .await;
             }
         };
         if chapters.len() != claim.expected_chapter_count as usize
             || fingerprint(claim.book_id, &chapters).as_slice()
                 != claim.approved_fingerprint.as_slice()
         {
-            self.fail(&claim, false, "preview_changed").await?;
-            let _ = self.storage.delete(&claim.source_key).await;
-            return Ok(ChapterImportWorkerResult::Failed);
+            return self.terminal_failure(&claim, "preview_changed").await;
         }
 
         match self
@@ -105,60 +97,63 @@ impl ChapterImportWorker {
             .await
         {
             Ok(_) => {
-                // A failed S3 cleanup leaves only an unreferenced staging object;
-                // it cannot affect the committed chapters or reader delivery.
+                // The succeeded state and all chapters are already committed.
+                // Cleanup failure leaves only an unreferenced private staging object.
                 let _ = self.storage.delete(&claim.source_key).await;
                 Ok(ChapterImportWorkerResult::Completed)
             }
-            Err(tor_books::services::authoring::AuthorError::Unavailable) => {
-                let retry = claim.attempts < 8;
-                self.fail(&claim, retry, "database_unavailable").await?;
-                Ok(if retry {
-                    ChapterImportWorkerResult::Retried
-                } else {
-                    ChapterImportWorkerResult::Failed
-                })
-            }
-            Err(tor_books::services::authoring::AuthorError::Conflict) => {
-                // If this epoch is still current, a duplicate chapter or changed
-                // book is terminal. If cancel/reclaim already won, the fenced
-                // UPDATE is a no-op and the stale worker cannot change status.
-                let changed = self
-                    .authoring
-                    .fail_chapter_import(
-                        claim.job_id,
-                        claim.epoch,
-                        false,
-                        "import_conflict",
-                    )
+            Err(AuthorError::Unavailable) => {
+                self.retryable_failure(&claim, "database_unavailable")
                     .await
-                    .map_err(|_| "job_update_unavailable")?;
-                if changed {
-                    let _ = self.storage.delete(&claim.source_key).await;
-                    Ok(ChapterImportWorkerResult::Failed)
-                } else {
-                    Ok(ChapterImportWorkerResult::Stale)
-                }
             }
-            Err(_) => {
-                self.fail(&claim, false, "book_not_importable").await?;
-                let _ = self.storage.delete(&claim.source_key).await;
-                Ok(ChapterImportWorkerResult::Failed)
+            Err(AuthorError::Conflict) => {
+                // A current epoch with a chapter-number conflict becomes failed.
+                // A cancelled, expired or reclaimed epoch cannot update or delete
+                // the source object belonging to the winning worker.
+                self.terminal_failure(&claim, "import_conflict").await
             }
+            Err(_) => self.terminal_failure(&claim, "book_not_importable").await,
         }
     }
 
-    async fn fail(
+    async fn retryable_failure(
+        &self,
+        claim: &tor_books::repositories::postgres::chapter_import_jobs::ChapterImportClaim,
+        code: &str,
+    ) -> Result<ChapterImportWorkerResult, &'static str> {
+        self.record_failure(claim, claim.attempts < 8, code).await
+    }
+
+    async fn terminal_failure(
+        &self,
+        claim: &tor_books::repositories::postgres::chapter_import_jobs::ChapterImportClaim,
+        code: &str,
+    ) -> Result<ChapterImportWorkerResult, &'static str> {
+        self.record_failure(claim, false, code).await
+    }
+
+    async fn record_failure(
         &self,
         claim: &tor_books::repositories::postgres::chapter_import_jobs::ChapterImportClaim,
         retry: bool,
         code: &str,
-    ) -> Result<(), &'static str> {
-        self.authoring
+    ) -> Result<ChapterImportWorkerResult, &'static str> {
+        let changed = self
+            .authoring
             .fail_chapter_import(claim.job_id, claim.epoch, retry, code)
             .await
-            .map(|_| ())
-            .map_err(|_| "job_update_unavailable")
+            .map_err(|_| "job_update_unavailable")?;
+        if !changed {
+            // This worker no longer owns the lease. In particular it must not
+            // delete a source that a replacement worker may currently be reading.
+            return Ok(ChapterImportWorkerResult::Stale);
+        }
+        if !retry {
+            let _ = self.storage.delete(&claim.source_key).await;
+            Ok(ChapterImportWorkerResult::Failed)
+        } else {
+            Ok(ChapterImportWorkerResult::Retried)
+        }
     }
 }
 
@@ -191,11 +186,13 @@ pub fn start_chapter_import_worker_background(
             // A timed-out task releases its database lease by expiry. Stop this
             // local runner rather than immediately claiming more work.
             match tokio::time::timeout(Duration::from_secs(90), worker.run_one()).await {
-                Ok(Ok(ChapterImportWorkerResult::Idle
+                Ok(Ok(
+                    ChapterImportWorkerResult::Idle
                     | ChapterImportWorkerResult::Completed
                     | ChapterImportWorkerResult::Retried
                     | ChapterImportWorkerResult::Failed
-                    | ChapterImportWorkerResult::Stale)) => {}
+                    | ChapterImportWorkerResult::Stale,
+                )) => {}
                 Ok(Err(_)) => {}
                 Err(_) => break,
             }
