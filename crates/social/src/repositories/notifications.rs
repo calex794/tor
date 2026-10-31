@@ -287,10 +287,7 @@ impl PgNotifications {
     }
 
     /// Source semantics: all known kinds are enabled until explicitly saved.
-    pub async fn preferences(
-        &self,
-        actor: i64,
-    ) -> Result<Vec<NotificationPreference>, MailError> {
+    pub async fn preferences(&self, actor: i64) -> Result<Vec<NotificationPreference>, MailError> {
         if actor <= 0 {
             return Err(MailError::Invalid);
         }

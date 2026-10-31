@@ -492,8 +492,19 @@ async fn e_08_notification_preferences_persist_and_suppress_projection() {
     let reopened = PgNotifications::new(pool.clone());
     let saved = reopened.preferences(b).await.unwrap();
     assert!(!saved.iter().find(|p| p.kind == "mail").unwrap().enabled);
-    assert!(saved.iter().find(|p| p.kind == "friendship").unwrap().enabled);
-    assert!(reopened.preferences(c).await.unwrap().iter().all(|p| p.enabled));
+    assert!(
+        saved
+            .iter()
+            .find(|p| p.kind == "friendship")
+            .unwrap()
+            .enabled
+    );
+    assert!(reopened
+        .preferences(c)
+        .await
+        .unwrap()
+        .iter()
+        .all(|p| p.enabled));
 
     let mail = MailService::new(PgMail::new(pool.clone()));
     let conversation = mail.start(a, b).await.unwrap();
