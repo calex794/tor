@@ -291,7 +291,10 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     .parse()
     .unwrap();
     for _ in 0..30 {
-        integrity.evaluate_like(user_c, suspect_book, true).await.unwrap();
+        integrity
+            .evaluate_like(user_c, suspect_book, true)
+            .await
+            .unwrap();
     }
     let suspect_path = format!("/books/{suspect_book}/like");
     assert_eq!(
