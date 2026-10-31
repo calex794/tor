@@ -104,20 +104,19 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     bookmarks.remove_book(second_user, book).await.unwrap();
     let likes = PgBookLikes::new(pool.clone());
     assert_eq!(
-        likes.set_like(user, book, true).await.unwrap(),
+        likes.set_like(user, book, true, true).await.unwrap(),
         LikeMutation::Added
     );
     assert_eq!(
-        likes.set_like(user, book, true).await.unwrap(),
+        likes.set_like(user, book, true, true).await.unwrap(),
         LikeMutation::AlreadyLiked
     );
     assert_eq!(
-        likes.set_like(second_user, book, true).await.unwrap(),
+        likes
+            .set_like(second_user, book, true, false)
+            .await
+            .unwrap(),
         LikeMutation::Added
-    );
-    assert_eq!(
-        likes.set_like(second_user, book, false).await.unwrap(),
-        LikeMutation::Removed
     );
 
     // F-05 records are inserted directly for this read-model test.
@@ -143,6 +142,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert_eq!(report.thanks, 3);
     assert_eq!(report.bookmarks, 1);
     assert_eq!(report.likes, 1);
+    assert_eq!(report.untrusted_likes, 1);
     assert_eq!(report.work_rating, RatingStat { sum: 7, votes: 2 });
     assert_eq!(report.work_rating.average().as_deref(), Some("3.50"));
     assert_eq!(report.translation_rating, RatingStat { sum: 4, votes: 1 });
@@ -170,6 +170,7 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     assert_eq!(next.thanks, 3);
     assert_eq!(next.bookmarks, 1);
     assert_eq!(next.likes, 1);
+    assert_eq!(next.untrusted_likes, 1);
     assert_eq!(next.work_rating, RatingStat { sum: 7, votes: 2 });
     assert_eq!(next.top_by_thanks.first().map(|row| row.count), Some(2));
     // Book holding must suppress further telemetry; history stays private for
@@ -223,12 +224,37 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(remaining_likes, 0, "deleted reader's like must disappear");
+    // Deleting the first (trusted) reader must retain the other reader's
+    // untrusted personal like, but it must not restore trusted popularity.
+    assert_eq!(remaining_likes, 1, "other reader's like must survive");
+    let remaining_trusted_likes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_likes WHERE book_id=$1 AND stats_trusted")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_trusted_likes, 0);
+    let surviving_other_like: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM book_likes WHERE book_id=$1 AND user_id=$2 AND NOT stats_trusted",
+    )
+    .bind(book)
+    .bind(second_user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(surviving_other_like, 1);
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(second_user)
         .execute(&pool)
         .await
         .unwrap();
+    let remaining_likes_after_both_deletes: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_likes WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining_likes_after_both_deletes, 0);
     let after_delete: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM chapter_thanks WHERE book_id=$1")
             .bind(book)

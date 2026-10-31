@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::services::security::session_token_digest;
-use tor_reading::repositories::{LikeMutation, PgBookLikes};
+use tor_reading::repositories::{LikeMutation, PgBookEngagementIntegrity, PgBookLikes};
 
 #[derive(Default, Deserialize)]
 pub(super) struct LikeQuery {
@@ -103,6 +103,14 @@ pub(super) async fn submit(
         "0" => false,
         _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
+    let likes = PgBookLikes::new(state.accounts.pool().clone());
+    match likes.visible_summary(actor, id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+    let integrity = PgBookEngagementIntegrity::new(state.accounts.pool().clone());
+    // Reject over-limit requests before the more expensive rate-signal writes.
     // Shared PostgreSQL limit across web processes; retries count even when
     // a duplicate would not increase the public count. Separate from login.
     let key = session_token_digest(&format!("action:book_like:user:{actor}"));
@@ -111,6 +119,9 @@ pub(super) async fn submit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     if !allowed {
+        if integrity.record_hard_limit(actor, id, liked).await.is_err() {
+            return deny(StatusCode::SERVICE_UNAVAILABLE);
+        }
         let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
         response.headers_mut().insert(
             axum::http::header::RETRY_AFTER,
@@ -118,8 +129,14 @@ pub(super) async fn submit(
         );
         return response;
     }
-    let likes = PgBookLikes::new(state.accounts.pool().clone());
-    let outcome = match likes.set_like(actor, id, liked).await {
+    let decision = match integrity.evaluate_like(actor, id, liked).await {
+        Ok(decision) => decision,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let outcome = match likes
+        .set_like(actor, id, liked, decision.stats_trusted)
+        .await
+    {
         Ok(outcome) => outcome,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };

@@ -13,7 +13,7 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
-use tor_reading::repositories::{PgBookLikes, PgReader};
+use tor_reading::repositories::{PgBookEngagementIntegrity, PgBookLikes, PgReader};
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
@@ -86,6 +86,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         .as_nanos();
     let token_a = generate_session_token();
     let token_b = generate_session_token();
+    let token_c = generate_session_token();
     let csrf = generate_session_token();
     let user_a = accounts
         .register_with_session(
@@ -103,6 +104,16 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
             "Liker B",
             &hash_password("BookLikeBrowserPassword2026!").unwrap(),
             &session_token_digest(&token_b),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let user_c = accounts
+        .register_with_session(
+            &format!("book-like-http-c-{nonce}@example.invalid"),
+            "Liker C",
+            &hash_password("BookLikeBrowserPassword2026!").unwrap(),
+            &session_token_digest(&token_c),
             std::num::NonZeroU32::new(3600).unwrap(),
         )
         .await
@@ -150,11 +161,13 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     );
     let cookie_a = format!("tor-dev-session={token_a}; tor-dev-csrf={csrf}");
     let cookie_b = format!("tor-dev-session={token_b}; tor-dev-csrf={csrf}");
+    let cookie_c = format!("tor-dev-session={token_c}; tor-dev-csrf={csrf}");
     let detail = format!("/books/{book}");
     let like = format!("/books/{book}/like");
     let add = format!("csrf_token={csrf}&liked=1");
     let remove = format!("csrf_token={csrf}&liked=0");
     let likes = PgBookLikes::new(pool.clone());
+    let integrity = PgBookEngagementIntegrity::new(pool.clone());
 
     let public = call(&app, "GET", &detail, "", ORIGIN, "").await;
     assert_eq!(public.status(), StatusCode::OK);
@@ -262,10 +275,121 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     let limited = call(&app, "POST", &like, &cookie_b, ORIGIN, &add).await;
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(limited.headers()[header::RETRY_AFTER], "60");
+    for _ in 0..4 {
+        assert_eq!(
+            call(&app, "POST", &like, &cookie_b, ORIGIN, &add)
+                .await
+                .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+    // The hard limit is per account. Rotating books or toggling the action
+    // cannot bypass either the rate limit or its one-per-minute audit cap.
+    let another_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:likes-limit-rotate:{nonce}','ru','Limit rotation fixture','public')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let another_like_path = format!("/books/{another_book}/like");
+    assert_eq!(
+        call(&app, "POST", &another_like_path, &cookie_b, ORIGIN, &add)
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        call(&app, "POST", &like, &cookie_b, ORIGIN, &remove)
+            .await
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(likes.public_count(another_book).await.unwrap(), Some(0));
+    // Repeated blocked POSTs must not create unlimited audit rows or
+    // perform extra rate-bucket updates after the 20/minute hard limit.
+    let refused_events: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*) FROM book_engagement_integrity_events
+             WHERE user_id={user_b} AND decision='throttle'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    // Requests may cross a UTC minute boundary; both minute buckets are
+    // valid, but no minute may contain duplicate refusal rows.
+    assert!((1..=2).contains(&refused_events));
+    let refused_minutes: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(DISTINCT hard_limit_minute)
+             FROM book_engagement_integrity_events
+             WHERE user_id={user_b} AND decision='throttle'"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(refused_events, refused_minutes);
+    let accepted_subject_bucket_updates: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COALESCE(SUM(attempts),0) FROM book_engagement_rate_buckets
+             WHERE user_id={user_b}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(accepted_subject_bucket_updates, 40);
     assert_eq!(likes.public_count(book).await.unwrap(), Some(2));
     assert!(html(call(&app, "GET", &detail, "", ORIGIN, "").await)
         .await
         .contains("Нравится: 2"));
+
+    let suspect_book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:likes-suspect:{nonce}','ru','Suspicious rate fixture','public')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    for _ in 0..30 {
+        integrity
+            .evaluate_like(user_c, suspect_book, true)
+            .await
+            .unwrap();
+    }
+    let suspect_path = format!("/books/{suspect_book}/like");
+    assert_eq!(
+        call(&app, "POST", &suspect_path, &cookie_c, ORIGIN, &add)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(likes.public_count(suspect_book).await.unwrap(), Some(0));
+    let suspect_summary = likes
+        .visible_summary(user_c, suspect_book)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(suspect_summary.liked);
+    assert_eq!(suspect_summary.count, 0);
+    let suspect_events: i64 = pg(
+        &url,
+        &format!(
+            "SELECT COUNT(*) FROM book_engagement_integrity_events
+             WHERE user_id={user_c} AND book_id={suspect_book}"
+        ),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(suspect_events, 1);
 
     pg(
         &url,
@@ -298,5 +422,7 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
     pg(&url, &format!("DELETE FROM users WHERE id={user_b}"));
     assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
+    pg(&url, &format!("DELETE FROM users WHERE id={user_c}"));
+    assert_eq!(likes.public_count(suspect_book).await.unwrap(), Some(0));
     pool.close().await;
 }

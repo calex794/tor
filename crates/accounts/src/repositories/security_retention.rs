@@ -33,6 +33,28 @@ impl PgAccounts {
             WHERE period_started<now()-INTERVAL '1 day' ORDER BY period_started LIMIT 1000 FOR UPDATE SKIP LOCKED)
             DELETE FROM auth_attempts t USING batch b WHERE t.key_hash=b.key_hash")
             .execute(self.pool()).await?;
+        sqlx::query(
+            "WITH batch AS (
+                SELECT scope_hash,bucket_start FROM book_engagement_rate_buckets
+                WHERE bucket_start<now()-INTERVAL '2 hours'
+                ORDER BY bucket_start,scope_hash LIMIT 5000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM book_engagement_rate_buckets b USING batch
+             WHERE b.scope_hash=batch.scope_hash AND b.bucket_start=batch.bucket_start",
+        )
+        .execute(self.pool())
+        .await?;
+        sqlx::query(
+            "WITH batch AS (
+                SELECT id FROM book_engagement_integrity_events
+                WHERE observed_at<now()-INTERVAL '30 days'
+                ORDER BY observed_at,id LIMIT 1000 FOR UPDATE SKIP LOCKED
+             )
+             DELETE FROM book_engagement_integrity_events e USING batch
+             WHERE e.id=batch.id",
+        )
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 }
