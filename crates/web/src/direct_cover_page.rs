@@ -20,7 +20,7 @@ pub(super) fn decorate(html: Html<String>, origin: Option<&str>) -> (Html<String
     while let Some(at) = rest.find(COVER_SRC) {
         result.push_str(&rest[..at]);
         let value = &rest[at + COVER_SRC.len()..];
-        let digits = value.bytes().take_while(u8::is_ascii_digit).count();
+        let digits = value.bytes().take_while(|byte| byte.is_ascii_digit()).count();
         let id = &value[..digits];
         let tail = &value[digits..];
         let variant = if tail.starts_with("/card.webp\"") {
