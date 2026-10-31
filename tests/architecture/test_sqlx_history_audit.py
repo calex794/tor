@@ -109,6 +109,58 @@ class SQLxAuditTests(unittest.TestCase):
         with self.assertRaises(AuditError):
             local_migrations(self.root)
 
+    def test_same_sql_content_different_local_versions_fails_closed(self):
+        duplicate = self.root / "202611010009_duplicate_purchase_table.sql"
+        duplicate.write_bytes(self.sql)
+        with self.assertRaisesRegex(AuditError, "Identical SQLx SQL bytes") as error:
+            local_migrations(self.root)
+        self.assertIn(self.version, str(error.exception))
+        self.assertIn("202611010009", str(error.exception))
+
+    def test_identical_applied_checksum_under_different_versions_blocks(self):
+        other_version = "202611010009"
+        digest = self.valid["checksum_sha384_hex"]
+        # The supplied local mapping is constructed directly to prove that the
+        # applied ledger is validated even if local_migrations() was bypassed.
+        expected = {
+            **self.expected,
+            other_version: {
+                "filename": other_version + "_duplicate_purchase_table.sql",
+                "description": "duplicate purchase table",
+                "checksum": digest,
+            },
+        }
+        same_sql = record(
+            other_version, "duplicate purchase table", digest.upper()
+        )
+        database, applied = parse_inventory(inventory([self.valid, same_sql]))
+        result = evaluate_history(expected, database, applied)
+        self.assertEqual(result["matched"], [self.version, other_version])
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertTrue(any(
+            "Identical applied SQLx checksum" in blocker
+            and self.version in blocker and other_version in blocker
+            for blocker in result["blockers"]
+        ))
+
+    def test_distinct_applied_checksums_are_not_false_duplicates(self):
+        other_version = "202611010010"
+        other_sql = b"CREATE TABLE receipts(id bigint);\n"
+        checksum = hashlib.sha384(other_sql).hexdigest()
+        expected = {
+            **self.expected,
+            other_version: {
+                "filename": other_version + "_receipts.sql",
+                "description": "receipts",
+                "checksum": checksum,
+            },
+        }
+        other_row = record(other_version, "receipts", checksum)
+        database, applied = parse_inventory(inventory([self.valid, other_row]))
+        result = evaluate_history(expected, database, applied)
+        self.assertEqual(result["status"], "NO_APPLIED_DRIFT_DETECTED")
+        self.assertEqual(result["blockers"], [])
+
     def test_psql_requires_explicit_selection_and_never_calls_migrator(self):
         with patch.dict("os.environ", {"PGSERVICE": "", "PGDATABASE": ""}):
             with self.assertRaises(AuditError):
