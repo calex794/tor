@@ -10,7 +10,10 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::PgCatalog;
-use tor_reading::repositories::{PgChapterThanks, PgReader, ThanksMutation};
+use tor_reading::repositories::{
+    LikeMutation, PgBookLikes, PgChapterThanks, PgLibrary, PgReader, ThanksMutation,
+};
+use tor_recommendations::repositories::{PgBookStars, StarKind};
 use tower::ServiceExt;
 
 fn pg(url: &str, statement: &str) -> String {
@@ -141,6 +144,33 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
         ThanksMutation::Added
     );
 
+    let bookmarks = PgLibrary::new(pool.clone());
+    bookmarks.add_book(owner, book).await.unwrap();
+    bookmarks.add_book(owner, book).await.unwrap();
+    let likes = PgBookLikes::new(pool.clone());
+    assert_eq!(
+        likes.set_like(owner, book, true).await.unwrap(),
+        LikeMutation::Added
+    );
+    // Ratings pass F-05's canonical completion requirement, not direct SQL.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_chapter_completions
+             (user_id,book_id,chapter_id,first_version_id,source_event_id)
+             VALUES({owner},{book},{chapter},{version},gen_random_uuid())"
+        ),
+    );
+    let stars = PgBookStars::new(pool.clone());
+    stars
+        .set_rating(owner, book, StarKind::Work, 4)
+        .await
+        .unwrap();
+    stars
+        .set_rating(owner, book, StarKind::Translation, 5)
+        .await
+        .unwrap();
+
     // HEAD probes must never count as chapter opens.
     let reader_path = format!("/reader/{chapter}");
     let head = app
@@ -191,6 +221,10 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     let html = body(ok).await;
     assert!(html.contains("Статистика книги"));
     assert!(html.contains("Благодарностей: 1"));
+    assert!(html.contains("Закладок: 1"));
+    assert!(html.contains("Отметок «Нравится»: 1"));
+    assert!(html.contains("Оценка произведения: 4.00 (голосов: 1)"));
+    assert!(html.contains("Оценка перевода: 5.00 (голосов: 1)"));
     assert!(html.contains("<th>Спасибо</th>"));
     assert!(html.contains("Топ 5 глав по благодарностям"));
     assert!(html.contains("«Спасибо»: 1"));
@@ -202,15 +236,32 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     assert!(data.contains("\"'=2+3 Stats\""), "formula must not execute");
     assert!(data.contains("book,0,"));
     assert!(data.contains("gross_minor,completed,thanks"));
+    assert!(data.contains("thanks,bookmarks,work_rating_avg,work_rating_votes,"));
+    assert!(data.contains("translation_rating_avg,translation_rating_votes,likes"));
+    // This fixture contains no commas in titles: every CSV row must have
+    // all 17 columns, even when chapter/day scores are intentionally blank.
+    assert!(
+        data.lines().all(|line| line.split(',').count() == 17),
+        "book, chapter and day rows must agree with the CSV header"
+    );
+    let book_row = data
+        .lines()
+        .find(|line| line.starts_with("book,0,"))
+        .unwrap();
+    assert!(book_row.ends_with(",1,1,4.00,1,5.00,1,1"));
     assert!(data
         .lines()
         .any(|line| line.starts_with("book,0,") && line.ends_with(",1")));
-    assert!(data
-        .lines()
-        .any(|line| line.starts_with("chapter,1,") && line.ends_with(",1")));
-    assert!(data
-        .lines()
-        .any(|line| line.starts_with("daily,0,") && line.ends_with(",1")));
+    assert!(data.lines().any(|line| {
+        line.starts_with("chapter,1,")
+            && line.split(',').nth(10) == Some("1")
+            && line.ends_with(",,,,,,")
+    }));
+    assert!(data.lines().any(|line| {
+        line.starts_with("daily,0,")
+            && line.split(',').nth(10) == Some("1")
+            && line.ends_with(",,,,,,")
+    }));
     let later = get(&app, &format!("{page}?after=1:5"), Some(&owner_token)).await;
     assert_eq!(later.status(), StatusCode::OK);
     let later_html = body(later).await;

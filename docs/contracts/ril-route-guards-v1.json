@@ -193,6 +193,13 @@
     },
     {
       "method": "GET",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/books/{id}/stats",
       "source": "crates/web/src/auth.rs",
       "handler": "book_stats_http::page",
@@ -610,6 +617,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_comments::submit",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/like",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_likes::submit",
+      "policy": "scoped"
     },
     {
       "method": "POST",
