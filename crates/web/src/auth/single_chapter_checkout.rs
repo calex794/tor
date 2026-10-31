@@ -81,7 +81,7 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
              <input type=\"hidden\" name=\"command_key\" value=\"{}\">\
              <button type=\"submit\" class=\"ui-button ui-button--primary\">Купить главу</button>\
              </form>\
-             <p>При смене цены, версии или подписки покупка будет отклонена без списания.</p>",
+             <p>При изменении исходной или итоговой цены, акции, периода подписки или редакции покупка будет отклонена без списания.</p>",
             pages::escape_html(&quote.book_title),
             quote.chapter_no,
             pages::escape_html(&quote.chapter_title),
