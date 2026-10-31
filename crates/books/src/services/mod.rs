@@ -138,3 +138,5 @@ pub mod chapter_file_import;
 
 /// Bounded DOCX extraction, validated by the same S023 chapter parser.
 pub mod docx_import;
+/// Bounded ZIP of numbered chapter files (TXT, MD or DOCX).
+pub mod zip_import;
