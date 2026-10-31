@@ -71,17 +71,17 @@ pub(super) async fn submit(
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
     let repo = PgTextIssues::new(state.accounts.pool().clone());
-    match repo.create_free(
+    match repo.create_free(tor_discussions::repositories::text_issues::NewTextIssue {
         actor,
         chapter_id,
-        form.version_id,
-        form.block_index,
-        form.selection_start,
-        form.selection_end,
-        &form.quote,
-        &form.suggested_text,
-        &form.issue_type,
-    ).await {
+        version_id: form.version_id,
+        block_index: form.block_index,
+        selection_start: form.selection_start,
+        selection_end: form.selection_end,
+        quote: &form.quote,
+        suggestion: &form.suggested_text,
+        issue_type: &form.issue_type,
+    }).await {
         Ok(CreatedIssue::Added(_)) => private_response(
             Redirect::to(&format!("/read/{chapter_id}?issue=sent")), &[]
         ),
