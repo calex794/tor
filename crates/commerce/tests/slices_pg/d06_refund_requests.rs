@@ -198,6 +198,16 @@ async fn d_06_future_policy_refund_request_idempotent_without_money_reversal() {
             .await
             .unwrap();
     assert_eq!(wallet, 700);
+    // Test-only finance moderator must not leak a global admin role into the
+    // subsequent Line A last-administrator acceptance test on shared tor_ci.
+    sqlx::query(
+        "UPDATE account_roles SET is_active=FALSE
+         WHERE user_id=$1 AND role='administrator'",
+    )
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
