@@ -102,9 +102,11 @@ jobs:
       - name: Workspace regression
         run: |
           exec > >(tee "$RUNNER_TEMP/rec13-browser/regression.log") 2>&1
-          cargo test --workspace --all-targets
-          cargo clippy --workspace --all-targets -- -D warnings
-          python3 -m unittest discover -s tests/architecture -v
+          status=0
+          cargo test --workspace --all-targets || status=1
+          cargo clippy --workspace --all-targets -- -D warnings || status=1
+          python3 -m unittest discover -s tests/architecture -v || status=1
+          exit "$status"
       - name: Confirm tested source is the committed source
         if: always()
         run: git diff --exit-code
@@ -112,5 +114,7 @@ jobs:
         if: always()
         with:
           name: rec-evidence-${{ github.event.pull_request.head.sha || github.sha }}
-          path: ${{ runner.temp }}/rec13-browser/
+          path: |
+            ${{ runner.temp }}/rec13-browser/*.log
+            ${{ runner.temp }}/rec13-browser/shots/*.png
           retention-days: 3

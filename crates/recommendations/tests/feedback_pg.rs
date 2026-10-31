@@ -74,7 +74,7 @@ async fn canonical_start(pool: &PgPool, actor: i64, book: i64) -> String {
     let chapter: i64=sqlx::query_scalar("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES($1,1,'First','public') ON CONFLICT(book_id,chapter_no) DO UPDATE SET visibility='public' RETURNING id")
         .bind(book).fetch_one(pool).await.unwrap();
     let version: i64=sqlx::query_scalar("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES($1,1,'Readable text') ON CONFLICT(chapter_id,version_no) DO NOTHING RETURNING id")
-        .bind(chapter).fetch_optional(pool).await.unwrap().unwrap_or_else(|| 0);
+        .bind(chapter).fetch_optional(pool).await.unwrap().unwrap_or(0);
     let version = if version == 0 {
         sqlx::query_scalar("SELECT id FROM chapter_versions WHERE chapter_id=$1 AND version_no=1")
             .bind(chapter)
@@ -294,4 +294,105 @@ async fn rec13_forged_payload_without_c_fact_is_rejected() {
     .await
     .unwrap();
     assert_eq!(n, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn rec13_delayed_c_event_uses_occurrence_time_not_delivery_time() {
+    use tor_recommendations::domain::feedback::token_digest;
+
+    let (pool, store, actor, book) = fixture("delayed-attribution").await;
+    enable(&store, actor).await;
+    let first = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &first).await.unwrap();
+    let event = canonical_start(&pool, actor, book).await;
+    let later = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &later).await.unwrap();
+
+    assert!(store.accept_read_event(&event).await.unwrap());
+    let credited: Vec<u8> = sqlx::query_scalar(
+        "SELECT a.ticket_digest FROM rec_first_conversions c
+         JOIN rec_assignments a ON a.id=c.assignment_id
+         WHERE c.source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(credited, token_digest(&first).unwrap().to_vec());
+    assert_ne!(credited, token_digest(&later).unwrap().to_vec());
+    assert!(!store.accept_read_event(&event).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn rec13_reconsent_does_not_resurrect_old_undelivered_reading() {
+    let (pool, store, actor, book) = fixture("reconsent-old-event").await;
+    enable(&store, actor).await;
+    let old = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &old).await.unwrap();
+    let event = canonical_start(&pool, actor, book).await;
+    store
+        .set_consent(actor, false, 1, &new_ticket().unwrap())
+        .await
+        .unwrap();
+    enable_again(&store, actor).await;
+    let new = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &new).await.unwrap();
+
+    assert!(store.accept_read_event(&event).await.unwrap());
+    let conversions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(conversions, 0, "old consent epoch cannot train the new one");
+    let canonical: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM reader_chapter_starts WHERE source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(canonical, 1, "opt-out does not delete C-owned reading facts");
+    assert!(!store.accept_read_event(&event).await.unwrap());
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn rec13_late_view_reclassifies_click_without_duplicating_ctr() {
+    let (_pool, store, actor, book) = fixture("late-view").await;
+    enable(&store, actor).await;
+    let ticket = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &ticket).await.unwrap();
+    store.refresh_quality().await.unwrap();
+    let before = store
+        .quality(1)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.book_id == book.to_string())
+        .unwrap();
+    assert_eq!(before.impressions, 0);
+    assert_eq!(before.paired_clicks, 0);
+    assert_eq!(before.unpaired_clicks, 1);
+    for _ in 0..2 {
+        store
+            .impressions(actor, &[7; 32], &[impression(&ticket, true)])
+            .await
+            .unwrap();
+        store.refresh_quality().await.unwrap();
+    }
+    let after = store
+        .quality(1)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.book_id == book.to_string())
+        .unwrap();
+    assert_eq!(after.impressions, 1);
+    assert_eq!(after.paired_clicks, 1);
+    assert_eq!(after.unpaired_clicks, 0);
 }

@@ -49,6 +49,23 @@ fn reason_name(value: Reason) -> &'static str {
     }
 }
 
+/// Keep explicit book context first, followed by actual reading recency.
+/// Numeric sorting before truncation can silently drop a new current book.
+fn candidate_seeds(seed: Option<i64>, recent: &[i64]) -> Vec<i64> {
+    let mut seen = BTreeSet::new();
+    let mut seeds = Vec::with_capacity(6);
+    for id in seed.into_iter().chain(recent.iter().copied()) {
+        if seen.insert(id) {
+            seeds.push(id);
+            if seeds.len() == 5 {
+                break;
+            }
+        }
+    }
+    seeds.push(0); // The bounded generation-wide fallback partition.
+    seeds
+}
+
 impl PgRecommendations {
     pub async fn feed(
         &self,
@@ -95,14 +112,7 @@ impl PgRecommendations {
             return self.fallback(subject.as_deref(), seed, limit).await;
         }
         let generation = generation.expect("eligible generation");
-        let mut seeds = recent.clone();
-        if let Some(seed) = seed {
-            seeds.insert(0, seed);
-        }
-        seeds.sort_unstable();
-        seeds.dedup();
-        seeds.truncate(5);
-        seeds.push(0);
+        let seeds = candidate_seeds(seed, &recent);
         let rows=sqlx::query("SELECT seed_id,book_id,source,reason,score FROM rec_candidate_edges WHERE generation_id=$1::uuid AND seed_id=ANY($2::bigint[]) ORDER BY seed_id,score DESC,book_id::text LIMIT 500")
             .bind(&generation).bind(&seeds).fetch_all(&self.pool).await?;
         let mut candidates = Vec::new();
@@ -241,5 +251,25 @@ impl PgRecommendations {
             next_cursor: None,
             personalized: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::candidate_seeds;
+
+    #[test]
+    fn rec13_explicit_book_context_survives_full_recent_history() {
+        let seeds = candidate_seeds(Some(99), &[5, 4, 3, 2, 1]);
+        assert_eq!(seeds, [99, 5, 4, 3, 2, 0]);
+    }
+
+    #[test]
+    fn rec13_seed_dedup_preserves_recency_instead_of_numeric_order() {
+        let seeds = candidate_seeds(Some(81), &[91, 2, 81, 3, 1]);
+        assert_eq!(seeds, [81, 91, 2, 3, 1, 0]);
+        let recent = candidate_seeds(None, &[91, 2, 81, 3, 1]);
+        assert_eq!(recent, [91, 2, 81, 3, 1, 0]);
+        assert_eq!(candidate_seeds(None, &[]), [0]);
     }
 }
