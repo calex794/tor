@@ -60,7 +60,9 @@ struct ErrorResponse {
 
 /// A DOCX is decoded only on the authorized preview. Confirmation always
 /// re-parses extracted UTF-8 text under the existing book-bound fingerprint.
-fn preview_source(input: &ImportInput) -> Result<(Vec<ImportedChapter>, Option<String>), ImportError> {
+fn preview_source(
+    input: &ImportInput,
+) -> Result<(Vec<ImportedChapter>, Option<String>), ImportError> {
     if let Some(encoded) = input.file_base64.as_deref() {
         if !input.text.is_empty() || !valid_docx_filename(&input.filename) {
             return Err(ImportError::InvalidFilename);
@@ -68,7 +70,9 @@ fn preview_source(input: &ImportInput) -> Result<(Vec<ImportedChapter>, Option<S
         if encoded.len() > MAX_DOCX_BYTES.div_ceil(3) * 4 {
             return Err(ImportError::TooLarge);
         }
-        let bytes = BASE64.decode(encoded).map_err(|_| ImportError::InvalidArchive)?;
+        let bytes = BASE64
+            .decode(encoded)
+            .map_err(|_| ImportError::InvalidArchive)?;
         let extracted = extract_docx_text(&bytes)?;
         let chapters = parse_text("extracted.txt", &extracted)?;
         Ok((chapters, Some(extracted)))
@@ -270,7 +274,10 @@ pub(super) async fn confirm(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
     if input.file_base64.is_some() {
-        return fail(StatusCode::UNPROCESSABLE_ENTITY, "Сначала проверьте извлечённый текст DOCX.");
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Сначала проверьте извлечённый текст DOCX.",
+        );
     }
     let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
         Ok(chapters) => chapters,
