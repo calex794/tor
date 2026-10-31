@@ -565,4 +565,3 @@ async fn d_06_refund_step_up_is_bound_to_session_reason_and_expiry() {
     assert_eq!((balance, reversals), (700, 0));
     d06_approval_cleanup(f).await;
 }
-
