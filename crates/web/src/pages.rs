@@ -6,11 +6,18 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod creators;
+pub use creators::creator_follows;
+mod referrals;
+mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, my_account, my_account_with_follow_updates,
-    password_change_form, registration_form, registration_form_with_error,
+    account_error_page, login_form, my_account, my_account_with_achievements,
+    my_account_with_follow_updates, password_change_form, registration_form,
+    registration_form_with_error,
 };
+pub use referrals::referrals_page;
+pub use session_security::active_sessions;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -104,10 +111,12 @@ fn book_detail_with_chapters_cover_internal(
             } else {
                 write!(
                     items,
-                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span></li>",
+                    "<li class=\"chapter-toc__item\"><a href=\"/reader/{}\">Глава {}. {title}</a><span class=\"chapter-toc__badge chapter-toc__badge--free\">Бесплатно</span>",
                     chapter.id, chapter.number
                 )
                 .expect("writing String");
+                write!(items, "<!--BOOK_OWNER_EDIT:{}--></li>", chapter.id)
+                    .expect("writing String");
             }
         }
         items.push_str("</ol>");
@@ -169,6 +178,16 @@ pub fn book_detail_with_chapters_cover_stars_batch(
     Html(
         html.0
             .replace("<!--BOOK_RATINGS-->", &book_star_strip(book.id, stars)),
+    )
+}
+
+/// Book likes are independent of ratings, chapter thanks and purchases.
+pub fn book_likes_strip(book_id: u64, count: i64) -> String {
+    format!(
+        "<section class=\"book-likes\" aria-label=\"Отметки «Нравится»\">\
+         <span>Нравится: {count}</span>\
+         <a class=\"text-link\" href=\"/books/{book_id}/like\">Отметить книгу</a>\
+         </section>"
     )
 }
 
@@ -298,6 +317,13 @@ fn book_detail_body(
         .replace("<!--PRIMARY_ACTION-->", &action)
         .replace("<!--LIBRARY_ACTION-->", &library_action)
         .replace(
+            "<!--BOOK_REFERRAL_ACTION-->",
+            &format!(
+                "<a class=\"ui-button ui-button--ghost\" href=\"/me/referrals?book={}\">Поделиться книгой</a>",
+                book.id
+            ),
+        )
+        .replace(
             "<!--BATCH_PURCHASE_ACTION-->",
             &if batch_enabled {
                 format!(
@@ -371,6 +397,9 @@ pub fn reader_with_login_link(
     } else {
         format!("<nav class=\"chapter-navigation\" aria-label=\"Переход между главами\">{previous}{next}</nav>")
     };
+    let thanks_link = chapter_id
+        .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
+        .unwrap_or_default();
     let html = include_str!("../templates/reader.html")
         .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
         .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
@@ -378,6 +407,7 @@ pub fn reader_with_login_link(
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
         .replace("<!--CONTINUATION_STATUS-->", &continuation_status)
+        .replace("<!--CHAPTER_THANKS_LINK-->", &thanks_link)
         .replace(
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),

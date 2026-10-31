@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 99] = [
+const ROUTES: [RouteRegistration; 125] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -109,6 +109,32 @@ const ROUTES: [RouteRegistration; 99] = [
     RouteRegistration::new("/reset-password", "POST", "/reset-password/", Exact, Page, Auth, Write), // 96
     RouteRegistration::new("/api/v1/me/password", "POST", "/api/v1/me/password/", Exact, Api, Auth, Write), // 97
     RouteRegistration::new("/assets/account-reset.js", "GET", "/assets/", Exact, Static, System, Free), // 98
+    RouteRegistration::new("/r/{code}", "GET", "/r/", Prefix, Page, Auth, Write), // 99
+    RouteRegistration::new("/me/referrals", "GET", "/me/referrals/", Exact, Page, Dashboard, Read), // 100
+    RouteRegistration::new("/me/referrals", "POST", "/me/referrals/", Exact, Page, Dashboard, Write), // 101
+    RouteRegistration::new("/api/v1/me/referrals", "GET", "/api/v1/me/referrals/", Exact, Api, Dashboard, Read), // 102
+    RouteRegistration::new("/api/v1/me/referrals", "POST", "/api/v1/me/referrals/", Exact, Api, Dashboard, Write), // 103
+    RouteRegistration::new("/go/{alias}", "GET", "/go/", Prefix, Page, Auth, Read), // 104
+    RouteRegistration::new("/promo/{alias}", "GET", "/promo/", Prefix, Page, Auth, Read), // 105
+    RouteRegistration::new("/me/referrals/alias", "POST", "/me/referrals/alias/", Exact, Page, Dashboard, Write), // 106
+    RouteRegistration::new("/api/v1/me/referrals/alias", "POST", "/api/v1/me/referrals/alias/", Exact, Api, Dashboard, Write), // 107
+    RouteRegistration::new("/me/security/sessions", "GET", "/me/", Exact, Page, Auth, Read), // 108
+    RouteRegistration::new("/me/security/sessions", "POST", "/me/", Exact, Page, Auth, Write), // 109
+    RouteRegistration::new("/assets/mentions.js", "GET", "/assets/", Exact, Static, System, Read), // 110
+    RouteRegistration::new("/api/v1/social/mentions/discover", "GET", "/api/v1/social/", Exact, Api, Dashboard, Read), // 111
+    RouteRegistration::new("/me/books/{id}/chapters/import", "GET", "/me/", Prefix, Page, Dashboard, Read), // 112
+    RouteRegistration::new("/me/books/{id}/chapters/import-preview", "POST", "/me/", Prefix, Page, Dashboard, Write), // 113
+    RouteRegistration::new("/me/books/{id}/chapters/import-confirm", "POST", "/me/", Prefix, Page, Dashboard, Write), // 114
+    RouteRegistration::new("/assets/newboo-chapter-import.js", "GET", "/assets/", Exact, Static, System, Free), // 115
+    RouteRegistration::new("/books/{id}/stats", "GET", "/books/", Prefix, Page, Dashboard, Read), // 116
+    RouteRegistration::new("/books/{id}/stats/export.csv", "GET", "/books/", Prefix, Page, Dashboard, Read), // 117
+    RouteRegistration::new("/reader/{id}/thanks", "GET", "/reader/", Prefix, Page, Reading, Read), // 118
+    RouteRegistration::new("/reader/{id}/thanks", "POST", "/reader/", Prefix, Page, Reading, Write), // 119
+    RouteRegistration::new("/me/creators", "GET", "/me/", Exact, Page, Dashboard, Read), // 120
+    RouteRegistration::new("/me/creators/{id}/unfollow", "POST", "/me/", Prefix, Page, Dashboard, Write), // 121
+    RouteRegistration::new("/me/books/{id}/follow-creator", "POST", "/me/", Prefix, Page, Reading, Write), // 122
+    RouteRegistration::new("/books/{id}/like", "GET", "/books/", Prefix, Page, Reading, Read), // 123
+    RouteRegistration::new("/books/{id}/like", "POST", "/books/", Prefix, Page, Reading, Write), // 124
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

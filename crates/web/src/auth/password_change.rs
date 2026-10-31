@@ -14,6 +14,7 @@ use serde::Deserialize;
 use std::{net::SocketAddr, num::NonZeroU32};
 use tor_accounts::{
     domain::access_audit::{LoginAuditContext, LoginEventKind},
+    repositories::credentials::PasswordRotation,
     services::{
         security::{generate_session_token, hash_password, session_token_digest, verify_password},
         validation::password_change,
@@ -103,15 +104,15 @@ async fn rotate(
     let token = generate_session_token();
     let updated = state
         .accounts
-        .rotate_password_and_sessions(
+        .rotate_password_and_sessions(PasswordRotation {
             user_id,
-            &session_token_digest(&session),
-            &expected,
-            &replacement,
-            &session_token_digest(&token),
-            NonZeroU32::new(SESSION_AGE).unwrap(),
+            old_session: &session_token_digest(&session),
+            expected_password_hash: &expected,
+            new_password_hash: &replacement,
+            new_session: &session_token_digest(&token),
+            ttl: NonZeroU32::new(SESSION_AGE).unwrap(),
             audit,
-        )
+        })
         .await
         .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "Повторите позже"))?;
     if !updated {

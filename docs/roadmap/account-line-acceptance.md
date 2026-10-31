@@ -1,4 +1,12 @@
-# Active account line A — integration candidate
+# Линия A — принятая реализация учётных записей и доступа
+
+## Приёмка 31.10.2026
+
+Основная линия принята в `main` через [№291](https://github.com/calex794/tor/pull/291), коммит `6979c8bf9008733df8ec703c88c97fdc59528b24`. Конечная ревизия ветки `d80f67db133d9ba1b00505e48f75789f3162d4c0` прошла [общую проверку](https://github.com/calex794/tor/actions/runs/41107177298) и [правила репозитория](https://github.com/calex794/tor/actions/runs/41107177309).
+
+Список действующих устройств и отзыв другого/своего сеанса приняты через [№296](https://github.com/calex794/tor/pull/296), коммит `b9f0a4196ef57dd73259d0474020adb525ea3be8`. Конечная ревизия `beb0b708c09fed85f3e0b477738ed79ecbedda8c` прошла [PostgreSQL/HTTP/Chromium и остальные проверки](https://github.com/calex794/tor/actions/runs/41110636044), а также [правила репозитория](https://github.com/calex794/tor/actions/runs/41110635939).
+
+**Граница решения владельца:** забытый пароль и реальная отправка восстановительного письма отложены. Код уже существует, но выключен по умолчанию. Описанные ниже испытания одноразового кода относятся к технической основе и тестовой почте; это не готовность реальной доставки и не поручение включать её. Яндекс остаётся заморожен. Сервер не обновлялся.
 
 Source: NEwBOO `17125ef758a791e9630505c14d24f7fe65aed228`, `backend/app/web/routes/account_settings.py`; TOR `lanes/A.md`, `api-v1.md`, `access-authorization-contract.md`. Integration: [PR #291](https://github.com/calex794/tor/pull/291). This file maps implementation and acceptance commands; it does not substitute for exact-head CI evidence.
 
@@ -11,7 +19,7 @@ Source: NEwBOO `17125ef758a791e9630505c14d24f7fe65aed228`, `backend/app/web/rout
 | A-07 | HTML and JSON password changes share one rotation command. Credential writes lock the account before sessions; login rechecks the verified hash under that same lock. Successful changes atomically create a replacement-session audit event with trusted peer IP, retained under the existing 30-day IP / 90-day event policy. A changed IP alone never blocks password rotation. `/forgot-password` and `/reset-password`: 256-bit secret, digest only in PG, 30-minute DB expiry, credential fingerprint, one-time atomic consumption, all previous sessions revoked, then explicit login. Email lookup/delivery is outside the identical bounded request-response path. |
 | A-08 | Frozen by product decision. No Yandex/OAuth implementation or required acceptance. |
 | A-09 | Existing PG identity and verified-peer attempt limits, bounded Argon2 workers; reset uses the same independent limits. Nginx real IP is trusted only when explicitly configured and the peer is loopback; forwarded claims are ignored. No email/token/IP metric labels. |
-| A-11 | PG tests below plus real Chromium registration/settings/reset journey; Notion S002/S004 and BR-021 retain partial/in-review status until the final candidate SHA passes. |
+| A-11 | Активная часть принята по PostgreSQL/HTTP/Chromium в №291 и №296; BR-021 закрыта. S002 — поведение сверено; S004 остаётся частичным из-за отдельно отложенного восстановления забытого пароля. Точные ревизии и проверки приведены выше. |
 
 ## Acceptance
 
@@ -33,3 +41,11 @@ Recovery defaults off. Enabling requires `TOR_PASSWORD_RESET_ENABLED=1`, an abso
 An accepted request is not proof of inbox delivery. The local MTA must durably queue accepted mail; end-to-end production delivery and MTA failure/restart monitoring require G/operator configuration and are not proven by the isolated test adapter. The application does not introduce another general-purpose outbox beside #277. A process crash before MTA handoff can lose a request; the reader can request another link. External notification cadence is only a saved preference, not a sender consent or active external newsletter.
 
 Account-owned cleanup runs bounded batches every five minutes: IP cleared after 30 days, login events after 90 days, expired reset proofs after two days, attempt counters after one day. Outage backlogs drain on restart. Production retention/privacy policy and initial administrator provisioning still require operator review. No VPS deployment is authorized or performed by this PR.
+
+## A-03 — владельцу видны и подконтрольны собственные сеансы (дополнительный пользовательский сценарий)
+
+[Принятый PR №296](https://github.com/calex794/tor/pull/296): `GET /me/security/sessions` выводит максимум 50 действующих сеансов с временем входа UTC, семейством браузера и отметкой текущего устройства. В интерфейсе **нет** IP, хешей токенов, полного User-Agent или ложной «последней активности». Только владелец видит свои сеансы.
+
+`POST /me/security/sessions` принимает проверенный формат UUID, действующий серверный сеанс и Origin/CSRF; PostgreSQL отзывает только принадлежащий владельцу сеанс, если действующий инициирующий сеанс всё ещё активен. Чужие/несуществующие ID дают одинаковый 404. Самоотзыв очищает cookie и требует новый вход. Нельзя менять другого пользователя и нельзя обойти защиту чужим UUID.
+
+Проверка: `cargo test -p tor-web --test account_sessions_http_pg a_03_ -- --ignored --test-threads=1` на отдельной PG18; `node tools/account_line_browser.cjs` теперь проверяет завершение второй сессии реальным Chromium. Новые маршруты включены в RIL/ACL. Никакой GeoIP или автоматической блокировки по стране: на это нужны отдельные измерения и политика ложных срабатываний.

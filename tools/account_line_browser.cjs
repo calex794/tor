@@ -64,6 +64,17 @@ async function login(browser,mail,secret) {
     await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/notification-settings`),alice.page.locator('form button').click()]);
     await alice.page.waitForLoadState('networkidle');
     assert.equal((await (await alice.context.request.get(`${base}/api/v1/me`)).json()).delivery_settings,'daily_digest');
+    await alice.page.goto(`${base}/me/security/sessions`);
+    assert(await alice.page.locator('form[action="/me/security/sessions"]').count()>=2);
+    assert(await alice.page.getByText('это устройство').count()>=1);
+    const remote=alice.page.locator('li.me-now-item').filter({hasNotText:'это устройство'}).first();
+    await remote.locator('input[name=current_password]').fill(password);
+    const [sessionRevoked]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/security/sessions`),remote.locator('button').click()]);
+    assert.equal(sessionRevoked.status(),303);
+    await alice.page.waitForLoadState('networkidle');
+    assert.equal((await second.context.request.get(`${base}/api/v1/me`)).status(),401);
+    assert.equal((await alice.context.request.get(`${base}/api/v1/me`)).status(),200);
+    await alice.page.screenshot({path:path.join(shots,'account-active-sessions.png'),fullPage:true});
     await alice.page.goto(`${base}/forgot-password`);
     const csrf=await alice.page.locator('[name=csrf_token]').inputValue();
     const known=await alice.context.request.post(`${base}/forgot-password`,{headers:{Origin:base},form:{email,csrf_token:csrf}});

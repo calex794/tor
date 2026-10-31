@@ -21,13 +21,15 @@ PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
-    "own_ratings", "set_rating",
+    "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
+    "visible_summary", "set_like",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
+    "active_role",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -120,9 +122,15 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         return root / "__unsupported_nested_handler__"
     if source == root / "crates/web/src/auth/settings_routes.rs":
         # This router explicitly imports sibling account handlers with super::.
-        allowed = {"profile_http", "notification_settings", "password_reset", "password_change"}
+        allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
         if module not in allowed:
             return root / "__unsupported_account_handler__"
+        return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/referral_routes.rs":
+        # Only these three sibling handlers may be bound through the F-09 router.
+        allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
+        if module not in allowed:
+            return root / "__unsupported_referral_handler__"
         return source.parent / f"{module}.rs"
     if source.name in {"lib.rs", "mod.rs"}:
         return source.parent / f"{module}.rs"
@@ -134,7 +142,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body

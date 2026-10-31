@@ -128,13 +128,16 @@ async fn password_rotation_impl() {
     );
     let created = send(
         &app,
-        from_peer(request(
-            "POST",
-            "/register",
-            &registration,
-            &register_csrf_cookie,
-            ORIGIN,
-        ), [198, 51, 100, 21]),
+        from_peer(
+            request(
+                "POST",
+                "/register",
+                &registration,
+                &register_csrf_cookie,
+                ORIGIN,
+            ),
+            [198, 51, 100, 21],
+        ),
     )
     .await;
     assert_eq!(created.status(), StatusCode::SEE_OTHER);
@@ -212,14 +215,12 @@ async fn password_rotation_impl() {
         request("POST", "/me/settings/password", &change, &cookies, ORIGIN),
         [203, 0, 113, 42],
     );
-    change_request.headers_mut().insert(
-        "x-forwarded-for",
-        HeaderValue::from_static("192.0.2.222"),
-    );
-    change_request.headers_mut().insert(
-        "x-real-ip",
-        HeaderValue::from_static("192.0.2.223"),
-    );
+    change_request
+        .headers_mut()
+        .insert("x-forwarded-for", HeaderValue::from_static("192.0.2.222"));
+    change_request
+        .headers_mut()
+        .insert("x-real-ip", HeaderValue::from_static("192.0.2.223"));
     let rotated = send(&app, change_request).await;
     assert_eq!(rotated.status(), StatusCode::SEE_OTHER);
     assert_eq!(rotated.headers()[header::LOCATION], "/me");

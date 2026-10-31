@@ -2,7 +2,7 @@
 use axum::response::Html;
 use std::fmt::Write;
 use tor_books::services::authoring::{
-    ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterSummary, PendingChapter,
+    ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
 
 use crate::pages::{escape_html, layout};
@@ -28,6 +28,7 @@ pub fn detail_with_covers(
     )
 }
 
+#[cfg(test)]
 pub fn detail_with_covers_with_demand(
     book: &OwnedBook,
     published: bool,
@@ -37,6 +38,45 @@ pub fn detail_with_covers_with_demand(
     latest_job: Option<&str>,
     demand_count: i64,
 ) -> Html<String> {
+    detail_with_covers_with_demand_page(
+        book,
+        published,
+        chapters,
+        csrf,
+        OwnerChapterPageOptions {
+            uploads_enabled,
+            latest_job,
+            demand_count,
+            next: None,
+            has_previous_page: false,
+        },
+    )
+}
+
+/// All presentation controls for a bounded, owner-only chapter list.
+pub struct OwnerChapterPageOptions<'a> {
+    pub uploads_enabled: bool,
+    pub latest_job: Option<&'a str>,
+    pub demand_count: i64,
+    pub next: Option<OwnedChapterCursor>,
+    pub has_previous_page: bool,
+}
+
+/// Owner-only, keyset-paged list. Public book pages retain their own TOC.
+pub fn detail_with_covers_with_demand_page(
+    book: &OwnedBook,
+    published: bool,
+    chapters: &[OwnedChapterSummary],
+    csrf: &str,
+    options: OwnerChapterPageOptions<'_>,
+) -> Html<String> {
+    let OwnerChapterPageOptions {
+        uploads_enabled,
+        latest_job,
+        demand_count,
+        next,
+        has_previous_page,
+    } = options;
     let mut items = String::new();
     if chapters.is_empty() {
         items.push_str("<p class=\"empty-state\">В этой книге пока нет глав.</p>");
@@ -78,9 +118,26 @@ pub fn detail_with_covers_with_demand(
             .expect("write String");
         }
         items.push_str("</ol>");
-        if chapters.len() == 200 {
-            items.push_str("<p>Показаны первые 200 глав.</p>");
+    }
+    if has_previous_page || next.is_some() {
+        items.push_str("<nav class=\"chapter-toc__more\" aria-label=\"Страницы глав\">");
+        if has_previous_page {
+            write!(
+                &mut items,
+                "<a class=\"button button--small\" href=\"/me/books/{}\">К первым главам</a> ",
+                book.id
+            )
+            .expect("write String");
         }
+        if let Some(cursor) = next {
+            write!(
+                &mut items,
+                "<a class=\"button button--small\" href=\"/me/books/{}?after={}:{}\">Следующие главы</a>",
+                book.id, cursor.number, cursor.id
+            )
+            .expect("write String");
+        }
+        items.push_str("</nav>");
     }
 
     let status = if published {
@@ -109,6 +166,14 @@ pub fn detail_with_covers_with_demand(
         "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/new\">Добавить главу</a></p>",
         book.id
     );
+    let import_action = if published {
+        String::new()
+    } else {
+        format!(
+            "<p><a class=\"button button--quiet\" href=\"/me/books/{}/chapters/import\">Импорт глав из файла</a></p>",
+            book.id
+        )
+    };
     let cover_status = cover_status(latest_job);
     let upload = if uploads_enabled {
         format!(
@@ -137,8 +202,10 @@ pub fn detail_with_covers_with_demand(
         {demand_panel}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
+        <p><a href="/books/{id}/stats">Статистика книги</a></p>
         <h2>Главы</h2>{items}
         {add_action}
+        {import_action}
         {action}
         <p><a href="/me/books">Мои книги</a></p>
         </div></div></section>"#,
@@ -204,6 +271,19 @@ pub fn cover_settings(
             },
         );
     layout("Обложки книги", "Изменение обложки своей книги.", &html)
+}
+
+/// H-09: only the author sees a private, unpublished-book import preview.
+pub fn import_chapters(book_id: i64, csrf: &str, command_key: &str) -> Html<String> {
+    let html = include_str!("../templates/author_import_chapters.html")
+        .replace("<!--BOOK_ID-->", &book_id.to_string())
+        .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
+    layout(
+        "Импорт глав из файла",
+        "Проверка файла и явное подтверждение без автоматической публикации.",
+        &html,
+    )
 }
 
 pub fn new_chapter(
@@ -329,6 +409,16 @@ fn edit_chapter_mode(
     } else {
         "Редакция остаётся закрытой до выпуска книги или главы."
     };
+    // NEwBOO has a "В главу" action. The TOR title itself opens the
+    // published reader view; a draft has no publicly readable URL.
+    let title_in_heading = if published {
+        format!(
+            "<a class=\"author-chapter-view-link\" href=\"/reader/{chapter_id}\" title=\"Открыть главу для чтения\">{}</a>",
+            escape_html(&chapter.title)
+        )
+    } else {
+        escape_html(&chapter.title)
+    };
     let html = include_str!("../templates/author_edit_chapter.html")
         .replace(
             "<!--EDIT_EYEBROW-->",
@@ -343,6 +433,7 @@ fn edit_chapter_mode(
         .replace("<!--CHAPTER_ID-->", &chapter_id.to_string())
         .replace("<!--REVISION-->", &chapter.revision.to_string())
         .replace("<!--NUMBER-->", &chapter.number.to_string())
+        .replace("<!--TITLE_HEADING-->", &title_in_heading)
         .replace("<!--TITLE-->", &escape_html(&chapter.title))
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
@@ -401,125 +492,4 @@ pub fn detail(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn paid_controls_only_appear_in_enabled_author_pages() {
-        let disabled = new_chapter(42, "csrf", "command", false).0;
-        assert!(!disabled.contains("<option value=\"paid\">"));
-        assert!(disabled.contains("name=\"access\" value=\"free\""));
-        let enabled = new_chapter(42, "csrf", "command", true).0;
-        assert!(enabled.contains("<option value=\"paid\">"));
-        assert!(enabled.contains("name=\"price_amount\""));
-        assert!(enabled.contains("сразу после сохранения"));
-        assert!(!enabled.contains("<!--CHAPTER_ACCESS-->"));
-        assert!(enabled.contains("/me/books/42/chapters/illustrated"));
-        assert!(!disabled.contains("/me/books/42/chapters/illustrated"));
-        let illustrated = illustrated_chapter(42, "csrf", "command").0;
-        assert!(illustrated.contains("enctype=\"multipart/form-data\""));
-        assert!(illustrated.contains("name=\"illustration\""));
-        assert!(illustrated.contains("name=\"csrf_token\" value=\"csrf\""));
-        assert!(!illustrated.contains("<script"));
-    }
-
-    #[test]
-    fn author_title_is_always_escaped() {
-        let page = detail(
-            &OwnedBook {
-                id: 42,
-                title: "<img src=x onerror=1>".to_owned(),
-            },
-            false,
-            &[],
-            "test-token",
-        );
-        assert!(page.0.contains("&lt;img"));
-        assert!(!page.0.contains("<img src=x"));
-    }
-    #[test]
-    fn uploaded_cover_form_requires_csrf_and_never_claims_published_before_done() {
-        let book = OwnedBook {
-            id: 42,
-            title: "Книга".to_owned(),
-        };
-        let disabled = detail(&book, false, &[], "secret").0;
-        assert!(!disabled.contains("enctype=\"multipart/form-data\""));
-        let waiting = detail_with_covers(&book, false, &[], "secret", true, Some("pending")).0;
-        assert!(waiting.contains("href=\"/me/books/42/settings/covers\""));
-        assert!(!waiting.contains("enctype=\"multipart/form-data\""));
-        assert!(waiting.contains("ожидает обработки"));
-        let settings = cover_settings(&book, "secret", Some("pending"), false).0;
-        assert!(settings.contains("action=\"/me/books/42/cover\""));
-        assert!(settings.contains("name=\"csrf_token\" value=\"secret\""));
-        assert!(settings.contains("book-cover-picker__frame"));
-        assert!(settings.contains("data-cover-picker-input"));
-        assert!(settings.contains("book-cover-picker__plus"));
-        assert!(settings.contains("Обложка 1"));
-        assert!(!settings.contains("/covers/42/main.webp"));
-        let ready = cover_settings(&book, "secret", Some("done"), true).0;
-        assert!(ready.contains("Обложка готова"));
-        assert!(ready.contains("src=\"/covers/42/main.webp\""));
-        assert!(ready.contains("Заменить"));
-    }
-
-    #[test]
-    fn release_form_escapes_chapter_body_and_pins_version() {
-        let chapter = PendingChapter {
-            number: 4,
-            title: "<svg onload=1>".into(),
-            body: "</pre><script>bad()</script>".into(),
-            revision: 3,
-            version_id: 86,
-        };
-        let page = release_chapter(2, 5, &chapter, "token");
-        assert!(page.0.contains("name=\"version_id\" value=\"86\""));
-        assert!(page.0.contains("name=\"expected_revision\" value=\"3\""));
-        assert!(page.0.contains("&lt;/pre&gt;"));
-        assert!(!page.0.contains("<script>bad()"));
-    }
-    #[test]
-    fn published_free_chapter_has_edit_link_and_immediate_release_copy() {
-        let published_book = OwnedBook {
-            id: 42,
-            title: "Книга".to_owned(),
-        };
-        let summary = OwnedChapterSummary {
-            id: 55,
-            number: 1,
-            title: "Редакция".to_owned(),
-            access: ChapterAccess::Free,
-            published: true,
-        };
-        let detail_page =
-            detail_with_covers(&published_book, true, &[summary], "csrf", false, None).0;
-        assert!(detail_page.contains("/me/books/42/chapters/55/edit"));
-        let chapter = OwnedChapter {
-            number: 1,
-            title: "Новая глава".to_owned(),
-            body: "Содержание".to_owned(),
-            access: ChapterAccess::Free,
-            price_amount: 0,
-            revision: 3,
-        };
-        let page = edit_published_chapter(42, 55, &chapter, "csrf", "command").0;
-        assert!(page.contains("Сохранение сразу обновит опубликованную редакцию"));
-        assert!(page.contains("name=\"expected_revision\" value=\"3\""));
-        assert!(!page.contains("<!--EDIT_DESCRIPTION-->"));
-    }
-
-    #[test]
-    fn edit_form_escapes_title_and_textarea_breakout() {
-        let chapter = OwnedChapter {
-            number: 1,
-            title: "<script>alert(1)</script>".to_owned(),
-            body: "</textarea><script>evil()</script>".to_owned(),
-            access: ChapterAccess::Free,
-            price_amount: 0,
-            revision: 7,
-        };
-        let page = edit_chapter(1, 3, &chapter, "token", "key");
-        assert!(page.0.contains("value=\"7\""));
-        assert!(page.0.contains("&lt;/textarea&gt;"));
-        assert!(!page.0.contains("<script>evil()"));
-    }
-}
+mod tests;

@@ -2,6 +2,7 @@
 use super::{escape_html, layout};
 use axum::response::Html;
 use tor_discussions::repositories::public_book_comments::ReceivedReply;
+use tor_recommendations::repositories::ReaderAchievements;
 
 pub fn registration_form(csrf: &str) -> Html<String> {
     registration_form_with_error(csrf, "", "", None)
@@ -99,6 +100,26 @@ pub fn my_account_with_follow_updates(
     replies: &[ReceivedReply],
     unread: u16,
 ) -> Html<String> {
+    render_my_account(name, csrf, replies, unread, None)
+}
+
+pub fn my_account_with_achievements(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+) -> Html<String> {
+    render_my_account(name, csrf, replies, unread, Some(achievements))
+}
+
+fn render_my_account(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: Option<&ReaderAchievements>,
+) -> Html<String> {
     let count = if unread >= 100 {
         "99+".to_owned()
     } else {
@@ -119,9 +140,21 @@ pub fn my_account_with_follow_updates(
         .replace("<!--DISPLAY_NAME-->", &escape_html(name))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--FOLLOWED_RELEASE_NOTICE-->", &alert)
-        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf));
-    // Only the authenticated private page changes its navigation.
-    let html = layout("Мой кабинет", "Учётная запись и личный кабинет.", &content);
+        .replace("<!--RECEIVED_REPLIES-->", &received_replies(replies, csrf))
+        .replace(
+            "<!--READER_ACHIEVEMENTS-->",
+            &reader_achievements(achievements),
+        );
+    private_account_layout("Мой кабинет", "Учётная запись и личный кабинет.", &content)
+}
+
+/// Switch public navigation to the authenticated account shell.
+pub(super) fn private_account_layout(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
     Html(
         html.0
             .replace(
@@ -133,6 +166,42 @@ pub fn my_account_with_follow_updates(
                 "",
             ),
     )
+}
+
+fn reader_achievements(snapshot: Option<&ReaderAchievements>) -> String {
+    let Some(snapshot) = snapshot else {
+        return "<p class=\"ui-section-header__text\">Достижения появятся после подтверждённого чтения.</p>"
+            .to_owned();
+    };
+    let mut cards = String::from("<div class=\"me-block-grid\">");
+    for badge in &snapshot.badges {
+        let definition = badge.definition;
+        let done = badge.unlocked_on.is_some();
+        let status = if done {
+            "Получено"
+        } else {
+            "Пока не получено"
+        };
+        let progress = snapshot.completed_chapters.min(definition.threshold);
+        cards.push_str(&format!(
+            "<article class=\"dashboard-tile dashboard-tile--reader\">\
+             <h3 class=\"dashboard-tile__title\">{}</h3>\
+             <p class=\"dashboard-tile__text\">{}</p>\
+             <p class=\"dashboard-tile__text\">{status}: {progress}/{} глав</p>",
+            escape_html(definition.title),
+            escape_html(definition.description),
+            definition.threshold,
+        ));
+        if let Some(unlocked_on) = &badge.unlocked_on {
+            cards.push_str(&format!(
+                "<p class=\"dashboard-tile__text\">Дата получения: {}</p>",
+                escape_html(unlocked_on),
+            ));
+        }
+        cards.push_str("</article>");
+    }
+    cards.push_str("</div>");
+    cards
 }
 
 fn received_replies(replies: &[ReceivedReply], csrf: &str) -> String {
@@ -235,6 +304,36 @@ mod tests {
         assert!(!html.contains("Читатель <b>"));
         assert!(html.contains("autocomplete=\"new-password\""));
         assert!(!html.contains("value=\"1234\""));
+    }
+
+    #[test]
+    fn f_12_dashboard_shows_only_verified_private_reader_badges() {
+        use tor_recommendations::repositories::ReaderBadge;
+        use tor_recommendations::services::achievements::READER_ACHIEVEMENTS_V1;
+        let achievements = ReaderAchievements {
+            completed_chapters: 1,
+            badges: vec![
+                ReaderBadge {
+                    definition: READER_ACHIEVEMENTS_V1[0],
+                    unlocked_on: Some("2026-10-31".to_owned()),
+                },
+                ReaderBadge {
+                    definition: READER_ACHIEVEMENTS_V1[1],
+                    unlocked_on: None,
+                },
+            ],
+        };
+        let page = my_account_with_achievements("Reader", "csrf", &[], 0, &achievements).0;
+        assert!(page.contains("Достижения"));
+        assert!(page.contains("Первая глава"));
+        assert!(page.contains("Получено: 1/1 глав"));
+        assert!(page.contains("Пока не получено: 1/10 глав"));
+        assert!(page.contains("Дата получения: 2026-10-31"));
+        assert!(!page.contains("<!--READER_ACHIEVEMENTS-->"));
+        assert!(!page.contains("source_event_id"));
+        assert!(!my_account("Reader", "csrf", &[])
+            .0
+            .contains("Получено: 1/1 глав"));
     }
 
     #[test]

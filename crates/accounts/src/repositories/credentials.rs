@@ -3,6 +3,17 @@ use super::postgres::{PgAccounts, INSERT_AUDITED_SESSION};
 use crate::domain::access_audit::LoginAuditContext;
 use std::num::NonZeroU32;
 
+/// One atomic credential change; secret fields deliberately have no Debug output.
+pub struct PasswordRotation<'a> {
+    pub user_id: i64,
+    pub old_session: &'a [u8; 32],
+    pub expected_password_hash: &'a str,
+    pub new_password_hash: &'a str,
+    pub new_session: &'a [u8; 32],
+    pub ttl: NonZeroU32,
+    pub audit: LoginAuditContext,
+}
+
 impl PgAccounts {
     /// Read only the hash required for an already authenticated password change.
     pub async fn password_hash_for_user(
@@ -20,14 +31,17 @@ impl PgAccounts {
     /// A concurrent password update or logout fails closed.
     pub async fn rotate_password_and_sessions(
         &self,
-        user_id: i64,
-        old_session: &[u8; 32],
-        expected_password_hash: &str,
-        new_password_hash: &str,
-        new_session: &[u8; 32],
-        ttl: NonZeroU32,
-        audit: LoginAuditContext,
+        command: PasswordRotation<'_>,
     ) -> Result<bool, sqlx::Error> {
+        let PasswordRotation {
+            user_id,
+            old_session,
+            expected_password_hash,
+            new_password_hash,
+            new_session,
+            ttl,
+            audit,
+        } = command;
         let mut tx = self.pool().begin().await?;
         let current: Option<String> = sqlx::query_scalar(
             "SELECT password_hash FROM users WHERE id = $1 AND account_state='active' FOR UPDATE",
