@@ -244,6 +244,18 @@ async fn enqueue(
         };
     }
 
+    // Reject an already-busy book before writing another 700 KB staging object.
+    // The database's unique partial index remains the final race guard.
+    match state.jobs.latest_active_for_owner(actor_id, book_id).await {
+        Ok(Some(_)) => {
+            return fail(StatusCode::CONFLICT, "Для книги уже выполняется импорт.");
+        }
+        Ok(None) => {}
+        Err(_) => {
+            return fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось проверить очередь.");
+        }
+    }
+
     let key = format!(
         "staging/chapters/{actor_id}/{book_id}/{}",
         input.command_key
