@@ -138,8 +138,11 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1 FROM finance_revenue_terms t
+        JOIN chapter_purchase_facts p ON p.id=NEW.purchase_id
         WHERE t.book_id=NEW.book_id AND t.policy_version=NEW.policy_version
           AND t.refund_policy_version=NEW.refund_policy_version
+          AND p.refund_deadline_at =
+              p.acquired_at + (t.refund_window_seconds * INTERVAL '1 second')
           AND NEW.platform_fee_minor =
               floor((NEW.gross_minor::numeric * t.platform_fee_bps + 5000)/10000)::BIGINT
     ) THEN
