@@ -533,7 +533,7 @@ impl PgAuthoring {
             .execute(&mut *tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-        chapter_outbox::enqueue_book_first_releases(&mut tx, book_id).await?;
+        chapter_outbox::enqueue_book_first_releases(&mut tx, book_id, actor).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)
     }
 }

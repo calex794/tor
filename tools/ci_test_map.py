@@ -43,6 +43,8 @@ MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
+# Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
+ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
 POSTGRES_SUITES = {
     "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
@@ -81,6 +83,8 @@ TEST_SUITES = {
     "crates/search/tests/search_pg.rs": {"rust", "postgres"},
     "crates/search/tests/catalog_window_pg.rs": {"rust", "postgres"},
     "crates/web/tests/catalog_pagination_http_pg.rs": {"rust", "postgres"},
+    "crates/reading/tests/book_likes_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/book_likes_http_pg.rs": {"rust", "postgres"},
     "crates/search/tests/perf233_projection_pg.rs": {"rust", "postgres"},
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},

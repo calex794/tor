@@ -145,11 +145,12 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query(
-            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-             VALUES($1,$2)",
+            "INSERT INTO chapter_first_release_events
+             (chapter_id,version_id,creator_user_id) VALUES($1,$2,$3)",
         )
         .bind(chapter_id)
         .bind(version_id)
+        .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;

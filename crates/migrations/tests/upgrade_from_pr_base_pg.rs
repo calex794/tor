@@ -29,13 +29,13 @@ async fn upgrade_from_pr_base_preserves_every_applied_checksum() {
         .expect("discover exact base SQL files");
     assert_eq!(
         baseline.migrations.len(),
-        64,
-        "exact main must have 64 SQLx migrations"
+        67,
+        "exact pinned main must have 67 SQLx migrations"
     );
     assert_eq!(
         MIGRATOR.migrations.len(),
-        66,
-        "merged main and G-08/C-18 must have 66"
+        69,
+        "combined main and G-08/C-18 must have 69"
     );
     assert!(
         MIGRATOR

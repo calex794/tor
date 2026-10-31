@@ -465,11 +465,13 @@ impl PgPaidStorage {
                         .await
                         .map_err(map_write)?;
                         sqlx::query(
-                            "INSERT INTO chapter_first_release_events(chapter_id,version_id)
-                             VALUES($1,$2) ON CONFLICT(chapter_id) DO NOTHING",
+                            "INSERT INTO chapter_first_release_events
+                             (chapter_id,version_id,creator_user_id)
+                             VALUES($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
                         )
                         .bind(chapter_id)
                         .bind(version_id)
+                        .bind(actor)
                         .execute(&mut *tx)
                         .await
                         .map_err(map_write)?;

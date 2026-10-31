@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from ci_test_map import (
-    CI_REQUIRED_JOB, CI_WORKFLOW, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
+    CI_REQUIRED_JOB, CI_WORKFLOW, ISOLATED_GATEWAY_WORKFLOWS, MANUAL_WORKFLOWS, PERFORMANCE_WORKFLOWS, SUITES,
     SUITE_JOB_IDS, TEST_SUITES, workflow_gate,
 )
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -153,7 +153,7 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_no_unknown_workflows_or_missing_harness(self):
         known = ({filename for filename, _ in SUITES.values()}
                  | {CI_WORKFLOW, "rules.yml", "ci-selection.yml"}
-                 | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS)
+                 | MANUAL_WORKFLOWS | PERFORMANCE_WORKFLOWS | ISOLATED_GATEWAY_WORKFLOWS)
         self.assertEqual({p.name for p in WORKFLOWS.glob("*.yml")}, known)
         self.assertEqual(set(SUITES), set(SUITE_JOB_IDS))
         self.assertEqual(len(set(SUITE_JOB_IDS.values())), len(SUITES))

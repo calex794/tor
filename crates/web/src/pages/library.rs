@@ -1,4 +1,4 @@
-//! Signed-in reading library and book-follow release feed.
+//! Signed-in reading library and book/creator-follow release feed.
 use super::{escape_html, layout};
 use axum::response::Html;
 use std::fmt::Write;
@@ -186,7 +186,7 @@ fn update_cards(
     format!(
         "<section class=\"section\" id=\"new-chapters\" aria-labelledby=\"new-chapters-heading\">\
          <h2 id=\"new-chapters-heading\">Новые главы подписок</h2>\
-         <p>Здесь показываются бесплатные и платные главы после подписки на книгу.\
+         <p>Здесь показываются бесплатные и платные главы после подписки на книгу или автора.\
          Подписка не даёт доступа к платному тексту.</p>\
          <div class=\"library-grid\">{body}</div>{next}</section>"
     )

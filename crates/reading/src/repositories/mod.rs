@@ -26,5 +26,7 @@ pub use staged_updates::{PgStagedRevisions, RevisionCursor, StagedRevisionError}
 
 pub mod book_stats;
 
+pub mod book_likes;
+pub use book_likes::{LikeMutation, LikeSummary, PgBookLikes};
 pub mod chapter_thanks;
 pub use chapter_thanks::{PgChapterThanks, ThanksMutation, ThanksSummary};
