@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from audit_sqlx_history import (
     AuditError, evaluate_history, local_migrations, parse_inventory,
     read_from_psql, scan_conflicts, scan_cross_version_identical_sql, scan_live,
-    main as audit_main,
+    focus_report_on_pr, main as audit_main,
 )
 
 
@@ -359,6 +359,100 @@ class SQLxAuditTests(unittest.TestCase):
                 )
                 self.assertEqual(audit_main(["scan-open-prs"]), 0)
 
+
+    def test_focus_one_pr_preserves_global_evidence_and_excludes_other_conflicts(self):
+        report = {
+            "open_pr_numbers": [348, 364, 365, 400],
+            "collisions": [
+                {"version": "202610310292", "variants": [
+                    {"owners": ["#364"]}, {"owners": ["#401"]},
+                ]},
+                {"version": "202610310293", "variants": [
+                    {"owners": ["#348"]}, {"owners": ["#365"]},
+                ]},
+            ],
+            "cross_version_identical_sql": [
+                {"blob_sha": "a" * 40, "versions": [
+                    {"files": [{"owners": ["#400"]}]},
+                    {"files": [{"owners": ["main"]}]},
+                ]},
+            ],
+            "notice": "Read-only snapshot.",
+        }
+        result = focus_report_on_pr(report, 365)
+        self.assertEqual(result["focus_pr"], 365)
+        self.assertEqual(result["global_numeric_collisions"], 2)
+        self.assertEqual(result["global_cross_version_reuses"], 1)
+        self.assertEqual([c["version"] for c in result["collisions"]],
+                         ["202610310293"])
+        self.assertEqual(result["cross_version_identical_sql"], [])
+        self.assertEqual(len(report["collisions"]), 2)
+        self.assertEqual(len(report["cross_version_identical_sql"]), 1)
+        self.assertIn("not a reservation", result["notice"])
+
+        with patch("audit_sqlx_history.scan_live", return_value=report):
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(audit_main([
+                    "scan-open-prs", "--focus-pr", "365", "--fail-on-conflict"
+                ]), 2)
+                self.assertIn('"202610310293"', output.getvalue())
+                self.assertNotIn('"202610310292"', output.getvalue())
+
+    def test_focus_pr_no_own_conflicts_is_not_blocked_by_other_open_drafts(self):
+        report = {
+            "open_pr_numbers": [348, 364, 365, 400],
+            "collisions": [{"version": "202610310293", "variants": [
+                {"owners": ["#348"]}, {"owners": ["#365"]},
+            ]}],
+            "cross_version_identical_sql": [],
+            "notice": "Read-only snapshot.",
+        }
+        with patch("audit_sqlx_history.scan_live", return_value=report):
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                self.assertEqual(audit_main([
+                    "scan-open-prs", "--focus-pr", "400", "--fail-on-conflict"
+                ]), 0)
+                self.assertIn('"global_numeric_collisions": 1',
+                              output.getvalue())
+                self.assertIn('"collisions": []', output.getvalue())
+
+    def test_focus_pr_missing_or_invalid_fails_closed(self):
+        report = {
+            "open_pr_numbers": [348, 365], "collisions": [],
+            "cross_version_identical_sql": [], "notice": "Read-only.",
+        }
+        for pr in [0, -1, 364]:
+            with self.subTest(pr=pr):
+                with self.assertRaises(AuditError):
+                    focus_report_on_pr(report, pr)
+                with patch("audit_sqlx_history.scan_live", return_value=report):
+                    with patch("sys.stderr", new_callable=io.StringIO):
+                        self.assertEqual(audit_main([
+                            "scan-open-prs", "--focus-pr", str(pr),
+                            "--fail-on-conflict",
+                        ]), 2)
+
+    def test_focus_pr_can_detect_exact_cross_version_sql_blob_reuse(self):
+        report = {
+            "open_pr_numbers": [365], "collisions": [],
+            "cross_version_identical_sql": [
+                {"blob_sha": "b" * 40, "versions": [
+                    {"version": "202610310292",
+                     "files": [{"owners": ["main"]}]},
+                    {"version": "202610310293",
+                     "files": [{"owners": ["#365"]}]},
+                ]},
+            ],
+            "notice": "Read-only.",
+        }
+        result = focus_report_on_pr(report, 365)
+        self.assertEqual(result["collisions"], [])
+        self.assertEqual(len(result["cross_version_identical_sql"]), 1)
+        with patch("audit_sqlx_history.scan_live", return_value=report):
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(audit_main([
+                    "scan-open-prs", "--focus-pr", "365", "--fail-on-conflict"
+                ]), 2)
 
     @staticmethod
     def live_pr(number=400, head="a" * 40, base="b" * 40):
