@@ -1,10 +1,7 @@
 //! S023 G repository: PostgreSQL lease, retry, idempotency and owner-scope regression.
 use sqlx::PgPool;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_imports::{
-    repositories::postgres::PgImportJobs,
-    domain::ImportJobsError,
-};
+use tor_imports::{domain::ImportJobsError, repositories::postgres::PgImportJobs};
 
 async fn insert_user(pool: &PgPool, email: String, name: &str) -> i64 {
     sqlx::query_scalar(
@@ -110,8 +107,7 @@ async fn s023_queue_claim_fencing_retry_and_owner_privacy() {
         Err(ImportJobsError::Conflict)
     );
     let stranger_command = "d".repeat(43);
-    let stranger_key =
-        format!("staging/chapters/{stranger}/{book}/{stranger_command}");
+    let stranger_key = format!("staging/chapters/{stranger}/{book}/{stranger_command}");
     assert_eq!(
         jobs.enqueue_verified(
             stranger,
@@ -127,7 +123,12 @@ async fn s023_queue_claim_fencing_retry_and_owner_privacy() {
         .await,
         Err(ImportJobsError::Missing)
     );
-    assert!(jobs.status_for_owner(stranger, book, job).await.unwrap().is_none());
+    assert!(
+        jobs.status_for_owner(stranger, book, job)
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     // A different idempotency key cannot create a second active job for the book.
     let second_command = "e".repeat(43);
