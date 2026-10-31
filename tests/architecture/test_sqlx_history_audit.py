@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from audit_sqlx_history import (
     AuditError, evaluate_history, local_migrations, parse_inventory,
-    read_from_psql, scan_conflicts,
+    read_from_psql, scan_conflicts, scan_cross_version_identical_sql,
+    main as audit_main,
 )
 
 
@@ -153,6 +154,62 @@ class SQLxAuditTests(unittest.TestCase):
         self.assertEqual(len(scan_conflicts(main, pulls)), 1)
         pulls[0]["files"][0]["status"] = "removed"
         self.assertEqual(scan_conflicts(main, pulls), [])
+
+
+    def test_identical_sql_blob_under_two_versions_is_reported(self):
+        blob = "a" * 40
+        main = [{"path": "migrations/202610290003_batch_chapter_purchases.sql", "sha": blob}]
+        pulls = [
+            {"number": 400, "files": [
+                {"filename": "migrations/202611010042_replayed_batch_purchase.sql",
+                 "sha": blob, "status": "added"},
+                {"filename": "migrations/202611010043_removed.sql",
+                 "sha": blob, "status": "removed"},
+            ]},
+            {"number": 401, "files": [
+                {"filename": "migrations/202611010042_replayed_batch_purchase.sql",
+                 "sha": blob, "status": "added"},
+            ]},
+        ]
+        results = scan_cross_version_identical_sql(main, pulls)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["blob_sha"], blob)
+        self.assertEqual(
+            [item["version"] for item in results[0]["versions"]],
+            ["202610290003", "202611010042"],
+        )
+        self.assertEqual(
+            results[0]["versions"][1]["files"][0]["owners"],
+            ["#400", "#401"],
+        )
+        self.assertEqual(len(results[0]["versions"][1]["files"]), 1)
+
+    def test_cross_version_scan_does_not_conflate_distinct_sql(self):
+        main = [{"path": "migrations/202610290003_batch.sql", "sha": "a" * 40}]
+        pulls = [{"number": 402, "files": [
+            {"filename": "migrations/202611010042_different.sql",
+             "sha": "b" * 40, "status": "added"},
+        ]}]
+        self.assertEqual(scan_cross_version_identical_sql(main, pulls), [])
+        # Same-version clashes are handled by the existing numeric collision scan.
+        pulls[0]["files"][0]["filename"] = "migrations/202610290003_conflict.sql"
+        pulls[0]["files"][0]["sha"] = "a" * 40
+        self.assertEqual(scan_cross_version_identical_sql(main, pulls), [])
+        pulls[0]["files"][0]["sha"] = "BAD"
+        with self.assertRaises(AuditError):
+            scan_cross_version_identical_sql(main, pulls)
+
+    def test_fail_on_conflict_checks_cross_version_identical_blobs(self):
+        report = {
+            "collisions": [],
+            "cross_version_identical_sql": [{"blob_sha": "a" * 40}],
+        }
+        with patch("audit_sqlx_history.scan_live", return_value=report):
+            with patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(
+                    audit_main(["scan-open-prs", "--fail-on-conflict"]), 2
+                )
+                self.assertEqual(audit_main(["scan-open-prs"]), 0)
 
 
 if __name__ == "__main__":
