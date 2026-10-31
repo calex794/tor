@@ -29,6 +29,14 @@ pub struct ChapterImportStatus {
 }
 
 impl PgAuthoring {
+    pub async fn probe_chapter_import_jobs(&self) -> Result<(), AuthorError> {
+        sqlx::query("SELECT id FROM chapter_import_jobs LIMIT 0")
+            .execute(&self.pool)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        Ok(())
+    }
+
     /// Check a prior submission before uploading. This also makes a replay safe
     /// after the worker has deleted the completed source object from S3.
     #[allow(clippy::too_many_arguments)]
