@@ -5,7 +5,7 @@ use aws_sdk_s3::{
     Client,
 };
 use sha2::{Digest, Sha256};
-use std::{process::Command, time::SystemTime};
+use std::{process::Command, time::{SystemTime, UNIX_EPOCH}};
 use tor_books::services::chapter_import_jobs::{
     ChapterImportObjectStore, ChapterImportStoreError,
 };
@@ -38,7 +38,7 @@ async fn s023_private_source_put_get_conflict_and_delete() {
         .build();
     let client = Client::from_conf(config);
     let nonce = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let bucket = format!("tor-chapter-import-{nonce}");
