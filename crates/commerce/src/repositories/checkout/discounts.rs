@@ -5,6 +5,7 @@ use sqlx::{Postgres, Row, Transaction};
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(super) struct DiscountApplied {
     pub campaign_id: i64,
+    pub campaign_revision: i32,
     pub follow_period_id: i64,
     pub base_price_minor: i64,
     pub discount_minor: i64,
@@ -27,7 +28,7 @@ pub(super) async fn eligible_discount(
         return Ok(None);
     }
     let campaign = sqlx::query(
-        "SELECT id,discount_percent,min_follow_days
+        "SELECT id,revision,discount_percent,min_follow_days
          FROM author_discount_campaigns
          WHERE book_id=$1 AND owner_user_id=$2 AND status='active'
            AND starts_at<=now() AND ends_at>now()
@@ -43,6 +44,9 @@ pub(super) async fn eligible_discount(
     };
     let campaign_id: i64 = campaign
         .try_get("id")
+        .map_err(|_| CheckoutError::Unavailable)?;
+    let revision: i32 = campaign
+        .try_get("revision")
         .map_err(|_| CheckoutError::Unavailable)?;
     let percent: i16 = campaign
         .try_get("discount_percent")
@@ -88,6 +92,7 @@ pub(super) async fn eligible_discount(
         .ok_or(CheckoutError::Unavailable)?;
     Ok(Some(DiscountApplied {
         campaign_id,
+        campaign_revision: revision,
         follow_period_id: period
             .try_get("id")
             .map_err(|_| CheckoutError::Unavailable)?,
