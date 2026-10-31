@@ -23,9 +23,6 @@ use tor_books::{
     services::{
         authoring::new_book,
         chapter_file_import::{fingerprint, parse_text},
-        chapter_import_jobs::{
-            ChapterImportObjectStore, ChapterImportStoreError as StoreError,
-        },
     },
 };
 use tor_web::chapter_import_worker::{ChapterImportWorker, ChapterImportWorkerResult};
