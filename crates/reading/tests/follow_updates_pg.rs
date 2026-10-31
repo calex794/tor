@@ -304,7 +304,6 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
     pool.close().await;
 }
 
-
 /// E-05/S014: creator follows extend the existing on-site release feed across
 /// books. Historical periods are respected; a book+creator overlap is one row.
 async fn insert_e05_free_release(
@@ -410,12 +409,11 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
     let source_book = books[0];
     let author_only_book = books[1];
     let both_follow_book = books[2];
-    let anchor: String = sqlx::query_scalar(
-        "SELECT (clock_timestamp() - interval '30 seconds')::text",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let anchor: String =
+        sqlx::query_scalar("SELECT (clock_timestamp() - interval '30 seconds')::text")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // Release before the first creator-follow period: it must not be backfilled.
     let before_follow = insert_e05_free_release(
@@ -602,7 +600,11 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
     let page = feed.latest(reader, None).await.unwrap();
     assert_eq!(page.items.len(), 4);
     let ids: HashSet<i64> = page.items.iter().map(|item| item.chapter_id).collect();
-    assert_eq!(ids.len(), 4, "overlapping book/creator follow must deduplicate");
+    assert_eq!(
+        ids.len(),
+        4,
+        "overlapping book/creator follow must deduplicate"
+    );
     assert!(!ids.contains(&before_follow));
     assert!(!ids.contains(&between_periods));
     assert!(ids.contains(&author_only_release));
@@ -616,13 +618,20 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
         .count();
     assert_eq!(overlap_count, 1);
 
-    let paid = page.items.iter().find(|item| item.chapter_id == paid_chapter).unwrap();
+    let paid = page
+        .items
+        .iter()
+        .find(|item| item.chapter_id == paid_chapter)
+        .unwrap();
     assert!(paid.is_paid);
     assert_eq!(paid.price_minor, 19900);
     assert!(!paid.is_read);
     let unread_before = feed.unread_count_capped(reader).await.unwrap();
     assert_eq!(unread_before, 4);
-    assert!(feed.set_read_state(reader, author_only_release, true).await.unwrap());
+    assert!(feed
+        .set_read_state(reader, author_only_release, true)
+        .await
+        .unwrap());
     assert_eq!(feed.unread_count_capped(reader).await.unwrap(), 3);
     assert!(feed
         .latest(reader, None)
@@ -631,19 +640,27 @@ async fn e_05_author_followed_releases_are_cross_book_period_scoped_and_deduplic
         .items
         .iter()
         .any(|item| item.chapter_id == author_only_release && item.is_read));
-    assert!(feed.set_read_state(reader, author_only_release, false).await.unwrap());
+    assert!(feed
+        .set_read_state(reader, author_only_release, false)
+        .await
+        .unwrap());
     assert_eq!(feed.unread_count_capped(reader).await.unwrap(), 4);
-    assert!(!feed.set_read_state(outsider, paid_chapter, true).await.unwrap());
+    assert!(!feed
+        .set_read_state(outsider, paid_chapter, true)
+        .await
+        .unwrap());
     assert!(feed.latest(outsider, None).await.unwrap().items.is_empty());
 
-    let purchases: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_purchase_facts WHERE user_id=$1",
-    )
-    .bind(reader)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(purchases, 0, "author-follow feed must not grant paid access");
+    let purchases: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_purchase_facts WHERE user_id=$1")
+            .bind(reader)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        purchases, 0,
+        "author-follow feed must not grant paid access"
+    );
 
     let periods: Vec<(i64, Option<String>)> = sqlx::query_as(
         "SELECT id,ended_at::text FROM creator_follow_periods
