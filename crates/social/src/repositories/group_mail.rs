@@ -72,22 +72,21 @@ impl PgGroupMail {
         if found != members.len() as i64 {
             return Err(MailError::NotFound);
         }
-        // Group invitation must not bypass either participant's direct block.
-        // Reuse the pair locks from the direct-mail block command and take
-        // them in a deterministic order before checking both directions.
-        for &member in &members {
-            if member != actor {
-                super::mail::pair_lock(&mut tx, actor, member).await?;
+        // A group invitation must not bypass a block between any two
+        // participants, even when the creator is not one of that pair.
+        // Lock every pair in a stable order against concurrent block/unblock.
+        for (index, &left) in members.iter().enumerate() {
+            for &right in members.iter().skip(index + 1) {
+                super::mail::pair_lock(&mut tx, left, right).await?;
             }
         }
         let is_blocked: bool = sqlx::query_scalar(
             "SELECT EXISTS(
                SELECT 1 FROM social_user_blocks b
-               WHERE (b.blocker_id=$1 AND b.blocked_id=ANY($2::bigint[]))
-                  OR (b.blocked_id=$1 AND b.blocker_id=ANY($2::bigint[]))
+               WHERE b.blocker_id=ANY($1::bigint[])
+                 AND b.blocked_id=ANY($1::bigint[])
              )",
         )
-        .bind(actor)
         .bind(&members)
         .fetch_one(&mut *tx)
         .await
