@@ -125,6 +125,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .await
         .unwrap();
     let book:i64=pg(&url,&format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) VALUES('ci:rec13:http:{nonce}','ru','Book <script>unsafe</script>','public',{user}) RETURNING id")).parse().unwrap();
+    let expected_book_id = book.to_string();
     let next:i64=pg(&url,&format!("INSERT INTO books(source_identity,target_language,title,visibility) VALUES('ci:rec13:next:{nonce}','ru','Next book','public') RETURNING id")).parse().unwrap();
     pg(&url,&format!("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES({book},'general'),({next},'general')"));
     let chapter:i64=pg(&url,&format!("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES({book},1,'First','public') RETURNING id")).parse().unwrap();
@@ -238,7 +239,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|i| i["book_id"] == book)
+        .find(|i| i["book_id"].as_str() == Some(expected_book_id.as_str()))
         .unwrap();
     let ticket = item["ticket"].as_str().unwrap().to_owned();
     let visible=json!({"items":[{"ticket":ticket,"visible_fraction_per_mille":500,"continuous_visible_ms":1000,"document_visible":true}]}).to_string();
@@ -400,7 +401,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .as_array()
         .unwrap()
         .iter()
-        .all(|i| i["book_id"] != book));
+        .all(|i| i["book_id"].as_str() != Some(expected_book_id.as_str())));
     let their = data(
         call(
             &app,
@@ -418,7 +419,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|i| i["book_id"] == book));
+        .any(|i| i["book_id"].as_str() == Some(expected_book_id.as_str())));
     assert_eq!(
         call(
             &app,
