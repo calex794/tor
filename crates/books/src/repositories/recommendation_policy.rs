@@ -121,7 +121,9 @@ impl PgRecommendationPolicy {
         // Every edit invalidates the earlier approval; only an A-verified
         // administrator can confirm general eligibility at the new CAS revision.
         sqlx::query("DELETE FROM rec_general_audience_approvals WHERE book_id=$1")
-            .bind(book).execute(&mut *tx).await?;
+            .bind(book)
+            .execute(&mut *tx)
+            .await?;
         if actor.administrator && audience == "general" {
             sqlx::query("INSERT INTO rec_general_audience_approvals(book_id,reviewed_revision,reviewer_user_id) VALUES($1,$2,$3)")
                 .bind(book).bind(expected+1).bind(actor.actor.user_id.get())

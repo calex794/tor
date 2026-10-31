@@ -194,7 +194,10 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")
+        ),
         "0",
         "Self-declared general must not make a book eligible"
     );
@@ -251,7 +254,10 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")
+        ),
         "2"
     );
     let owner_reedit = format!("audience=general&related=&expected_revision=3&csrf_token={csrf}");
@@ -270,7 +276,10 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")
+        ),
         "0",
         "Even a same-category owner edit must invalidate the prior review"
     );
@@ -301,7 +310,10 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         &format!("UPDATE account_roles SET is_active=false WHERE user_id={other} AND role='administrator'"),
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")),
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")
+        ),
         "2"
     );
     assert_eq!(
