@@ -112,7 +112,10 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
         LikeMutation::AlreadyLiked
     );
     assert_eq!(
-        likes.set_like(second_user, book, true, false).await.unwrap(),
+        likes
+            .set_like(second_user, book, true, false)
+            .await
+            .unwrap(),
         LikeMutation::Added
     );
 
