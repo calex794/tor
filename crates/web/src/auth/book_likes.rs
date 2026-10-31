@@ -119,11 +119,7 @@ pub(super) async fn submit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     if !allowed {
-        if integrity
-            .record_hard_limit(actor, id, liked)
-            .await
-            .is_err()
-        {
+        if integrity.record_hard_limit(actor, id, liked).await.is_err() {
             return deny(StatusCode::SERVICE_UNAVAILABLE);
         }
         let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
