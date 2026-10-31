@@ -4,40 +4,36 @@ on:
     paths:
       - '.github/workflows/rec-feedback-acceptance.yml'
       - 'crates/**'
-      - 'migrations/*rec_*'
+      - 'migrations/**'
       - 'tools/rec13_*'
+  push:
+    branches: ['feat/f/rec-feedback-system-20261031']
 permissions:
   contents: read
 concurrency:
-  group: rec-feedback-${{ github.event.pull_request.number }}
+  group: rec-feedback-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
-  prepare-source:
-    if: ${{ github.repository == 'calex794/tor' && github.event.pull_request.number == 328 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/f/rec-feedback-system-20261031' }}
-    permissions:
-      contents: write
+  source-evidence:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Exact source wiring in isolated checkout
+      - name: Preserve exact source for offline review
         run: |
-          python3 tools/rec13_integrate.py
-          python3 tools/rec13_harden.py
-      - name: Canonical Rust formatting
-        run: cargo fmt --all
-      - name: Publish source blobs only (no ref update or deployment)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          REC_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: python3 tools/rec13_publish_tree.py
+          git rev-parse HEAD > "$RUNNER_TEMP/rec-source-sha.txt"
+          git bundle create "$RUNNER_TEMP/rec-source.bundle" --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rec-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/rec-source.bundle
+            ${{ runner.temp }}/rec-source-sha.txt
+          retention-days: 3
   acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -62,16 +58,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Exact source wiring in isolated checkout
+      - name: Check committed source without rewriting it
         run: |
-          python3 tools/rec13_integrate.py
-          python3 tools/rec13_harden.py
+          cargo fmt --all -- --check
+          python3 tools/check_feature_layout.py
+          python3 tools/check_ril_governance.py
+          python3 tools/check_contracts.py
       - name: Prepare isolated database
         run: |
           sudo apt-get update -qq
@@ -99,22 +97,17 @@ jobs:
           cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
       - name: Browser acceptance
         run: bash tools/rec13_browser_acceptance.sh
-      - name: Read-only source checks
-        if: always()
+      - name: Workspace regression
         run: |
-          python3 tools/check_feature_layout.py
-          python3 tools/check_ril_governance.py
-          python3 tools/check_contracts.py
-      - name: Formatting evidence
+          cargo test --workspace --all-targets
+          cargo clippy --workspace --all-targets -- -D warnings
+          python3 -m unittest discover -s tests/architecture -v
+      - name: Confirm tested source is the committed source
         if: always()
-        run: |
-          cargo fmt --all
-          git diff -- '*.rs' > "$RUNNER_TEMP/rec-rustfmt.patch"
+        run: git diff --exit-code
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rec-evidence-${{ github.event.pull_request.head.sha }}
-          path: |
-            ${{ runner.temp }}/rec-rustfmt.patch
-            ${{ runner.temp }}/rec13-browser/shots/*.png
-          retention-days: 1
+          name: rec-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/rec13-browser/
+          retention-days: 3

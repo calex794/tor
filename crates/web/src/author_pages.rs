@@ -16,7 +16,8 @@ pub fn index(books: &[OwnedBook]) -> Html<String> {
                 &mut list,
                 "<li><a class=\"author-book-link\" href=\"/me/books/{}\">{}</a> <a href=\"/me/books/{}/recommendations\">Рекомендации</a></li>",
                 book.id,
-                escape_html(&book.title)
+                escape_html(&book.title),
+                book.id
             )
             .expect("write String");
         }
