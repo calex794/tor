@@ -123,3 +123,38 @@ The borrower must have an immutable D-08 finance snapshot with original buyer
 debit, platform credit, and matching author earnings. This blocks historical
 wallet-only purchases, even if their grant rows are missing.
 Approval and creator reversal are still deliberately unavailable.
+
+
+## Moderator step-up before direct refund approval (2026-10-31)
+
+Direct refund approval now requires a fresh password-verification capability
+before a proof can be issued by the A-owned session authority. The capability is created only by
+`verify_password_for_step_up` and must be checked in the bounded web
+`PasswordJobs` worker; raw passwords never enter the commerce repository.
+The commerce module computes the exact decision digest; the accounts module
+verifies credentials and issues the scoped proof on an active session. This
+separation keeps the TOR feature dependency rules intact.
+Issuance rechecks the exact stored password hash, active global administrator
+role, active session and pending request revision under PostgreSQL locks.
+
+The opaque proof token is never stored or returned to the browser. Only its
+SHA-256 digest is stored on the existing session row. It is bound to
+`finance.refund.approve.v1`, the current session, request ID, expected
+revision and normalized decision-reason digest; it expires after five minutes.
+The approval transaction validates and consumes it atomically with buyer
+credit, platform/creator reversals and entitlement revocation. Missing,
+expired, reused, wrong-session, wrong-request, stale-revision or changed-reason
+proofs fail closed with no business writes. Session revocation, password
+rotation and administrator demotion invalidate the proof.
+
+The approval method remains internal and is not mounted on HTTP. Any future
+web/API handler must perform same-origin + CSRF validation, authoritative
+administrator lookup, account-scoped attempt limiting and bounded current
+password verification before issuing the proof. No user-facing refund request
+or approval flow is enabled by this change.
+
+PostgreSQL tests distinguish A-issued credential authority from D's negative and
+positive approval transitions. The issuance and decision share the exact
+scope, request ID, revision and reason digest. The `202610310292` migration
+uses `statement_timestamp()` for both issue and expiry to avoid microsecond
+constraint drift.
