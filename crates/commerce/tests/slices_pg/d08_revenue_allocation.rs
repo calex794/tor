@@ -169,7 +169,7 @@ fn d_08_invalid_policy_and_share_schedules_are_rejected() {
     );
     assert_eq!(
         calculate_purchase_allocation(gross(100), &policy, &[share(11, 50)]),
-        Err(RevenueAllocationError::SharesMustSumToOneHundred)
+        Err(RevenueAllocationError::SharesMustEqualOneHundred)
     );
     assert_eq!(
         calculate_purchase_allocation(
