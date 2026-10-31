@@ -72,6 +72,12 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_version_id\" value=\"{}\">\
              <input type=\"hidden\" name=\"expected_price_minor\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_base_price_minor\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_campaign_id\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_campaign_revision\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_follow_period_id\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_discount_percent\" value=\"{}\">\
+             <input type=\"hidden\" name=\"expected_min_follow_days\" value=\"{}\">\
              <input type=\"hidden\" name=\"command_key\" value=\"{}\">\
              <button type=\"submit\" class=\"ui-button ui-button--primary\">Купить главу</button>\
              </form>\
