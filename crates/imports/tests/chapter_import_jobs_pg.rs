@@ -225,8 +225,8 @@ async fn s023_queue_claim_fencing_retry_and_owner_privacy() {
 
     // Exhausted attempts are moved to failed rather than stranded as running.
     sqlx::query(
-        "UPDATE chapter_import_jobs SET attempts=8,locked_until=now()-INTERVAL '1 second'
-         WHERE id=$1 AND status='queued'",
+        "UPDATE chapter_import_jobs SET status='running',attempts=8,
+             locked_until=now()-INTERVAL '1 second' WHERE id=$1 AND status='queued'",
     )
     .bind(job2)
     .execute(&pool)
