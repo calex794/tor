@@ -7,7 +7,7 @@ edition.workspace = true
 default = []
 s3-covers = ["tor-ingest/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
-s3-chapter-import = ["dep:aws-config", "dep:aws-sdk-s3"]
+s3-chapter-import = ["tor-imports/s3", "dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
 axum = { workspace = true, features = ["multipart"] }
