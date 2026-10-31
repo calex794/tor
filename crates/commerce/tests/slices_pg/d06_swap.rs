@@ -602,3 +602,83 @@ async fn d_06_swap_expired_source_purchase_preserves_wallet_and_access() {
     );
     pool.close().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_racing_direct_checkout_never_sells_target_twice() {
+    let (pool, intent, source_chapter, source_version) =
+        swap_fixture("d06_swap_checkout_race", 450).await;
+    let swap_key = IdempotencyKey::parse(&format!("{}8", "Y".repeat(42))).unwrap();
+    let swaps = PgDirectSwaps::new(pool.clone());
+    let checkout = PgCheckout::new(pool.clone()).with_creator_posting(true);
+    let buy = command(
+        intent.buyer_id,
+        intent.target_chapter_id,
+        intent.target_version_id,
+        intent.target_price_minor,
+        'Z',
+    );
+    let (swap, purchase) = tokio::join!(
+        swaps.swap_once(intent, &swap_key),
+        checkout.checkout_once(&buy),
+    );
+    assert_ne!(
+        swap.is_ok(),
+        purchase.is_ok(),
+        "one target sale must succeed, never both"
+    );
+
+    let (balance, target_sales, target_debits, swap_postings, old_revocations): (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    ) = sqlx::query_as(
+        "SELECT balance_minor,
+           (SELECT COUNT(*) FROM chapter_purchase_facts
+            WHERE user_id=$1 AND chapter_id=$2),
+           (SELECT COUNT(*) FROM reader_wallet_entries e
+            JOIN chapter_purchase_facts p ON p.id=e.purchase_id
+            WHERE p.user_id=$1 AND p.chapter_id=$2
+              AND e.kind='chapter_purchase'),
+           (SELECT COUNT(*) FROM finance_direct_swap_postings
+            WHERE source_purchase_id=$3),
+           (SELECT COUNT(*) FROM chapter_purchase_revocations
+            WHERE purchase_id=$3 AND reason='purchase_swap')
+         FROM reader_wallet_accounts WHERE user_id=$1",
+    )
+    .bind(intent.buyer_id)
+    .bind(intent.target_chapter_id)
+    .bind(intent.source_purchase_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        (target_sales, target_debits),
+        (1, 1),
+        "exactly one immutable target sale and wallet debit"
+    );
+    let old_readable: bool =
+        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+            .bind(intent.buyer_id)
+            .bind(intent.source_purchase_id)
+            .bind(source_chapter)
+            .bind(source_version)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    if let Ok(receipt) = swap {
+        assert_eq!(purchase, Err(CheckoutError::AlreadyOwned));
+        assert_eq!(receipt.balance_after, 550);
+        assert_eq!((balance, swap_postings, old_revocations), (550, 1, 1));
+        assert!(!old_readable, "source right must be revoked after swap");
+    } else {
+        assert_eq!(swap, Err(SwapError::AlreadyOwned));
+        assert!(purchase.is_ok(), "ordinary checkout must own target once");
+        assert_eq!((balance, swap_postings, old_revocations), (250, 0, 0));
+        assert!(old_readable, "ordinary checkout must retain source access");
+    }
+    pool.close().await;
+}
