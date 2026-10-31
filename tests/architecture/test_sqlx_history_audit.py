@@ -2,7 +2,6 @@
 import csv
 import hashlib
 import io
-import os
 import stat
 from pathlib import Path
 import sys
