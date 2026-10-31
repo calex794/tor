@@ -80,6 +80,9 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     );
     assert_eq!(groups.list(b, None, 10).await.unwrap()[0].id, id);
     assert!(groups.list(outsider, None, 10).await.unwrap().is_empty());
+    assert_eq!(groups.get(a, id).await.unwrap().title, "Private crew");
+    assert_eq!(groups.get(b, id).await.unwrap().id, id);
+    assert_eq!(groups.get(outsider, id).await, Err(MailError::NotFound));
     assert_eq!(
         groups.messages(outsider, id, None, 50).await,
         Err(MailError::NotFound)
@@ -164,6 +167,8 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
         Err(MailError::NotFound)
     );
     assert!(groups.list(b, None, 10).await.unwrap().is_empty());
+    assert_eq!(groups.get(b, id).await, Err(MailError::NotFound));
+    assert_eq!(groups.get(a, id).await.unwrap().id, id);
     assert_eq!(groups.leave(b, id).await, Err(MailError::NotFound));
     assert_eq!(groups.messages(a, id, None, 50).await.unwrap().len(), 2);
 
