@@ -160,6 +160,7 @@ pub fn private_reader_with_demand(
                 </article>
                 {complete_form}
                 {demand_panel}
+                <p class="reader-page__thanks"><a class="text-link" href="/reader/{chapter_id}/thanks">Сказать «Спасибо» за главу</a></p>
                 {navigation}
                 <p class="reader-page__return"><a class="text-link" href="/me/library">К моей библиотеке</a></p>
             </div></section>"#,

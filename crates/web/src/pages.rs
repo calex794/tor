@@ -10,8 +10,9 @@ mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, my_account, my_account_with_follow_updates,
-    password_change_form, registration_form, registration_form_with_error,
+    account_error_page, login_form, my_account, my_account_with_achievements,
+    my_account_with_follow_updates, password_change_form, registration_form,
+    registration_form_with_error,
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
@@ -384,6 +385,9 @@ pub fn reader_with_login_link(
     } else {
         format!("<nav class=\"chapter-navigation\" aria-label=\"Переход между главами\">{previous}{next}</nav>")
     };
+    let thanks_link = chapter_id
+        .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
+        .unwrap_or_default();
     let html = include_str!("../templates/reader.html")
         .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
         .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
@@ -391,6 +395,7 @@ pub fn reader_with_login_link(
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
         .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
         .replace("<!--CONTINUATION_STATUS-->", &continuation_status)
+        .replace("<!--CHAPTER_THANKS_LINK-->", &thanks_link)
         .replace(
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),

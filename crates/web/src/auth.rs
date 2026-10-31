@@ -55,6 +55,8 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_stars;
+mod book_stats_http;
+mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
@@ -173,6 +175,8 @@ fn router_inner(
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
+    let achievements =
+        tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
@@ -199,6 +203,7 @@ fn router_inner(
         follow_updates,
         reader,
         rankings,
+        achievements,
         cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
@@ -259,6 +264,10 @@ fn router_inner(
             get(book_stars::page).post(book_stars::submit),
         )
         .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
+        )
+        .route(
             "/books/{id}/comments",
             get(book_comments::page).post(book_comments::submit),
         )
@@ -304,6 +313,8 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route("/books/{id}/stats", get(book_stats_http::page))
+        .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
@@ -359,9 +370,13 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(count) => count,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let achievements = match state.achievements.snapshot(user_id).await {
+        Ok(achievements) => achievements,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::my_account_with_follow_updates(&name, &csrf, &replies, unread),
+        pages::my_account_with_achievements(&name, &csrf, &replies, unread, &achievements),
         &cookies,
     )
 }

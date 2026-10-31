@@ -132,3 +132,6 @@ pub mod paid_asset_markers;
 
 /// Per-book manual Shadow SEO eligibility and indexing owner.
 pub mod shadow_seo;
+
+/// H-09/S023: bounded NEwBOO-compatible chapter TXT/Markdown file import.
+pub mod chapter_file_import;

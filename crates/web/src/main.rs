@@ -99,6 +99,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
+    let mut pending_achievements_consumer: Option<
+        tor_recommendations::repositories::PgAchievements,
+    > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
     let mut pending_social_notifications = None;
     let app = match env::var("DATABASE_URL") {
@@ -111,6 +114,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
+                pending_achievements_consumer = Some(
+                    tor_recommendations::repositories::PgAchievements::new(pool.clone()),
+                );
                 pending_referral_consumer =
                     Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
                 pending_social_notifications = Some(
@@ -282,6 +288,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =
         pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
+    let _achievements_consumer = pending_achievements_consumer
+        .map(tor_web::achievement_consumer::start_achievements_consumer);
     // Registrations and their outbox facts were committed atomically.
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =

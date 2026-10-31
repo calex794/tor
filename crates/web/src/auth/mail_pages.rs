@@ -77,17 +77,44 @@ pub(super) fn conversation(
         };
         let view = enriched.get(index);
         let body_text = view.map_or(m.body.as_str(), |p| p.body_without_book_links.as_str());
-        write!(body,"<article class=\"me-now-card\" data-message-id=\"{}\"><strong>{sender}</strong><p class=\"mail-message-body\">{}</p>",m.id,escape_html(body_text)).expect("mail message");
+        write!(
+            body,
+            "<article class=\"me-now-card\" data-message-id=\"{}\"><strong>{sender}</strong><p class=\"mail-message-body\">{}</p>",
+            m.id,
+            escape_html(body_text)
+        )
+        .expect("mail message");
         if let Some(view) = view {
             for preview in &view.book_previews {
-                write!(body,"<a class=\"mail-book-preview\" data-mail-book-preview=\"{}\" href=\"{}\">",escape_html(&preview.book_ref),escape_html(&preview.url)).expect("mail preview link");
+                write!(
+                    body,
+                    "<a class=\"mail-book-preview\" data-mail-book-preview=\"{}\" href=\"{}\">",
+                    escape_html(&preview.book_ref),
+                    escape_html(&preview.url)
+                )
+                .expect("mail preview link");
                 if !preview.cover_url.is_empty() {
-                    write!(body,"<img src=\"{}\" alt=\"\" loading=\"lazy\">",escape_html(&preview.cover_url)).expect("mail preview cover");
+                    write!(
+                        body,
+                        "<img src=\"{}\" alt=\"\" loading=\"lazy\">",
+                        escape_html(&preview.cover_url)
+                    )
+                    .expect("mail preview cover");
                 }
-                write!(body,"<span>{}</span></a>",escape_html(&preview.title)).expect("mail preview title");
+                write!(
+                    body,
+                    "<span>{}</span></a>",
+                    escape_html(&preview.title)
+                )
+                .expect("mail preview title");
             }
         }
-        write!(body,"<time>{}</time></article>",escape_html(&m.created_at_display)).expect("mail message time");
+        write!(
+            body,
+            "<time>{}</time></article>",
+            escape_html(&m.created_at_display)
+        )
+        .expect("mail message time");
     }
     body.push_str("</div>");
     if page.has_more {
@@ -155,15 +182,22 @@ mod tests {
     fn e08_preview_title_is_escaped_in_server_rendering() {
         let page = MessagePage {
             items: vec![tor_social::domain::Message {
-                id: 10, sender_id: 2, body: "/books/12".into(),
-                created_at: "now".into(), created_at_display: "now".into(),
+                id: 10,
+                sender_id: 2,
+                body: "/books/12".into(),
+                created_at: "now".into(),
+                created_at_display: "now".into(),
             }],
-            peer_id: 2, blocked: false, blocked_by_me: false, has_more: false,
+            peer_id: 2,
+            blocked: false,
+            blocked_by_me: false,
+            has_more: false,
         };
         let view = super::super::mail_book_previews::PreviewedText {
             body_without_book_links: String::new(),
             book_previews: vec![super::super::mail_book_previews::MailBookPreview {
-                book_ref: "12".into(), title: "<img onerror=alert(1)>".into(),
+                book_ref: "12".into(),
+                title: "<img onerror=alert(1)>".into(),
                 url: "/books/12".into(),
                 cover_url: String::new(),
             }],
