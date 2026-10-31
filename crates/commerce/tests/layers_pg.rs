@@ -3,10 +3,10 @@
 mod layer_allocation;
 #[path = "layers_pg/layer_create.rs"]
 mod layer_create;
-#[path = "layers_pg/layer_member_delete.rs"]
-mod layer_member_delete;
 #[path = "layers_pg/layer_delivery.rs"]
 mod layer_delivery;
+#[path = "layers_pg/layer_member_delete.rs"]
+mod layer_member_delete;
 #[path = "layers_pg/layer_offer.rs"]
 mod layer_offer;
 #[path = "layers_pg/layer_picker.rs"]
