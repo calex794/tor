@@ -149,6 +149,26 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
         .iter()
         .any(|signal| signal.category == "source_spray" && signal.successes >= 20));
 
+    // Ten typos by one person plus many successful neighbours are not
+    // ten failed targets. Successful NAT traffic must not inflate the detector.
+    for _ in 0..10 {
+        accounts
+            .record_auth_observation(&AuthAttemptObservation {
+                target_key: Some(secret.target(&format!("nat-typos-{nonce}@example.invalid"))),
+                user_id: None,
+                source_key: Some(shared_source),
+                subnet_key: None,
+                agent: UserAgentFamily::Unknown,
+                outcome: AuthAttemptOutcome::BadPassword,
+            })
+            .await
+            .unwrap();
+    }
+    let signals = accounts.auth_risk_signals().await.unwrap();
+    assert!(!signals
+        .iter()
+        .any(|signal| signal.category == "source_spray" && signal.successes >= 20));
+
     // A flood with no trusted source must not be grouped into one fake IP.
     for index in 0..16 {
         accounts
@@ -195,3 +215,6 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
     .unwrap();
     assert_eq!(remaining, 0);
 }
+
+#[path = "auth_observation_pg/risk_load.rs"]
+mod risk_load;

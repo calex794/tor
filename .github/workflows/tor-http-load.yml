@@ -4,6 +4,8 @@ on:
     paths:
       - .github/workflows/tor-http-load.yml
       - tests/load/**
+      - crates/search/src/repositories/catalog.rs
+      - migrations/202610300021_public_catalog_exact_projection.sql
       - tools/ci_test_map.py
       - tests/architecture/test_ci_workflow_wiring.py
   workflow_dispatch:
@@ -163,6 +165,153 @@ jobs:
           nproc > "$RUNNER_TEMP/tor-load/cpu_count.txt"
           free -h > "$RUNNER_TEMP/tor-load/memory.txt"
           if (( baseline_failed != 0 )); then exit 1; fi
+      - name: Measure multi-page reader journeys (isolated smoke)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_AUTH_ENABLED: '0'
+          TOR_PAID_CHECKOUT_ENABLED: '0'
+          TOR_JOURNEYS_PER_SECOND: '25'
+          TOR_JOURNEY_SECONDS: '60'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load/journeys"
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/journeys/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then exit 1; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3089/readyz >/dev/null
+          k6 run --summary-export "$RUNNER_TEMP/tor-load/journeys/summary.json" \
+            tests/load/tor_journeys_baseline.js | tee "$RUNNER_TEMP/tor-load/journeys/k6.log"
+      - name: Measure authenticated reader progress writes
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3089
+          TOR_AUTH_ENABLED: '1'
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3089
+          TOR_PAID_CHECKOUT_ENABLED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load/progress"
+          bash tests/load/perf252_seed_writers_ci.sh
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/progress/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3089/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then cat "$RUNNER_TEMP/tor-load/progress/server.log"; exit 1; fi
+          python3 tests/load/perf252_seed_buyers_ci.py |
+            tee "$RUNNER_TEMP/tor-load/progress/paid-fixture.txt"
+          k6 run --summary-export "$RUNNER_TEMP/tor-load/progress/summary.json" \
+            tests/load/tor_authenticated_progress.js | tee "$RUNNER_TEMP/tor-load/progress/k6.log"
+          saved_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND revision>0")"
+          printf '%s\n' "$saved_count" | tee "$RUNNER_TEMP/tor-load/progress/saved-count.txt"
+          # Require persisted PG writes, not just successful k6 HTTP assertions.
+          if ! [[ "$saved_count" =~ ^[0-9]+$ ]] || (( saved_count < 1 || saved_count > 32 )); then
+            echo "Expected 1..32 persisted reader positions, got $saved_count" >&2
+            exit 1
+          fi
+          invalid_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM reader_book_positions WHERE chapter_id=401 AND (block_index<>1 OR char_offset<1 OR char_offset>4000 OR revision<1)")"
+          if [[ "$invalid_count" != 0 ]]; then
+            echo "Invalid saved reader positions: $invalid_count" >&2
+            exit 1
+          fi
+          comment_count="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "SELECT count(*) FROM discussion_comments WHERE book_id=1 AND body LIKE 'PERF252 LOAD reader %' AND visibility='visible'")"
+          printf '%s\n' "$comment_count" | tee "$RUNNER_TEMP/tor-load/progress/comments-count.txt"
+          if ! [[ "$comment_count" =~ ^[0-9]+$ ]] || (( comment_count < 1 )); then
+            echo "Expected persisted visible PERF-252 comments, got $comment_count" >&2
+            exit 1
+          fi
+          purchases="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
+              SELECT count(*) FROM chapter_purchase_facts p
+              JOIN chapters c ON c.id=p.chapter_id WHERE c.book_id=200001")"
+          paid_entries="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
+              SELECT count(*) FROM reader_wallet_entries e
+              JOIN chapter_purchase_facts p ON p.id=e.purchase_id
+              JOIN chapters c ON c.id=p.chapter_id
+              WHERE c.book_id=200001 AND e.kind='chapter_purchase'")"
+          paid_rights="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
+              SELECT count(*) FROM library_purchased_chapters l
+              JOIN chapters c ON c.id=l.chapter_id WHERE c.book_id=200001")"
+          total_balances="$(PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -A -t -q -c "
+              SELECT coalesce(sum(w.balance_minor),0)
+              FROM reader_wallet_accounts w
+              JOIN users u ON u.id=w.user_id
+              WHERE u.email_normalized LIKE 'perf252-paid-buyer-%@tor-ci.example'")"
+          if ! [[ "$purchases" =~ ^[0-9]+$ && "$paid_entries" =~ ^[0-9]+$ &&
+                  "$paid_rights" =~ ^[0-9]+$ && "$total_balances" =~ ^[0-9]+$ ]] ||
+             (( purchases < 1 || purchases > 300 || paid_entries != purchases ||
+                paid_rights != purchases || total_balances != 160000 - purchases*100 )); then
+            echo "PERF252 financial invariant failed (counts/balances only)" >&2
+            exit 1
+          fi
+          printf 'purchases=%s entries=%s rights=%s wallets_total=%s\n' \
+            "$purchases" "$paid_entries" "$paid_rights" "$total_balances" \
+            > "$RUNNER_TEMP/tor-load/progress/financial-counts.txt"
+          {
+            echo '## PERF-252 concurrent 10k-book journeys'
+            echo '25 complete user journeys/s for 60s: 13 progress/comment, 10 public reading, 2 paid purchases.'
+            echo 'k6 exports p50/p95/p99 by tagged HTTP action; exact PG purchases = wallet debits = library rights.'
+            echo "Stored comments: $comment_count; unique paid purchases: $purchases."
+            echo 'Only disposable tor_ci and 127.0.0.1; no payment provider or VPS.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: PERF-252 paid checkout and revocation contract (not throughput)
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          TOR_LISTEN_ADDR: 127.0.0.1:3098
+          TOR_PUBLIC_ORIGIN: http://127.0.0.1:3098
+          TOR_AUTH_ENABLED: '1'
+          TOR_PAID_CHECKOUT_ENABLED: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tor-load/purchase-contract"
+          [[ "$TEST_DATABASE_URL" == */tor_ci && "$PGHOST" == 127.0.0.1 ]] ||
+            { echo "Refusing non-disposable database"; exit 1; }
+          ./target/release/tor-web > "$RUNNER_TEMP/tor-load/purchase-contract/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3098/readyz >/dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then tail -n 80 "$RUNNER_TEMP/tor-load/purchase-contract/server.log"; exit 1; fi
+          # Earlier 10k/paid-fixture explicit IDs do not advance PostgreSQL
+          # identity sequences. Rebase them ONLY in this disposable database
+          # before the existing HTTP smoke creates auto-ID books/chapters.
+          [[ "$MIGRATOR_URL" == */tor_ci ]] || exit 1
+          psql -X -v ON_ERROR_STOP=1 "$MIGRATOR_URL" <<'SQL'
+          SELECT setval(pg_get_serial_sequence('books','id'),(SELECT MAX(id) FROM books),true);
+          SELECT setval(pg_get_serial_sequence('chapters','id'),(SELECT MAX(id) FROM chapters),true);
+          SELECT setval(pg_get_serial_sequence('chapter_versions','id'),(SELECT MAX(id) FROM chapter_versions),true);
+          SQL
+          python3 tools/checkout_http_pg_smoke.py --mode enabled |
+            tee "$RUNNER_TEMP/tor-load/purchase-contract/result.txt"
+          {
+            echo '## PERF-252 purchase / revocation correctness'
+            echo 'Real authenticated HTTP purchases, replay, wallet ledger and paid V1 rights checked.'
+            echo 'The trusted test-only PostgreSQL revocation validates loss of access;'
+            echo '**it is not an HTTP refund or a financial refund-load measurement.**'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Diagnose 300-500 RPS and isolate expensive routes
         if: ${{ github.event_name == 'pull_request' || inputs.diagnostics }}
         env:

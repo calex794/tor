@@ -18,6 +18,7 @@ pub(super) async fn session_user(
 
 #[derive(Clone)]
 pub(super) struct AuthState {
+    pub(super) referrals: tor_referrals::repositories::PgReferrals,
     pub(super) accounts: PgAccounts,
     pub(super) reset_delivery: Option<super::reset_delivery::ResetDelivery>,
     pub(super) notification_preferences: tor_reading::repositories::PgNotificationPreferences,
@@ -30,9 +31,11 @@ pub(super) struct AuthState {
     pub(super) bookmarks: PgLibrary,
     pub(super) demand: PgContinuationDemand,
     pub(super) book_follows: tor_reading::repositories::PgBookFollows,
+    pub(super) creator_follows: tor_social::services::follow::PgCreatorFollows,
     pub(super) follow_updates: PgFollowUpdates,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
+    pub(super) achievements: tor_recommendations::repositories::PgAchievements,
     pub(super) cookies: CookiePolicy,
     pub(super) password_jobs: PasswordJobs,
     pub(super) ril_signer: Option<RilSubjectSigner>,

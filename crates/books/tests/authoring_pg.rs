@@ -201,6 +201,18 @@ async fn b_03_04_free_chapter_then_deliberate_book_release() {
             .await
             .unwrap();
     assert_eq!(count, 1, "one first release event, even on repeat");
+    let release_creator: Option<i64> = sqlx::query_scalar(
+        "SELECT creator_user_id FROM chapter_first_release_events WHERE chapter_id=$1",
+    )
+    .bind(saved.chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        release_creator,
+        Some(user),
+        "first release of a draft book must snapshot its verified owner"
+    );
     let late_key = "n".repeat(43);
     let late_chapter = save_chapter(SaveChapterRequest {
         book_id: book_id as u64,

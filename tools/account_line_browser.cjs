@@ -68,6 +68,7 @@ async function login(browser,mail,secret) {
     assert(await alice.page.locator('form[action="/me/security/sessions"]').count()>=2);
     assert(await alice.page.getByText('это устройство').count()>=1);
     const remote=alice.page.locator('li.me-now-item').filter({hasNotText:'это устройство'}).first();
+    await remote.locator('input[name=current_password]').fill(password);
     const [sessionRevoked]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/security/sessions`),remote.locator('button').click()]);
     assert.equal(sessionRevoked.status(),303);
     await alice.page.waitForLoadState('networkidle');

@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::{
-    auth_cookies::{private_response, CookiePolicy},
+    auth_cookies::{deny, private_response, CookiePolicy},
     author_chapter_http, author_chapter_pages, author_cover_http, author_pages, pages,
     password_jobs::PasswordJobs,
 };
@@ -54,10 +54,14 @@ mod behavior_consent;
 mod book_comments;
 mod book_description;
 mod book_follow_actions;
+mod book_likes;
 mod book_stars;
+mod book_stats_http;
+mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
 mod continuation_demand;
+mod creator_follows;
 mod follow_read_state;
 mod followed_purchase_links;
 mod inbox;
@@ -71,6 +75,10 @@ mod password_reset;
 mod private_reader;
 mod profile_http;
 mod rankings;
+mod referral_alias;
+mod referral_capture;
+mod referral_dashboard;
+mod referral_routes;
 mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
@@ -160,8 +168,12 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
+    let creator_follows =
+        tor_social::services::follow::PgCreatorFollows::new(accounts.pool().clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
+    let achievements =
+        tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
@@ -170,6 +182,7 @@ fn router_inner(
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
+        referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
         notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
             accounts.pool().clone(),
@@ -184,9 +197,11 @@ fn router_inner(
         bookmarks,
         demand,
         book_follows,
+        creator_follows,
         follow_updates,
         reader,
         rankings,
+        achievements,
         cookies,
         password_jobs: PasswordJobs::new(4),
         ril_signer: behavior_consent::configured_ril_signer(),
@@ -196,6 +211,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(referral_routes::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -205,9 +221,23 @@ fn router_inner(
             get(account_form_http::show_login).post(account_form_http::login),
         )
         .route("/me", get(me))
+        .route("/me/creators", get(creator_follows::page))
+        .route(
+            "/me/creators/{id}/unfollow",
+            post(creator_follows::unfollow),
+        )
+        .route(
+            "/me/books/{id}/follow-creator",
+            post(book_follow_actions::follow_creator),
+        )
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
+        )
+        .route("/assets/mentions.js", get(book_comments::mention_script))
+        .route(
+            "/api/v1/social/mentions/discover",
+            get(book_comments::discover_mentions),
         )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
@@ -222,8 +252,16 @@ fn router_inner(
         )
         .route("/me/rankings", get(rankings::page))
         .route(
+            "/books/{id}/like",
+            get(book_likes::page).post(book_likes::submit),
+        )
+        .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route(
+            "/reader/{id}/thanks",
+            get(chapter_thanks::page).post(chapter_thanks::submit),
         )
         .route(
             "/books/{id}/comments",
@@ -271,6 +309,8 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route("/books/{id}/stats", get(book_stats_http::page))
+        .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
@@ -297,10 +337,6 @@ fn router_inner(
     } else {
         app
     }
-}
-
-fn deny(status: StatusCode) -> Response {
-    private_response(status, &[])
 }
 
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
@@ -330,9 +366,13 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(count) => count,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let achievements = match state.achievements.snapshot(user_id).await {
+        Ok(achievements) => achievements,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::my_account_with_follow_updates(&name, &csrf, &replies, unread),
+        pages::my_account_with_achievements(&name, &csrf, &replies, unread, &achievements),
         &cookies,
     )
 }
