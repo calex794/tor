@@ -186,3 +186,22 @@ does not validate it. Retained SQLx ledger/checksum, independent review,
 public-profile identity, private/legacy book previews, full discussions,
 group/admin mail and remaining source parity are still open. No
 main/production/VPS/retained DB change is authorized.
+
+## 01.11.2026 — public profile identity hardening (next Draft slice)
+
+Source NEwBOO `app/repositories/user_repository.py` folds display-name keys
+using `strip().lower()` and refuses duplicate new memory users. Current TOR
+SQL accounts allow duplicate display names, including names differing only in
+case. Exact-case lookup lets the same apparent nickname lead to different
+accounts. A blind unique migration would fail for existing duplicates.
+
+The next scoped change folds public-name lookup using PostgreSQL
+`lower(display_name)=lower($1)` after input trimming; it resolves exactly
+one matching account, or returns None (HTTP 404) for missing/ambiguous keys.
+An append-only nonunique expression index bounds lookup cost without deleting
+or renaming users. Real PostgreSQL and authenticated/guest HTTP regressions
+check case-normalized success, duplicate 404, and continued distinct account
+ownership. Later identity migration must handle historical collisions and
+explicit stable handles; this is **not** full source-profile parity. Private
+book previews and group/admin mail also remain open. No privileges or user
+identifiers come from request text; no production or retained data changes.

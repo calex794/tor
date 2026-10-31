@@ -125,6 +125,15 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let guest_profile =
         text(call(&app, "GET", "/users/Mail%20reader%201", "", "", &[]).await).await;
     assert!(!guest_profile.contains(">Почта</button>"));
+    let folded_profile =
+        text(call(&app, "GET", "/users/mAiL%20ReAdEr%201", "", "", &[]).await).await;
+    assert!(folded_profile.contains("Mail reader 1"));
+    assert!(!folded_profile.contains(">Почта</button>"));
+    let trimmed_profile = text(
+        call(&app, "GET", "/users/%20mAiL%20ReAdEr%201%20", "", "", &[]).await,
+    )
+    .await;
+    assert!(trimmed_profile.contains("Mail reader 1"));
     let start_path = format!("/mail/start/{}", users[1]);
     let start = format!("csrf_token={}", csrf[0]);
     assert_eq!(
@@ -897,6 +906,24 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             .status(),
         StatusCode::NOT_FOUND
     );
+    // Existing TOR user names can differ only by case. Such a URL must
+    // fail closed rather than start mail with an arbitrary account.
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO users(email_normalized,display_name,password_hash)
+             VALUES('e08-profile-case-{nonce}@example.invalid','MAIL READER 1','$argon2id$fixture')"
+        ),
+    )
+    .await;
+    for alias in ["/users/Mail%20reader%201", "/users/mAiL%20ReAdEr%201"] {
+        assert_eq!(
+            call(&reopened, "GET", alias, &cookies[0], "", &[])
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
     // This test runs only against a disposable tor_ci database, which CI drops.
     // Leave linked fixtures for database teardown: deleting books before their
     // book_members ownership rows (or users before mail/role rows) violates FKs.

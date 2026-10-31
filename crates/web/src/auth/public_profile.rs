@@ -12,12 +12,13 @@ pub(super) async fn page(
     Path(display_name): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if display_name.is_empty() || display_name.chars().count() > 80 {
+    let normalized = display_name.trim();
+    if normalized.is_empty() || normalized.chars().count() > 80 {
         return deny(StatusCode::NOT_FOUND);
     }
     let (recipient, name) = match state
         .accounts
-        .public_profile_by_display_name(&display_name)
+        .public_profile_by_display_name(normalized)
         .await
     {
         Ok(Some(row)) => row,
