@@ -337,7 +337,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Err(error) => return Err(error.into()),
     };
     let app = if let Some(routes) = pending_chapter_import_routes {
-        app.merge(routes)
+        // The base router already has RIL instrumentation. Instrument this
+        // late-bound route group with the same process recorder before merge.
+        app.merge(tor_web::instrument_additional_routes(routes))
     } else {
         app
     };
