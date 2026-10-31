@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import urllib.error
@@ -180,6 +181,54 @@ def read_from_psql():
         # Avoid printing libpq diagnostics that can reveal a private endpoint.
         raise AuditError(f"Read-only psql inventory failed (exit {result.returncode})")
     return result.stdout
+
+
+def save_private_inventory_csv(destination, raw_csv):
+    """Store the exact SELECT-only ledger in a private, new regular file.
+
+    The caller is responsible for selecting an approved output directory.
+    Never echo the raw rows or allow a pre-existing file to be overwritten.
+    """
+    path = Path(destination)
+    if path.name in {"", ".", ".."}:
+        raise AuditError("Choose a private CSV output filename")
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        raise AuditError("Safe private file creation is unavailable")
+    try:
+        directory_fd = os.open(
+            path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+    except OSError as error:
+        raise AuditError("Private output directory is unavailable or symlinked") from error
+    try:
+        info = os.fstat(directory_fd)
+        if (not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077):
+            raise AuditError(
+                "Output directory must be owned by the operator and mode 0700"
+            )
+        try:
+            file_fd = os.open(
+                path.name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_fd,
+            )
+        except OSError as error:
+            raise AuditError(
+                "Private CSV must be a new file, not an existing path or symlink"
+            ) from error
+        try:
+            with os.fdopen(file_fd, "w", encoding="utf-8", newline="") as output:
+                output.write(raw_csv)
+                output.flush()
+                os.fsync(output.fileno())
+        except (OSError, UnicodeError) as error:
+            os.unlink(path.name, dir_fd=directory_fd)
+            raise AuditError("Failed to save complete private CSV") from error
+    finally:
+        os.close(directory_fd)
 
 
 def github_json(path, token=None):
@@ -371,16 +420,24 @@ def main(argv=None):
     source.add_argument("--csv", type=Path, help="Previously exported read-only CSV")
     source.add_argument("--from-psql", action="store_true", help="Run one read-only COPY TO STDOUT")
     inventory.add_argument("--migrations", type=Path, default=Path("migrations"))
+    inventory.add_argument(
+        "--save-raw-csv", type=Path,
+        help="Store the complete SELECT-only ledger in a new file inside an operator-owned 0700 directory (only with --from-psql)",
+    )
     scan = commands.add_parser("scan-open-prs", help="Read-only GitHub version collision report")
     scan.add_argument("--repo", default="calex794/tor")
     scan.add_argument("--fail-on-conflict", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command == "inventory":
+            if args.save_raw_csv is not None and not args.from_psql:
+                raise AuditError("--save-raw-csv requires --from-psql")
             expected = local_migrations(args.migrations)
             text = read_from_psql() if args.from_psql else args.csv.read_text(encoding="utf-8")
             name, installed = parse_inventory(text)
             report = evaluate_history(expected, name, installed)
+            if args.save_raw_csv is not None:
+                save_private_inventory_csv(args.save_raw_csv, text)
             blocked = report["status"] == "BLOCK"
         else:
             report = scan_live(args.repo)
