@@ -174,15 +174,29 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &like, &cookie_a, ORIGIN, "liked=1&csrf_token=bad")
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &like,
+            &cookie_a,
+            ORIGIN,
+            "liked=1&csrf_token=bad"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &like, &cookie_a, ORIGIN, &format!("csrf_token={csrf}&liked=yes"))
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &like,
+            &cookie_a,
+            ORIGIN,
+            &format!("csrf_token={csrf}&liked=yes")
+        )
+        .await
+        .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
@@ -253,10 +267,15 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         .await
         .contains("Нравится: 2"));
 
-    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={book}"),
+    );
     assert_eq!(likes.public_count(book).await.unwrap(), None);
     assert_eq!(
-        call(&app, "GET", &like, &cookie_a, ORIGIN, "").await.status(),
+        call(&app, "GET", &like, &cookie_a, ORIGIN, "")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -269,7 +288,10 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
         call(&app, "GET", &detail, "", ORIGIN, "").await.status(),
         StatusCode::NOT_FOUND
     );
-    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={book}"));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
+    );
 
     // Reader erasure must not leave ghost popularity.
     pg(&url, &format!("DELETE FROM users WHERE id={user_a}"));

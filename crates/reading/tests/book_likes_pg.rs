@@ -58,11 +58,21 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
     );
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
     assert_eq!(
-        likes.visible_summary(first, book).await.unwrap().unwrap().liked,
+        likes
+            .visible_summary(first, book)
+            .await
+            .unwrap()
+            .unwrap()
+            .liked,
         true
     );
     assert_eq!(
-        likes.visible_summary(second, book).await.unwrap().unwrap().liked,
+        likes
+            .visible_summary(second, book)
+            .await
+            .unwrap()
+            .unwrap()
+            .liked,
         false
     );
 

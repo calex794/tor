@@ -129,10 +129,7 @@ pub(super) async fn submit(
         LikeMutation::Removed => "removed",
         LikeMutation::AlreadyLiked | LikeMutation::AlreadyRemoved => "repeat",
     };
-    private_response(
-        Redirect::to(&format!("/books/{id}/like?done={done}")),
-        &[],
-    )
+    private_response(Redirect::to(&format!("/books/{id}/like?done={done}")), &[])
 }
 
 #[cfg(test)]

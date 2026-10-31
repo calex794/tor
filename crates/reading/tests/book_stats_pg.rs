@@ -103,7 +103,10 @@ async fn b_stats_pg_book_uniqueness_repeat_visibility_and_purchases() {
     bookmarks.add_book(second_user, book).await.unwrap();
     bookmarks.remove_book(second_user, book).await.unwrap();
     let likes = PgBookLikes::new(pool.clone());
-    assert_eq!(likes.set_like(user, book, true).await.unwrap(), LikeMutation::Added);
+    assert_eq!(
+        likes.set_like(user, book, true).await.unwrap(),
+        LikeMutation::Added
+    );
     assert_eq!(
         likes.set_like(user, book, true).await.unwrap(),
         LikeMutation::AlreadyLiked
