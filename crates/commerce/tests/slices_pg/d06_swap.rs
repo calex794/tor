@@ -53,7 +53,7 @@ async fn swap_fixture(tag: &str, target_price: i64)
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn d06_swap_atomically_reverses_source_and_posts_target() {
+async fn d_06_swap_atomically_reverses_source_and_posts_target() {
     let (pool,i,source_chapter,source_version) =
         swap_fixture("d06_swap_higher",450).await;
     let key=IdempotencyKey::parse(&format!("{}8","W".repeat(42))).unwrap();
@@ -108,7 +108,7 @@ async fn d06_swap_atomically_reverses_source_and_posts_target() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn d06_swap_short_wallet_rolls_back_all_postings_and_access() {
+async fn d_06_swap_short_wallet_rolls_back_all_postings_and_access() {
     let (pool,i,_,_)=swap_fixture("d06_swap_no_balance",1100).await;
     let key=IdempotencyKey::parse(&format!("{}8","X".repeat(42))).unwrap();
     assert_eq!(PgDirectSwaps::new(pool.clone()).swap_once(i,&key).await,
@@ -132,7 +132,7 @@ async fn d06_swap_short_wallet_rolls_back_all_postings_and_access() {
 
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
-async fn d06_two_concurrent_swap_keys_cannot_reverse_same_source_twice() {
+async fn d_06_swap_two_concurrent_keys_cannot_reverse_source_twice() {
     let (pool,intent,_,_)=swap_fixture("d06_swap_race",320).await;
     let a=IdempotencyKey::parse(&format!("{}8","J".repeat(42))).unwrap();
     let b=IdempotencyKey::parse(&format!("{}8","K".repeat(42))).unwrap();
@@ -154,5 +154,140 @@ async fn d06_two_concurrent_swap_keys_cannot_reverse_same_source_twice() {
     ).bind(intent.buyer_id).bind(intent.source_purchase_id)
      .bind(intent.target_chapter_id).fetch_one(&pool).await.unwrap();
     assert_eq!((balance,postings,credits,target_debits),(680,1,1,1));
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_two_concurrent_identical_keys_share_one_receipt() {
+    let (pool, intent, _, _) = swap_fixture("d06_swap_same_key", 330).await;
+    let key = IdempotencyKey::parse(&format!("{}8", "L".repeat(42))).unwrap();
+    let swaps = PgDirectSwaps::new(pool.clone());
+    let (left, right) = tokio::join!(
+        swaps.swap_once(intent, &key),
+        swaps.swap_once(intent, &key),
+    );
+    let left = left.expect("the original exact claim should succeed");
+    let right = right.expect("a concurrent identical claim must replay");
+    assert_eq!(left.new_purchase, right.new_purchase);
+    assert_ne!(left.replayed, right.replayed);
+    assert_eq!(left.balance_after, 670);
+    assert_eq!(right.balance_after, 670);
+    let counts: (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM finance_direct_swap_postings
+            WHERE source_purchase_id=$1),
+           (SELECT COUNT(*) FROM reader_wallet_entries
+            WHERE purchase_id=$1 AND kind='chapter_swap_credit'),
+           (SELECT COUNT(*) FROM chapter_purchase_facts
+            WHERE user_id=$2 AND chapter_id=$3)",
+    )
+    .bind(intent.source_purchase_id)
+    .bind(intent.buyer_id)
+    .bind(intent.target_chapter_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(counts, (1, 1, 1), "concurrent replay must not double-post");
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_racing_first_paid_grant_never_refunds_opened_text() {
+    use tor_commerce::repositories::direct_exposure::{
+        DirectGrantKind, PgDirectFirstExposure,
+    };
+
+    let (pool, intent, source_chapter, source_version) =
+        swap_fixture("d06_swap_first_grant_race", 320).await;
+    let key = IdempotencyKey::parse(&format!("{}8", "M".repeat(42))).unwrap();
+    let swaps = PgDirectSwaps::new(pool.clone());
+    let exposure = PgDirectFirstExposure::new(pool.clone());
+    let (swap, grant) = tokio::join!(
+        swaps.swap_once(intent, &key),
+        exposure.record(
+            PositiveId::new(intent.buyer_id).unwrap(),
+            PositiveId::new(source_chapter).unwrap(),
+            PositiveId::new(source_version).unwrap(),
+            Some(PositiveId::new(intent.source_purchase_id).unwrap()),
+            DirectGrantKind::Chapter,
+        ),
+    );
+    assert_ne!(swap.is_ok(), grant.is_ok(), "exactly one competing operation wins");
+    let (postings, exposed, revoked, balance): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT COUNT(*) FROM finance_direct_swap_postings
+            WHERE source_purchase_id=$1),
+           (SELECT COUNT(*) FROM chapter_purchase_first_exposures
+            WHERE purchase_id=$1),
+           (SELECT COUNT(*) FROM chapter_purchase_revocations
+            WHERE purchase_id=$1 AND reason='purchase_swap'),
+           (SELECT balance_minor FROM reader_wallet_accounts
+            WHERE user_id=$2)",
+    )
+    .bind(intent.source_purchase_id)
+    .bind(intent.buyer_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    if swap.is_ok() {
+        assert!(grant.is_err(), "old grant must be denied after swap");
+        assert_eq!((postings, exposed, revoked, balance), (1, 0, 1, 680));
+    } else {
+        assert_eq!(swap, Err(SwapError::Opened));
+        assert!(grant.is_ok(), "the first grant must block swap");
+        assert_eq!((postings, exposed, revoked, balance), (0, 1, 0, 700));
+    }
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn d_06_swap_racing_refund_request_cannot_reverse_source_twice() {
+    use tor_commerce::repositories::refund_requests::{
+        DirectRefundRequestError, PgDirectRefundRequests,
+    };
+
+    let (pool, intent, _, _) = swap_fixture("d06_swap_refund_race", 320).await;
+    let swap_key = IdempotencyKey::parse(&format!("{}8", "N".repeat(42))).unwrap();
+    let refund_key = IdempotencyKey::parse(&format!("{}8", "O".repeat(42))).unwrap();
+    let swaps = PgDirectSwaps::new(pool.clone());
+    let refunds = PgDirectRefundRequests::new(pool.clone());
+    let (swap, refund) = tokio::join!(
+        swaps.swap_once(intent, &swap_key),
+        refunds.request_once(
+            intent.buyer_id,
+            intent.source_purchase_id,
+            &refund_key,
+            "Swap versus refund request race",
+        ),
+    );
+    assert_ne!(swap.is_ok(), refund.is_ok(), "one exclusive decision must win");
+    let (postings, pending_requests, credits, balance): (i64, i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT
+               (SELECT COUNT(*) FROM finance_direct_swap_postings
+                WHERE source_purchase_id=$1),
+               (SELECT COUNT(*) FROM finance_direct_refund_requests
+                WHERE purchase_id=$1 AND state IN ('pending','processing')),
+               (SELECT COUNT(*) FROM reader_wallet_entries
+                WHERE purchase_id=$1 AND kind='chapter_swap_credit'),
+               (SELECT balance_minor FROM reader_wallet_accounts
+                WHERE user_id=$2)",
+        )
+        .bind(intent.source_purchase_id)
+        .bind(intent.buyer_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    if swap.is_ok() {
+        assert_eq!(refund, Err(DirectRefundRequestError::Revoked));
+        assert_eq!((postings, pending_requests, credits, balance), (1, 0, 1, 680));
+    } else {
+        assert_eq!(swap, Err(SwapError::Refunding));
+        assert!(refund.is_ok());
+        assert_eq!((postings, pending_requests, credits, balance), (0, 1, 0, 700));
+    }
     pool.close().await;
 }
