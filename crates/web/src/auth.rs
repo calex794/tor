@@ -39,10 +39,8 @@ use tor_reading::{
         PublicReadingRepository,
     },
 };
-
 mod access_audit;
 mod auth_observation;
-
 /// Count dropped diagnostics; this never changes authentication decisions.
 pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
