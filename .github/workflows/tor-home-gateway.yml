@@ -1,0 +1,26 @@
+name: TOR home gateway smoke
+on:
+  pull_request:
+    paths:
+      - "ops/home-gateway/**"
+      - "tools/render_home_gateway.py"
+      - "tests/infra/test_home_gateway.py"
+      - "docs/infra/tor-home-gateway.md"
+      - ".github/workflows/tor-home-gateway.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tcp-tls-gateway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Nginx with stream module
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nginx libnginx-mod-stream
+      - name: Validate rendered gateway and real TCP/TLS forwarding
+        run: python3 -m unittest discover -s tests/infra -p "test_home_gateway.py" -v
