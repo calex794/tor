@@ -115,6 +115,7 @@ def _classic_is_enforced(branch: dict) -> bool:
         and policy["allow_deletions"].get("enabled") is False
         and isinstance(status, dict)
         and status.get("enforcement_level") == "everyone"
+        and status.get("strict") is True
         and _actions_checks(status.get("checks"), "app_id")
     )
 
@@ -151,6 +152,7 @@ def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
     parameters = status.get("parameters")
     if (not isinstance(parameters, dict)
             or parameters.get("do_not_enforce_on_create") is True
+            or parameters.get("strict_required_status_checks_policy") is not True
             or not _actions_checks(parameters.get("required_status_checks"),
                                    "integration_id")):
         return False
@@ -165,6 +167,7 @@ def _ruleset_is_enforced(item: dict, effective_rules: list[dict]) -> bool:
     effective_checks = next(r for r in applied if r.get("type") == "required_status_checks")
     effective_parameters = effective_checks.get("parameters")
     return (isinstance(effective_parameters, dict)
+            and effective_parameters.get("strict_required_status_checks_policy") is True
             and _actions_checks(effective_parameters.get("required_status_checks"),
                                 "integration_id"))
 
@@ -201,6 +204,11 @@ def evaluate_branch_policy(
             reasons.append("viewer has bypass permission")
         elif item.get("bypass_actors") not in (None, []):
             reasons.append("bypass actors configured")
+        elif any(isinstance(rule, dict) and rule.get("type") == "required_status_checks"
+                 and isinstance(rule.get("parameters"), dict)
+                 and rule["parameters"].get("strict_required_status_checks_policy") is not True
+                 for rule in item.get("rules", []) if isinstance(item.get("rules"), list)):
+            reasons.append("required status checks are not strict")
         elif (item.get("current_user_can_bypass") is None
               or item.get("bypass_actors") is None) and (
             item.get("id") != REVIEWED_RULESET_ID
