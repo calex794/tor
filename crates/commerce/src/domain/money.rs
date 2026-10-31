@@ -151,6 +151,7 @@ impl IdempotencyKey {
 pub struct PurchaseDiscountOffer {
     pub campaign_id: PositiveId,
     pub campaign_revision: i32,
+    pub rule_version: i16,
     pub follow_period_id: PositiveId,
     pub discount_percent: i16,
     pub min_follow_days: i16,
@@ -207,14 +208,16 @@ impl PurchaseCommand {
         base_price: MoneyMinor,
         campaign_id: i64,
         campaign_revision: i32,
+        rule_version: i16,
         follow_period_id: i64,
         discount_percent: i16,
         min_follow_days: i16,
     ) -> Result<Self, MoneyError> {
         if base_price.get() <= self.expected_price.get()
             || campaign_revision <= 0
+            || rule_version != 1
             || !(1..=90).contains(&discount_percent)
-            || !matches!(min_follow_days, 0 | 90)
+            || !matches!(min_follow_days, 0 | 30 | 90 | 180)
         {
             return Err(MoneyError::InvalidDiscountOffer);
         }
@@ -230,6 +233,7 @@ impl PurchaseCommand {
         self.expected_discount_offer = Some(PurchaseDiscountOffer {
             campaign_id,
             campaign_revision,
+            rule_version,
             follow_period_id,
             discount_percent,
             min_follow_days,
@@ -255,6 +259,7 @@ impl PurchaseCommand {
         for value in [
             offer.map_or(0, |v| v.campaign_id.get()),
             i64::from(offer.map_or(0, |v| v.campaign_revision)),
+            i64::from(offer.map_or(0, |v| v.rule_version)),
             offer.map_or(0, |v| v.follow_period_id.get()),
             i64::from(offer.map_or(0, |v| v.discount_percent)),
             i64::from(offer.map_or(0, |v| v.min_follow_days)),
