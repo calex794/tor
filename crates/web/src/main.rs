@@ -72,13 +72,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     return Err("Direct cover S3 origin requires TOR_COVER_S3_BUCKET".into());
                 }
                 None
-            },
+            }
             Err(error) => return Err(error.into()),
         };
     #[cfg(not(feature = "s3-covers"))]
     let cover_store: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>> = {
         if env::var_os("TOR_COVER_S3_BUCKET").is_some()
-            || env::var_os("TOR_COVER_S3_DIRECT_ORIGIN").is_some() {
+            || env::var_os("TOR_COVER_S3_DIRECT_ORIGIN").is_some()
+        {
             return Err("TOR_COVER_S3_BUCKET requires a build with --features s3-covers".into());
         }
         None
