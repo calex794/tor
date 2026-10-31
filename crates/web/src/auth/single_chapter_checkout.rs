@@ -22,6 +22,12 @@ pub(super) struct FormBuy {
     csrf_token: Option<String>,
     expected_version_id: i64,
     expected_price_minor: i64,
+    expected_base_price_minor: i64,
+    expected_campaign_id: i64,
+    expected_campaign_revision: i32,
+    expected_follow_period_id: i64,
+    expected_discount_percent: i16,
+    expected_min_follow_days: i16,
     command_key: String,
 }
 
@@ -79,6 +85,12 @@ fn confirm(quote: &SingleChapterQuote, csrf: &str) -> Html<String> {
             pages::escape_html(csrf),
             quote.version_id,
             quote.final_price_minor,
+            quote.base_price_minor,
+            quote.campaign_id.unwrap_or(0),
+            quote.campaign_revision.unwrap_or(0),
+            quote.follow_period_id.unwrap_or(0),
+            quote.discount_percent.unwrap_or(0),
+            quote.requires_follow_days.unwrap_or(0),
             generate_session_token(),
         ),
     )
@@ -176,7 +188,7 @@ pub(super) async fn submit(
         Err(error) => return failed(book_id, error),
     }
     let command = (|| {
-        PurchaseCommand::new(
+        let command = PurchaseCommand::new(
             PositiveId::new(actor).ok()?,
             WalletId::new(actor).ok()?,
             ChapterVersionRef {
@@ -186,7 +198,27 @@ pub(super) async fn submit(
             MoneyMinor::new(form.expected_price_minor).ok()?,
             IdempotencyKey::parse(&form.command_key).ok()?,
         )
-        .ok()
+        .ok()?;
+        let base = MoneyMinor::new(form.expected_base_price_minor).ok()?;
+        if form.expected_campaign_id == 0
+            && form.expected_campaign_revision == 0
+            && form.expected_follow_period_id == 0
+            && form.expected_discount_percent == 0
+            && form.expected_min_follow_days == 0
+        {
+            (base == MoneyMinor::new(form.expected_price_minor).ok()?).then_some(command)
+        } else {
+            command
+                .with_discount_offer(
+                    base,
+                    form.expected_campaign_id,
+                    form.expected_campaign_revision,
+                    form.expected_follow_period_id,
+                    form.expected_discount_percent,
+                    form.expected_min_follow_days,
+                )
+                .ok()
+        }
     })();
     let Some(command) = command else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
@@ -238,6 +270,9 @@ mod tests {
             version_id: 4,
             base_price_minor: 100,
             final_price_minor: 80,
+            campaign_id: Some(10),
+            campaign_revision: Some(1),
+            follow_period_id: Some(20),
             discount_percent: Some(20),
             requires_follow_days: Some(90),
         };
@@ -248,5 +283,8 @@ mod tests {
         assert!(!html.contains("<script>bad</script>"));
         assert!(html.contains("&lt;script&gt;bad&lt;/script&gt;"));
         assert!(html.contains("expected_version_id"));
+        assert!(html.contains("expected_base_price_minor"));
+        assert!(html.contains("expected_campaign_revision"));
+        assert!(html.contains("expected_follow_period_id"));
     }
 }
