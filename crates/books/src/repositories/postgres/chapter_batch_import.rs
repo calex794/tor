@@ -158,7 +158,11 @@ impl PgAuthoring {
         chapters: &[ImportedChapter],
     ) -> Result<usize, AuthorError> {
         validate_batch(actor, book_id, command_key, chapters)?;
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let saved =
             import_batch_in_transaction(&mut tx, actor, book_id, command_key, chapters).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
@@ -190,12 +194,18 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Conflict)?;
-        let status: String = row.try_get("status").map_err(|_| AuthorError::Unavailable)?;
+        let status: String = row
+            .try_get("status")
+            .map_err(|_| AuthorError::Unavailable)?;
         let current_epoch: i64 = row
             .try_get("lease_epoch")
             .map_err(|_| AuthorError::Unavailable)?;
-        let actor: i64 = row.try_get("actor_user_id").map_err(|_| AuthorError::Unavailable)?;
-        let book: i64 = row.try_get("book_id").map_err(|_| AuthorError::Unavailable)?;
+        let actor: i64 = row
+            .try_get("actor_user_id")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let book: i64 = row
+            .try_get("book_id")
+            .map_err(|_| AuthorError::Unavailable)?;
         let command_key: String = row
             .try_get("command_key")
             .map_err(|_| AuthorError::Unavailable)?;
