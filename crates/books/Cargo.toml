@@ -8,6 +8,8 @@ async-trait.workspace = true
 axum.workspace = true
 serde.workspace = true
 sha2 = "0.10"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+roxmltree = "0.21.1"
 sqlx.workspace = true
 tor-contracts = { path = "../contracts" }
 
