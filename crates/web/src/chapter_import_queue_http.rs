@@ -16,10 +16,14 @@ use tor_books::{
     services::{
         authoring::{valid_command_key, AuthorError},
         chapter_file_import::{fingerprint, parse_text, ImportedChapter},
-        chapter_import_jobs::{ChapterImportObjectStore, ChapterImportStoreError},
     },
 };
 use std::sync::Arc;
+use tor_imports::{
+    domain::{ChapterImportStatus, ImportJobsError},
+    repositories::postgres::PgImportJobs,
+    services::{ChapterImportObjectStore, ChapterImportStoreError},
+};
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 
@@ -27,6 +31,7 @@ use crate::auth_cookies::{private_response, CookiePolicy};
 struct QueueState {
     accounts: PgAccounts,
     authoring: PgAuthoring,
+    jobs: PgImportJobs,
     cookies: CookiePolicy,
     storage: Arc<dyn ChapterImportObjectStore>,
 }
@@ -82,6 +87,7 @@ pub fn router(
     let state = QueueState {
         accounts,
         authoring,
+        jobs: PgImportJobs::new(accounts.pool().clone()),
         cookies: CookiePolicy {
             secure,
             origin,
@@ -136,7 +142,7 @@ fn parse_hex_hash(value: &str) -> Option<[u8; 32]> {
     Some(result)
 }
 
-fn status_response(job_id: i64, status: tor_books::repositories::postgres::chapter_import_jobs::ChapterImportStatus, book_id: i64) -> StatusResponse {
+fn status_response(job_id: i64, status: ChapterImportStatus, book_id: i64) -> StatusResponse {
     let succeeded = status.status == "succeeded";
     StatusResponse {
         job_id,
@@ -201,8 +207,8 @@ async fn enqueue(
     // Replay lookup comes before S3 so a completed retry does not recreate an
     // already-cleaned source object. A reused key with changed content is 409.
     let existing = match state
-        .authoring
-        .existing_chapter_import(
+        .jobs
+        .existing_for_command(
             actor_id,
             book_id,
             &input.command_key,
@@ -215,13 +221,13 @@ async fn enqueue(
         .await
     {
         Ok(existing) => existing,
-        Err(AuthorError::Conflict) => return fail(StatusCode::CONFLICT, "Ключ уже использован с другими данными."),
+        Err(ImportJobsError::Conflict) => return fail(StatusCode::CONFLICT, "Ключ уже использован с другими данными."),
         Err(_) => return fail(StatusCode::SERVICE_UNAVAILABLE, "Не удалось проверить повтор запроса."),
     };
     if let Some(job_id) = existing {
         return match state
-            .authoring
-            .owned_chapter_import_status(actor_id, book_id, job_id)
+            .jobs
+            .status_for_owner(actor_id, book_id, job_id)
             .await
         {
             Ok(Some(job)) => private_response(
@@ -259,8 +265,8 @@ async fn enqueue(
     }
 
     let job_id = match state
-        .authoring
-        .enqueue_verified_chapter_import(
+        .jobs
+        .enqueue_verified(
             actor_id,
             book_id,
             &input.command_key,
@@ -274,11 +280,11 @@ async fn enqueue(
         .await
     {
         Ok(job_id) => job_id,
-        Err(AuthorError::Conflict) => {
+        Err(ImportJobsError::Conflict) => {
             let _ = state.storage.delete(&key).await;
             return fail(StatusCode::CONFLICT, "Для книги уже выполняется импорт или изменились данные.");
         }
-        Err(AuthorError::Invalid) => {
+        Err(ImportJobsError::Invalid) => {
             let _ = state.storage.delete(&key).await;
             return fail(StatusCode::UNPROCESSABLE_ENTITY, "Недопустимые данные импорта.");
         }
@@ -308,8 +314,8 @@ async fn latest(
         Err(status) => return fail(status, "Сервис временно недоступен."),
     };
     match state
-        .authoring
-        .latest_active_chapter_import(actor_id, book_id)
+        .jobs
+        .latest_active_for_owner(actor_id, book_id)
         .await
     {
         Ok(Some((job_id, job))) => {
@@ -331,8 +337,8 @@ async fn status(
         Err(status) => return fail(status, "Сервис временно недоступен."),
     };
     match state
-        .authoring
-        .owned_chapter_import_status(actor_id, book_id, job_id)
+        .jobs
+        .status_for_owner(actor_id, book_id, job_id)
         .await
     {
         Ok(Some(job)) => private_response(Json(status_response(job_id, job, book_id)), &[]),
@@ -358,8 +364,8 @@ async fn cancel(
         Err(status) => return fail(status, "Сервис временно недоступен."),
     };
     match state
-        .authoring
-        .cancel_chapter_import_source(actor_id, book_id, job_id)
+        .jobs
+        .cancel_source_for_owner(actor_id, book_id, job_id)
         .await
     {
         Ok(Some(key)) => {
