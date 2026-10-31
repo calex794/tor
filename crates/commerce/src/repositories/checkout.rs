@@ -1,7 +1,10 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
 mod batch;
+mod discount_quote;
+mod discounts;
 pub use batch::SelectableBatchOffer;
+pub use discount_quote::SingleChapterQuote;
 
 use crate::domain::money::{
     CheckoutError, CheckoutRepository, MoneyMinor, PurchaseCommand, PurchaseId, PurchaseReceipt,
@@ -122,7 +125,7 @@ impl CheckoutRepository for PgCheckout {
         // moderation state while the money transaction is in progress.
         let offer = sqlx::query(
             "SELECT p.version_id, c.price_amount, b.id AS book_id,
-                    st.current_revision AS share_revision
+                    b.owner_user_id, st.current_revision AS share_revision
              FROM chapters c
              JOIN books b ON b.id=c.book_id
              JOIN revenue_share_states st ON st.book_id=b.id
@@ -141,10 +144,20 @@ impl CheckoutRepository for PgCheckout {
         .await
         .map_err(unavailable)?
         .ok_or(CheckoutError::Inaccessible)?;
+        let base_price: i64 = offer.try_get("price_amount").map_err(unavailable)?;
+        let economic_book_id: i64 = offer.try_get("book_id").map_err(unavailable)?;
+        let discount = discounts::eligible_discount(
+            &mut tx,
+            actor,
+            economic_book_id,
+            offer.try_get("owner_user_id").map_err(unavailable)?,
+            base_price,
+        )
+        .await?;
         if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version
-            || offer
-                .try_get::<i64, _>("price_amount")
-                .map_err(unavailable)?
+            || discount
+                .as_ref()
+                .map_or(base_price, |value| value.paid_minor)
                 != price
         {
             return Err(CheckoutError::StaleOffer);
@@ -153,7 +166,6 @@ impl CheckoutRepository for PgCheckout {
         // B-10 economics is authoritative ONLY through immutable revisions.
         // The FOR SHARE Book lock above fences B-owned schedule CAS until
         // purchase, snapshot and buyer debit commit atomically.
-        let economic_book_id: i64 = offer.try_get("book_id").map_err(unavailable)?;
         let share_revision: i64 = offer.try_get("share_revision").map_err(unavailable)?;
         let share_total: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(share_percent),0)::BIGINT
@@ -265,6 +277,26 @@ impl CheckoutRepository for PgCheckout {
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
+
+        if let Some(discount) = discount {
+            sqlx::query(
+                "INSERT INTO chapter_purchase_discount_snapshots
+                 (purchase_id,campaign_id,follow_period_id,base_price_minor,
+                  discount_minor,paid_minor,discount_percent,min_follow_days)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+            )
+            .bind(purchase_id)
+            .bind(discount.campaign_id)
+            .bind(discount.follow_period_id)
+            .bind(discount.base_price_minor)
+            .bind(discount.discount_minor)
+            .bind(discount.paid_minor)
+            .bind(discount.discount_percent)
+            .bind(discount.min_follow_days)
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        }
 
         sqlx::query(
             "INSERT INTO reader_wallet_entries

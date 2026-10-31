@@ -23,6 +23,7 @@ fn b12_owner_pages_keep_navigation_for_long_books() {
             uploads_enabled: false,
             latest_job: None,
             demand_count: 0,
+            discounts_enabled: false,
             next: Some(OwnedChapterCursor {
                 number: 501,
                 id: 501,

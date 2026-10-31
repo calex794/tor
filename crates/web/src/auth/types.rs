@@ -23,6 +23,7 @@ pub(super) struct AuthState {
     pub(super) reset_delivery: Option<super::reset_delivery::ResetDelivery>,
     pub(super) notification_preferences: tor_reading::repositories::PgNotificationPreferences,
     pub(super) checkout: tor_commerce::repositories::checkout::PgCheckout,
+    pub(super) discounts: tor_commerce::repositories::discount_campaigns::PgAuthorDiscounts,
     pub(super) paid_checkout_enabled: bool,
     pub(super) paid_reader_available: bool,
     pub(super) authoring: PgAuthoring,
