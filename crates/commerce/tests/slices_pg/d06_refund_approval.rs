@@ -530,7 +530,9 @@ async fn d_06_refund_step_up_is_bound_to_session_reason_and_expiry() {
         Err(DirectRefundApproveError::InvalidStepUp)
     );
     sqlx::query(
-        "UPDATE sessions SET step_up_expires_at=statement_timestamp()-INTERVAL '1 second'
+        "UPDATE sessions
+         SET step_up_issued_at=statement_timestamp()-INTERVAL '6 minutes',
+             step_up_expires_at=statement_timestamp()-INTERVAL '1 minute'
          WHERE token_hash=$1",
     )
     .bind(session_digest.as_slice())
