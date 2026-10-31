@@ -22,11 +22,7 @@ function crc32(input) {
 }
 
 // Small valid DOCX stored ZIP fixture without a third-party JS ZIP package.
-function makeDocxXml(xml) {
-  const members = [
-    ['[Content_Types].xml', '<Types/>'],
-    ['word/document.xml', xml],
-  ];
+function makeZip(members) {
   const localParts = [];
   const centralParts = [];
   let offset = 0;
@@ -64,6 +60,13 @@ function makeDocxXml(xml) {
   end.writeUInt32LE(cdSize, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...localParts, ...centralParts, end]);
+}
+
+function makeDocxXml(xml) {
+  return makeZip([
+    ['[Content_Types].xml', '<Types/>'],
+    ['word/document.xml', xml],
+  ]);
 }
 
 (async () => {
@@ -189,6 +192,44 @@ function makeDocxXml(xml) {
         await page.waitForURL(base + '/me/books/' + id);
         assert(await page.getByText(/№4/).isVisible(),
           name + ': extracted DOCX chapter not saved');
+
+        // A ZIP with out-of-order member names must preview in natural order.
+        await importLink.click();
+        await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        const zipped = makeZip([
+          ['10.txt', 'Глава 10: Десятая\nТекст десятой главы'],
+          ['5.txt', 'Глава 5: Пятая\nТекст пятой главы'],
+        ]);
+        await page.locator('#chapter-import-file').setInputFiles({
+          name: 'numbered-chapters.zip', mimeType: 'application/zip',
+          buffer: zipped,
+        });
+        await page.getByText(/ZIP прочитан/).waitFor();
+        await page.getByRole('button', { name: 'Проверить главы' }).click();
+        await page.getByText(/Найдено глав: 2/).waitFor();
+        const titles = await page.locator('#chapter-import-results li strong').allTextContents();
+        assert(titles[0].includes('Глава 5') && titles[1].includes('Глава 10'),
+          name + ': ZIP members not naturally sorted');
+        await page.getByRole('button', { name: 'Подтвердить и создать главы' }).click();
+        await page.waitForURL(base + '/me/books/' + id);
+        assert(await page.getByText(/№5 — Глава 5:/).isVisible()
+          && await page.getByText(/№10 — Глава 10:/).isVisible(),
+          name + ': ZIP chapter batch not saved');
+
+        await importLink.click();
+        await page.waitForURL(base + '/me/books/' + id + '/chapters/import');
+        const unsafe = makeZip([
+          ['../escape.txt', 'Глава 6: Опасная\nТекст'],
+        ]);
+        await page.locator('#chapter-import-file').setInputFiles({
+          name: 'unsafe.zip', mimeType: 'application/zip',
+          buffer: unsafe,
+        });
+        await page.getByRole('button', { name: 'Проверить главы' }).click();
+        await page.getByText(/Не удалось проверить файл/).waitFor();
+        assert(await page.getByRole('button', { name: 'Подтвердить и создать главы' }).isDisabled(),
+          name + ': unsafe ZIP unexpectedly enabled confirmation');
+
         const guest = await browser.newContext({ viewport: { width, height } });
         try {
           const guestPage = await guest.newPage();
