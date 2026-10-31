@@ -61,15 +61,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(bucket) => {
                 let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
                 let client = aws_sdk_s3::Client::new(&config);
-                let store = tor_ingest::repositories::s3::S3CoverStore::new(client, bucket)?;
+                let mut store = tor_ingest::repositories::s3::S3CoverStore::new(client, bucket)?;
+                if let Ok(origin) = env::var("TOR_COVER_S3_DIRECT_ORIGIN") {
+                    store = store.with_direct_origin(origin)?;
+                }
                 Some(Arc::new(store))
             }
-            Err(env::VarError::NotPresent) => None,
+            Err(env::VarError::NotPresent) => {
+                if env::var_os("TOR_COVER_S3_DIRECT_ORIGIN").is_some() {
+                    return Err("Direct cover S3 origin requires TOR_COVER_S3_BUCKET".into());
+                }
+                None
+            },
             Err(error) => return Err(error.into()),
         };
     #[cfg(not(feature = "s3-covers"))]
     let cover_store: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>> = {
-        if env::var_os("TOR_COVER_S3_BUCKET").is_some() {
+        if env::var_os("TOR_COVER_S3_BUCKET").is_some()
+            || env::var_os("TOR_COVER_S3_DIRECT_ORIGIN").is_some() {
             return Err("TOR_COVER_S3_BUCKET requires a build with --features s3-covers".into());
         }
         None
