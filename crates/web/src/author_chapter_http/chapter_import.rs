@@ -1,4 +1,4 @@
-//! Owner-only chapter TXT/Markdown/DOCX import. Preview has no writes.
+//! Owner-only chapter TXT/Markdown/DOCX/ZIP import. Preview has no writes.
 //! Confirm makes one all-or-nothing draft-book transaction via the B repository.
 use super::{deny, session_actor, AuthorChapterState};
 use crate::{auth_cookies::private_response, author_chapter_pages};
@@ -15,6 +15,7 @@ use tor_books::services::{
     authoring::AuthorError,
     chapter_file_import::{fingerprint, parse_text, ImportError, ImportedChapter},
     docx_import::{extract_docx_text, valid_docx_filename, MAX_DOCX_BYTES},
+    zip_import::{extract_zip_text, valid_zip_filename, MAX_ZIP_BYTES},
 };
 
 #[derive(Deserialize)]
@@ -23,6 +24,8 @@ pub(super) struct ImportInput {
     text: String,
     #[serde(default)]
     file_base64: Option<String>,
+    #[serde(default)]
+    archive_encoding: Option<String>,
     csrf_token: String,
     #[serde(default)]
     command_key: Option<String>,
@@ -64,20 +67,30 @@ fn preview_source(
     input: &ImportInput,
 ) -> Result<(Vec<ImportedChapter>, Option<String>), ImportError> {
     if let Some(encoded) = input.file_base64.as_deref() {
-        if !input.text.is_empty() || !valid_docx_filename(&input.filename) {
+        let is_docx = valid_docx_filename(&input.filename);
+        let is_zip = valid_zip_filename(&input.filename);
+        if !input.text.is_empty() || !(is_docx || is_zip) {
             return Err(ImportError::InvalidFilename);
         }
-        if encoded.len() > MAX_DOCX_BYTES.div_ceil(3) * 4 {
+        let max_bytes = if is_zip { MAX_ZIP_BYTES } else { MAX_DOCX_BYTES };
+        if encoded.len() > max_bytes.div_ceil(3) * 4 {
             return Err(ImportError::TooLarge);
         }
         let bytes = BASE64
             .decode(encoded)
             .map_err(|_| ImportError::InvalidArchive)?;
-        let extracted = extract_docx_text(&bytes)?;
+        let extracted = if is_zip {
+            extract_zip_text(
+                &bytes,
+                input.archive_encoding.as_deref().unwrap_or("utf-8"),
+            )?
+        } else {
+            extract_docx_text(&bytes)?
+        };
         let chapters = parse_text("extracted.txt", &extracted)?;
         Ok((chapters, Some(extracted)))
     } else {
-        if valid_docx_filename(&input.filename) {
+        if valid_docx_filename(&input.filename) || valid_zip_filename(&input.filename) {
             return Err(ImportError::InvalidArchive);
         }
         Ok((parse_text(&input.filename, &input.text)?, None))
@@ -100,7 +113,7 @@ fn import_error(error: ImportError) -> Response {
     let (code, message) = match error {
         ImportError::InvalidFilename => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Поддерживаются только безопасные файлы TXT, MD и DOCX.",
+            "Поддерживаются только безопасные файлы TXT, MD, DOCX и ZIP.",
         ),
         ImportError::InvalidEncoding => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -112,7 +125,7 @@ fn import_error(error: ImportError) -> Response {
         ),
         ImportError::InvalidArchive => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "DOCX повреждён или содержит недопустимые элементы.",
+            "DOCX или ZIP повреждён, содержит недопустимые файлы или опасные элементы.",
         ),
         ImportError::DuplicateNumber => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -276,7 +289,7 @@ pub(super) async fn confirm(
     if input.file_base64.is_some() {
         return fail(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "Сначала проверьте извлечённый текст DOCX.",
+            "Сначала проверьте и подтвердите извлечённый текст DOCX или ZIP.",
         );
     }
     let chapters: Vec<ImportedChapter> = match parse_text(&input.filename, &input.text) {
