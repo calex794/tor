@@ -21,6 +21,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     "real_ip": self.headers.get("X-Real-IP", ""),
                     "forwarded_for": self.headers.get("X-Forwarded-For", ""),
                     "forwarded_proto": self.headers.get("X-Forwarded-Proto", ""),
+                    "forwarded": self.headers.get("Forwarded", ""),
+                    "forwarded_host": self.headers.get("X-Forwarded-Host", ""),
+                    "forwarded_server": self.headers.get("X-Forwarded-Server", ""),
                 }
             ).encode("utf-8")
             content_type = "application/json"
