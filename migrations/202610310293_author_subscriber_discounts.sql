@@ -22,7 +22,7 @@ CREATE INDEX author_discount_active_book
 -- Any change to the quoted terms advances a durable revision. Stopping a
 -- campaign does not rewrite the terms a reader previously accepted.
 CREATE FUNCTION bump_author_discount_revision()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $bump_author_discount_revision$
 BEGIN
     IF ROW(NEW.book_id,NEW.owner_user_id,NEW.discount_percent,NEW.min_follow_days,
            NEW.starts_at,NEW.ends_at)
@@ -34,7 +34,7 @@ BEGIN
         NEW.revision := OLD.revision;
     END IF;
     RETURN NEW;
-END; $;
+END; $bump_author_discount_revision$;
 CREATE TRIGGER author_discount_revision
     BEFORE UPDATE ON author_discount_campaigns
     FOR EACH ROW EXECUTE FUNCTION bump_author_discount_revision();
