@@ -31,6 +31,7 @@ pub(super) struct AuthState {
     pub(super) bookmarks: PgLibrary,
     pub(super) demand: PgContinuationDemand,
     pub(super) book_follows: tor_reading::repositories::PgBookFollows,
+    pub(super) creator_follows: tor_social::services::follow::PgCreatorFollows,
     pub(super) follow_updates: PgFollowUpdates,
     pub(super) reader: PgReader,
     pub(super) rankings: tor_recommendations::repositories::PgRanking,
