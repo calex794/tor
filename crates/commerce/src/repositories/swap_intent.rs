@@ -135,21 +135,24 @@ mod tests {
             DirectSwapIntent {
                 buyer_id: 0,
                 ..intent
-            }.digest(),
+            }
+            .digest(),
             Err(DirectSwapIntentError::InvalidIdentity)
         );
         assert_eq!(
             DirectSwapIntent {
                 target_version_id: -1,
                 ..intent
-            }.digest(),
+            }
+            .digest(),
             Err(DirectSwapIntentError::InvalidIdentity)
         );
         assert_eq!(
             DirectSwapIntent {
                 target_price_minor: 0,
                 ..intent
-            }.digest(),
+            }
+            .digest(),
             Err(DirectSwapIntentError::InvalidMoney)
         );
     }
@@ -167,14 +170,16 @@ mod tests {
             DirectSwapIntent {
                 target_price_minor: 80,
                 ..intent
-            }.delta(0),
+            }
+            .delta(0),
             Ok(-20)
         );
         assert_eq!(
             DirectSwapIntent {
                 target_price_minor: 100,
                 ..intent
-            }.delta(0),
+            }
+            .delta(0),
             Ok(0)
         );
     }
