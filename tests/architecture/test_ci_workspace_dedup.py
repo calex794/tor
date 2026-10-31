@@ -34,7 +34,7 @@ class WorkspaceDedupTests(unittest.TestCase):
         self.assertIn("run: python3 tools/check_feature_layout.py", postgres)
         self.assertIn(
             "run: cargo clippy -p tor-web --all-targets "
-            "--features 's3-covers,s3-paid' -- -D warnings",
+            "--features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings",
             postgres,
         )
         for command in (
