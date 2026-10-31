@@ -133,7 +133,7 @@ impl ChapterImportWorker {
 
     async fn terminal_failure(
         &self,
-        claim: &tor_books::repositories::postgres::chapter_import_jobs::ChapterImportClaim,
+        claim: &ChapterImportClaim,
         code: &str,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
         self.record_failure(claim, false, code).await
@@ -141,7 +141,7 @@ impl ChapterImportWorker {
 
     async fn record_failure(
         &self,
-        claim: &tor_books::repositories::postgres::chapter_import_jobs::ChapterImportClaim,
+        claim: &ChapterImportClaim,
         retry: bool,
         code: &str,
     ) -> Result<ChapterImportWorkerResult, &'static str> {
