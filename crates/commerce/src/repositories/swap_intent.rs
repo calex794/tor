@@ -98,12 +98,30 @@ mod tests {
         let expected = intent.digest().unwrap();
         assert_eq!(expected, intent.digest().unwrap());
         let changed = [
-            DirectSwapIntent { buyer_id: 12, ..intent },
-            DirectSwapIntent { source_purchase_id: 23, ..intent },
-            DirectSwapIntent { target_chapter_id: 34, ..intent },
-            DirectSwapIntent { target_version_id: 45, ..intent },
-            DirectSwapIntent { source_price_minor: 101, ..intent },
-            DirectSwapIntent { target_price_minor: 151, ..intent },
+            DirectSwapIntent {
+                buyer_id: 12,
+                ..intent
+            },
+            DirectSwapIntent {
+                source_purchase_id: 23,
+                ..intent
+            },
+            DirectSwapIntent {
+                target_chapter_id: 34,
+                ..intent
+            },
+            DirectSwapIntent {
+                target_version_id: 45,
+                ..intent
+            },
+            DirectSwapIntent {
+                source_price_minor: 101,
+                ..intent
+            },
+            DirectSwapIntent {
+                target_price_minor: 151,
+                ..intent
+            },
         ];
         for candidate in changed {
             assert_ne!(candidate.digest().unwrap(), expected);
@@ -114,15 +132,24 @@ mod tests {
     fn d06_swap_intent_rejects_bad_identifiers_and_money() {
         let intent = sample();
         assert_eq!(
-            DirectSwapIntent { buyer_id: 0, ..intent }.digest(),
+            DirectSwapIntent {
+                buyer_id: 0,
+                ..intent
+            }.digest(),
             Err(DirectSwapIntentError::InvalidIdentity)
         );
         assert_eq!(
-            DirectSwapIntent { target_version_id: -1, ..intent }.digest(),
+            DirectSwapIntent {
+                target_version_id: -1,
+                ..intent
+            }.digest(),
             Err(DirectSwapIntentError::InvalidIdentity)
         );
         assert_eq!(
-            DirectSwapIntent { target_price_minor: 0, ..intent }.digest(),
+            DirectSwapIntent {
+                target_price_minor: 0,
+                ..intent
+            }.digest(),
             Err(DirectSwapIntentError::InvalidMoney)
         );
     }
@@ -131,14 +158,23 @@ mod tests {
     fn d06_swap_intent_delta_never_overdraws() {
         let intent = sample();
         assert_eq!(intent.delta(50), Ok(50));
-        assert_eq!(intent.delta(49), Err(DirectSwapIntentError::InsufficientBalance));
+        assert_eq!(
+            intent.delta(49),
+            Err(DirectSwapIntentError::InsufficientBalance)
+        );
         assert_eq!(intent.delta(-1), Err(DirectSwapIntentError::InvalidMoney));
         assert_eq!(
-            DirectSwapIntent { target_price_minor: 80, ..intent }.delta(0),
+            DirectSwapIntent {
+                target_price_minor: 80,
+                ..intent
+            }.delta(0),
             Ok(-20)
         );
         assert_eq!(
-            DirectSwapIntent { target_price_minor: 100, ..intent }.delta(0),
+            DirectSwapIntent {
+                target_price_minor: 100,
+                ..intent
+            }.delta(0),
             Ok(0)
         );
     }
