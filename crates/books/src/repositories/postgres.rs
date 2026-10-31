@@ -1,11 +1,11 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
-mod mail_aliases;
 mod chapter_batch_import;
 mod chapter_edit;
 mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
+mod mail_aliases;
 mod owned_book_hash;
 mod owned_chapter_pages;
 use crate::{

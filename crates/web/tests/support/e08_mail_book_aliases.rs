@@ -38,7 +38,10 @@ pub(super) async fn verify(
         &format!("{path}/messages"),
         &cookies[0],
         &form,
-        &[("accept", "application/json"), ("x-requested-with", "fetch")],
+        &[
+            ("accept", "application/json"),
+            ("x-requested-with", "fetch"),
+        ],
     )
     .await;
     assert_eq!(sent.status(), StatusCode::OK);
@@ -84,15 +87,20 @@ pub(super) async fn verify(
     // Imported aliases are globally one-to-one. No second Book may claim
     // the same legacy ref and silently reassign previous mail links.
     let pool = sqlx::PgPool::connect(db_url).await.unwrap();
-    let duplicate = sqlx::query(
-        "INSERT INTO book_legacy_mail_refs(alias_key,book_id) VALUES($1,$2)",
-    )
-    .bind(&public_alias)
-    .bind(private)
-    .execute(&pool)
-    .await
-    .unwrap_err();
-    assert_eq!(duplicate.as_database_error().and_then(|e| e.code()).as_deref(), Some("23505"));
+    let duplicate =
+        sqlx::query("INSERT INTO book_legacy_mail_refs(alias_key,book_id) VALUES($1,$2)")
+            .bind(&public_alias)
+            .bind(private)
+            .execute(&pool)
+            .await
+            .unwrap_err();
+    assert_eq!(
+        duplicate
+            .as_database_error()
+            .and_then(|e| e.code())
+            .as_deref(),
+        Some("23505")
+    );
 
     // Revoking active owner membership also revokes alias lookup. The old
     // mail text survives, but no alias-derived private title is materialized.
@@ -116,7 +124,10 @@ pub(super) async fn verify(
     let own_json: serde_json::Value = serde_json::from_str(&text(own_poll).await).unwrap();
     let after_revoke = &own_json["messages"][0];
     assert_eq!(after_revoke["book_previews"].as_array().unwrap().len(), 1);
-    assert_eq!(after_revoke["book_previews"][0]["url"], format!("/books/{public}"));
+    assert_eq!(
+        after_revoke["book_previews"][0]["url"],
+        format!("/books/{public}")
+    );
     assert!(after_revoke["body_without_book_links"]
         .as_str()
         .unwrap()
@@ -133,13 +144,19 @@ pub(super) async fn verify(
             "body=Unmapped%20%2Fbooks%2F{unknown_alias}&client_message_id=unmapped-{nonce}&csrf_token={}",
             csrf[0]
         ),
-        &[("accept", "application/json"), ("x-requested-with", "fetch")],
+        &[
+            ("accept", "application/json"),
+            ("x-requested-with", "fetch"),
+        ],
     )
     .await;
     assert_eq!(unmapped.status(), StatusCode::OK);
     let unmapped_json: serde_json::Value = serde_json::from_str(&text(unmapped).await).unwrap();
     let unmapped_message = &unmapped_json["message"];
-    assert!(unmapped_message["book_previews"].as_array().unwrap().is_empty());
+    assert!(unmapped_message["book_previews"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     assert!(unmapped_message["body_without_book_links"]
         .as_str()
         .unwrap()

@@ -130,9 +130,9 @@ fn extract_links(body: &str) -> Vec<BookLink> {
         let first = at + path_len;
         let mut token_end = first;
         while token_end - first <= 128
-            && bytes.get(token_end).is_some_and(|c| {
-                c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.')
-            })
+            && bytes
+                .get(token_end)
+                .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
         {
             token_end += 1;
         }
@@ -371,7 +371,6 @@ mod tests {
         assert_eq!(projected.body_without_book_links, "  Prefix  \n");
     }
 
-
     #[test]
     fn e08_legacy_alias_links_are_bounded_and_never_guess_numeric_keys() {
         let body = "/book/Legacy-Book https://tor.test/books/ALIAS.v2?from=mail. \
@@ -402,7 +401,9 @@ mod tests {
         );
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].url, "/books/42");
-        assert!(!projected.body_without_book_links.contains("/books/legacy-ref"));
+        assert!(!projected
+            .body_without_book_links
+            .contains("/books/legacy-ref"));
         assert!(projected.body_without_book_links.contains("/books/missing"));
     }
     #[test]
