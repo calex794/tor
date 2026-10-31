@@ -5,6 +5,7 @@ use tor_social::{
     domain::MailError,
     repositories::{
         friendships::{FriendState, PgFriendships},
+        group_mail::PgGroupMail,
         mail::PgMail,
         notifications::PgNotifications,
     },
@@ -35,6 +36,181 @@ async fn cleanup(pool: &PgPool, users: &[i64]) {
 }
 fn key(n: usize) -> String {
     format!("{n:043}")
+}
+
+/// Group mail is its own aggregate: direct pair IDs and group IDs may
+/// overlap but never confer membership in one another.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_group_mail_membership_projection_replay_and_leave() {
+    let (pool, users) = fixture().await;
+    let (a, b, outsider) = (users[0], users[1], users[2]);
+    let groups = PgGroupMail::new(pool.clone());
+
+    assert_eq!(groups.create(a, &[], "Single").await, Err(MailError::Invalid));
+    assert_eq!(groups.create(a, &[b], "  ").await, Err(MailError::Invalid));
+    assert_eq!(
+        groups.create(a, &[i64::MAX], "Missing").await,
+        Err(MailError::NotFound)
+    );
+    let direct_blocks = MailService::new(PgMail::new(pool.clone()));
+    direct_blocks.set_block(b, a, true).await.unwrap();
+    assert_eq!(
+        groups.create(a, &[b], "Forced invite").await,
+        Err(MailError::Blocked)
+    );
+    direct_blocks.set_block(b, a, false).await.unwrap();
+    let id = groups
+        .create(a, &[b, b, a], "  Private crew  ")
+        .await
+        .unwrap();
+    assert_eq!(
+        groups.list(a, None, 10).await.unwrap()[0].title,
+        "Private crew"
+    );
+    assert_eq!(groups.list(b, None, 10).await.unwrap()[0].id, id);
+    assert!(groups.list(outsider, None, 10).await.unwrap().is_empty());
+    assert_eq!(
+        groups.messages(outsider, id, None, 50).await,
+        Err(MailError::NotFound)
+    );
+    assert_eq!(
+        groups.send(outsider, id, "forged", &key(400)).await,
+        Err(MailError::NotFound)
+    );
+    assert_eq!(groups.leave(outsider, id).await, Err(MailError::NotFound));
+    assert_eq!(groups.leave(a, id).await, Err(MailError::Conflict));
+
+    let first = groups.send(a, id, "  Group hello  ", &key(401)).await.unwrap();
+    assert!(!first.replayed);
+    let replay = groups.send(a, id, "Group hello", &key(401)).await.unwrap();
+    assert_eq!(replay.id, first.id);
+    assert!(replay.replayed);
+    assert_eq!(
+        groups.send(a, id, "different", &key(401)).await,
+        Err(MailError::Conflict)
+    );
+    let other = groups.create(a, &[outsider], "Another group").await.unwrap();
+    assert_eq!(
+        groups.send(a, other, "Group hello", &key(401)).await,
+        Err(MailError::Conflict),
+        "command key must not replay into a different group"
+    );
+    let second = groups
+        .send(b, id, "Message two", &key(402))
+        .await
+        .unwrap();
+    let messages = groups.messages(b, id, None, 50).await.unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].id, first.id);
+    assert_eq!(messages[1].id, second.id);
+    assert_eq!(
+        groups.messages(b, id, Some(second.id), 1)
+            .await
+            .unwrap()[0]
+            .id,
+        first.id
+    );
+    let reopened = PgGroupMail::new(
+        PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap())
+            .await
+            .unwrap(),
+    );
+    assert_eq!(reopened.messages(b, id, None, 50).await.unwrap().len(), 2);
+
+    // An untrusted INSERT cannot bypass the repository membership check.
+    let rejected = sqlx::query(
+        "INSERT INTO social_group_messages(group_id,sender_id,body,command_key)
+         VALUES($1,$2,'forged',$3)",
+    )
+    .bind(id)
+    .bind(outsider)
+    .bind(key(403))
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        rejected
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("23514")
+    );
+    assert!(
+        sqlx::query("UPDATE social_group_messages SET body='mutated' WHERE id=$1")
+            .bind(first.id)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+
+    groups.leave(b, id).await.unwrap();
+    assert_eq!(
+        groups.messages(b, id, None, 50).await,
+        Err(MailError::NotFound)
+    );
+    assert_eq!(
+        groups.send(b, id, "after leave", &key(404)).await,
+        Err(MailError::NotFound)
+    );
+    assert!(groups.list(b, None, 10).await.unwrap().is_empty());
+    assert_eq!(groups.leave(b, id).await, Err(MailError::NotFound));
+    assert_eq!(groups.messages(a, id, None, 50).await.unwrap().len(), 2);
+
+    // The existing direct mail pair remains a separate, unmodified ACL.
+    let direct = MailService::new(PgMail::new(pool.clone()));
+    let direct_id = direct.start(a, b).await.unwrap();
+    assert_eq!(
+        direct.messages(outsider, direct_id, None, None, 1).await,
+        Err(MailError::NotFound)
+    );
+    cleanup(&pool, &users).await;
+}
+
+/// This reuses the exact member-row lock taken by send and leave. A queued
+/// sender cannot insert after a membership revocation commits.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_group_mail_send_cannot_race_member_exit() {
+    let (pool, users) = fixture().await;
+    let (a, b) = (users[0], users[1]);
+    let groups = PgGroupMail::new(pool.clone());
+    let id = groups.create(a, &[b], "Race").await.unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM social_group_members
+         WHERE group_id=$1 AND user_id=$2 FOR UPDATE",
+    )
+    .bind(id)
+    .bind(b)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(status, "active");
+    let pending = tokio::spawn(async move {
+        groups.send(b, id, "never deliver", &key(421)).await
+    });
+    sqlx::query(
+        "UPDATE social_group_members SET status='left',left_at=clock_timestamp()
+         WHERE group_id=$1 AND user_id=$2",
+    )
+    .bind(id)
+    .bind(b)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(pending.await.unwrap(), Err(MailError::NotFound));
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM social_group_messages WHERE group_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0, "deferred sender cannot cross a member-exit boundary");
+    cleanup(&pool, &users).await;
 }
 
 #[tokio::test]

@@ -264,3 +264,43 @@ legacy identity parity. Full source alias import, collaborator-authorized
 destinations, discussions and group/admin mail remain open. Exact-head
 CI + SQLx ledger review are still acceptance gates. No main, production,
 SSH, VPS or retained database operations.
+
+## 01.11.2026 — E-08 group-mail repository foundation (Draft slice)
+
+Source `mail_service.start_group_conversation` creates a titled group
+with the authenticated creator plus deduplicated members (minimum two).
+Its `mail_repository` keeps group membership status independently
+of direct conversation pairs. TOR currently stores only two-person
+`social_conversations` with immutable `user_low/user_high` and
+therefore cannot safely pretend that a direct conversation is a group.
+
+This isolated Draft slice adds new migration
+`202611010030_e08_group_mail.sql` and the E-owned
+`PgGroupMail` repository. Direct pair data, IDs, actor ACL and existing
+routes remain unchanged. The new group aggregate provides atomic
+creator+member creation, member-scoped bounded group listing and message
+pagination, 43-character command-key replay fencing, actor-bound sends
+and member leave. A database trigger also denies inserts from nonmembers
+and mutation of persisted message bodies. Creation reuses direct-mail pair
+locks and refuses group membership when creator and participant have blocked
+one another. Every send and member exit locks the same membership row
+to prevent a stale check-and-send race.
+
+This is **backend scaffolding**, not yet a public group UX: no new
+HTTP endpoints, HTML page, invite/remove/ban/rejoin commands, notification
+producer, or admin mail delegation is introduced. Creator exit remains
+disabled until an explicit ownership-transfer rule is agreed. The
+32-member/120-character bounds are TOR operating caps and require
+explicit comparison with source behavior; group membership is not
+silently derived from friendship, a mail peer ID, or a request header.
+Isolated PostgreSQL regressions under the existing
+`e_08_` CI filter test creation, bidirectional block checks, membership
+authorization, cross-group key conflicts, immutable messages, leave/revoke,
+a concurrent send versus member exit, and direct-mail separation.
+The disposable installed-ledger upgrade contract now expects six E-08
+migrations while retaining the original 67 main SQLx blobs/checksums.
+
+Acceptance requires full exact-HEAD CI including group PG regression,
+Repository rules, HTTP load, retained SQLx ledger review, independent
+review and remaining S057 source parity. No migration runs on retained
+data, no main merge, no VPS/production actions.

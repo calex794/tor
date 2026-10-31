@@ -1,5 +1,5 @@
 //! E-08 release upgrade regression against *only* a disposable PostgreSQL CI database.
-//! First replay the exact 67 main migration blobs, then install the five Draft
+//! First replay the exact 67 main migration blobs, then install the six Draft
 //! extensions using SQLx's real version/checksum ledger (including 200/201
 //! below the previously installed 291). Never execute against retained data.
 
@@ -7,12 +7,13 @@ use sqlx::{migrate::Migrator, postgres::PgPoolOptions};
 use std::{borrow::Cow, collections::HashMap, env, error::Error, time::Duration};
 use tor_migrations::repositories::MIGRATOR;
 
-const E08_VERSIONS: [i64; 5] = [
+const E08_VERSIONS: [i64; 6] = [
     202610310200,
     202610310201,
     202610310300,
     202611010010,
     202611010020,
+    202611010030,
 ];
 
 #[tokio::test]
@@ -44,10 +45,13 @@ async fn e08_upgrade_retains_installed_main_sqlx_ledger_and_preexisting_books(
         ),
         ..Migrator::DEFAULT
     };
-    assert_eq!(MIGRATOR.migrations.len(), baseline.migrations.len() + 5);
+    assert_eq!(MIGRATOR.migrations.len(), baseline.migrations.len() + E08_VERSIONS.len());
     assert_eq!(baseline.migrations.len(), 67);
     assert_eq!(
-        baseline.migrations.last().map(|migration| migration.version),
+        baseline
+            .migrations
+            .last()
+            .map(|migration| migration.version),
         Some(202610310291)
     );
     for version in E08_VERSIONS {
