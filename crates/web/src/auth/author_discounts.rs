@@ -62,7 +62,9 @@ fn render(
              <label for=\"discount-follow\">Кому доступна</label>\
              <select id=\"discount-follow\" name=\"min_follow_days\">\
              <option value=\"0\">Всем подписчикам автора</option>\
+             <option value=\"30\">Подписчикам непрерывно от 30 дней</option>\
              <option value=\"90\">Подписчикам непрерывно от 90 дней</option>\
+             <option value=\"180\">Подписчикам непрерывно от 180 дней</option>\
              </select>\
              <label for=\"discount-duration\">Длительность, дней (от 1 до 90)</label>\
              <input id=\"discount-duration\" type=\"number\" name=\"duration_days\" min=\"1\" max=\"90\" value=\"30\" required>\
