@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const base = 'http://127.0.0.1:3098';
+const directCover = process.env.TOR_DIRECT_COVER_BROWSER === '1';
 const output = process.env.TOR_COVER_BROWSER_SHOTS || 'cover-browser-shots';
 fs.mkdirSync(output, { recursive: true });
 
@@ -131,10 +132,34 @@ async function readyCover(page, bookId, viewport, scheme) {
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');
 
+        const providerRequests = [];
+        page.on('request', req => {
+          if (req.url().startsWith('http://127.0.0.1:9000/')) {
+            providerRequests.push(req.url());
+          }
+        });
         const publicBook = await page.goto(base + '/books/' + bookId);
         assert(publicBook && publicBook.status() === 200, 'Published book lost');
-        assert(await page.locator('img[src="/covers/' + bookId + '/main.webp"]').count() === 1,
-          'Published book does not display its verified cover');
+        if (directCover) {
+          const cover = page.locator('img[data-direct-cover="/api/v1/covers/' +
+            bookId + '/main.webp/direct-grant"]');
+          assert(await cover.count() === 1, 'Public cover direct grant marker missing');
+          await page.waitForFunction(() => {
+            const image = document.querySelector('img[data-direct-cover]');
+            return image && image.src.startsWith('blob:') && image.complete &&
+              image.naturalWidth > 0;
+          }, null, { timeout: 20000 });
+          assert(providerRequests.length > 0, 'Browser never fetched cover from S3');
+          assert(!providerRequests.some(url => url.includes('/sources/')),
+            'Browser must never fetch private cover source');
+          const csp = publicBook.headers()['content-security-policy'];
+          assert(csp && csp.includes("connect-src 'self' http://127.0.0.1:9000;") &&
+            csp.includes("img-src 'self' blob:"),
+            'Direct cover CSP must allow only the pinned S3 endpoint and verified blob');
+        } else {
+          assert(await page.locator('img[src="/covers/' + bookId + '/main.webp"]').count() === 1,
+            'Published book does not display its verified cover');
+        }
         const card = await context.request.get(base + '/covers/' + bookId + '/card.webp');
         const main = await context.request.get(base + '/covers/' + bookId + '/main.webp');
         for (const [kind, image] of [['card', card], ['main', main]]) {
@@ -145,11 +170,23 @@ async function readyCover(page, bookId, viewport, scheme) {
           kind + ': invalid WebP bytes');
         }
         await page.goto(base + '/catalog?q=' + encodeURIComponent(title));
-        assert(await page.locator('img[src="/covers/' + bookId + '/card.webp"]').count() >= 1,
-          'Cover missing from real search results');
+        if (directCover) {
+          await page.waitForFunction(() => [...document.querySelectorAll(
+            'img[data-direct-cover]')].some(image => image.src.startsWith('blob:')),
+            null, { timeout: 20000 });
+        } else {
+          assert(await page.locator('img[src="/covers/' + bookId + '/card.webp"]').count() >= 1,
+            'Cover missing from real search results');
+        }
         await page.goto(base + '/');
-        assert(await page.locator('img[src="/covers/' + bookId + '/card.webp"]').count() >= 1,
-          'Cover missing from real home showcase');
+        if (directCover) {
+          await page.waitForFunction(() => [...document.querySelectorAll(
+            'img[data-direct-cover]')].some(image => image.src.startsWith('blob:')),
+            null, { timeout: 20000 });
+        } else {
+          assert(await page.locator('img[src="/covers/' + bookId + '/card.webp"]').count() >= 1,
+            'Cover missing from real home showcase');
+        }
 
         const anon = await browser.newContext();
         const denied = await anon.request.get(base + '/me/books/' + bookId + '/settings/covers', {
