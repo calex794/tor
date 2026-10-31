@@ -23,7 +23,10 @@ use std::{
 use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
-use tor_commerce::repositories::entitlements::PgDirectEntitlements;
+use tor_commerce::repositories::{
+    direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
+    entitlements::PgDirectEntitlements,
+};
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
     PrivateObjectDeliveryPort,
@@ -65,6 +68,7 @@ impl RateLimits {
 struct GrantState {
     accounts: PgAccounts,
     entitlement: PgDirectEntitlements,
+    first_direct_grant: PgDirectFirstExposure,
     versions: PgPaidStorage,
     assets: PgPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -206,6 +210,18 @@ async fn grant(
     .await;
     match result {
         Ok(grant) => {
+            let Some(version) = positive(&grant.version_id) else {
+                return deny(StatusCode::SERVICE_UNAVAILABLE);
+            };
+            // Sign first, persist the irreversible exposure, then reveal the
+            // bearer URL. A concurrent revocation or PG error denies response.
+            if let Err(error) = state
+                .first_direct_grant
+                .record(actor_id, chapter_id, version, purchase_id, DirectGrantKind::Chapter)
+                .await
+            {
+                return deny(status(error));
+            }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(
                 header::CACHE_CONTROL,
@@ -416,6 +432,7 @@ fn router_inner(
     let state = GrantState {
         accounts,
         entitlement: PgDirectEntitlements::new(pool.clone()),
+        first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         assets: PgPaidAssets::new(pool),
         storage,
