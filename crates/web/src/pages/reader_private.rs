@@ -164,7 +164,9 @@ pub fn private_reader_with_demand(
                   <form method="post" action="/read/{chapter_id}/text-issues">
                     <input type="hidden" name="csrf_token" value="{csrf}">
                     <input type="hidden" name="version_id" value="{version_id}">
-                    <input type="hidden" name="block_index" value="1" id="issue-block">
+                    <input type="hidden" name="block_index" id="issue-block">
+                    <input type="hidden" name="selection_start" id="issue-start">
+                    <input type="hidden" name="selection_end" id="issue-end">
                     <label>Цитата <textarea name="quote" id="issue-quote" maxlength="500" required></textarea></label>
                     <label>Предложение <textarea name="suggested_text" maxlength="1000" required></textarea></label>
                     <label>Тип ошибки <select name="issue_type">

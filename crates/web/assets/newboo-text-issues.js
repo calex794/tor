@@ -1,24 +1,36 @@
-// E-12 free reader selection. The server re-verifies the quote and version.
+// E-12: derive an exact source offset from the one-span selection in a free
+// chapter. The server checks the stored edition and canonical quote again.
 document.addEventListener("DOMContentLoaded", function () {
-  const section = document.querySelector(".reader-issues");
-  const content = document.querySelector(".reader-private__content");
-  if (!section || !content) return;
-  const quote = section.querySelector("#issue-quote");
-  const block = section.querySelector("#issue-block");
+  const form = document.querySelector(".reader-issues form");
+  const chapter = document.querySelector(".reader-private__content");
+  if (!form || !chapter) return;
+  const quote = form.querySelector("#issue-quote");
+  const block = form.querySelector("#issue-block");
+  const startInput = form.querySelector("#issue-start");
+  const endInput = form.querySelector("#issue-end");
   document.addEventListener("selectionchange", function () {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
-    const anchor = selection.anchorNode && selection.anchorNode.parentElement;
-    const focus = selection.focusNode && selection.focusNode.parentElement;
-    if (!anchor || !focus) return;
-    const first = anchor.closest(".reader-piece");
-    const last = focus.closest(".reader-piece");
-    if (!first || first !== last || !content.contains(first)) return;
-    const text = selection.toString().trim();
-    if (!text || text.length > 500) return;
-    const matched = /^p-(\d+)$/.exec(first.id);
-    if (!matched) return;
-    block.value = matched[1];
-    quote.value = text;
+    if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return;
+    const range = selection.getRangeAt(0);
+    if (range.startContainer.nodeType !== Node.TEXT_NODE
+        || range.endContainer.nodeType !== Node.TEXT_NODE) return;
+    const startSpan = range.startContainer.parentElement.closest("[data-md-start]");
+    const endSpan = range.endContainer.parentElement.closest("[data-md-start]");
+    if (!startSpan || startSpan !== endSpan || !chapter.contains(startSpan)) return;
+    const piece = startSpan.closest(".reader-piece");
+    if (!piece) return;
+    const index = /^p-(\d+)$/.exec(piece.id);
+    if (!index) return;
+    const sourceOffset = Number(startSpan.dataset.mdStart);
+    const start = sourceOffset + range.startOffset;
+    const end = sourceOffset + range.endOffset;
+    const selected = selection.toString();
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+        || start < 0 || end <= start || end > 100000
+        || !selected || selected.length > 500 || selected.trim() !== selected) return;
+    quote.value = selected;
+    block.value = index[1];
+    startInput.value = String(start);
+    endInput.value = String(end);
   });
 });
