@@ -145,7 +145,15 @@ $purchase_grant$;
 
 -- Stop app-role manual rewrites. The SECURITY DEFINER purchase trigger retains
 -- narrow, verified UPDATE authority for the pointer change.
-REVOKE UPDATE, DELETE ON public.library_purchased_chapters FROM tor_app;
+DO $b05_privileges$
+BEGIN
+    -- Standalone migration verification creates no application database role;
+    -- production bootstrap does. Revoke only when that role exists.
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tor_app') THEN
+        REVOKE UPDATE, DELETE ON public.library_purchased_chapters FROM tor_app;
+    END IF;
+END;
+$b05_privileges$;
 
 -- An append-only reacquisition must have its own buyer debit and matching
 -- new D-08 allocation. The prior paid refund/reversal is never reused as
