@@ -18,15 +18,12 @@ struct RefundFixture {
 }
 
 async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> RefundFixture {
-    let (pool, buyer, book, chapter, version) =
-        fixture(tag, 1000, 300).await;
-    let moderator: i64 = sqlx::query_scalar(
-        "SELECT owner_user_id FROM books WHERE id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (pool, buyer, book, chapter, version) = fixture(tag, 1000, 300).await;
+    let moderator: i64 = sqlx::query_scalar("SELECT owner_user_id FROM books WHERE id=$1")
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let legal = format!("ci:refund-approval:{buyer}");
     let terms = format!("ci:revenue_approval:{buyer}");
     sqlx::query(
@@ -117,7 +114,9 @@ async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split(
     let f = d06_approval_fixture("d06_refund_approve_ok", 86400).await;
     let refunds = PgDirectRefundApprovals::new(f.pool.clone());
     assert_eq!(
-        refunds.approve_once(f.buyer, f.request, 1, "approved").await,
+        refunds
+            .approve_once(f.buyer, f.request, 1, "approved")
+            .await,
         Err(DirectRefundApproveError::Forbidden)
     );
 
@@ -129,28 +128,29 @@ async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split(
     assert_eq!(first.credited_minor, 300);
     assert_eq!(first.revision, 3);
     assert_eq!(first.purchase_id, f.purchase);
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(f.buyer)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(balance, 1000);
 
-    let (buyer_credit, platform_reverse, creator_reverse): (i64, i64, i64) =
-        sqlx::query_as(
-            "SELECT e.delta_minor, r.platform_reversal_minor,
+    let (buyer_credit, platform_reverse, creator_reverse): (i64, i64, i64) = sqlx::query_as(
+        "SELECT e.delta_minor, r.platform_reversal_minor,
                     r.creator_reversal_minor
              FROM reader_wallet_entries e
              JOIN finance_direct_refund_postings r ON r.purchase_id=e.purchase_id
              WHERE r.purchase_id=$1 AND e.kind='chapter_refund'",
-        )
-        .bind(f.purchase)
-        .fetch_one(&f.pool)
-        .await
-        .unwrap();
-    assert_eq!((buyer_credit, platform_reverse, creator_reverse), (300, 60, 240));
+    )
+    .bind(f.purchase)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (buyer_credit, platform_reverse, creator_reverse),
+        (300, 60, 240)
+    );
     let reversed_creator: i64 = sqlx::query_scalar(
         "SELECT SUM(amount_minor) FROM finance_direct_refund_creator_reversals
          WHERE purchase_id=$1",
@@ -193,16 +193,14 @@ async fn d_06_refund_approve_atomically_returns_wallet_and_reverses_20_80_split(
     .await
     .unwrap();
     assert_eq!(refund_credits, 1);
-    let readable: bool = sqlx::query_scalar(
-        "SELECT tor_purchase_version_readable($1,$2,$3,$4)",
-    )
-    .bind(f.buyer)
-    .bind(f.purchase)
-    .bind(f.chapter)
-    .bind(f.version)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let readable: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+        .bind(f.buyer)
+        .bind(f.purchase)
+        .bind(f.chapter)
+        .bind(f.version)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
     assert!(!readable, "approved refund revokes the old paid right");
     d06_approval_cleanup(f).await;
 }
@@ -234,13 +232,12 @@ async fn d_06_refund_pending_then_first_grant_cannot_approve() {
     .await
     .unwrap();
     assert_eq!(reverse_count, 0);
-    let balance: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .fetch_one(&f.pool)
-    .await
-    .unwrap();
+    let balance: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(f.buyer)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
     assert_eq!(balance, 700);
     d06_approval_cleanup(f).await;
 }
@@ -313,13 +310,11 @@ async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
     let mut tx = f.pool.begin().await.unwrap();
     // Intentionally simulate a broken writer: buyer credit, revocation,
     // platform reversal and terminal state, but OMIT creator reversal.
-    sqlx::query(
-        "UPDATE reader_wallet_accounts SET balance_minor=1000 WHERE user_id=$1",
-    )
-    .bind(f.buyer)
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE reader_wallet_accounts SET balance_minor=1000 WHERE user_id=$1")
+        .bind(f.buyer)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO reader_wallet_entries
          (user_id,kind,delta_minor,balance_after_minor,reference,purchase_id)
@@ -378,9 +373,8 @@ async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
     .unwrap();
     assert!(tx.commit().await.is_err());
 
-    let (balance, refund_entries, revocations, postings): (i64, i64, i64, i64) =
-        sqlx::query_as(
-            "SELECT a.balance_minor,
+    let (balance, refund_entries, revocations, postings): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT a.balance_minor,
                     (SELECT count(*) FROM reader_wallet_entries e
                      WHERE e.purchase_id=$2 AND e.kind='chapter_refund'),
                     (SELECT count(*) FROM chapter_purchase_revocations v
@@ -388,13 +382,16 @@ async fn d_06_refund_missing_creator_reversal_rolls_back_all_buyer_effects() {
                     (SELECT count(*) FROM finance_direct_refund_postings fp
                      WHERE fp.purchase_id=$2)
              FROM reader_wallet_accounts a WHERE a.user_id=$1",
-        )
-        .bind(f.buyer)
-        .bind(f.purchase)
-        .fetch_one(&f.pool)
-        .await
-        .unwrap();
-    assert_eq!((balance, refund_entries, revocations, postings), (700, 0, 0, 0));
+    )
+    .bind(f.buyer)
+    .bind(f.purchase)
+    .fetch_one(&f.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (balance, refund_entries, revocations, postings),
+        (700, 0, 0, 0)
+    );
     // The valid writer can retry after the failure without duplicate money.
     let correct = PgDirectRefundApprovals::new(f.pool.clone())
         .approve_once(f.moderator, f.request, 1, "approved")

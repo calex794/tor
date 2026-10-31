@@ -164,9 +164,7 @@ impl PgDirectRefundApprovals {
             let previous_reason: Option<String> = decision
                 .try_get("decision_reason")
                 .map_err(|_| DirectRefundApproveError::Unavailable)?;
-            if previous_actor != Some(actor)
-                || previous_reason.as_deref() != Some(reason)
-            {
+            if previous_actor != Some(actor) || previous_reason.as_deref() != Some(reason) {
                 return Err(DirectRefundApproveError::Conflict);
             }
             let amount: Option<i64> = sqlx::query_scalar(
@@ -330,14 +328,12 @@ impl PgDirectRefundApprovals {
         .await
         .map_err(|_| DirectRefundApproveError::Unavailable)?;
 
-        sqlx::query(
-            "UPDATE reader_wallet_accounts SET balance_minor=$2 WHERE user_id=$1",
-        )
-        .bind(buyer)
-        .bind(new_balance)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| DirectRefundApproveError::Unavailable)?;
+        sqlx::query("UPDATE reader_wallet_accounts SET balance_minor=$2 WHERE user_id=$1")
+            .bind(buyer)
+            .bind(new_balance)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| DirectRefundApproveError::Unavailable)?;
         sqlx::query(
             "INSERT INTO reader_wallet_entries
               (user_id,kind,delta_minor,balance_after_minor,reference,purchase_id)
@@ -403,7 +399,11 @@ impl PgDirectRefundApprovals {
         .bind(actor)
         .bind(reason)
         .bind(&reference)
-        .bind(expected_revision.checked_add(1).ok_or(DirectRefundApproveError::Overflow)?)
+        .bind(
+            expected_revision
+                .checked_add(1)
+                .ok_or(DirectRefundApproveError::Overflow)?,
+        )
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| DirectRefundApproveError::Unavailable)?
