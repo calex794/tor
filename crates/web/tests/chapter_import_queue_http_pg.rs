@@ -219,6 +219,36 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     let cancelled_job = queued_json["job_id"].as_i64().unwrap();
     assert_eq!(cancelled_job, first_job);
     assert_eq!(queued_json["status"], "queued");
+
+    // A second command for the same book conflicts after its S3 PUT. Its
+    // deterministic key must not be deleted: a concurrent identical request
+    // may already have committed a job that references that object.
+    let conflict_text = "Глава 2: Конфликт\nТекст конфликта";
+    let conflict_chapters = parse_text("conflict.txt", conflict_text).unwrap();
+    let conflict_fp = fingerprint(book_id, &conflict_chapters);
+    let conflict_command = generate_session_token();
+    let conflict_key =
+        format!("staging/chapters/{owner}/{book_id}/{conflict_command}");
+    let conflict_response = call(
+        &app,
+        &queue_path,
+        "POST",
+        &owner_cookie,
+        Some(json!({
+            "filename":"conflict.txt",
+            "text":conflict_text,
+            "csrf_token":csrf,
+            "command_key":conflict_command,
+            "fingerprint":fingerprint_hex(&conflict_fp),
+        })),
+    )
+    .await;
+    assert_eq!(conflict_response.0, StatusCode::CONFLICT);
+    assert!(
+        store.0.lock().await.contains_key(&conflict_key),
+        "a conflicting enqueue must not delete an object that may be referenced"
+    );
+
     let status_path = format!("/me/books/{book_id}/chapters/import-jobs/{cancelled_job}");
     assert_eq!(
         call(&app, &status_path, "GET", &stranger_cookie, None)
@@ -280,6 +310,21 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         .unwrap()["status"],
         "cancelled"
     );
+    assert!(
+        !store
+            .0
+            .lock()
+            .await
+            .contains_key(&format!(
+                "staging/chapters/{owner}/{book_id}/{cancelled_key}"
+            )),
+        "cancelling a known job deletes only its own source"
+    );
+    assert!(
+        store.0.lock().await.contains_key(&conflict_key),
+        "cancelling another job must not remove an unreferenced conflict object"
+    );
+    store.delete(&conflict_key).await.unwrap();
 
     // A second, reviewed batch is processed by the real worker against the
     // fake S3 port. The job and every chapter become successful together.
