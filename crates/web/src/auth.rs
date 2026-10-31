@@ -250,10 +250,7 @@ fn router_inner(
         .route("/mail/groups/{id}", get(group_mail::detail))
         .route("/mail/groups/{id}/messages", post(group_mail::send))
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
-        .route(
-            "/api/v1/me/messages",
-            get(mail_api::get).post(mail_api::post),
-        )
+        .route("/api/v1/me/messages", get(mail_api::get).post(mail_api::post))
         .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",
@@ -336,10 +333,7 @@ fn router_inner(
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
-        .route(
-            "/me/books/{id}/description",
-            get(book_description::edit).post(book_description::save),
-        )
+        .route("/me/books/{id}/description", get(book_description::edit).post(book_description::save))
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader::page))
         .route("/read/{id}/place", post(save_place))
