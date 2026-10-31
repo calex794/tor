@@ -415,6 +415,7 @@ mod tests {
                 MoneyMinor::new(100).unwrap(),
                 10,
                 1,
+                1,
                 20,
                 20,
                 90,
@@ -429,6 +430,7 @@ mod tests {
             request(81, 1).unwrap().with_discount_offer(
                 MoneyMinor::new(100).unwrap(),
                 10,
+                1,
                 1,
                 20,
                 20,
