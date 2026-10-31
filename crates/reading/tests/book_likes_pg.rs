@@ -69,7 +69,10 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
     assert_eq!(decision.recommended_action, "observe");
     assert!(!decision.stats_trusted);
     assert_eq!(
-        likes.set_like(second, book, true, decision.stats_trusted).await.unwrap(),
+        likes
+            .set_like(second, book, true, decision.stats_trusted)
+            .await
+            .unwrap(),
         LikeMutation::Added
     );
     assert_eq!(likes.public_count(book).await.unwrap(), Some(1));
@@ -158,13 +161,12 @@ async fn book_like_duplicate_concurrent_unlike_visibility_and_erasure() {
         .await
         .unwrap();
     assert_eq!(likes.public_count(book).await.unwrap(), Some(0));
-    let erased_buckets: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM book_engagement_rate_buckets WHERE user_id=$1",
-    )
-    .bind(second)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let erased_buckets: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM book_engagement_rate_buckets WHERE user_id=$1")
+            .bind(second)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(erased_buckets, 0);
     let erased_events: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM book_engagement_integrity_events WHERE user_id=$1",
