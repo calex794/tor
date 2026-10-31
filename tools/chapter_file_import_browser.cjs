@@ -61,9 +61,9 @@ function assert(ok, why) {
         await page.waitForURL(base + '/me/books/' + id);
         assert(await page.getByText(/Черновик/).isVisible(),
           name + ': import published the book without consent');
-        assert(await page.getByText(/№1/).isVisible(),
+        assert(await page.getByText(/^№1\s*—/).isVisible(),
           name + ': chapter one missing after import');
-        assert(await page.getByText(/№2/).isVisible(),
+        assert(await page.getByText(/^№2\s*—/).isVisible(),
           name + ': chapter two missing after import');
         assert(await page.getByRole('link', { name: 'Редактировать', exact: true }).count() === 2,
           name + ': imported draft chapters cannot be edited');
