@@ -309,13 +309,7 @@ pub(super) async fn feedback(
     };
     match state
         .store
-        .set_feedback(
-            actor,
-            book,
-            body.choice,
-            body.expected_revision,
-            key,
-        )
+        .set_feedback(actor, book, body.choice, body.expected_revision, key)
         .await
     {
         Ok(receipt) => private_response(Json(receipt), &[]),

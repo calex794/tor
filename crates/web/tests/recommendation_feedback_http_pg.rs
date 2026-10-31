@@ -382,7 +382,8 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
-    let hide=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0}).to_string();
+    let hide = json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0})
+        .to_string();
     let old_body=json!({"book_id":book.to_string(),"choice":"not_interested","expected_revision":0,"command_key":key}).to_string();
     assert_eq!(
         feedback_json(&app, &cookie, &csrf, Some(&key), &old_body)
@@ -399,7 +400,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
     );
     let noncanonical_key = "x".repeat(43);
     for invalid in ["bad", noncanonical_key.as_str()] {
-        let rejected=feedback_json(&app, &cookie, &csrf, Some(invalid), &hide).await;
+        let rejected = feedback_json(&app, &cookie, &csrf, Some(invalid), &hide).await;
         assert_eq!(rejected.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(
             data(rejected).await["error"]["code"],
@@ -414,7 +415,8 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
             StatusCode::OK
         );
     }
-    let changed=json!({"book_id":book.to_string(),"choice":"clear","expected_revision":0}).to_string();
+    let changed =
+        json!({"book_id":book.to_string(),"choice":"clear","expected_revision":0}).to_string();
     assert_eq!(
         feedback_json(&app, &cookie, &csrf, Some(&key), &changed)
             .await
