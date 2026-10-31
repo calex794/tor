@@ -1,4 +1,6 @@
-use super::d06_refund_approval::{d06_approval_cleanup, d06_approval_fixture, issue_refund_step_up};
+use super::d06_refund_approval::{
+    d06_approval_cleanup, d06_approval_fixture, issue_refund_step_up,
+};
 use super::*;
 use tor_commerce::{
     domain::batch_checkout::{BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand},
