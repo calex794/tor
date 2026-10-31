@@ -114,7 +114,7 @@ impl PgAuthorDiscounts {
         if owner <= 0
             || book <= 0
             || !(1..=90).contains(&discount_percent)
-            || ![0, 90].contains(&min_follow_days)
+            || ![0, 30, 90, 180].contains(&min_follow_days)
             || !(1..=90).contains(&duration_days)
         {
             return Err(DiscountCampaignError::Invalid);
