@@ -58,10 +58,12 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (response.status === 404) return null;
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => null);
+    // Only a missing route means that the optional worker is disabled.
+    // A JSON 404 from the queue handler (for example, a missing book) is real.
+    if (response.status === 404 && (!data || typeof data.error !== 'string')) return null;
     if (!response.ok) {
-      const error = new Error(data.error || ('Ошибка сервера: ' + response.status));
+      const error = new Error((data && data.error) || ('Ошибка сервера: ' + response.status));
       error.status = response.status;
       throw error;
     }
