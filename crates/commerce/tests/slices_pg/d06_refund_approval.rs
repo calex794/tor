@@ -28,7 +28,7 @@ async fn d06_approval_fixture(tag: &str, window_seconds: i64) -> RefundFixture {
     .await
     .unwrap();
     let legal = format!("ci:refund-approval:{buyer}");
-    let terms = format!("ci:revenue-approval:{buyer}");
+    let terms = format!("ci:revenue_approval:{buyer}");
     sqlx::query(
         "INSERT INTO finance_direct_refund_policy_catalog
            (version,approval_reference,approved_by_user_id,
