@@ -1,4 +1,3 @@
-//! Real browser account flows, backed by PostgreSQL and revocable sessions.
 #![forbid(unsafe_code)]
 
 use crate::{
