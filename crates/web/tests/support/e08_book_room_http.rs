@@ -46,21 +46,29 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
         cookies.push(format!("tor-dev-session={session}; tor-dev-csrf={csrf}"));
         tokens.push(csrf);
     }
-    let book_id: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Room <script>title</script>','public') RETURNING id",
+    // Fixture SQL is executed only by the /tor_ci psql helper. Keep direct
+    // database access out of the production web crate and its Cargo manifest.
+    let book_id: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:e08:http:room:{nonce}','ru','Room <script>title</script>','public')
+             RETURNING id"
+        ),
     )
-    .bind(format!("ci:e08:http:room:{nonce}"))
-    .fetch_one(&pool)
     .await
+    .parse()
     .unwrap();
-    let hidden: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru','Private room','draft') RETURNING id",
+    let hidden: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility)
+             VALUES('ci:e08:http:hidden:{nonce}','ru','Private room','draft')
+             RETURNING id"
+        ),
     )
-    .bind(format!("ci:e08:http:hidden:{nonce}"))
-    .fetch_one(&pool)
     .await
+    .parse()
     .unwrap();
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
@@ -219,11 +227,11 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     assert!(text(call(&app, "GET", &page, &cookies[0], "", &[]).await)
         .await
         .contains("&lt;img src=x onerror=alert(1)&gt;"));
-    sqlx::query("UPDATE books SET visibility='draft' WHERE id=$1")
-        .bind(book_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={book_id}"),
+    )
+    .await;
     assert_eq!(
         call(&app, "GET", &page, &cookies[0], "", &[])
             .await

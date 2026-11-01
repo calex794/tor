@@ -101,7 +101,6 @@ pub(crate) fn router(
 ) -> Router {
     router_inner(accounts, reader, secure, origin, None, false, None)
 }
-
 pub(crate) fn router_with_cover_uploads(
     accounts: PgAccounts,
     reader: PgReader,
@@ -111,7 +110,6 @@ pub(crate) fn router_with_cover_uploads(
 ) -> Router {
     router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
-
 pub(crate) fn router_with_paid_reader(
     accounts: PgAccounts,
     reader: PgReader,
@@ -129,7 +127,6 @@ pub(crate) fn router_with_paid_reader(
         None,
     )
 }
-
 pub(crate) fn router_with_paid_reader_author(
     accounts: PgAccounts,
     reader: PgReader,
@@ -148,7 +145,6 @@ pub(crate) fn router_with_paid_reader_author(
         Some(author),
     )
 }
-
 fn router_inner(
     accounts: PgAccounts,
     reader: PgReader,
@@ -367,7 +363,6 @@ fn router_inner(
         app
     }
 }
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
@@ -405,7 +400,6 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         &cookies,
     )
 }
-
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
@@ -417,7 +411,6 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     match session_user(&state, &headers).await {
         Ok(Some(_)) => (),
@@ -428,7 +421,6 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     let command_key = generate_session_token();
     private_response(author_pages::new_book(&csrf, &command_key), &cookies)
 }
-
 async fn create_book(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -473,7 +465,6 @@ async fn create_book(
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
