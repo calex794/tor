@@ -435,8 +435,8 @@ Both canonical and legacy private links now require the active canonical
 owner row in book_members through the B-owned repository.
 Public Book previews and public cover rules are unchanged; collaborators
 and unrelated message participants gain no private metadata access.
-The disposable B-09 PostgreSQL test covers owner, outsider, disabled
-membership, restored membership, and moderation hold.
+The disposable B-09 PostgreSQL test covers owner, outsider, role drift,
+role restoration, moderation hold and B-10's financial deactivation fence.
 This does not claim full source collaborator preview parity, which still
 needs a matching authorized view route and an explicit B access contract.
 Exact-head CI is pending. Draft only; main and production are untouched.

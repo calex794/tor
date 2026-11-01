@@ -246,8 +246,27 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
         None,
     );
 
-    // A stale owner_user_id is not enough to disclose unpublished metadata.
-    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
+    // B-10 protects the 100% current revenue recipient against a bare
+    // membership deactivation. This security test must not bypass finance.
+    let denied = sqlx::query(
+        "UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2",
+    )
+    .bind(book_id)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        denied
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("23514"),
+    );
+
+    // Even an inconsistent owner role left by a legacy mutation must not
+    // expose a private title just because books.owner_user_id still matches.
+    sqlx::query("UPDATE book_members SET role='translator' WHERE book_id=$1 AND user_id=$2")
         .bind(book_id)
         .bind(owner)
         .execute(&pool)
@@ -260,7 +279,7 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
             .unwrap(),
         None,
     );
-    sqlx::query("UPDATE book_members SET is_active=TRUE WHERE book_id=$1 AND user_id=$2")
+    sqlx::query("UPDATE book_members SET role='owner' WHERE book_id=$1 AND user_id=$2")
         .bind(book_id)
         .bind(owner)
         .execute(&pool)
