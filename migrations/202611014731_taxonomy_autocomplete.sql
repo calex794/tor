@@ -49,20 +49,20 @@ CREATE INDEX book_taxonomy_links_term_idx ON book_taxonomy_links(term_id,book_id
 -- One PostgreSQL UTF-8 NFKC search key for migrations and runtime lookup.
 -- Deliberately not Unicode case folding: case behavior follows DB locale.
 CREATE FUNCTION book_taxonomy_key(value TEXT) RETURNS TEXT
-LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
     SELECT replace(
         lower(regexp_replace(btrim(normalize(value, NFKC)), '[[:space:]]+', ' ', 'g')),
         'ё', 'е'
     );
-$;
+$$;
 REVOKE ALL ON FUNCTION book_taxonomy_key(TEXT) FROM PUBLIC;
-DO $
+DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
         GRANT EXECUTE ON FUNCTION book_taxonomy_key(TEXT) TO tor_app;
     END IF;
 END
-$;
+$$;
 
 -- Only visible, approved facet strings are eligible to be suggested.
 -- Normalize Unicode NFKC before lowercase/space/ё folding.
