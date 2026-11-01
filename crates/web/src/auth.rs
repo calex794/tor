@@ -578,7 +578,6 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,
