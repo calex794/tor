@@ -10,6 +10,8 @@ Use `TOR_TAXONOMY_ADMIN_URL` (no default) and explicit write confirmation:
 ```shell
 export TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci'
 python3 tools/taxonomy_admin.py unmapped --limit 40
+python3 tools/taxonomy_admin.py unmapped --limit 40 --offset 40
+python3 tools/taxonomy_admin.py lookup tag 'сис' --limit 40
 python3 tools/taxonomy_admin.py --confirm-db tor_ci add tag 'Система' --curator review-20261101
 python3 tools/taxonomy_admin.py --confirm-db tor_ci alias tag 42 'System' --curator review-20261101
 python3 tools/taxonomy_admin.py reconcile 123 --curator review-20261101
@@ -23,8 +25,13 @@ or collide with another canonical name. Both operations have migration-owner
 audit entries; app role has no write or function-execution permissions.
 
 `unmapped` reports **only public-book** labels that have no active canonical
-or alias match. It does not enumerate private draft metadata. The
-`reconcile` preview prints raw labels for a **single explicitly selected**
+or alias match. Use `--offset` with `--limit` to review more than 500
+rows; order is by book count, kind and name. Avoid dictionary edits between
+pages if a stable multi-page review is needed. `lookup kind prefix` searches
+canonical names and approved aliases and returns canonical ID, label,
+status and match type (including blocked entries). It is read-only; SQL
+wildcards are not accepted. Neither command exposes private draft metadata.
+The `reconcile` preview prints raw labels for a **single explicitly selected**
 book. `reconcile --apply` takes an exclusive book row lock, converts all
 genres/tags/fandoms through reviewed active canonical terms and aliases,
 updates the legacy TEXT[] and canonical links atomically, increments the book

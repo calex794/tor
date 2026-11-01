@@ -35,7 +35,28 @@ WITH existing AS (
  )
  GROUP BY x.kind,x.k
 )
-SELECT kind,k,books FROM unmatched ORDER BY books DESC,kind,k LIMIT :'limit'::integer;
+SELECT kind,k,books FROM unmatched ORDER BY books DESC,kind,k LIMIT :'limit'::integer OFFSET :'offset'::integer;
+"""
+
+
+LOOKUP_SQL = """
+-- Read-only indexed prefix lookup of canonical terms and approved aliases.
+WITH prefix AS (
+ SELECT admin_taxonomy_key(:'query') AS k
+), matches AS (
+ SELECT t.id,0 AS match_rank FROM book_taxonomy_terms t CROSS JOIN prefix p
+ WHERE t.kind=:'kind' AND t.search_key LIKE p.k || '%'
+ UNION ALL
+ SELECT a.term_id AS id,1 AS match_rank
+ FROM book_taxonomy_aliases a CROSS JOIN prefix p
+ WHERE a.kind=:'kind' AND a.search_key LIKE p.k || '%'
+), ranked AS (
+ SELECT id,min(match_rank) AS match_rank FROM matches GROUP BY id
+)
+SELECT t.id,t.kind,t.label,t.status,
+       CASE WHEN r.match_rank=0 THEN 'canonical' ELSE 'alias' END
+FROM ranked r JOIN book_taxonomy_terms t ON t.id=r.id
+ORDER BY r.match_rank,t.label,t.id LIMIT :'limit'::integer;
 """
 
 def database_name(url: str) -> str:
@@ -81,6 +102,11 @@ def main(argv=None):
     reconcile.add_argument("--apply", action="store_true")
     listing = commands.add_parser("unmapped", help="public-only legacy unknown names")
     listing.add_argument("--limit", type=int, default=40)
+    listing.add_argument("--offset", type=int, default=0, help="skip earlier unmatched rows")
+    lookup = commands.add_parser("lookup", help="find canonical IDs by name or alias")
+    lookup.add_argument("kind", choices=("genre", "tag", "fandom"))
+    lookup.add_argument("query", help="indexed, normalized prefix")
+    lookup.add_argument("--limit", type=int, default=40)
     args = parser.parse_args(argv)
     url = os.environ.get("TOR_TAXONOMY_ADMIN_URL", "")
     try:
@@ -88,7 +114,19 @@ def main(argv=None):
         if args.command == "unmapped":
             if not 1 <= args.limit <= 500:
                 raise ValueError("limit must be 1..500")
-            print(run_sql(url, READ_ONLY, limit=str(args.limit)))
+            if not 0 <= args.offset <= 1_000_000:
+                raise ValueError("offset must be 0..1000000")
+            print(run_sql(url, READ_ONLY, limit=str(args.limit), offset=str(args.offset)))
+            return 0
+        if args.command == "lookup":
+            if not 1 <= args.limit <= 100:
+                raise ValueError("lookup limit must be 1..100")
+            q = args.query
+            if (not 1 <= len(q) <= 80 or q != q.strip()
+                    or any(ord(c) < 32 or ord(c) in (92, 127)
+                           or c in "%_" for c in q)):
+                raise ValueError("lookup needs a 1..80 character literal prefix without wildcards")
+            print(run_sql(url, LOOKUP_SQL, kind=args.kind, query=q, limit=str(args.limit)))
             return 0
         if args.command == "reconcile" and not args.apply:
             if args.book_id <= 0:
