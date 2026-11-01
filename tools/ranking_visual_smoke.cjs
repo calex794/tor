@@ -129,6 +129,57 @@ async function screenshot(page, name) {
         viewport + ': skip and tie were not recorded once each');
       await screenshot(page, viewport + '-placed');
 
+      // Defer is a durable reader choice, not an automatic negative signal.
+      // The deferred book may return only after a NEW verified C completion.
+      const deferred = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility) " +
+        "VALUES('ci:f05:visual:" + viewport + ":deferred','ru','Книга после отсрочки','public') RETURNING id"));
+      const deferredChapter = positive(pg("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) " +
+        "VALUES(" + deferred + ",1,'Первая проверенная глава','public','free',0) RETURNING id"));
+      const deferredVersion = positive(pg("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) " +
+        "VALUES(" + deferredChapter + ",1,'Первая глава для отсрочки ' || repeat('д',1200)) RETURNING id"));
+      pg("INSERT INTO chapter_publications(chapter_id,version_id) VALUES(" +
+        deferredChapter + "," + deferredVersion + ")");
+      await page.goto(base + '/read/' + deferredChapter);
+      await page.getByRole('button', { name: 'Глава прочитана' }).click();
+      await page.waitForURL(base + '/read/' + deferredChapter + '#continuation');
+      await page.goto(base + '/me/rankings');
+      const deferPair = page.locator('.ranking-pair');
+      assert(await deferPair.getByRole('link', { name: 'Книга после отсрочки' }).isVisible(),
+        viewport + ': S008 third verified book did not start a comparison');
+      await page.getByRole('button', { name: 'Отложить вторую' }).click();
+      await page.waitForURL('**/me/rankings');
+      assert(pg("SELECT count(*) FROM user_book_ranking_defer WHERE user_id=" + uid +
+        " AND book_id=" + deferred) === '1',
+        viewport + ': S008 deferred book was not recorded');
+      await page.reload();
+      assert(await page.locator('.ranking-pair').count() === 0,
+        viewport + ': S008 deferred book reappeared without fresh reading');
+
+      const secondChapter = positive(pg("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) " +
+        "VALUES(" + deferred + ",2,'Новая глава для возвращения','public','free',0) RETURNING id"));
+      const secondVersion = positive(pg("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) " +
+        "VALUES(" + secondChapter + ",1,'Новая глава после отсрочки ' || repeat('ч',1200)) RETURNING id"));
+      pg("INSERT INTO chapter_publications(chapter_id,version_id) VALUES(" +
+        secondChapter + "," + secondVersion + ")");
+      await page.goto(base + '/read/' + secondChapter);
+      await page.getByRole('button', { name: 'Глава прочитана' }).click();
+      await page.waitForURL(base + '/read/' + secondChapter + '#continuation');
+      assert(pg("SELECT count(*) FROM reader_chapter_completions WHERE user_id=" + uid +
+        " AND book_id=" + deferred) === '2',
+        viewport + ': S008 fresh C completion missing');
+      assert(pg("SELECT count(*) FROM user_book_ranking_defer WHERE user_id=" + uid +
+        " AND book_id=" + deferred) === '0',
+        viewport + ': S008 fresh completion did not clear deferral');
+      await page.goto(base + '/me/rankings');
+      assert(await page.locator('.ranking-pair').getByRole('link',
+        { name: 'Книга после отсрочки' }).isVisible(),
+        viewport + ': S008 deferred book did not return after fresh reading');
+      await page.getByRole('button', { name: 'Первая лучше' }).click();
+      await page.waitForURL('**/me/rankings');
+      assert(await page.locator('.ranking-books .ranking-book').count() === 3,
+        viewport + ': S008 accepted fresh completion did not rank third book');
+      await screenshot(page, viewport + '-defer-and-fresh-read');
+
       // F-12/S046: real Chromium -> C verified completion -> private badge.
       // An empty personal dashboard does not pretend that reading occurred.
       const beforeBadge = await page.goto(base + '/me', { waitUntil: 'networkidle' });
