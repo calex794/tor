@@ -360,7 +360,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     registry.mark_ready(&receipt).await.unwrap();
 
     let image_id =
-        asset_fixtures::attach_verified_illustration(author, pinned, &pool, &registry, &s3, &kek)
+        asset_fixtures::attach_verified_illustration(author, pinned, &catalog, &registry, &s3, &kek)
             .await;
 
     pg(
