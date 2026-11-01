@@ -183,17 +183,42 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
       fullPage: true,
     });
 
-    await reader.goto(base + '/register');
+    // Follow the actual CTA; anonymous completion must redirect to login.
+    const enterPrivate = reader.getByRole('link', {
+      name: 'Отметить главу прочитанной и попросить продолжение',
+    });
+    assert(await enterPrivate.isVisible(), viewport + ': guest completion CTA missing');
+    await enterPrivate.click();
+    await reader.waitForURL(base + '/login');
+    const registerLink = reader.getByRole('link', { name: 'Зарегистрироваться' });
+    assert(await registerLink.isVisible(), viewport + ': login has no registration route');
+    await registerLink.click();
+    await reader.waitForURL(base + '/register');
     await reader.getByLabel('Отображаемое имя').fill('Читатель поиска');
     await reader.getByLabel('Электронная почта').fill(
       'loop2.reader.' + viewport + '.' + Date.now() + '@example.test');
     await reader.getByLabel('Пароль (12–128 символов)').fill('DiscoveryReader2026Pass');
     await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
     await reader.waitForURL(base + '/me');
+    // Registration currently lands on /me, rather than restoring the requested
+    // chapter. Re-discover through the actual public UI (no direct URL shortcut).
+    await search(reader, filters);
+    assert(await bookLink(reader, bookId).isVisible(),
+      viewport + ': discovered book disappeared for registered reader');
+    await bookLink(reader, bookId).click();
+    await reader.waitForURL(base + '/books/' + bookId);
+    const secondStart = reader.getByRole('link', { name: 'Читать доступную главу' });
+    assert(await secondStart.isVisible(), viewport + ': no free start after registration');
+    await secondStart.click();
+    await reader.waitForURL(base + href);
+    const authenticatedEntry = reader.getByRole('link', {
+      name: 'Отметить главу прочитанной и попросить продолжение',
+    });
+    assert(await authenticatedEntry.isVisible(),
+      viewport + ': public reader lost its private completion link');
     const privatePath = '/read/' + chapterId;
-    const privateResponse = await reader.goto(base + privatePath);
-    assert(privateResponse && privateResponse.status() === 200,
-      viewport + ': authenticated free reader unavailable');
+    await authenticatedEntry.click();
+    await reader.waitForURL(base + privatePath);
     assert(await reader.getByText('Настоящая публикация через PostgreSQL.').isVisible(),
       viewport + ': authenticated reader lost the discovered text');
     const completed = reader.getByRole('button', { name: 'Глава прочитана' });
