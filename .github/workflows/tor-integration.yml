@@ -33,6 +33,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Rust unit and HTTP integration
         run: cargo test --workspace --all-targets
+      - name: Repeat trace writer crash recovery with CPU contention
+        run: |
+          python3 -c 'while True: pass' &
+          load_pid=$!
+          trap 'kill "$load_pid" 2>/dev/null || true; wait "$load_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3; do
+            echo "Trace crash recovery under CPU contention: attempt $attempt/3"
+            cargo test -p tor-observability --test trace_store_daemon \
+              writer_crash_does_not_block_publisher_and_restart_recovers_old_traces \
+              -- --exact --test-threads=1
+          done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build release outside VPS
@@ -461,6 +472,7 @@ jobs:
           curl -fsS http://127.0.0.1:3098/readyz
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/loop_01_browser_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/chapter_file_import_browser.cjs
           TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
           TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
