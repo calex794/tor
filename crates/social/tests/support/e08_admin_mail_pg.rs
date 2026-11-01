@@ -54,27 +54,44 @@ async fn e_08_admin_mail_requires_live_role_session_and_durable_access_audit() {
         Err(MailError::NotFound)
     );
     assert_eq!(
-        store.messages(&user_digest, conversation_id, None, 10).await,
+        store
+            .messages(&user_digest, conversation_id, None, 10)
+            .await,
         Err(MailError::NotFound)
     );
     assert_eq!(
-        store.messages(&[42_u8; 32], conversation_id, None, 10).await,
+        store
+            .messages(&[42_u8; 32], conversation_id, None, 10)
+            .await,
         Err(MailError::NotFound)
     );
     assert_eq!(
-        store.messages(&admin_digest, conversation_id, None, 0).await,
+        store
+            .messages(&admin_digest, conversation_id, None, 0)
+            .await,
         Err(MailError::Invalid)
     );
 
-    let all_users = store.users(&admin_digest, "MAIL FIX", None, 50).await.unwrap();
+    let all_users = store
+        .users(&admin_digest, "MAIL FIX", None, 50)
+        .await
+        .unwrap();
     assert!(all_users.iter().any(|row| row.user_id == sender));
     assert!(all_users.iter().any(|row| row.user_id == recipient));
     assert_eq!(
-        all_users.iter().find(|row| row.user_id == admin).unwrap().conversation_count,
+        all_users
+            .iter()
+            .find(|row| row.user_id == admin)
+            .unwrap()
+            .conversation_count,
         0
     );
     assert_eq!(
-        all_users.iter().find(|row| row.user_id == sender).unwrap().conversation_count,
+        all_users
+            .iter()
+            .find(|row| row.user_id == sender)
+            .unwrap()
+            .conversation_count,
         1
     );
     let inbox = store
@@ -112,22 +129,28 @@ async fn e_08_admin_mail_requires_live_role_session_and_durable_access_audit() {
     .unwrap();
     assert_eq!(events.len(), 4);
     assert_eq!(events[0].0, "search_mail_users");
-    assert_eq!(events[1], ("list_user_mailbox".to_owned(), Some(sender), None, 1));
+    assert_eq!(
+        events[1],
+        ("list_user_mailbox".to_owned(), Some(sender), None, 1)
+    );
     assert_eq!(
         events[2],
-        ("read_direct_conversation".to_owned(), None, Some(conversation_id), 2)
+        (
+            "read_direct_conversation".to_owned(),
+            None,
+            Some(conversation_id),
+            2
+        )
     );
     assert_eq!(events[3].3, 1);
-    assert!(
-        sqlx::query(
-            "UPDATE social_mail_admin_access_audit SET result_count=0
+    assert!(sqlx::query(
+        "UPDATE social_mail_admin_access_audit SET result_count=0
              WHERE admin_user_id=$1"
-        )
-        .bind(admin)
-        .execute(&pool)
-        .await
-        .is_err()
-    );
+    )
+    .bind(admin)
+    .execute(&pool)
+    .await
+    .is_err());
 
     // Revoke the authority while leaving the login session active.
     sqlx::query(
@@ -139,7 +162,9 @@ async fn e_08_admin_mail_requires_live_role_session_and_durable_access_audit() {
     .await
     .unwrap();
     assert_eq!(
-        store.messages(&admin_digest, conversation_id, None, 50).await,
+        store
+            .messages(&admin_digest, conversation_id, None, 50)
+            .await,
         Err(MailError::NotFound)
     );
     sqlx::query(
@@ -166,7 +191,10 @@ async fn e_08_admin_mail_requires_live_role_session_and_durable_access_audit() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(audit_count, 4, "denied reads must not become successful audits");
+    assert_eq!(
+        audit_count, 4,
+        "denied reads must not become successful audits"
+    );
 
     sqlx::query("DELETE FROM account_roles WHERE user_id=$1 AND role='administrator'")
         .bind(admin)

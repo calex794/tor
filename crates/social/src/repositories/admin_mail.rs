@@ -144,10 +144,7 @@ impl PgAdminMail {
         before: Option<i64>,
         limit: u16,
     ) -> Result<Vec<AdminDirectConversation>, MailError> {
-        if user_id <= 0
-            || before.is_some_and(|id| id <= 0)
-            || !(1..=50).contains(&limit)
-        {
+        if user_id <= 0 || before.is_some_and(|id| id <= 0) || !(1..=50).contains(&limit) {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
@@ -206,10 +203,7 @@ impl PgAdminMail {
         before: Option<i64>,
         limit: u16,
     ) -> Result<Vec<AdminDirectMessage>, MailError> {
-        if conversation_id <= 0
-            || before.is_some_and(|id| id <= 0)
-            || !(1..=50).contains(&limit)
-        {
+        if conversation_id <= 0 || before.is_some_and(|id| id <= 0) || !(1..=50).contains(&limit) {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
@@ -249,14 +243,12 @@ impl PgAdminMail {
         rows.reverse();
         Ok(rows
             .into_iter()
-            .map(
-                |(id, sender_id, sender_name, body)| AdminDirectMessage {
-                    id,
-                    sender_id,
-                    sender_name,
-                    body,
-                },
-            )
+            .map(|(id, sender_id, sender_name, body)| AdminDirectMessage {
+                id,
+                sender_id,
+                sender_name,
+                body,
+            })
             .collect())
     }
 }
