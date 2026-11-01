@@ -2,6 +2,7 @@
 //! Every operation binds a live session digest, locks its administrator role
 //! against revocation, and commits an immutable audit record before returning.
 //! Never accept a claimed administrator user ID or return authentication data.
+mod rooms;
 use crate::domain::MailError;
 use sqlx::{PgPool, Postgres, Transaction};
 

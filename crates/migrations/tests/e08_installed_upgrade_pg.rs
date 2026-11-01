@@ -1,6 +1,6 @@
 //! E-08 release upgrade regression against *only* a disposable PostgreSQL CI database.
 //! Replay the exact checked-out non-E-08 migration blobs as the installed
-//! baseline, then install the thirteen Draft extensions with SQLx's checksum ledger.
+//! baseline, then install the fourteen Draft extensions with SQLx's checksum ledger.
 //! The PR CI checkout is a synthetic merge with the newest main: baseline
 //! migrations can grow while an E-08 PR is being reviewed. Never touch retained data.
 
@@ -8,7 +8,7 @@ use sqlx::{migrate::Migrator, postgres::PgPoolOptions};
 use std::{borrow::Cow, collections::HashMap, env, error::Error, time::Duration};
 use tor_migrations::repositories::MIGRATOR;
 
-const E08_VERSIONS: [i64; 13] = [
+const E08_VERSIONS: [i64; 14] = [
     202610310200,
     202610310201,
     202610310300,
@@ -22,6 +22,7 @@ const E08_VERSIONS: [i64; 13] = [
     202611019237,
     202611020527,
     202611027613,
+    202611029083,
 ];
 
 #[tokio::test]

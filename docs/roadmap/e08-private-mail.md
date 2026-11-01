@@ -565,3 +565,28 @@ An active creator who is the sole remaining active participant can explicitly di
 ## 02.11.2026 — Consent-gated group creator handoff
 
 Group creator transfer is now a two-party protocol, not an immediate assignment. Migration `202611027613_e08_consent_creator_transfer.sql` stores single outstanding 7-day proposal per group, with pending / accepted / declined / revoked / expired transitions. The active creator can propose a transfer only to another active group member; this leaves ownership and exit restrictions unchanged. The named recipient can accept or decline using a same-origin CSRF-protected native form at `/mail/group-transfers`, and the creator can revoke it. Acceptance holds the group row lock, verifies the proposal is still pending and both accounts and memberships are active, atomically changes both roles and revokes unreviewed old creator invitations. Race losers, nonrecipients, inactive/left members and stale/replayed proposals are rejected. Direct creator-role assignment through the old public repository method is removed. A proposed successor can still leave freely before acceptance. The original creator may leave or close only after actual acceptance. Code and migrations live solely in Draft #276; main and production are untouched.
+
+
+## 02.11.2026 — Administrator group and Book-room read-only coverage (Draft)
+
+Product decision: an active site administrator may read any user messages
+without requiring an individual case identifier or conversation membership.
+Implementing the two missing stores requires **separate** bounded pages for
+\`social_group_messages\` and \`social_book_room_messages\`. Both must reuse
+the existing session-digest live \`account_roles.administrator\` lock and
+commit an immutable audit record before returning any data.
+
+Migration \`202611029083_e08_admin_mail_group_book_audit.sql\` expands the
+existing admin access audit table with distinct \`group_id\` and \`book_id\`
+columns and four scope-checked actions. Historical direct-mail records and
+existing immutable audit trigger remain valid. The already-tested manual
+migrator-only purge applies to all message types automatically. Only
+non-content metadata is written to audit.
+
+Repository \`PgAdminMail\` provides group/book-room index and message
+pagination (50 rows), returning no messages to missing/expired/non-admin
+sessions. Group membership and public Book visibility are NOT required of
+a site administrator, but this does not confer group membership or enable
+message posting, impersonation or moderation changes. Book titles and
+messages must be HTML-escaped and responses no-store. Real-PG/HTTP, RIL
+and browser acceptance must pass before merge. No main/production change.
