@@ -976,6 +976,7 @@ async fn e_05_pg_creator_follow_unfollow_refollow_source_and_no_entitlement() {
 }
 
 include!("support/e08_book_rooms_pg.rs");
+include!("support/e08_group_creator_lifecycle_pg.rs");
 
 #[path = "support/e08_admin_mail_pg.rs"]
 mod admin_mail_pg;

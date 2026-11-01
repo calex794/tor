@@ -545,3 +545,9 @@ migrator-only cleanup, preservation of recent entries, immutable receipts,
 and idempotent repeat. The installed SQLx-ledger upgrade expects ten Draft
 E-08 migrations. **Unresolved governance:** actual retention duration and
 case-purpose policy before operational admin reading is approved.
+
+## 01.11.2026 — Group creator provenance is not a lifecycle owner
+
+Migration `202611014931_e08_group_creator_provenance.sql` changes the historical `social_group_conversations.created_by` foreign key from `ON DELETE CASCADE` to nullable `ON DELETE SET NULL`. This preserves the group after explicit creator-role transfer when the founding account is deleted. Current administration is determined only by the active member with `role='creator'`; `created_by` remains optional historical provenance. Previously applied migration blobs are unchanged.
+
+The disposable PostgreSQL regression creates a group, transfers ownership, removes its founder account, verifies that the new creator, participants and group survive, and sends a new group message. A separate issue remains for deletion of the *current* creator without prior transfer; no automatic assignment of ownership is introduced here.

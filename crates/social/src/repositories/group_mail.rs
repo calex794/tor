@@ -426,7 +426,8 @@ impl PgGroupMail {
 
     /// Transfer the creator role to an existing active member. Lock the group
     /// before the member rows so concurrent transfers cannot create two owners.
-    /// A former creator can then leave normally; creation provenance stays put.
+    /// A former creator can then leave normally; creation provenance is nullable
+    /// when that account is deleted (separate E-08 lifecycle migration).
     pub async fn transfer_creator(
         &self,
         actor: i64,
