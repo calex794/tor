@@ -50,9 +50,9 @@ mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
-mod book_rooms;
 mod book_follow_actions;
 mod book_likes;
+mod book_rooms;
 mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
@@ -243,7 +243,10 @@ fn router_inner(
         .route("/mail/{id}", get(mail::conversation))
         .route("/mail/{id}/messages", post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
-        .route("/mail/groups", get(group_mail::index).post(group_mail::create))
+        .route(
+            "/mail/groups",
+            get(group_mail::index).post(group_mail::create),
+        )
         .route("/mail/groups/{id}", get(group_mail::detail))
         .route("/mail/groups/{id}/messages", post(group_mail::send))
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
@@ -251,7 +254,10 @@ fn router_inner(
         .route("/books/{id}/room/join", post(book_rooms::join))
         .route("/books/{id}/room/messages", post(book_rooms::send))
         .route("/books/{id}/room/leave", post(book_rooms::leave))
-        .route("/api/v1/me/messages", get(mail_api::get).post(mail_api::post))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
         .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",

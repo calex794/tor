@@ -75,9 +75,16 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        call(&app, "GET", &format!("/books/{hidden}/room"), &cookies[0], "", &[])
-            .await
-            .status(),
+        call(
+            &app,
+            "GET",
+            &format!("/books/{hidden}/room"),
+            &cookies[0],
+            "",
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     let first = call(&app, "GET", &page, &cookies[0], "", &[]).await;
@@ -94,24 +101,40 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     let join_form = format!("csrf_token={}", tokens[0]);
     assert_eq!(
         call(
-            &app, "POST", &join_path, &cookies[0], &join_form,
+            &app,
+            "POST",
+            &join_path,
+            &cookies[0],
+            &join_form,
             &[("origin", "https://evil.invalid")]
-        ).await.status(),
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &join_path, &cookies[0], "csrf_token=forged", &[])
-            .await.status(),
+        call(
+            &app,
+            "POST",
+            &join_path,
+            &cookies[0],
+            "csrf_token=forged",
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
         call(&app, "POST", &join_path, &cookies[0], &join_form, &[])
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
         call(&app, "POST", &join_path, &cookies[0], &join_form, &[])
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     let member = text(call(&app, "GET", &page, &cookies[0], "", &[]).await).await;
@@ -133,11 +156,14 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     let send_path = format!("{page}/messages");
     assert_eq!(
         call(&app, "POST", &send_path, &cookies[1], &body, &[])
-            .await.status(),
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(&app, "GET", &page, &cookies[1], "", &[]).await.status(),
+        call(&app, "GET", &page, &cookies[1], "", &[])
+            .await
+            .status(),
         StatusCode::OK
     );
     assert!(!text(call(&app, "GET", &page, &cookies[1], "", &[]).await)
@@ -146,23 +172,33 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     for _ in 0..2 {
         assert_eq!(
             call(&app, "POST", &send_path, &cookies[0], &body, &[])
-                .await.status(),
+                .await
+                .status(),
             StatusCode::SEE_OTHER
         );
     }
     assert_eq!(
-        pg(&url, &format!(
-            "SELECT count(*) FROM social_book_room_messages WHERE book_id={book_id}"
-        )).await,
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_book_room_messages WHERE book_id={book_id}")
+        )
+        .await,
         "1"
     );
     let readable = text(call(&app, "GET", &page, &cookies[0], "", &[]).await).await;
     assert!(readable.contains("&lt;img src=x onerror=alert(1)&gt;"));
     assert!(!readable.contains("<img src=x onerror=alert(1)>"));
     assert_eq!(
-        call(&app, "POST", &format!("{page}/leave"), &cookies[0],
-             &format!("csrf_token={}", tokens[0]), &[])
-            .await.status(),
+        call(
+            &app,
+            "POST",
+            &format!("{page}/leave"),
+            &cookies[0],
+            &format!("csrf_token={}", tokens[0]),
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     let left = text(call(&app, "GET", &page, &cookies[0], "", &[]).await).await;
@@ -170,12 +206,14 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     assert!(!left.contains("&lt;img src=x onerror=alert(1)&gt;"));
     assert_eq!(
         call(&app, "POST", &send_path, &cookies[0], &body, &[])
-            .await.status(),
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(&app, "POST", &join_path, &cookies[0], &join_form, &[])
-            .await.status(),
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     assert!(text(call(&app, "GET", &page, &cookies[0], "", &[]).await)
@@ -187,12 +225,15 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
         .await
         .unwrap();
     assert_eq!(
-        call(&app, "GET", &page, &cookies[0], "", &[]).await.status(),
+        call(&app, "GET", &page, &cookies[0], "", &[])
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(&app, "POST", &send_path, &cookies[0], &body, &[])
-            .await.status(),
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     // The isolated tor_ci database is discarded by CI.

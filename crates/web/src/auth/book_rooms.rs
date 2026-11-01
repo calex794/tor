@@ -237,7 +237,16 @@ mod tests {
             sender_name: "<svg onload=alert(1)>".to_owned(),
             body: "<img src=x onerror=alert(2)>".to_owned(),
         }];
-        let html = render(3, "<script>alert(0)</script>", true, &messages, "<csrf>", &"x".repeat(43), 11).0;
+        let html = render(
+            3,
+            "<script>alert(0)</script>",
+            true,
+            &messages,
+            "<csrf>",
+            &"x".repeat(43),
+            11,
+        )
+        .0;
         assert!(html.contains("&lt;script&gt;alert(0)&lt;/script&gt;"));
         assert!(html.contains("&lt;svg onload=alert(1)&gt;"));
         assert!(html.contains("&lt;img src=x onerror=alert(2)&gt;"));

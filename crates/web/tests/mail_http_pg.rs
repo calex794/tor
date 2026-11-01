@@ -18,10 +18,10 @@ use tor_reading::repositories::PgReader;
 use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
-#[path = "support/e08_group_mail_http.rs"]
-mod group_mail_http;
 #[path = "support/e08_book_room_http.rs"]
 mod book_room_http;
+#[path = "support/e08_group_mail_http.rs"]
+mod group_mail_http;
 #[path = "support/e08_mail_book_aliases.rs"]
 mod mail_book_aliases;
 #[path = "support/e08_notification_open.rs"]
