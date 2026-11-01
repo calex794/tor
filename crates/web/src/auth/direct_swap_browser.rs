@@ -83,7 +83,7 @@ pub(super) async fn page(State(state):State<AuthState>,headers:HeaderMap)->Respo
         }else{
             format!("возврат разницы {}",rub(-row.delta_minor))
         };
-        write!(options,"<option value=\\"{}:{}\\">{title} ({difference})</option>",row.source_id,row.target_id).expect("html");
+        write!(options,"<option value=\"{}:{}\">{title} ({difference})</option>",row.source_id,row.target_id).expect("html");
     }
     let (csrf,cookies)=state.cookies.csrf_for_page(&headers);
     let body=if options.is_empty() {
