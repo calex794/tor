@@ -112,7 +112,12 @@ pub(super) async fn edit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(page_html(book_id, &book.title, &csrf, &snapshot), &cookies)
+    let html = page_html(book_id, &book.title, &csrf, &snapshot);
+    if snapshot.editable {
+        crate::auth_cookies::private_response_with_taxonomy_picker(html, &cookies)
+    } else {
+        private_response(html, &cookies)
+    }
 }
 
 pub(super) async fn save(

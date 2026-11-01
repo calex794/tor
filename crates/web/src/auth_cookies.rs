@@ -194,6 +194,23 @@ pub(crate) fn private_response<T: IntoResponse>(result: T, cookies: &[String]) -
     response
 }
 
+/// The default private CSP blocks every script. Only the two owner
+/// taxonomy forms require a same-origin external picker and JSON fetch.
+/// No inline/eval/third-party scripts, framing, or cross-origin connections.
+pub(crate) fn private_response_with_taxonomy_picker<T: IntoResponse>(
+    result: T,
+    cookies: &[String],
+) -> Response {
+    let mut response = private_response(result, cookies);
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,6 +234,22 @@ mod tests {
         assert!(csp.contains("frame-ancestors 'none'"));
         assert!(csp.contains("form-action 'self'"));
         assert!(csp.contains("style-src 'self'"));
+    }
+
+    #[test]
+    fn taxonomy_picker_is_only_same_origin_external_js_exception() {
+        let private = private_response(StatusCode::OK, &[]);
+        assert!(private.headers()["content-security-policy"]
+            .to_str().unwrap().contains("script-src 'none'"));
+        let scoped = private_response_with_taxonomy_picker(StatusCode::OK, &[]);
+        let headers = scoped.headers();
+        let csp = headers["content-security-policy"].to_str().unwrap();
+        assert!(csp.contains("script-src 'self'"));
+        assert!(csp.contains("connect-src 'self'"));
+        assert!(!csp.contains("'unsafe-inline'"));
+        assert!(!csp.contains("'unsafe-eval'"));
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert_eq!(headers["x-frame-options"], "DENY");
     }
 
     #[test]

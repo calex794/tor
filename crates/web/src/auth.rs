@@ -402,7 +402,10 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     // Each form gets a unique cryptographic command key for safe POST replay.
     let command_key = generate_session_token();
-    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
+    crate::auth_cookies::private_response_with_taxonomy_picker(
+        author_pages::new_book(&csrf, &command_key),
+        &cookies,
+    )
 }
 
 async fn create_book(
