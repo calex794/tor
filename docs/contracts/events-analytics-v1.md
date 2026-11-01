@@ -95,3 +95,8 @@ CREATE INDEX reader_event_projection_expiry ON reader_event_projection(event_tim
 | EVT-12 | trial 201 notifications + restart | все корректные получатели видят только один Inbox, retry без дубля |
 
 **Выход исполнителя:** фактические PostgreSQL migration + typed schema + Env CONFIG, unit/PG/Chromium tests, bounded RIL metrics и матрица доказательства на конечном SHA. Письменный документ и JSON тестовые оракулы сами события не создают.
+
+
+## Дополнение: REC-13, обратная связь рекомендаций (proposal 31.10.2026)
+
+Весь жизненный цикл recommendation_impression → verified click → server BookOpenedV1 → C ChapterStartedV1/ChapterCompletedV1, explicit not_interested и производные no-click/no-start состояния описаны в [REC-13 v1](recommendation-feedback-v1.md). Его Draft JSON Schema задаёт точные поля, но не создаёт события и не меняет BusinessEventV1. Отсутствие клика/прогресса НЕ равнозначно отрицательному доменному факту; без consent и при потере телеметрии состояние UNKNOWN/CENSORED. До I OpenAPI review, реальной PG+браузерной проверки и одобрения политики никакой новый HTTP/feedback runtime или ранжировочный штраф не считается внедрённым.

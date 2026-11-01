@@ -73,7 +73,7 @@ F владеет проекциями/score; G запускает и повто�
 | REC-10 | F `services/assembly.rs` | пять surfaces, access/filter before response, bounded metadata, safe fallback | 2 users/guest, blocked/18+/paid metadata, no N+1 |
 | REC-11 | G + F `services/rec_refresh.rs` | событие B/E/read → bounded incremental invalidation, backfill/compaction | не теряется событие при worker crash, no duplicate projection |
 | REC-12 | F `services/experiments.rs` | experiment/holdout, staged rollout 1/5/10/25/50/100, automatic hold/rollback by health | bad generation/latency forces rollback |
-| REC-13 | F `services/attribution.rs` | независимый fact impression→book_open→read→library/purchase, раздельные metrics, anti-fraud | просмотр HTML не считается meaningful_read |
+| REC-13 | F `services/attribution.rs` | независимый fact impression→book_open→read→library/purchase, раздельные metrics, anti-fraud; proposed [REC-13 v1 feedback/negative-observation contract](../contracts/recommendation-feedback-v1.md) requires I review | просмотр HTML не считается meaningful_read; absent click/open≠negative evidence; explicit opt-out and consent |
 | REC-14 | H + I `web/pages/recommendations.rs` | реальные страницы home/detail/reader_end/catalog/library и PG/Chromium сравнение NEwBOO | site works with rec disabled/fallback/active, one SHA and 100k-case query plan |
  
 **Критерий готовности продукта:** R01–R14 на реальной PostgreSQL+browser, active generation действительно возвращает разрешённые книги с объяснением, cold start не пуст без оснований, тесты JS/request/traffic показывают реальную скорость. Без них S044/045 «в плане» не равно рекомендациям NEwBOO.
@@ -100,3 +100,8 @@ F владеет проекциями/score; G запускает и повто�
 ## 7. Нормативный golden-оракул (26.10)
 
 В дополнение к RIL и REC-01…14: [точные расчёты/фикстуры REC-M01…12](../contracts/recommendations-golden-v1.md), [machine JSON](../contracts/rec-golden-v1.json), [фактические события/meaningful read](../contracts/events-analytics-v1.md). Числа 710/620/430/200 рассчитаны вручную по исходному Python алгоритму и **должны быть сверены фактическим прогоном pinned NEwBOO в CI**; документация не утверждает, что старый Python уже запускали на этом corpus.
+
+
+## 8. REC-13 v1: feedback/attribution design (DRAFT, 31.10.2026)
+
+[Точный проект событий, API, PostgreSQL, жизненного цикла, negative/censored rules и 20 тестов](../contracts/recommendation-feedback-v1.md), [машинная JSON Schema](../contracts/recommendation-feedback-v1.schema.json). Сохраняется Python-compatible recommendations_v1 scoring: реальный отсутствие click/reading оценивается как UNKNOWN или censored до завершения окна, не как автоматический отрицательный факт; not_interested только явный actor+consent+CSRF; meaningful_read только серверный ChapterCompletedV1. Для новых endpoints и атрибуционного ticket требуется I-owned OpenAPI и runtime migration, текущий PR — только проект архитектуры, без запуска/изменения score.
