@@ -76,7 +76,7 @@ pub(super) async fn validated_author_book(
         form.fandoms.as_deref(),
     ]
     .iter()
-    .any(|value| value.unwrap_or("").trim().len() > 0)
+    .any(|value| !value.unwrap_or("").trim().is_empty())
     {
         return Err(StatusCode::BAD_REQUEST);
     }
