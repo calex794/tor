@@ -113,6 +113,23 @@ pub fn my_account_with_achievements(
     render_my_account(name, csrf, replies, unread, Some(achievements))
 }
 
+pub fn my_account_with_achievements_and_swap(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+    swap_enabled: bool,
+) -> Html<String> {
+    let html = render_my_account(name, csrf, replies, unread, Some(achievements));
+    let link = if swap_enabled {
+        "<a class=\"dashboard-nav__item\" href=\"/me/refunds/swap\">Обмен глав</a>"
+    } else {
+        ""
+    };
+    Html(html.0.replace("<!--SWAP_NAV_LINK-->", link))
+}
+
 fn render_my_account(
     name: &str,
     csrf: &str,
