@@ -512,6 +512,56 @@ impl PgGroupMail {
         tx.commit().await.map_err(unavailable)
     }
 
+    /// Dissolve only a group whose creator is its sole active member.
+    /// The explicit UI form warns that history and invites are deleted.
+    pub async fn disband(&self, actor: i64, group_id: i64) -> Result<(), MailError> {
+        if actor <= 0 || group_id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        let group: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        if group.is_none() {
+            return Err(MailError::NotFound);
+        }
+        let role: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM social_group_members
+             WHERE group_id=$1 AND user_id=$2 AND status='active' FOR UPDATE",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if role.as_deref() != Some("creator") {
+            return Err(MailError::NotFound);
+        }
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM social_group_members
+             WHERE group_id=$1 AND status='active'",
+        )
+        .bind(group_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if active_count != 1 {
+            return Err(MailError::Conflict);
+        }
+        let result = sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+            .bind(group_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        if result.rows_affected() != 1 {
+            return Err(MailError::Conflict);
+        }
+        tx.commit().await.map_err(unavailable)
+    }
+
     /// A creator must transfer ownership before exiting the group.
     pub async fn leave(&self, actor: i64, group_id: i64) -> Result<(), MailError> {
         if actor <= 0 || group_id <= 0 {

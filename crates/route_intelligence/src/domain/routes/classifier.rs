@@ -173,6 +173,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/mail/group-invitations/{id}/accept"), "POST") => Some(160),
         (Some("/mail/group-invitations/{id}/decline"), "POST") => Some(161),
         (Some("/mail/groups/{id}/invite/{invitation_id}/revoke"), "POST") => Some(162),
+        (Some("/mail/groups/{id}/disband"), "POST") => Some(163),
         _ => None,
     };
     index

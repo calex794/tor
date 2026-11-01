@@ -373,7 +373,14 @@ module.exports = async (browser, base, out) => {
       await d.page.getByRole('button', { name: 'Отклонить' }).click();
       await d.page.waitForURL('**/mail/group-invitations');
       assert.equal((await d.context.request.get(base + groupPath)).status(), 404);
-      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer/invite/accept/decline PASS');
+      // The sole remaining owner explicitly confirms the destructive action.
+      await c.page.goto(base + groupPath);
+      await c.page.locator('#group-disband-confirm').fill('DELETE');
+      await c.page.getByRole('button', { name: 'Удалить группу и историю' }).click();
+      await c.page.waitForURL('**/mail/groups');
+      assert.equal((await c.context.request.get(base + groupPath)).status(), 404,
+        'explicit disband permanently removes the group');
+      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer/invite/accept/decline/disband PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
   }

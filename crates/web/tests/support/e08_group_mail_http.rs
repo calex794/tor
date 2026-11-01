@@ -858,5 +858,73 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .await,
         "1"
     );
+
+    // C is now the only active member; deletion requires an explicit phrase.
+    let disband = format!("{path}/disband");
+    let signed = format!("confirmation=DELETE&csrf_token={}", tokens[2]);
+    let former_signed = format!("confirmation=DELETE&csrf_token={}", tokens[0]);
+    assert!(
+        text(call(&app, "GET", &path, &cookies[2], "", &[]).await)
+            .await
+            .contains("Удалить группу и историю")
+    );
+    assert_eq!(
+        call(&app, "POST", &disband, &cookies[0], &former_signed, &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &disband, &cookies[0], &signed, &[])
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &disband,
+            &cookies[2],
+            &format!("confirmation=NO&csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &disband,
+            &cookies[2],
+            "confirmation=DELETE&csrf_token=wrong",
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&app, "POST", &disband, &cookies[2], &signed, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[2], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM social_group_messages WHERE group_id={group_id}"),
+        )
+        .await,
+        "0"
+    );
     // All fixtures live in tor_ci, which is discarded after this run.
 }

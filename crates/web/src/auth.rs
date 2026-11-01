@@ -254,6 +254,7 @@ fn router_inner(
         )
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
         .route("/mail/groups/{id}/transfer", post(group_mail::transfer))
+        .route("/mail/groups/{id}/disband", post(group_mail::disband))
         .route("/books/{id}/room", get(book_rooms::page))
         .route("/books/{id}/room/join", post(book_rooms::join))
         .route("/books/{id}/room/messages", post(book_rooms::send))

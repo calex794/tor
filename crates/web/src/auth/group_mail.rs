@@ -97,6 +97,13 @@ pub(super) struct TransferForm {
     csrf_token: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DisbandForm {
+    confirmation: String,
+    csrf_token: String,
+}
+
 fn render_index(
     rows: &[GroupConversation],
     contacts: &[(i64, String)],
@@ -255,7 +262,15 @@ fn render_detail(
             )
             .expect("creator transfer action");
         }
-        body.push_str("<p>Создатель группы пока не может выйти из неё. Сначала передайте управление действующему участнику.</p>");
+        if members.len() == 1 {
+            write!(
+                body,
+                r#"<section aria-label="Удаление группы"><p>Вы остались единственным участником. Удаление группы безвозвратно удалит переписку и приглашения. Введите DELETE для подтверждения.</p><form method="post" action="/mail/groups/{id}/disband"><label for="group-disband-confirm">Подтверждение удаления</label><input id="group-disband-confirm" name="confirmation" type="text" required autocomplete="off"><input type="hidden" name="csrf_token" value="{csrf}"><button class="ui-button ui-button--ghost" type="submit">Удалить группу и историю</button></form></section>"#
+            )
+            .expect("group disband form");
+        } else {
+            body.push_str("<p>Создатель не может выйти. Передайте управление действующему участнику либо дождитесь выхода остальных для удаления группы.</p>");
+        }
     } else {
         write!(
             body,
@@ -460,6 +475,28 @@ pub(super) async fn transfer(
         .await
     {
         Ok(()) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
+        Err(error) => deny(super::mail::status(error)),
+    }
+}
+
+pub(super) async fn disband(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<DisbandForm>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(id) => id,
+        Err(status) => return deny(status),
+    };
+    if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
+        return deny(status);
+    }
+    if form.confirmation != "DELETE" {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    match group_store(&state).disband(actor, id).await {
+        Ok(()) => private_response(Redirect::to("/mail/groups"), &[]),
         Err(error) => deny(super::mail::status(error)),
     }
 }

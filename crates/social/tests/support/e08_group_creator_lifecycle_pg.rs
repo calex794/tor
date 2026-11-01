@@ -136,3 +136,42 @@ async fn e_08_group_creator_account_close_and_deletion_require_explicit_handoff(
         .unwrap();
     cleanup(&pool, &users).await;
 }
+
+/// Explicit disband permits solo creators to close accounts without
+/// appointing a new owner. Other active members prevent destructive removal.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_group_disband_requires_sole_active_creator() {
+    let (pool, users) = fixture().await;
+    let (creator, peer, outsider) = (users[0], users[1], users[2]);
+    let store = PgGroupMail::new(pool.clone());
+    let id = store
+        .create(creator, &[peer], "Temporary group")
+        .await
+        .unwrap();
+    store
+        .send(creator, id, "Soon deleted", &key(972))
+        .await
+        .unwrap();
+    assert_eq!(store.disband(outsider, id).await, Err(MailError::NotFound));
+    assert_eq!(store.disband(peer, id).await, Err(MailError::NotFound));
+    assert_eq!(store.disband(creator, id).await, Err(MailError::Conflict));
+    assert!(store.get(peer, id).await.is_ok());
+    store.leave(peer, id).await.unwrap();
+    assert_eq!(store.disband(creator, id).await, Ok(()));
+    assert_eq!(store.disband(creator, id).await, Err(MailError::NotFound));
+    assert_eq!(store.get(creator, id).await, Err(MailError::NotFound));
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM social_group_messages WHERE group_id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+    sqlx::query("UPDATE users SET account_state='closed' WHERE id=$1")
+        .bind(creator)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
+}
