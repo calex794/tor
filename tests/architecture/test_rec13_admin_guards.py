@@ -31,7 +31,7 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertIn('missing independent administrator role guard',checker)
 
     def test_author_general_does_not_bypass_moderator_review(self):
-        migration = (ROOT / "migrations/202611010002_rec_general_review_gate.sql").read_text()
+        migration = (ROOT / "migrations/202611010003_rec_general_review_gate.sql").read_text()
         policy = (ROOT / "crates/books/src/repositories/recommendation_policy.rs").read_text()
         self.assertIn("JOIN rec_general_audience_approvals review", migration)
         self.assertIn("review.reviewed_revision=a.revision", migration)
