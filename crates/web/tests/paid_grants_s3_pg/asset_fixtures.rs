@@ -6,7 +6,7 @@ use tor_storage::services::crypto::{seal_asset_with_keyring, ContentKeyring};
 pub(super) async fn attach_verified_illustration(
     author: i64,
     pinned: ChapterVersionRef,
-    pool: &sqlx::PgPool,
+    catalog: &PgCatalog,
     registry: &PgStorageRegistry,
     s3: &S3PrivateStore,
     kek: &Arc<ContentKek>,
@@ -27,7 +27,7 @@ pub(super) async fn attach_verified_illustration(
         .await
         .unwrap();
     registry.mark_ready(&receipt).await.unwrap();
-    PgPaidAssets::new(pool.clone())
+    PgPaidAssets::new(catalog.pool().clone())
         .attach_prepared(author, pinned, 1, "image/png", &image_id)
         .await
         .unwrap();
