@@ -46,13 +46,30 @@ CREATE TABLE book_taxonomy_links (
 );
 CREATE INDEX book_taxonomy_links_term_idx ON book_taxonomy_links(term_id,book_id);
 
+-- One PostgreSQL UTF-8 NFKC search key for migrations and runtime lookup.
+-- Deliberately not Unicode case folding: case behavior follows DB locale.
+CREATE FUNCTION book_taxonomy_key(value TEXT) RETURNS TEXT
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $
+    SELECT replace(
+        lower(regexp_replace(btrim(normalize(value, NFKC)), '[[:space:]]+', ' ', 'g')),
+        'ё', 'е'
+    );
+$;
+REVOKE ALL ON FUNCTION book_taxonomy_key(TEXT) FROM PUBLIC;
+DO $
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
+        GRANT EXECUTE ON FUNCTION book_taxonomy_key(TEXT) TO tor_app;
+    END IF;
+END
+$;
+
 -- Only visible, approved facet strings are eligible to be suggested.
--- Use the same lowercase/whitespace/ё->е key as B and the curator.
--- Full Unicode NFKC is deliberately not asserted by this migration.
+-- Normalize Unicode NFKC before lowercase/space/ё folding.
 INSERT INTO book_taxonomy_terms(kind,label,search_key)
 SELECT DISTINCT ON(kind,search_key) kind,name,search_key
 FROM (
-    SELECT kind,name,replace(lower(regexp_replace(btrim(name), '[[:space:]]+', ' ', 'g')),'ё','е') AS search_key
+    SELECT kind,name,book_taxonomy_key(name) AS search_key
     FROM public_catalog_facets
     WHERE reference_count > 0 AND char_length(name) BETWEEN 1 AND 40
       AND name = btrim(name) AND name !~ '[[:cntrl:]]'
@@ -66,7 +83,7 @@ ON CONFLICT(kind,search_key) DO NOTHING;
 -- continue to operate through their established TEXT[]/facets indexes.
 WITH old_labels AS (
     SELECT b.id AS book_id, f.kind,
-           replace(lower(regexp_replace(btrim(item.label), '[[:space:]]+', ' ', 'g')),'ё','е') AS search_key,
+           book_taxonomy_key(item.label) AS search_key,
            min(item.ordinal) AS first_position
     FROM books b
     CROSS JOIN LATERAL (
@@ -76,7 +93,7 @@ WITH old_labels AS (
     ) AS f(kind,labels)
     CROSS JOIN LATERAL unnest(f.labels)
         WITH ORDINALITY AS item(label,ordinal)
-    GROUP BY b.id,f.kind,replace(lower(regexp_replace(btrim(item.label), '[[:space:]]+', ' ', 'g')),'ё','е')
+    GROUP BY b.id,f.kind,book_taxonomy_key(item.label)
 ), matched AS (
     SELECT l.book_id,l.kind,t.id AS term_id,l.first_position
     FROM old_labels l JOIN book_taxonomy_terms t

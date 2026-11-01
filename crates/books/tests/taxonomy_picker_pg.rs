@@ -78,6 +78,24 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         .await
         .unwrap();
     assert!(by_name.iter().any(|row| row.id == genre));
+    // Fullwidth Roman characters normalize through PostgreSQL NFKC.
+    let fullwidth_query = format!("Ｆａｎｔａｓｙ{stamp}");
+    let by_fullwidth = author
+        .suggest_taxonomies("genre", &fullwidth_query, 15)
+        .await
+        .unwrap();
+    assert!(by_fullwidth.iter().any(|row| row.id == genre));
+    let nfkc_key: String = sqlx::query_scalar("SELECT book_taxonomy_key('Ｆａｎｔａｓｙ')")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(nfkc_key, "fantasy");
+    // Fullwidth wildcard punctuation must not become a broad LIKE match.
+    assert!(author
+        .suggest_taxonomies("genre", "％％", 15)
+        .await
+        .unwrap()
+        .is_empty());
     let by_alias = author
         .suggest_taxonomies("tag", "синоним", 15)
         .await
