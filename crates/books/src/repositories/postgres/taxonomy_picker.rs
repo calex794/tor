@@ -81,7 +81,7 @@ impl PgAuthoring {
             return Ok(Vec::new());
         }
         let rows = sqlx::query(
-            "SELECT id,label FROM book_taxonomy_terms
+            "SELECT id,search_key FROM book_taxonomy_terms
              WHERE kind=$1 AND status='active' AND id=ANY($2)",
         )
         .bind(kind)
@@ -92,7 +92,7 @@ impl PgAuthoring {
         let mut names = HashMap::new();
         for row in rows {
             let id: i64 = row.try_get("id").map_err(|_| AuthorError::Unavailable)?;
-            let name: String = row.try_get("label").map_err(|_| AuthorError::Unavailable)?;
+            let name: String = row.try_get("search_key").map_err(|_| AuthorError::Unavailable)?;
             names.insert(id, name);
         }
         ids.iter()
@@ -133,7 +133,7 @@ pub(super) async fn persist_links(
                 "INSERT INTO book_taxonomy_links(book_id,kind,term_id,position)
                  SELECT $1,t.kind,t.id,$3 FROM book_taxonomy_terms t
                  WHERE t.id=$2 AND t.kind=$4 AND t.status='active'
-                   AND t.label=$5",
+                   AND t.search_key=$5",
             )
             .bind(book_id)
             .bind(id)

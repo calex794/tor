@@ -25,6 +25,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{
         new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
+        TaxonomySelection,
     },
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
@@ -84,6 +85,7 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
+mod taxonomy_picker;
 mod sync_actions;
 mod types;
 use types::*;
@@ -235,6 +237,8 @@ fn router_inner(
             get(password_change::page).post(password_change::submit),
         )
         .route("/assets/mentions.js", get(book_comments::mention_script))
+        .route("/assets/taxonomy-picker.js", get(taxonomy_picker::script))
+        .route("/api/v1/taxonomies/suggest", get(taxonomy_picker::suggest))
         .route(
             "/api/v1/social/mentions/discover",
             get(book_comments::discover_mentions),
@@ -419,19 +423,41 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
+    // The author form accepts only existing canonical IDs. Keep the legacy
+    // text field names to reject forged/free-text POSTs rather than allowing
+    // clients to bypass the server-side selector.
+    if [form.genres.as_deref(), form.tags.as_deref(), form.fandoms.as_deref()]
+        .iter()
+        .any(|value| value.unwrap_or("").trim().len() > 0)
+    {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let selection = match TaxonomySelection::parse(
+        form.genre_ids.as_deref(),
+        form.tag_ids.as_deref(),
+        form.fandom_ids.as_deref(),
+    ) {
+        Ok(selection) => selection,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    let selected = match state.authoring.resolve_taxonomy_selection(&selection).await {
+        Ok(selected) => selected,
+        Err(AuthorError::Invalid) => return deny(StatusCode::BAD_REQUEST),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     // Manual authorship does not invoke collectors or trust client-supplied IDs.
     // The source identity is stable across retries of this exact form.
     let identity = format!("manual:{actor}:{}", form.command_key);
-    let request = match new_book_with_taxonomy(
+    let mut request = match new_book_with_taxonomy(
         &identity,
         &form.target_language,
         &form.title,
         &form.command_key,
         form.author_name.as_deref().unwrap_or(""),
-        form.genres.as_deref().unwrap_or(""),
+        "",
         TaxonomyFields {
-            tags: form.tags.as_deref().unwrap_or(""),
-            fandoms: form.fandoms.as_deref().unwrap_or(""),
+            tags: "",
+            fandoms: "",
         },
     )
     .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
@@ -439,6 +465,10 @@ async fn create_book(
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
+    request.genres = selected.genres;
+    request.tags = selected.tags;
+    request.fandoms = selected.fandoms;
+    request.taxonomy_ids = selection;
     match state.authoring.create_owned_book(actor, &request).await {
         Ok(id) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
