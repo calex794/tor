@@ -31,7 +31,9 @@ pub(super) async fn canonical_author_book_form(
     csrf: &str,
 ) -> String {
     async fn id(picker: &tor_books::repositories::postgres::PgAuthoring, q: &str) -> i64 {
-        picker.suggest_taxonomies("genre", q, 15).await
+        picker
+            .suggest_taxonomies("genre", q, 15)
+            .await
             .expect("curated genre lookup")
             .into_iter()
             .find(|term| term.label.eq_ignore_ascii_case(q))

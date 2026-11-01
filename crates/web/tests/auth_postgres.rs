@@ -195,8 +195,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(new_html.contains("name=\"author_name\""));
     assert!(new_html.contains("name=\"genre_ids\"") && new_html.contains("data-taxonomy-picker"));
     let picker = tor_books::repositories::postgres::PgAuthoring::new(pool.clone());
-    let create_form = http_helpers::canonical_author_book_form(&picker, command_key, author_csrf)
-        .await;
+    let create_form =
+        http_helpers::canonical_author_book_form(&picker, command_key, author_csrf).await;
     let author_cookies = format!("{session}; {author_csrf_cookie}");
     assert_eq!(
         send(
