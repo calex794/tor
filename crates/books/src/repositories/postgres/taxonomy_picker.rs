@@ -122,6 +122,12 @@ pub(super) async fn persist_links(
     book_id: i64,
     book: &NewBook,
 ) -> Result<(), AuthorError> {
+    // Legacy B API clients still provide normalized TEXT[] without IDs.
+    // Their metadata remains intact; only new author HTTP forms require
+    // canonical ID-backed selections. Mixed ID/text payloads fail closed.
+    if book.taxonomy_ids.is_empty() {
+        return Ok(());
+    }
     let names = TaxonomyNames {
         genres: book.genres.clone(),
         tags: book.tags.clone(),
