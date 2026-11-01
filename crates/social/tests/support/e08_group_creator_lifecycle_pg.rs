@@ -58,3 +58,81 @@ async fn e_08_group_survives_founder_deletion_after_creator_transfer() {
         .unwrap();
     cleanup(&pool, &[successor, observer]).await;
 }
+
+/// Closing or deleting the *active* owner cannot silently orphan a group.
+/// Only a deliberate transfer permits account closure or hard deletion.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_group_creator_account_close_and_deletion_require_explicit_handoff() {
+    let (pool, users) = fixture().await;
+    let (founder, successor, other) = (users[0], users[1], users[2]);
+    let groups = PgGroupMail::new(pool.clone());
+    let group_id = groups
+        .create(founder, &[successor, other], "Requires handoff")
+        .await
+        .unwrap();
+
+    for sql in [
+        "DELETE FROM users WHERE id=$1",
+        "UPDATE users SET account_state='closed' WHERE id=$1",
+    ] {
+        let denied = sqlx::query(sql)
+            .bind(founder)
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            denied.as_database_error().and_then(|error| error.code()).as_deref(),
+            Some("23514"),
+            "active creator cannot disappear: {sql}"
+        );
+    }
+    assert!(groups.get(founder, group_id).await.unwrap().is_creator);
+    assert_eq!(groups.members(founder, group_id).await.unwrap().len(), 3);
+
+    groups
+        .transfer_creator(founder, group_id, successor)
+        .await
+        .unwrap();
+    for sql in [
+        "DELETE FROM users WHERE id=$1",
+        "UPDATE users SET account_state='closed' WHERE id=$1",
+    ] {
+        let denied = sqlx::query(sql)
+            .bind(successor)
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            denied.as_database_error().and_then(|error| error.code()).as_deref(),
+            Some("23514"),
+            "role transfer must also protect the new creator: {sql}"
+        );
+    }
+    // An already-closed member cannot become the next creator.
+    sqlx::query("UPDATE users SET account_state='closed' WHERE id=$1")
+        .bind(other)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        groups.transfer_creator(successor, group_id, other).await,
+        Err(MailError::NotFound)
+    );
+
+    // The original creator is now free to close the account, but the group
+    // remains owned by the active successor.
+    sqlx::query("UPDATE users SET account_state='closed' WHERE id=$1")
+        .bind(founder)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(groups.get(successor, group_id).await.unwrap().is_creator);
+    assert_eq!(groups.get(other, group_id).await.unwrap().id, group_id);
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(group_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
+}

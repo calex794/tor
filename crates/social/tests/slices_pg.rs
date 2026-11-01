@@ -35,6 +35,15 @@ async fn cleanup(pool: &PgPool, users: &[i64]) {
         .await
         .unwrap();
 }
+async fn cleanup_groups(pool: &PgPool, group_ids: &[i64]) {
+    // Group administrators must explicitly dissolve test groups before
+    // deleting fixture accounts, matching the E-08 creator-handoff guard.
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=ANY($1)")
+        .bind(group_ids)
+        .execute(pool)
+        .await
+        .unwrap();
+}
 fn key(n: usize) -> String {
     format!("{n:043}")
 }
@@ -190,6 +199,7 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
         direct.messages(outsider, direct_id, None, None, 1).await,
         Err(MailError::NotFound)
     );
+    cleanup_groups(&pool, &[id, other]).await;
     cleanup(&pool, &users).await;
 }
 
@@ -274,6 +284,7 @@ async fn e_08_group_mail_notification_replay_membership_block_and_preference() {
     groups.send(a, id, "Muted notice", &key(465)).await.unwrap();
     notifications.deliver_pending(100).await.unwrap();
     assert_eq!(notifications.list(b, None, 50).await.unwrap().len(), 3);
+    cleanup_groups(&pool, &[id]).await;
     cleanup(&pool, &users).await;
 }
 
@@ -320,6 +331,7 @@ async fn e_08_group_mail_send_cannot_race_member_exit() {
         count, 0,
         "deferred sender cannot cross a member-exit boundary"
     );
+    cleanup_groups(&pool, &[id]).await;
     cleanup(&pool, &users).await;
 }
 

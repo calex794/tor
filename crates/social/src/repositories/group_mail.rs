@@ -465,7 +465,7 @@ impl PgGroupMail {
              JOIN users u ON u.id=m.user_id
              WHERE m.group_id=$1 AND m.user_id=$2 AND m.status='active'
                AND u.account_state='active'
-             FOR UPDATE OF m",
+             FOR UPDATE OF m FOR SHARE OF u",
         )
         .bind(group_id)
         .bind(next_creator)
