@@ -301,11 +301,15 @@ impl PgGroupMail {
         .map_err(unavailable)?;
         let group_id = group_id.ok_or(MailError::NotFound)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
-            .bind(group_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+        let found: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        if found.is_none() {
+            return Err(MailError::NotFound);
+        }
         let changed = sqlx::query(
             "UPDATE social_group_creator_transfers
              SET state='declined',resolved_at=clock_timestamp()
