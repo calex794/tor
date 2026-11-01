@@ -8,12 +8,11 @@ pub(super) async fn verify(
     db_url: &str,
     path: &str,
     nonce: u128,
-    books: [i64; 3],
+    ids: ([i64; 3], &[i64]),
     cookies: &[String],
     csrf: &[String],
-    users: &[i64],
 ) {
-    let [public, private, held] = books;
+    let ([public, private, held], users) = ids;
     let public_alias = format!("legacy-public-{nonce}");
     let private_alias = format!("legacy-private-{nonce}");
     let held_alias = format!("legacy-held-{nonce}");

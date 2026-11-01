@@ -917,10 +917,9 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         &url,
         &path,
         nonce,
-        [public, hidden, held],
+        ([public, hidden, held], &users),
         &cookies,
         &csrf,
-        &users,
     )
     .await;
     assert_eq!(
