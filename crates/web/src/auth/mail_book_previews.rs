@@ -234,7 +234,7 @@ fn project(
     }
 }
 
-//// Private Book mail destination: title only, no owner tools or chapters.
+/// Private Book mail destination: title only, no owner tools or chapters.
 /// Actor membership is checked together with the title to avoid ACL races.
 pub(super) async fn page(
     State(state): State<AuthState>,

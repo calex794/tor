@@ -232,6 +232,6 @@ fn e_08_private_member_preview_is_read_only_mail_route() {
     let page = classify(Some("/me/books/{id}/preview"), "GET");
     assert!(page.route_known);
     assert_eq!(page.product_area, ProductArea::Mail);
-    assert_eq!(page.cost_class, CostClass::Read);
+    assert_eq!(page.cost_class, CostClass::CheapRead);
     assert!(!classify(Some("/me/books/{id}/preview"), "POST").route_known);
 }
