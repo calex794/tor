@@ -233,20 +233,25 @@ async fn grant(
             let Some(version) = positive(&grant.version_id) else {
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
-            // Sign first, persist the irreversible exposure, then reveal the
-            // bearer URL. A concurrent revocation or PG error denies response.
-            if let Err(error) = state
-                .first_direct_grant
-                .record(
-                    actor_id,
-                    chapter_id,
-                    version,
-                    purchase_id,
-                    DirectGrantKind::Chapter,
-                )
-                .await
-            {
-                return deny(status(error));
+            // D-06's first-exposure fact exists ONLY for an owned direct
+            // chapter purchase. Layer terms confer independent D-05 rights;
+            // they must not be mistaken for, or require, a direct purchase.
+            // For direct grants, persist the exposure before releasing a
+            // bearer URL so a concurrent refund/revocation remains denied.
+            if body.source.is_none() {
+                if let Err(error) = state
+                    .first_direct_grant
+                    .record(
+                        actor_id,
+                        chapter_id,
+                        version,
+                        purchase_id,
+                        DirectGrantKind::Chapter,
+                    )
+                    .await
+                {
+                    return deny(status(error));
+                }
             }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(
