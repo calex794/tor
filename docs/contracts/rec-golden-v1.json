@@ -6,7 +6,7 @@
     "algorithm": "recommendations_v1",
     "file": "backend/app/recommendations/services/hybrid_scoring_service.py"
   },
-  "note": "Hand-calculated deterministic interface oracle. Must be compared with actual pinned Python source in CI; does not assert Python was executed at authoring time.",
+  "note": "REC-M01/M02/M03/M08 are executed against pinned NEwBOO by tools/check_hybrid_parity.py and compared with Rust in hybrid_parity.rs. quality_score_by_book_id contains raw trusted quality (0..1000), not the boost.",
   "test_cases": [
     {
       "id": "REC-M01",
@@ -176,7 +176,7 @@
         }
       ],
       "quality_score_by_book_id": {
-        "101": 50
+        "101": 1000
       },
       "expected": {
         "accepted": true,

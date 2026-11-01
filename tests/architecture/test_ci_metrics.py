@@ -24,6 +24,7 @@ class API:
         if path.endswith("/jobs"):
             return {"total_count": 1, "jobs": [
                 {"id": 8, "name": "rules", "run_id": 3,
+                 "status": "in_progress" if self.pending else "completed",
                  "created_at": "2026-10-27T01:00:00Z",
                  "started_at": "2026-10-27T01:01:00Z",
                  "completed_at": None if self.pending else "2026-10-27T01:03:00Z",
@@ -105,6 +106,27 @@ class MetricsTest(unittest.TestCase):
                     response["jobs"][0]["conclusion"] = None
                 return response
         result = load_group(PendingJob(), "calex794/tor", "target", SHA_A)
+        self.assertFalse(result["complete"])
+
+    def test_success_conclusion_with_in_progress_job_is_not_complete(self):
+        class ContradictoryJob(API):
+            def get(self, path, query=None):
+                response = super().get(path, query)
+                if path.endswith("/jobs"):
+                    response["jobs"][0]["status"] = "in_progress"
+                return response
+        result = load_group(ContradictoryJob(), "calex794/tor", "target", SHA_A)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["jobs_completed"], 1)
+
+    def test_success_conclusion_without_job_status_is_not_complete(self):
+        class MissingJobStatus(API):
+            def get(self, path, query=None):
+                response = super().get(path, query)
+                if path.endswith("/jobs"):
+                    response["jobs"][0].pop("status")
+                return response
+        result = load_group(MissingJobStatus(), "calex794/tor", "target", SHA_A)
         self.assertFalse(result["complete"])
 
     def test_nameless_job_cannot_be_compared(self):

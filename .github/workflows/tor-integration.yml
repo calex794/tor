@@ -33,6 +33,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Rust unit and HTTP integration
         run: cargo test --workspace --all-targets
+      - name: Repeat trace writer crash recovery with CPU contention
+        run: |
+          python3 -c 'while True: pass' &
+          load_pid=$!
+          trap 'kill "$load_pid" 2>/dev/null || true; wait "$load_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3; do
+            echo "Trace crash recovery under CPU contention: attempt $attempt/3"
+            cargo test -p tor-observability --test trace_store_daemon \
+              writer_crash_does_not_block_publisher_and_restart_recovers_old_traces \
+              -- --exact --test-threads=1
+          done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build release outside VPS
@@ -250,6 +261,10 @@ jobs:
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+          bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
