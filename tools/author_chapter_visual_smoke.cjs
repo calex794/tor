@@ -223,6 +223,7 @@ async function inspect(page, viewport, name) {
           viewport + ': new reader bookmark is missing');
 
         // S010: real reader UI -> server-side book like -> public counter.
+        await reader.goto(base + '/books/' + bookId);
         const likeLink = reader.locator('a[href="/books/' + bookId + '/like"]');
         assert(await likeLink.isVisible(), viewport + ': S010 book like entry missing');
         await likeLink.click();
