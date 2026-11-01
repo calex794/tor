@@ -27,7 +27,7 @@ use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidSto
 use tor_commerce::repositories::{
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
-    layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements},
+    layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements, ReaderEntitlementSource},
 };
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
@@ -213,9 +213,27 @@ async fn grant(
     if body.source.is_some() && purchase_id.is_some() {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let authority: &dyn EntitlementPort = match body.source {
-        Some(GrantSource::Layer) => &state.layer,
-        None => &state.entitlement,
+    // A missing source is NOT a direct-purchase proof: PgReaderEntitlements
+    // may legitimately fall back to a paid Layer term. Select the actual D
+    // authority explicitly, then have C recheck that same authority while
+    // constructing the encrypted grant. Hard direct denials never fall back.
+    let selected_layer = if body.source.is_some() {
+        true
+    } else {
+        match state
+            .entitlement
+            .resolve_with_source(Actor { user_id: actor_id }, chapter_id, purchase_id)
+            .await
+        {
+            Ok((_, ReaderEntitlementSource::Direct)) => false,
+            Ok((_, ReaderEntitlementSource::Layer)) => true,
+            Err(error) => return deny(status(error)),
+        }
+    };
+    let authority: &dyn EntitlementPort = if selected_layer {
+        &state.layer
+    } else {
+        &state.direct
     };
     // C rechecks the same D source after G signs. Existing S3 bearer
     // credentials remain usable only until their short expiry.
@@ -238,7 +256,7 @@ async fn grant(
             // they must not be mistaken for, or require, a direct purchase.
             // For direct grants, persist the exposure before releasing a
             // bearer URL so a concurrent refund/revocation remains denied.
-            if body.source.is_none() {
+            if !selected_layer {
                 if let Err(error) = state
                     .first_direct_grant
                     .record(
