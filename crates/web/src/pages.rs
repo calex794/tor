@@ -13,7 +13,7 @@ mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
     account_error_page, login_form, my_account, my_account_with_achievements,
-    my_account_with_follow_updates, password_change_form, registration_form,
+    my_account_with_follow_updates, my_account_with_achievements_and_swap, password_change_form, registration_form,
     registration_form_with_error,
 };
 pub use referrals::referrals_page;
