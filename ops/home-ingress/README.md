@@ -19,3 +19,20 @@
 Файлы: `vps-site.nginx.conf.example`, `home-site.nginx.conf.example`, `vps-wg0.conf.example`, `home-wg0.conf.example`.
 
 Связанные документы: [лабораторный замер](../../docs/infra/vps-ingress-sizing.md), [Notion TOR-HOME-01](https://app.notion.com/p/40832a84beec8103b8d3c43170472381).
+
+## Предварительная проверка сети — без доступа к серверам
+
+`tools/home_network_preflight.py` читает **только вручную подготовленный обезличенный JSON-снимок**. Не вызывает SSH, не открывает соединений, не читает конфигурации узлов, не получает ключи и не меняет настройки. Успешный результат означает согласованность *предполагаемой* топологии, а не проверку фактического домашнего компьютера.
+
+Поля снимка: `schema=tor.home_ingress_preflight.v1`, `tunnel_network` (пример `10.88.0.0/30`), `edge_tunnel_ip` и `home_tunnel_ip`, `other_networks` (список объектов `role,cidr` с возможными `home_lan`, `vps_lan`, `vpn`, `docker`, `other`), `edge_wg_udp_port`, `edge_busy_udp_ports`, `edge_tcp_service_owners` (карта `80` и `443` → `nginx`), `edge_peer_allowed_ips`, `home_peer_allowed_ips`, `home_initiates_tunnel`, `home_default_route_through_tunnel`, `home_router_to_tor_port_forwards` и `home_service_bind_candidates` (ключи `tor-web`, `postgresql`, `home-nginx`; значения — списки строк привязки).
+
+Команда для **локального учебного снимка**:
+
+```sh
+python3 tools/home_network_preflight.py --input path/to/sanitized-snapshot.json
+python3 -m unittest tests.architecture.test_home_network_preflight
+```
+
+Коды возврата: 0 — предложенная схема непротиворечива, 1 — выявлены препятствия, 2 — неполный или неверный снимок. В отчёте сохраняются только имена проверок и результат; адреса из входного файла не копируются. Не вносите реальный публичный IP, ключи VPN, пароли, токены или сведения об иных серверах в GitHub. Текущая версия намеренно требует адреса и порт примера, изменение допустимо лишь после отдельного решения и тестов. Ручной осмотр реального брандмауэра, маршрутизатора и TLS остаётся обязательным до запуска.
+
+Эта проверка никак не подключается к боевому VPS; никакой выкладки из GitHub Actions.

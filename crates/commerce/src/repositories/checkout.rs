@@ -3,7 +3,7 @@
 mod batch;
 mod discount_quote;
 mod discounts;
-mod revenue;
+pub(crate) mod revenue;
 pub use batch::SelectableBatchOffer;
 pub use discount_quote::SingleChapterQuote;
 

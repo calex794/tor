@@ -40,3 +40,18 @@ Migration `202610310191_creator_follow_release_feed.sql` extends the canonical f
 ## D-07: author subscriber discounts and quote fingerprint
 
 Migration `202611013356_author_subscriber_discounts.sql` adds one active book-scoped author campaign and immutable purchase discount snapshots. It also extends `chapter_purchase_commands` with the original list price, final price, campaign ID and revision, calculation `rule_version`, continuous creator-follow period, discount percent and eligibility threshold (0/30/90/180 days). The wallet transaction rechecks the full fingerprint under PostgreSQL row locks before debiting; the idempotency record binds the same values so a repeated key cannot silently replay a different offer. A change in list price is stale even when integer rounding leaves the final kopeck amount unchanged. Campaign term changes advance `revision`; stop/start state changes do not rewrite historical terms. D-08 actual earnings postings and external payouts remain separately gated.
+
+## D-06: moderator step-up for direct refunds (2026-10-31)
+
+Migration `202610310293_d06_refund_admin_step_up.sql` adds a short-lived,
+single-use, transaction-scoped proof to the existing opaque `sessions` row.
+The proof binds the active administrator session to the exact refund request,
+revision and normalized decision reason. A password-backed web handler must
+verify the current password through the bounded `PasswordJobs` worker and
+pass the resulting in-memory `VerifiedPassword` capability to the D repository.
+The proof expires after five minutes and is consumed in the same PostgreSQL
+transaction as the refund reversal. Session revocation, password rotation and
+administrator-role revocation invalidate the operation. No separate proof
+service/table, HTTP refund route, public refund switch or server deployment is
+introduced by this migration.
+
