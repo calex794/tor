@@ -467,7 +467,11 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         "SELECT count(*) FROM organic_discovery_touches
          WHERE book_id={next} AND book_opened_at IS NOT NULL"
     );
-    assert_eq!(pg(&url, &opened), "1", "200 book required before open telemetry");
+    assert_eq!(
+        pg(&url, &opened),
+        "1",
+        "200 book required before open telemetry"
+    );
     store.refresh_organic_quality().await.unwrap();
 
     let feed = data(
