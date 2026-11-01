@@ -375,4 +375,17 @@ mod tests {
         assert!(!html.contains("href=\"/me/purchases\""));
         assert!(!html.contains("href=\"/me/finance\""));
     }
+    #[test]
+    fn d_06_swap_link_requires_explicit_browser_opt_in() {
+        let achievements = ReaderAchievements { completed_chapters: 0, badges: Vec::new() };
+        let hidden = my_account_with_achievements_and_swap(
+            "Reader", "csrf", &[], 0, &achievements, false,
+        ).0;
+        assert!(!hidden.contains("href=\"/me/refunds/swap\""));
+        let enabled = my_account_with_achievements_and_swap(
+            "Reader", "csrf", &[], 0, &achievements, true,
+        ).0;
+        assert!(enabled.contains("href=\"/me/refunds/swap\""));
+    }
+
 }
