@@ -36,6 +36,32 @@ or rewrites unrelated books.
 The curator name is an audit note; the **database role**, not that string,
 is the authorization boundary. Do not pass secrets as curator labels.
 
+
+### Пакетный импорт большого справочника
+
+Сначала подготовить проверенный UTF-8 CSV с ровно тремя полями
+`kind,label,aliases`. Несколько синонимов разделяются символом `|`
+в третьей колонке.
+
+```csv
+kind,label,aliases
+tag,Система,System|系统
+tag,Реинкарнация,Reincarnation|転生
+genre,Фэнтези,Fantasy
+```
+
+```sh
+python3 tools/taxonomy_import_csv.py reviewed-tags.csv --curator review-20261101
+TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci' \
+  python3 tools/taxonomy_import_csv.py reviewed-tags.csv --curator review-20261101 \
+  --confirm-db tor_ci --apply
+```
+
+По умолчанию операция только проверяет CSV: база не подключается.
+Запись требует `--apply`, подтверждения имени базы и миграционной роли.
+Один конфликт (алиас/название/тип) откатывает **весь** импорт. Ограничения:
+до 10 000 терминов, 10 алиасов для каждого, 5 МБ на файл.
+
 **Not implemented:** automatic tag merging, a web staff panel, bulk private
 book scanning, default AI-generated tags, or production rollout. These
 require explicit product and staff-authority decisions. Repo workflows
