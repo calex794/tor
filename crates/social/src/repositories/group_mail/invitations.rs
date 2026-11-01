@@ -62,7 +62,6 @@ impl PgGroupMail {
         .map_err(unavailable)
     }
 
-
     /// Former participants remain eligible for explicit re-invitation even if
     /// they never had a separate one-to-one mail conversation with the creator.
     pub async fn former_members(
