@@ -24,6 +24,8 @@ mod admin_mail_http;
 mod book_room_http;
 #[path = "support/e08_group_mail_http.rs"]
 mod group_mail_http;
+#[path = "support/e08_group_transfer_http.rs"]
+mod group_transfer_http;
 #[path = "support/e08_mail_book_aliases.rs"]
 mod mail_book_aliases;
 #[path = "support/e08_notification_open.rs"]
