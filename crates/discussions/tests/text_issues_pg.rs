@@ -70,95 +70,191 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
     let paid_version: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES($1,1,'PRIVATE-PAID-TEXT') RETURNING id",
-    ).bind(paid).fetch_one(&pool).await.unwrap();
+    )
+    .bind(paid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2),($3,$4)")
-        .bind(free).bind(version).bind(paid).bind(paid_version).execute(&pool).await.unwrap();
-    let result = store.create_free(NewTextIssue {
-            actor: reader,
-            chapter_id: free,
-            version_id: version,
-            block_index: 1,
-            selection_start: 0,
-            selection_end: 5,
-            quote: "Слово",
-            suggestion: "слово",
-            issue_type: "typo",
-        }).await.unwrap();
-    let issue_id = match result { CreatedIssue::Added(id) => id, other => panic!("{other:?}") };
+        .bind(free)
+        .bind(version)
+        .bind(paid)
+        .bind(paid_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = store
+        .create_free(
+            reader,
+            NewTextIssue {
+                chapter_id: free,
+                version_id: version,
+                block_index: 1,
+                selection_start: 0,
+                selection_end: 5,
+                quote: "Слово",
+                suggestion: "слово",
+                issue_type: "typo",
+            },
+        )
+        .await
+        .unwrap();
+    let issue_id = match result {
+        CreatedIssue::Added(id) => id,
+        other => panic!("{other:?}"),
+    };
     assert_eq!(
-        store.create_free(NewTextIssue {
-            actor: reader,
-            chapter_id: free,
-            version_id: version,
-            block_index: 1,
-            selection_start: 0,
-            selection_end: 5,
-            quote: "Слово",
-            suggestion: "слово",
-            issue_type: "typo",
-        }).await.unwrap(),
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: free,
+                    version_id: version,
+                    block_index: 1,
+                    selection_start: 0,
+                    selection_end: 5,
+                    quote: "Слово",
+                    suggestion: "слово",
+                    issue_type: "typo",
+                },
+            )
+            .await
+            .unwrap(),
         CreatedIssue::Replayed(issue_id)
     );
     // Wrong offset/quote, absent version and paid edition must fail closed.
-    assert_eq!(store.create_free(NewTextIssue {
-            actor: reader,
-            chapter_id: free,
-            version_id: version,
-            block_index: 1,
-            selection_start: 6,
-            selection_end: 11,
-            quote: "Слово",
-            suggestion: "fix",
-            issue_type: "typo",
-        }).await,
-        Err(IssueError::Invalid));
-    assert_eq!(store.create_free(NewTextIssue {
-            actor: reader,
-            chapter_id: free,
-            version_id: version+100000,
-            block_index: 1,
-            selection_start: 0,
-            selection_end: 5,
-            quote: "Слово",
-            suggestion: "fix",
-            issue_type: "typo",
-        }).await,
-        Err(IssueError::NotVisible));
-    assert_eq!(store.create_free(NewTextIssue {
-            actor: reader,
-            chapter_id: paid,
-            version_id: paid_version,
-            block_index: 1,
-            selection_start: 0,
-            selection_end: 7,
-            quote: "PRIVATE",
-            suggestion: "fix",
-            issue_type: "typo",
-        }).await,
-        Err(IssueError::NotVisible));
-    assert!(store.author_page(reader,book,None,None).await.unwrap().is_none());
-    let page = store.author_page(author,book,Some("new"),None).await.unwrap().unwrap();
-    assert_eq!(page.issues.len(),1);
-    assert_eq!(page.issues[0].id,issue_id);
-    assert_eq!(page.issues[0].version_id,version);
-    assert_eq!(store.update_status(reader,book,issue_id,"fixed",None).await.unwrap(),
-        StatusMutation::NotFound);
-    assert_eq!(store.update_status(author,book,issue_id,"in_review",None).await.unwrap(),
-        StatusMutation::Changed);
-    assert_eq!(store.update_status(author,book,issue_id,"fixed",Some("Создана новая редакция")).await.unwrap(),
-        StatusMutation::Changed);
-    assert_eq!(store.update_status(author,book,issue_id,"fixed",Some("Создана новая редакция")).await.unwrap(),
-        StatusMutation::Replayed);
-    let events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM text_issue_status_events WHERE issue_id=$1",
-    ).bind(issue_id).fetch_one(&pool).await.unwrap();
-    assert_eq!(events,2);
-    let unmodified: String = sqlx::query(
-        "SELECT body_markdown FROM chapter_versions WHERE id=$1"
-    ).bind(version).fetch_one(&pool).await.unwrap().try_get("body_markdown").unwrap();
-    assert_eq!(unmodified,"Слово слово😀 слово");
-    sqlx::query("DELETE FROM books WHERE id=$1").bind(book).execute(&pool).await.unwrap();
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: free,
+                    version_id: version,
+                    block_index: 1,
+                    selection_start: 6,
+                    selection_end: 11,
+                    quote: "Слово",
+                    suggestion: "fix",
+                    issue_type: "typo",
+                },
+            )
+            .await,
+        Err(IssueError::Invalid)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: free,
+                    version_id: version + 100000,
+                    block_index: 1,
+                    selection_start: 0,
+                    selection_end: 5,
+                    quote: "Слово",
+                    suggestion: "fix",
+                    issue_type: "typo",
+                },
+            )
+            .await,
+        Err(IssueError::NotVisible)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: paid,
+                    version_id: paid_version,
+                    block_index: 1,
+                    selection_start: 0,
+                    selection_end: 7,
+                    quote: "PRIVATE",
+                    suggestion: "fix",
+                    issue_type: "typo",
+                },
+            )
+            .await,
+        Err(IssueError::NotVisible)
+    );
+    assert!(store
+        .author_page(reader, book, None, None)
+        .await
+        .unwrap()
+        .is_none());
+    let page = store
+        .author_page(author, book, Some("new"), None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.issues.len(), 1);
+    assert_eq!(page.issues[0].id, issue_id);
+    assert_eq!(page.issues[0].version_id, version);
+    assert_eq!(
+        store
+            .update_status(reader, book, issue_id, "fixed", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    assert_eq!(
+        store
+            .update_status(author, book, issue_id, "in_review", None)
+            .await
+            .unwrap(),
+        StatusMutation::Changed
+    );
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                issue_id,
+                "fixed",
+                Some("Создана новая редакция")
+            )
+            .await
+            .unwrap(),
+        StatusMutation::Changed
+    );
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                issue_id,
+                "fixed",
+                Some("Создана новая редакция")
+            )
+            .await
+            .unwrap(),
+        StatusMutation::Replayed
+    );
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM text_issue_status_events WHERE issue_id=$1")
+            .bind(issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(events, 2);
+    let unmodified: String = sqlx::query("SELECT body_markdown FROM chapter_versions WHERE id=$1")
+        .bind(version)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .try_get("body_markdown")
+        .unwrap();
+    assert_eq!(unmodified, "Слово слово😀 слово");
+    sqlx::query("DELETE FROM books WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM users WHERE id=$1 OR id=$2")
-        .bind(reader).bind(author).execute(&pool).await.unwrap();
+        .bind(reader)
+        .bind(author)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 }

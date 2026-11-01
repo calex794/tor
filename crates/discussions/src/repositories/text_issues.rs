@@ -64,7 +64,6 @@ fn bounded(text: &str, min: usize, max: usize) -> bool {
 }
 
 pub struct NewTextIssue<'a> {
-    pub actor: i64,
     pub chapter_id: i64,
     pub version_id: i64,
     pub block_index: i32,
@@ -82,10 +81,20 @@ impl PgTextIssues {
 
     /// The published, free and currently accessible ChapterVersion is locked
     /// until the insert commits. A concurrent publication cannot retarget it.
-    pub async fn create_free(&self, new_issue: NewTextIssue<'_>) -> Result<CreatedIssue, IssueError> {
+    pub async fn create_free(
+        &self,
+        actor: i64,
+        new_issue: NewTextIssue<'_>,
+    ) -> Result<CreatedIssue, IssueError> {
         let NewTextIssue {
-            actor, chapter_id, version_id, block_index, selection_start,
-            selection_end, quote, suggestion, issue_type,
+            chapter_id,
+            version_id,
+            block_index,
+            selection_start,
+            selection_end,
+            quote,
+            suggestion,
+            issue_type,
         } = new_issue;
         if actor <= 0
             || chapter_id <= 0

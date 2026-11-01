@@ -9,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 use tor_accounts::services::security::session_token_digest;
 use tor_discussions::repositories::text_issues::{
-    CreatedIssue, IssueError, PgTextIssues, StatusMutation,
+    CreatedIssue, IssueError, NewTextIssue, PgTextIssues, StatusMutation,
 };
 
 #[derive(Deserialize)]
@@ -75,24 +75,27 @@ pub(super) async fn submit(
     }
     let repo = PgTextIssues::new(state.accounts.pool().clone());
     match repo
-        .create_free(tor_discussions::repositories::text_issues::NewTextIssue {
+        .create_free(
             actor,
-            chapter_id,
-            version_id: form.version_id,
-            block_index: form.block_index,
-            selection_start: form.selection_start,
-            selection_end: form.selection_end,
-            quote: &form.quote,
-            suggestion: &form.suggested_text,
-            issue_type: &form.issue_type,
-        })
+            NewTextIssue {
+                chapter_id,
+                version_id: form.version_id,
+                block_index: form.block_index,
+                selection_start: form.selection_start,
+                selection_end: form.selection_end,
+                quote: &form.quote,
+                suggestion: &form.suggested_text,
+                issue_type: &form.issue_type,
+            },
+        )
         .await
     {
-        Ok(CreatedIssue::Added(_)) => private_response(
-            Redirect::to(&format!("/read/{chapter_id}?issue=sent")), &[]
-        ),
+        Ok(CreatedIssue::Added(_)) => {
+            private_response(Redirect::to(&format!("/read/{chapter_id}?issue=sent")), &[])
+        }
         Ok(CreatedIssue::Replayed(_)) => private_response(
-            Redirect::to(&format!("/read/{chapter_id}?issue=repeat")), &[]
+            Redirect::to(&format!("/read/{chapter_id}?issue=repeat")),
+            &[],
         ),
         Err(err) => deny(status(err)),
     }
