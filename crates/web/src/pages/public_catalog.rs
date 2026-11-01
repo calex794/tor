@@ -1,5 +1,5 @@
 //! The original NEwBOO public catalogue layout, sourced from real TOR read data.
-use super::{escape_html, layout};
+use super::{escape_html, layout, layout_with_support_widget};
 use axum::response::Html;
 use std::{collections::HashSet, fmt::Write};
 use tor_search::domain::seo_urls::BookUrl;
@@ -164,7 +164,7 @@ fn home_body(books: &[PublicBookCard], latest: bool, covers: &HashSet<u64>) -> H
                 String::new()
             },
         );
-    layout(
+    layout_with_support_widget(
         "Главная",
         "Пандаолейт — книги и переводы для чтения онлайн.",
         &content,

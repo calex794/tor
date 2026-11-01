@@ -52,6 +52,20 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
     layout_with_seo(title, description, content, seo_head::default_head())
 }
 
+/// Public opt-in to the support widget; the private page renderer retains its
+/// no-script Content-Security-Policy and remains accessible without JavaScript.
+pub(super) fn layout_with_support_widget(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
+    Html(html.0.replace(
+        "</body>",
+        "<script src=\"/assets/newboo-support-widget.js\" defer></script>\n</body>",
+    ))
+}
+
 fn layout_with_seo(
     title: &str,
     description: &str,

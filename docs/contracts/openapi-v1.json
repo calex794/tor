@@ -4185,6 +4185,127 @@
           }
         ]
       }
+    },
+    "/api/v1/support/tickets": {
+      "get": {
+        "operationId": "get_api_v1_support_tickets",
+        "tags": [
+          "E"
+        ],
+        "description": "Guest capability cookie or current live account session. Opening while logged in atomically claims and merges only this browser guest history. No client-supplied account/chat authority. Draft implementation, CI acceptance recorded separately.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Private support data; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportWidget"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid message"
+          },
+          "403": {
+            "description": "Guest capability consumed by another account, Origin or CSRF denial"
+          },
+          "409": {
+            "description": "JSON key reused for another payload"
+          },
+          "413": {
+            "description": "Body limit exceeded"
+          },
+          "422": {
+            "description": "Unknown fields or invalid command key"
+          },
+          "429": {
+            "description": "Per-minute action limit"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_support_tickets",
+        "tags": [
+          "E"
+        ],
+        "description": "Guest capability cookie or current live account session. Opening while logged in atomically claims and merges only this browser guest history. No client-supplied account/chat authority. Draft implementation, CI acceptance recorded separately.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Private support data; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid message"
+          },
+          "403": {
+            "description": "Guest capability consumed by another account, Origin or CSRF denial"
+          },
+          "409": {
+            "description": "JSON key reused for another payload"
+          },
+          "413": {
+            "description": "Body limit exceeded"
+          },
+          "422": {
+            "description": "Unknown fields or invalid command key"
+          },
+          "429": {
+            "description": "Per-minute action limit"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "43-character base64url no padding; JSON body must not duplicate",
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Anti-CSRF from authenticated session for cookie-mutating JSON requests; HTML forms use csrf_token field.",
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportMessageRequest"
+              }
+            }
+          }
+        },
+        "x-tor-require-origin": true,
+        "x-tor-json-max-bytes": 65536
+      }
     }
   },
   "components": {
@@ -4766,6 +4887,109 @@
           "generation_id",
           "next_cursor"
         ]
+      },
+      "SupportMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "SupportMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message_id",
+          "sender_kind",
+          "body",
+          "created_at",
+          "is_own"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "sender_kind": {
+            "type": "string",
+            "enum": [
+              "guest",
+              "user",
+              "admin"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "is_own": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SupportWidget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "conversation_id",
+          "identity_notice",
+          "csrf_token",
+          "messages",
+          "has_more"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "identity_notice": {
+            "type": "string"
+          },
+          "csrf_token": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/SupportMessage"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SupportReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "message"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "message": {
+            "$ref": "#/components/schemas/SupportMessage"
+          }
+        }
       }
     },
     "responses": {

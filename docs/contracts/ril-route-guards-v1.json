@@ -890,6 +890,209 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_likes::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::get",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mail.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/mail",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::index",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::conversation",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/notifications",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/users/{display_name}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "public_profile::page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::post",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/block",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::block",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/start/{recipient_user_id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::start",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/{id}/read",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_one",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/read-all",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_all",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/preferences",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "save_preferences",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/users/{target_user_id}/block",
+      "source": "crates/web/src/auth.rs",
+      "handler": "friendship::block",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/users/{target_user_id}/friend",
+      "source": "crates/web/src/auth.rs",
+      "handler": "friendship::request",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/users/{target_user_id}/unfriend",
+      "source": "crates/web/src/auth.rs",
+      "handler": "friendship::remove",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/support",
+      "handler": "page",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/support/widget",
+      "handler": "widget",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/support/messages",
+      "handler": "messages",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/support/messages",
+      "handler": "submit",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support",
+      "handler": "index",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support/{id}",
+      "handler": "page",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support/{id}/messages",
+      "handler": "messages",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/messages",
+      "handler": "submit",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/support/tickets",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "widget",
+      "policy": "support_requester"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/support/tickets",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "json_submit",
+      "policy": "support_requester"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/read",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "mark_read",
+      "policy": "support_admin"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-support-widget.js",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "widget_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-admin-support.js",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "admin_script",
+      "policy": "public"
     }
   ]
 }

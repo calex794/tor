@@ -56,7 +56,7 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 CRITICAL_PACKAGES = {
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
     "tor-storage", "tor-ingest", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence", "tor-referrals", "tor-social",
+    "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
@@ -84,6 +84,7 @@ TEST_SUITES = {
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/social/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/support/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/accounts/tests/referral_signup_decision_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},
@@ -94,6 +95,8 @@ TEST_SUITES = {
     "tools/operator_trace_visual_smoke.cjs": {"visual"},
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
+    "tools/mail_browser_pg.cjs": {"reader_browser"},
+    "tools/support_browser_pg.cjs": {"reader_browser"},
     "tools/referral_share_browser_smoke.cjs": {"reader_browser"},
     "tools/author_chapter_visual_smoke.cjs": {"reader_browser"},
     "tools/chapter_file_import_browser.cjs": {"reader_browser"},

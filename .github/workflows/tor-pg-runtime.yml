@@ -212,6 +212,8 @@ jobs:
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
+          cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
@@ -272,6 +274,8 @@ jobs:
       - name: Line A credential and login audit PostgreSQL checks
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
+          cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test credentials_pg -- --ignored --test-threads=1

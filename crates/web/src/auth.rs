@@ -39,10 +39,8 @@ use tor_reading::{
         PublicReadingRepository,
     },
 };
-
 mod access_audit;
 mod auth_observation;
-
 /// Count dropped diagnostics; this never changes authentication decisions.
 pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
@@ -64,16 +62,23 @@ mod continuation_demand;
 mod creator_follows;
 mod follow_read_state;
 mod followed_purchase_links;
+mod friendship;
 mod inbox;
 mod library_actions;
 mod library_page;
 mod login_limiter;
+mod mail;
+mod mail_api;
+mod mail_book_previews;
+mod mail_pages;
 mod notification_settings;
+mod notifications;
 mod paid_completion;
 mod password_change;
 mod password_reset;
 mod private_reader;
 mod profile_http;
+mod public_profile;
 mod rankings;
 mod referral_alias;
 mod referral_capture;
@@ -84,6 +89,7 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
+mod support_bundle;
 mod sync_actions;
 mod types;
 use types::*;
@@ -95,7 +101,6 @@ pub(crate) fn router(
 ) -> Router {
     router_inner(accounts, reader, secure, origin, None, false, None)
 }
-
 pub(crate) fn router_with_cover_uploads(
     accounts: PgAccounts,
     reader: PgReader,
@@ -105,7 +110,6 @@ pub(crate) fn router_with_cover_uploads(
 ) -> Router {
     router_inner(accounts, reader, secure, origin, Some(storage), false, None)
 }
-
 /// Enable purchased-library navigation only when an authorized reader is mounted.
 pub(crate) fn router_with_paid_reader(
     accounts: PgAccounts,
@@ -212,6 +216,8 @@ fn router_inner(
     let app = Router::new()
         .merge(settings_routes::router())
         .merge(referral_routes::router())
+        .merge(support_bundle::router())
+        .merge(notifications::router())
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -230,6 +236,20 @@ fn router_inner(
             "/me/books/{id}/follow-creator",
             post(book_follow_actions::follow_creator),
         )
+        .route("/users/{display_name}", get(public_profile::page))
+        .route("/users/{target_user_id}/friend", post(friendship::request))
+        .route("/users/{target_user_id}/unfriend", post(friendship::remove))
+        .route("/users/{target_user_id}/block", post(friendship::block))
+        .route("/mail", get(mail::index))
+        .route("/mail/start/{recipient_user_id}", post(mail::start))
+        .route("/mail/{id}", get(mail::conversation))
+        .route("/mail/{id}/messages", post(mail::send))
+        .route("/mail/{id}/block", post(mail::block))
+        .route(
+            "/api/v1/me/messages",
+            get(mail_api::get).post(mail_api::post),
+        )
+        .route("/assets/mail.js", get(mail::script))
         .route(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),

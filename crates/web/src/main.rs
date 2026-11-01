@@ -1,3 +1,6 @@
+mod social_notification_consumer;
+mod support_cleanup;
+
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -101,6 +104,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
+    let mut pending_support_cleanup = None;
+    let mut pending_social_notifications = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -108,6 +113,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_support_cleanup = Some(
+                    tor_support::repositories::postgres::PgSupport::new(pool.clone()),
+                );
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
@@ -116,6 +124,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 );
                 pending_referral_consumer =
                     Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
+                pending_social_notifications = Some(
+                    tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
+                );
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
@@ -282,12 +293,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Only the authenticated PostgreSQL runtime consumes them.
     let _ranking_consumer =
         pending_ranking_consumer.map(tor_web::ranking_consumer::start_rankings_consumer);
+    let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
     let _achievements_consumer = pending_achievements_consumer
         .map(tor_web::achievement_consumer::start_achievements_consumer);
     // Registrations and their outbox facts were committed atomically.
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
+    let _social_notification_consumer =
+        pending_social_notifications.map(social_notification_consumer::start);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
