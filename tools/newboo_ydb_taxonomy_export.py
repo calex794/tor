@@ -101,9 +101,10 @@ def save(path, data):
             temporary = Path(out.name)
             out.write(encoded)
         load(temporary)
-        if destination.exists():
-            raise ValueError("existing snapshot may not be overwritten")
-        os.rename(temporary, destination)
+        # Atomic no-replace on the same filesystem: hard-link creation fails
+        # when the destination appears concurrently (unlike POSIX rename).
+        os.link(temporary, destination)
+        temporary.unlink()
         temporary = None
     finally:
         if temporary is not None:
