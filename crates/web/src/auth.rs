@@ -59,10 +59,10 @@ mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
 mod checkout;
-mod direct_swap_browser;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
+mod direct_swap_browser;
 mod follow_read_state;
 mod followed_purchase_links;
 mod inbox;
@@ -276,7 +276,10 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
-        .route("/me/refunds/swap", get(direct_swap_browser::page).post(direct_swap_browser::submit))
+        .route(
+            "/me/refunds/swap",
+            get(direct_swap_browser::page).post(direct_swap_browser::submit),
+        )
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
@@ -378,7 +381,12 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
         pages::my_account_with_achievements_and_swap(
-            &name, &csrf, &replies, unread, &achievements, state.swap_browser_enabled,
+            &name,
+            &csrf,
+            &replies,
+            unread,
+            &achievements,
+            state.swap_browser_enabled,
         ),
         &cookies,
     )
