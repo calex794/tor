@@ -445,3 +445,45 @@ Exact-head CI is pending. Draft only; main and production are untouched.
 ## 01.11.2026 - exact 64-bit mail polling cursors (Draft)
 
 Browser polling no longer converts PostgreSQL BIGINT message IDs to JavaScript `Number` (which rounds IDs greater than `2^53-1`). Initial `data-last-id`, new message IDs and subsequent `after_id` cursors remain canonical positive decimal strings; monotonic comparison uses length then lexical order. Invalid/zero message IDs are ignored. The actual Chromium mail journey now intercepts one GET in a separate signed-in browser page, injects a synthetic `9007199254740993` message without modifying DB identity sequences, then asserts the very next GET carries **exactly** `after_id=9007199254740993`. This covers both desktop and mobile viewports. It changes no SQL, API, account security, or main branch. Exact-HEAD CI remains required.
+
+
+## 01.11.2026 — Reviewed legacy Book alias import preparation (Draft)
+
+The original NEwBOO mail preview reads source `book_id`, `public_id`
+and `slug`, while TOR uses a different canonical Book ID.
+There is no verified source→TOR mapping in this repository: no real
+legacy records have been imported, and no synthetic mapping is described
+as a genuine NEwBOO identity.
+
+A deterministic **offline-only** validator is now at
+`tools/e08_prepare_alias_import.py` with six synthetic-data unit tests at
+`tests/architecture/test_e08_alias_import.py`. It accepts two separately
+reviewed CSV inputs (not stored in GitHub):
+
+- Source export: columns `book_id,public_id,slug`, copied from NEwBOO.
+- Explicit review map: columns
+  `newboo_book_id,tor_book_id,tor_source_identity,tor_target_language,reviewed`.
+  Every mapped row requires `reviewed=yes`. The target Book ID and
+  source/language identity are verified against `books` by the generated SQL.
+
+Validation rejects duplicate source identities, reuse of an alias by
+unmapped source Books, duplicate target Books and missing review.
+Numeric/Unicode/ambiguous aliases cannot be mapped safely and are reported;
+a mapped source Book with no supported nonnumeric alias is rejected.
+No lookup by title, fuzzy source_identity, global hidden catalog or
+network calls are performed.
+
+```sh
+python3 tools/e08_prepare_alias_import.py --source-export SOURCE.csv --reviewed-map REVIEWED.csv --check-only
+python3 tools/e08_prepare_alias_import.py --source-export SOURCE.csv --reviewed-map REVIEWED.csv --output-sql reviewed-e08-aliases.sql
+python3 -m unittest discover -s tests/architecture -p 'test_e08_alias_import.py' -v
+```
+
+The output is **SQL for later manual review**, never automatically run.
+It locks the alias table in a transaction, verifies every target
+`(id,source_identity,target_language)` in the Book table, aborts on an
+alias assigned to another Book, then inserts only absent aliases and commits
+atomically. Replaying identical mappings is idempotent. Normal mail preview
+ACL, public/owner Book routes and existing SQLx migrations are unchanged.
+Do not run on retained databases during this Draft work. Real parity
+remains blocked on actual export and reviewed mapping input.
