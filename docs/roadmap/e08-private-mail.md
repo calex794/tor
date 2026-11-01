@@ -511,3 +511,7 @@ detail pages now permit `connect-src 'self'`; the group index retains
 CSP and the actual script link. This is an actual browser transport bug,
 not a schema, payment, or membership ACL change. Exact SHA PostgreSQL
 and Chromium CI must still pass before considering this fixed.
+
+## 01.11.2026 — E-08: безопасная передача роли создателя группы (Draft)
+
+TOR adds a member-managed role-transfer workflow (not claimed as NEwBOO source parity): current active creator may transfer the role only to a distinct, currently active participant whose user account is active. `PgGroupMail::transfer_creator` holds a group-row transaction lock before checking and locking both members, rejects third users, former creators, departed users and malformed targets, and atomically changes both roles. Exactly one active creator must exist before transfer; group `created_by` remains historical provenance. The previous creator may then leave, while the new creator cannot leave until transferring again. A native CSRF/Origin-protected POST `/mail/groups/{id}/transfer` with a member dropdown works without JavaScript and is hidden from other participants. Disposable PostgreSQL/HTTP and desktop/mobile Chromium regressions cover negative and positive paths. No schema change, main merge, live database or deployment. Exact-HEAD CI remains required.

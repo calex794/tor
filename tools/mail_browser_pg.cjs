@@ -326,7 +326,26 @@ module.exports = async (browser, base, out) => {
         'departed recipient loses access to the group immediately');
       assert.equal((await c.context.request.get(base + groupPath)).status(), 200,
         'other members retain access when someone exits');
-      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave PASS');
+
+      // Ownership is transferred by a native POST. The former creator may then
+      // leave, while the new creator cannot orphan the group by leaving.
+      await a.page.goto(base + groupPath);
+      await a.page.locator('#group-new-creator').selectOption(String(c.id));
+      await a.page.getByRole('button', { name: 'Передать управление' }).click();
+      await a.page.locator('#group-new-creator').waitFor({ state: 'detached', timeout: 15000 });
+      assert.equal(await a.page.locator('#group-new-creator').count(), 0,
+        'previous creator lost management rights');
+      await c.page.goto(base + groupPath);
+      assert.equal(await c.page.locator('#group-new-creator').count(), 1,
+        'new creator can manage group');
+      assert.equal(await c.page.locator('form[action="' + groupPath + '/leave"]').count(), 0,
+        'new creator cannot leave without another transfer');
+      await a.page.locator('form[action="' + groupPath + '/leave"]')
+        .getByRole('button', { name: 'Выйти из группы' }).click();
+      await a.page.waitForURL('**/mail/groups');
+      assert.equal((await a.context.request.get(base + groupPath)).status(), 404);
+      assert.equal((await c.context.request.get(base + groupPath)).status(), 200);
+      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
   }

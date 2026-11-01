@@ -253,6 +253,7 @@ fn router_inner(
             get(group_mail::poll).post(group_mail::send),
         )
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
+        .route("/mail/groups/{id}/transfer", post(group_mail::transfer))
         .route("/books/{id}/room", get(book_rooms::page))
         .route("/books/{id}/room/join", post(book_rooms::join))
         .route("/books/{id}/room/messages", post(book_rooms::send))

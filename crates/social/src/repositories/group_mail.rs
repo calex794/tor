@@ -422,8 +422,87 @@ impl PgGroupMail {
         })
     }
 
-    /// A group member may depart. No rejoin or creator ownership transfer
-    /// contract exists yet; creator exit is refused rather than orphaning it.
+
+    /// Transfer the creator role to an existing active member. Lock the group
+    /// before the member rows so concurrent transfers cannot create two owners.
+    /// A former creator can then leave normally; creation provenance stays put.
+    pub async fn transfer_creator(
+        &self,
+        actor: i64,
+        group_id: i64,
+        next_creator: i64,
+    ) -> Result<(), MailError> {
+        if actor <= 0 || group_id <= 0 || next_creator <= 0 || actor == next_creator {
+            return Err(MailError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        let group: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE",
+        )
+        .bind(group_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if group.is_none() {
+            return Err(MailError::NotFound);
+        }
+        let role: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM social_group_members
+             WHERE group_id=$1 AND user_id=$2 AND status='active'
+             FOR UPDATE",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if role.as_deref() != Some("creator") {
+            return Err(MailError::NotFound);
+        }
+        let target: Option<i64> = sqlx::query_scalar(
+            "SELECT m.user_id FROM social_group_members m
+             JOIN users u ON u.id=m.user_id
+             WHERE m.group_id=$1 AND m.user_id=$2 AND m.status='active'
+               AND u.account_state='active'
+             FOR UPDATE OF m",
+        )
+        .bind(group_id)
+        .bind(next_creator)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if target.is_none() {
+            return Err(MailError::NotFound);
+        }
+        let creators: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM social_group_members
+             WHERE group_id=$1 AND role='creator' AND status='active'",
+        )
+        .bind(group_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if creators != 1 {
+            return Err(MailError::Conflict);
+        }
+        let changed = sqlx::query(
+            "UPDATE social_group_members
+             SET role=CASE WHEN user_id=$3 THEN 'creator' ELSE 'member' END
+             WHERE group_id=$1 AND user_id IN ($2,$3) AND status='active'",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .bind(next_creator)
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if changed.rows_affected() != 2 {
+            return Err(MailError::Conflict);
+        }
+        tx.commit().await.map_err(unavailable)
+    }
+
+    /// A creator must transfer ownership before exiting the group.
     pub async fn leave(&self, actor: i64, group_id: i64) -> Result<(), MailError> {
         if actor <= 0 || group_id <= 0 {
             return Err(MailError::Invalid);

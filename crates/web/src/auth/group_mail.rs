@@ -89,6 +89,13 @@ pub(super) struct LeaveForm {
     csrf_token: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TransferForm {
+    new_creator_id: i64,
+    csrf_token: String,
+}
+
 fn render_index(
     rows: &[GroupConversation],
     contacts: &[(i64, String)],
@@ -220,7 +227,29 @@ fn render_detail(
     )
     .expect("group send form");
     if group.is_creator {
-        body.push_str("<p>Создатель группы пока не может выйти из неё.</p>");
+        if members.len() > 1 {
+            write!(
+                body,
+                r#"<form method="post" action="/mail/groups/{id}/transfer"><label for="group-new-creator">Новый создатель группы</label><select id="group-new-creator" name="new_creator_id" required><option value="">Выберите участника</option>"#
+            )
+            .expect("creator transfer form");
+            for (member_id, name) in members {
+                if *member_id != actor {
+                    write!(
+                        body,
+                        r#"<option value="{member_id}">{}</option>"#,
+                        escape_html(name)
+                    )
+                    .expect("creator transfer option");
+                }
+            }
+            write!(
+                body,
+                r#"</select><input type="hidden" name="csrf_token" value="{csrf}"><button class="ui-button ui-button--ghost" type="submit">Передать управление</button></form>"#
+            )
+            .expect("creator transfer action");
+        }
+        body.push_str("<p>Создатель группы пока не может выйти из неё. Сначала передайте управление действующему участнику.</p>");
     } else {
         write!(
             body,
@@ -403,6 +432,29 @@ pub(super) async fn send(
         .await
     {
         Ok(_) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
+        Err(error) => deny(super::mail::status(error)),
+    }
+}
+
+
+pub(super) async fn transfer(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<TransferForm>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(id) => id,
+        Err(status) => return deny(status),
+    };
+    if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
+        return deny(status);
+    }
+    match group_store(&state)
+        .transfer_creator(actor, id, form.new_creator_id)
+        .await
+    {
+        Ok(()) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
         Err(error) => deny(super::mail::status(error)),
     }
 }

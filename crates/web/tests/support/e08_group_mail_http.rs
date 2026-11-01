@@ -239,6 +239,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(!own_page.contains("Team <script>"));
     assert!(own_page.contains("Создатель группы пока не может выйти"));
     assert!(own_page.contains("Участники (3)"));
+    assert!(own_page.contains(&format!("action=\"{path}/transfer\"")));
     assert!(own_page.contains("Group reader 1"));
     assert!(own_page.contains("Group reader 2"));
     let key = own_page
@@ -419,6 +420,169 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
             .await
             .status(),
         StatusCode::OK
+    );
+
+    // Only the current active creator can transfer to another active member.
+    let transfer_path = format!("{path}/transfer");
+    let transfer_to = |id: i64, token: &str| {
+        format!("new_creator_id={id}&csrf_token={token}")
+    };
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[2], "invalid"),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[2],
+            &transfer_to(users[0], &tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[3],
+            &transfer_to(users[2], &tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    for invalid_target in [users[1], users[3]] {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &transfer_path,
+                &cookies[0],
+                &transfer_to(invalid_target, &tokens[0]),
+                &[],
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[0], &tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM social_group_members WHERE group_id={group_id} AND role='creator' AND status='active'"
+            ),
+        )
+        .await,
+        "1"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[2], &tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let previous_creator = text(call(&app, "GET", &path, &cookies[0], "", &[]).await).await;
+    assert!(previous_creator.contains("Выйти из группы"));
+    assert!(!previous_creator.contains(&format!("action=\"{path}/transfer\"")));
+    let new_creator = text(call(&app, "GET", &path, &cookies[2], "", &[]).await).await;
+    assert!(new_creator.contains(&format!("action=\"{path}/transfer\"")));
+    assert!(!new_creator.contains(&format!("action=\"{path}/leave\"")));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{path}/leave"),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[2], &tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{path}/leave"),
+            &cookies[0],
+            &format!("csrf_token={}", tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[2], "", &[])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM social_group_members WHERE group_id={group_id} AND role='creator' AND status='active'"
+            ),
+        )
+        .await,
+        "1"
     );
     // All fixtures live in tor_ci, which is discarded after this run.
 }
