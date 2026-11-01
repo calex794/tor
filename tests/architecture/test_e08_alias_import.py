@@ -40,7 +40,7 @@ class ReviewedAliasesTest(unittest.TestCase):
         self.given()
         entries, unsupported = aliases.prepare(self.source, self.mapping)
         self.assertEqual([entry[0] for entry in entries], ["another-book", "book-q", "launch-day"])
-        self.assertEqual(unsupported, [(11, "public_id", "12345")])
+        self.assertEqual(unsupported, [("11", "public_id", "12345")])
         sql = aliases.render_sql(entries)
         self.assertIn("('book-q',42,'en:book''10','ru')", sql)
         self.assertIn("LEFT JOIN books b ON b.id=a.book_id", sql)
@@ -106,7 +106,70 @@ class ReviewedAliasesTest(unittest.TestCase):
         ])
         entries, unsupported = aliases.prepare(self.source, self.mapping)
         self.assertEqual([alias for alias, _ in entries], ["valid-key"])
-        self.assertEqual(unsupported, [(10, "slug", "alias.v2.")])
+        self.assertEqual(unsupported, [("10", "slug", "alias.v2.")])
+
+    def test_string_source_book_id_is_valid_and_can_be_an_alias(self):
+        self.given(source_rows=[
+            {"book_id": "Legacy-Public-ID", "public_id": "", "slug": ""},
+        ], map_rows=[
+            {"newboo_book_id": "Legacy-Public-ID", "tor_book_id": "42", "tor_source_identity": "src:legacy", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        entries, unsupported = aliases.prepare(self.source, self.mapping)
+        self.assertEqual([alias for alias, _ in entries], ["legacy-public-id"])
+        self.assertEqual(unsupported, [])
+
+    def test_uuid_source_id_matches_case_and_hyphen_variants(self):
+        self.given(source_rows=[
+            {"book_id": "A0B1C2D3-E4F5-4061-8319-A123456789AB", "public_id": "", "slug": "Slug-A"},
+        ], map_rows=[
+            {"newboo_book_id": "a0b1c2d3e4f540618319a123456789ab", "tor_book_id": "42", "tor_source_identity": "uuid:legacy", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        entries, _ = aliases.prepare(self.source, self.mapping)
+        self.assertEqual([alias for alias, _ in entries], ["a0b1c2d3-e4f5-4061-8319-a123456789ab", "slug-a"])
+
+    def test_numeric_source_id_canonicalization_and_duplicate_rejection(self):
+        self.given(source_rows=[
+            {"book_id": "00010", "public_id": "", "slug": "Legacy-Ten"},
+        ], map_rows=[
+            {"newboo_book_id": "+10", "tor_book_id": "42", "tor_source_identity": "numeric:10", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        entries, _ = aliases.prepare(self.source, self.mapping)
+        self.assertEqual([alias for alias, _ in entries], ["legacy-ten"])
+        self.given(source_rows=[
+            {"book_id": "00010", "public_id": "", "slug": "Legacy-Ten"},
+            {"book_id": "10", "public_id": "", "slug": "Another-Ten"},
+        ], map_rows=[
+            {"newboo_book_id": "+10", "tor_book_id": "42", "tor_source_identity": "numeric:10", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        with self.assertRaisesRegex(aliases.ImportErrorDetail, "duplicate book_id"):
+            aliases.prepare(self.source, self.mapping)
+
+    def test_legacy_id_alias_conflicts_with_other_book_public_id(self):
+        self.given(source_rows=[
+            {"book_id": "Legacy-A", "public_id": "", "slug": ""},
+            {"book_id": "11", "public_id": "LEGACY-A", "slug": "Other"},
+        ], map_rows=[
+            {"newboo_book_id": "Legacy-A", "tor_book_id": "42", "tor_source_identity": "source:a", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        with self.assertRaisesRegex(aliases.ImportErrorDetail, "multiple source books"):
+            aliases.prepare(self.source, self.mapping)
+
+    def test_unicode_case_folding_cannot_create_unreachable_ascii_alias(self):
+        self.given(source_rows=[
+            {"book_id": "10", "public_id": "\u212aey", "slug": "Valid-Slug"},
+        ], map_rows=[
+            {"newboo_book_id": "10", "tor_book_id": "42", "tor_source_identity": "source:10", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        entries, unsupported = aliases.prepare(self.source, self.mapping)
+        self.assertEqual([alias for alias, _ in entries], ["valid-slug"])
+        self.assertEqual(unsupported, [("10", "public_id", "\u212aey")])
+
+    def test_nonascii_digits_are_not_reinterpreted_as_source_id(self):
+        self.given(source_rows=[
+            {"book_id": "\u0661\u0660", "public_id": "", "slug": "Ten"},
+        ])
+        with self.assertRaisesRegex(aliases.ImportErrorDetail, "unsupported numeric spelling"):
+            aliases.prepare(self.source, self.mapping)
 
     def test_check_only_does_not_write_sql(self):
         self.given()

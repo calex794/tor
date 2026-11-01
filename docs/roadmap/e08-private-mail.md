@@ -487,3 +487,9 @@ atomically. Replaying identical mappings is idempotent. Normal mail preview
 ACL, public/owner Book routes and existing SQLx migrations are unchanged.
 Do not run on retained databases during this Draft work. Real parity
 remains blocked on actual export and reviewed mapping input.
+
+## 01.11.2026 — NEwBOO string and UUID Book IDs in reviewed alias imports
+
+Pinned NEwBOO `core/models/ids.py` defines BookReference as BookId, PublicBookId or UUID; the prior offline importer incorrectly required a numeric source `book_id`. The tool now normalizes source numeric/UUID IDs according to the pinned reference semantics, permits exact string source Book identities and includes a valid nonnumeric `book_id` itself among possible aliases (as the source `mail_book_previews.py` does). Only the TOR **target** `tor_book_id` remains a canonical positive int64.
+
+Alias extraction refuses Unicode-to-ASCII case-folding tricks (such as Kelvin sign), unsupported numerics, trailing periods and duplicates across source `book_id`, `public_id` and `slug`. No fuzzy match, untrusted source→TOR mapping, DB connection, SQLx migration, or new HTTP path is introduced. Offline tests: 13/13 PASS. These tests are about the validator, not evidence that real NEwBOO aliases were imported; the full source CSV and explicitly reviewed crosswalk are still required.
