@@ -306,7 +306,12 @@ pub(super) async fn enrich(
         for id in batch {
             let id = *id;
             let catalog = PgCatalog::new(pool.clone());
-            jobs.spawn(async move { (id, catalog.private_mail_title_for_owner(actor, id as i64).await) });
+            jobs.spawn(async move {
+                (
+                    id,
+                    catalog.private_mail_title_for_owner(actor, id as i64).await,
+                )
+            });
         }
         while let Some(result) = jobs.join_next().await {
             if let Ok((id, Ok(Some(title)))) = result {

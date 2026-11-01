@@ -225,15 +225,24 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
     let book_id = author.create_owned_book(owner, &book).await.unwrap();
     let catalog = PgCatalog::new(pool.clone());
     assert_eq!(
-        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        catalog
+            .private_mail_title_for_owner(owner, book_id)
+            .await
+            .unwrap(),
         Some("Private mail title".to_owned()),
     );
     assert_eq!(
-        catalog.private_mail_title_for_owner(outsider, book_id).await.unwrap(),
+        catalog
+            .private_mail_title_for_owner(outsider, book_id)
+            .await
+            .unwrap(),
         None,
     );
     assert_eq!(
-        catalog.private_mail_title_for_owner(0, book_id).await.unwrap(),
+        catalog
+            .private_mail_title_for_owner(0, book_id)
+            .await
+            .unwrap(),
         None,
     );
 
@@ -245,7 +254,10 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
         .await
         .unwrap();
     assert_eq!(
-        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        catalog
+            .private_mail_title_for_owner(owner, book_id)
+            .await
+            .unwrap(),
         None,
     );
     sqlx::query("UPDATE book_members SET is_active=TRUE WHERE book_id=$1 AND user_id=$2")
@@ -255,7 +267,10 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
         .await
         .unwrap();
     assert_eq!(
-        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        catalog
+            .private_mail_title_for_owner(owner, book_id)
+            .await
+            .unwrap(),
         Some("Private mail title".to_owned()),
     );
     sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
@@ -264,7 +279,10 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
         .await
         .unwrap();
     assert_eq!(
-        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        catalog
+            .private_mail_title_for_owner(owner, book_id)
+            .await
+            .unwrap(),
         None,
     );
     pool.close().await;
