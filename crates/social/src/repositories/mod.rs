@@ -1,3 +1,4 @@
+pub mod book_rooms;
 pub mod creator_follows;
 pub mod friendships;
 pub mod group_mail;
