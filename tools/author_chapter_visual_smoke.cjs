@@ -295,6 +295,25 @@ async function inspect(page, viewport, name) {
           viewport + ': new reader did not persist a chapter-specific place');
         await inspect(reader, viewport, 'cross-user-saved');
 
+        // C-08/S007: saved books and reading positions have independent lifetimes.
+        // A second authenticated account must not inherit the reader's bookmark.
+        await page.goto(base + '/me/library');
+        assert(await page.getByRole('region', { name: 'Сохранённые книги' })
+          .locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': reader bookmark leaked into the author account');
+        const savedBooks = reader.getByRole('region', { name: 'Сохранённые книги' });
+        const savedCard = savedBooks.locator('.library-card').filter({
+          has: reader.locator('a[href="/books/' + bookId + '"]'),
+        });
+        await savedCard.getByRole('button', { name: 'Убрать из библиотеки' }).click();
+        await reader.waitForURL(base + '/me/library');
+        await reader.reload();
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': removed bookmark returned after reload');
+        assert(await reader.locator('a[href="/read/' + chapterId + '#p-1"]').isVisible(),
+          viewport + ': removing bookmark erased the saved reading position');
+        await inspect(reader, viewport, 'bookmark-removed');
+
         await reader.goto(base + '/me');
         await reader.getByRole('button', { name: 'Выйти' }).click();
         await reader.waitForURL('**/login');
@@ -307,6 +326,8 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL('**/me');
         await reader.goto(base + '/me/library');
         const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': removed bookmark returned after logout and login');
         assert(await resume.isVisible(),
           viewport + ': reader lost saved place after logout and login');
         await resume.click();
@@ -316,6 +337,17 @@ async function inspect(page, viewport, name) {
         assert(await reader.getByText('PUBLIC B06 new').isVisible(),
           viewport + ': resumed reader text differs from author publication');
         await inspect(reader, viewport, 'cross-user-resumed');
+
+        await reader.goto(base + '/books/' + bookId);
+        await reader.getByRole('link', { name: 'Добавить в библиотеку' }).click();
+        await reader.waitForURL(base + '/me/library/add/' + bookId);
+        await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
+        await reader.waitForURL(base + '/me/library');
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 1,
+          viewport + ': removed book could not be saved again exactly once');
+        assert(await resume.isVisible(),
+          viewport + ': re-adding bookmark changed saved reading position');
+        await inspect(reader, viewport, 'bookmark-restored');
       } finally {
         await guestContext.close();
         await readerContext.close();
