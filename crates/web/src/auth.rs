@@ -281,20 +281,11 @@ fn router_inner(
             post(follow_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
-        .route(
-            "/books/{id}/like",
-            get(book_likes::page).post(book_likes::submit),
-        )
-        .route(
-            "/me/books/{id}/rate",
-            get(book_stars::page).post(book_stars::submit),
-        )
+        .route("/books/{id}/like", get(book_likes::page).post(book_likes::submit))
+        .route("/me/books/{id}/rate", get(book_stars::page).post(book_stars::submit))
         .route("/read/{id}/text-issues", post(text_issues::submit))
         .route("/me/books/{id}/issues", get(text_issues::author_page))
-        .route(
-            "/me/books/{id}/issues/{issue_id}/status",
-            post(text_issues::change_status),
-        )
+        .route("/me/books/{id}/issues/{issue_id}/status", post(text_issues::change_status))
         .route(
             "/reader/{id}/thanks",
             get(chapter_thanks::page).post(chapter_thanks::submit),
