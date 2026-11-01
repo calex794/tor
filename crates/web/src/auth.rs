@@ -248,7 +248,10 @@ fn router_inner(
             get(group_mail::index).post(group_mail::create),
         )
         .route("/mail/groups/{id}", get(group_mail::detail))
-        .route("/mail/groups/{id}/messages", get(group_mail::poll).post(group_mail::send))
+        .route(
+            "/mail/groups/{id}/messages",
+            get(group_mail::poll).post(group_mail::send),
+        )
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
         .route("/books/{id}/room", get(book_rooms::page))
         .route("/books/{id}/room/join", post(book_rooms::join))

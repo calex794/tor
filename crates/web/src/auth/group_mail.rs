@@ -362,8 +362,14 @@ pub(super) async fn poll(
         Ok(rows) => rows,
         Err(error) => return deny(super::mail::status(error)),
     };
-    let first = messages.first().map(|m| m.id.to_string()).unwrap_or_default();
-    let last = messages.last().map(|m| m.id.to_string()).unwrap_or_default();
+    let first = messages
+        .first()
+        .map(|m| m.id.to_string())
+        .unwrap_or_default();
+    let last = messages
+        .last()
+        .map(|m| m.id.to_string())
+        .unwrap_or_default();
     let payload = serde_json::json!({
         "ok": true,
         "messages": messages.iter().map(|message| serde_json::json!({

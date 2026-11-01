@@ -291,7 +291,10 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     let polled: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
     assert_eq!(polled["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(polled["messages"][0]["text"], "<img src=x onerror=alert(1)>");
+    assert_eq!(
+        polled["messages"][0]["text"],
+        "<img src=x onerror=alert(1)>"
+    );
     assert_eq!(polled["messages"][0]["sender_name"], "Group reader 0");
     let id = polled["messages"][0]["id"].as_str().unwrap();
     assert!(id.parse::<i64>().unwrap() > 0);
@@ -358,9 +361,16 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(&app, "GET", &format!("{path}/messages"), &cookies[1], "", &[])
-            .await
-            .status(),
+        call(
+            &app,
+            "GET",
+            &format!("{path}/messages"),
+            &cookies[1],
+            "",
+            &[]
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
