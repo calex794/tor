@@ -248,14 +248,13 @@ async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
 
     // B-10 protects the 100% current revenue recipient against a bare
     // membership deactivation. This security test must not bypass finance.
-    let denied = sqlx::query(
-        "UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2",
-    )
-    .bind(book_id)
-    .bind(owner)
-    .execute(&pool)
-    .await
-    .unwrap_err();
+    let denied =
+        sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
+            .bind(book_id)
+            .bind(owner)
+            .execute(&pool)
+            .await
+            .unwrap_err();
     assert_eq!(
         denied
             .as_database_error()
