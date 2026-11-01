@@ -77,8 +77,13 @@ fn impression(ticket: &str, visible: bool) -> ImpressionClaim {
     }
 }
 async fn canonical_start(pool: &PgPool, actor: i64, book: i64) -> String {
-    let chapter: i64=sqlx::query_scalar("SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=1 AND visibility='public'")
-        .bind(book).fetch_one(pool).await.unwrap();
+    let chapter: i64 = sqlx::query_scalar(
+        "SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=1 AND visibility='public'",
+    )
+    .bind(book)
+    .fetch_one(pool)
+    .await
+    .unwrap();
     let version: i64=sqlx::query_scalar("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES($1,1,'Readable text') ON CONFLICT(chapter_id,version_no) DO NOTHING RETURNING id")
         .bind(chapter).fetch_optional(pool).await.unwrap().unwrap_or(0);
     let version = if version == 0 {
