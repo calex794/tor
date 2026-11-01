@@ -5,7 +5,7 @@ use crate::{
     observability, pages,
 };
 use axum::{
-    extract::{ConnectInfo, Form, State},
+    extract::{ConnectInfo, Form, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
 };
@@ -27,6 +27,7 @@ pub(super) struct RegisterForm {
     password: String,
     csrf_token: Option<String>,
     manual_invite_code: Option<String>,
+    next: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -34,16 +35,78 @@ pub(super) struct LoginForm {
     email: String,
     password: String,
     csrf_token: Option<String>,
+    next: Option<String>,
 }
 
-pub(super) async fn show_registration(State(state): State<AuthState>) -> Response {
-    let (token, cookie) = state.cookies.csrf_token_cookie();
-    private_response(pages::registration_form(&token), &[cookie])
+/// The only post-auth return destination is a canonical local free reader.
+/// The target chapter is still verified by the actual reader after login.
+#[derive(Deserialize)]
+pub(super) struct AuthReturnQuery {
+    next: Option<String>,
 }
 
-pub(super) async fn show_login(State(state): State<AuthState>) -> Response {
+fn reader_return_target(raw: Option<&str>) -> Option<String> {
+    let raw_id = raw?.strip_prefix("/read/")?;
+    if raw_id.is_empty()
+        || raw_id.starts_with('0')
+        || !raw_id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let id = raw_id.parse::<i64>().ok().filter(|value| *value > 0)?;
+    Some(format!("/read/{id}"))
+}
+
+pub(super) async fn show_registration(
+    State(state): State<AuthState>,
+    Query(query): Query<AuthReturnQuery>,
+) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
-    private_response(pages::login_form(&token), &[cookie])
+    let next = reader_return_target(query.next.as_deref());
+    private_response(pages::registration_form_with_next(&token, next.as_deref()), &[cookie])
+}
+
+pub(super) async fn show_login(
+    State(state): State<AuthState>,
+    Query(query): Query<AuthReturnQuery>,
+) -> Response {
+    let (token, cookie) = state.cookies.csrf_token_cookie();
+    let next = reader_return_target(query.next.as_deref());
+    private_response(pages::login_form_with_next(&token, next.as_deref()), &[cookie])
+}
+
+#[cfg(test)]
+mod safe_auth_return_tests {
+    use super::reader_return_target;
+
+    #[test]
+    fn only_canonical_private_reader_paths_can_be_used_after_login() {
+        assert_eq!(reader_return_target(None), None);
+        assert_eq!(
+            reader_return_target(Some("/read/42")),
+            Some("/read/42".to_owned())
+        );
+        for candidate in [
+            "",
+            "/",
+            "/me",
+            "//evil.test",
+            "https://evil.test/read/42",
+            "javascript:alert(1)",
+            "/read/0",
+            "/read/042",
+            "/read/-1",
+            "/read/42/",
+            "/read/42?next=//evil.test",
+            "/read/42#trick",
+            "/read/%34%32",
+            "/read/42\\other",
+            "/read/42\r\nLocation: https://evil.test",
+            "/read/9223372036854775808",
+        ] {
+            assert_eq!(reader_return_target(Some(candidate)), None, "{candidate}");
+        }
+    }
 }
 
 fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bool) -> Response {
@@ -58,14 +121,16 @@ fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bo
 
 fn invalid_invite(form: &RegisterForm, reason: &str) -> Response {
     // A failed manual code never changes the existing guest referral capture.
+    let next = reader_return_target(form.next.as_deref());
     private_response(
         (
             StatusCode::BAD_REQUEST,
-            pages::registration_form_with_error(
+            pages::registration_form_with_error_and_next(
                 form.csrf_token.as_deref().unwrap_or(""),
                 &form.display_name,
                 &form.email,
                 Some(reason),
+                next.as_deref(),
             ),
         ),
         &[],
@@ -139,6 +204,7 @@ pub(super) async fn register(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<RegisterForm>,
 ) -> Response {
+    let next = reader_return_target(form.next.as_deref());
     if !state.cookies.same_origin(&headers)
         || !state
             .cookies
@@ -157,11 +223,12 @@ pub(super) async fn register(
             return private_response(
                 (
                     StatusCode::BAD_REQUEST,
-                    pages::registration_form_with_error(
+                    pages::registration_form_with_error_and_next(
                         form.csrf_token.as_deref().unwrap_or(""),
                         &form.display_name,
                         &form.email,
                         Some(message),
+                        next.as_deref(),
                     ),
                 ),
                 &[],
@@ -262,7 +329,7 @@ pub(super) async fn register(
                 let _ = referrals.finalize_one(user_id).await;
             });
             private_response(
-                Redirect::to("/me"),
+                Redirect::to(next.as_deref().unwrap_or("/me")),
                 &[
                     state.cookies.session_cookie(&token),
                     state.cookies.cleared_guest_cookie(),
@@ -301,6 +368,7 @@ pub(super) async fn login(
     peer: ConnectInfo<SocketAddr>,
     Form(form): Form<LoginForm>,
 ) -> Response {
+    let next = reader_return_target(form.next.as_deref());
     let source = access_audit::context(&headers, peer.0, LoginEventKind::PasswordLogin);
     let mut observed = auth_observation::RequestObservation::new(&state, &form.email, source);
     if !state.cookies.same_origin(&headers)
@@ -430,7 +498,10 @@ pub(super) async fn login(
     // No next parameter is accepted: redirects always stay on this site.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
-    private_response(Redirect::to("/me"), &[state.cookies.session_cookie(&token)])
+    private_response(
+        Redirect::to(next.as_deref().unwrap_or("/me")),
+        &[state.cookies.session_cookie(&token)],
+    )
 }
 
 #[cfg(test)]

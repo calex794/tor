@@ -170,6 +170,7 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
     assert(/^\/reader\/[1-9][0-9]*$/.test(href || ''),
       viewport + ': free sample must link to a public chapter');
     const chapterId = href.split('/').pop();
+    const privatePath = '/read/' + chapterId;
     await start.click();
     await reader.waitForURL(base + href);
     assert(await reader.getByText('Настоящая публикация через PostgreSQL.').isVisible(),
@@ -183,41 +184,32 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
       fullPage: true,
     });
 
-    // Follow the actual CTA; anonymous completion must redirect to login.
+    // A real guest link keeps the chapter target through login and registration.
     const enterPrivate = reader.getByRole('link', {
       name: 'Отметить главу прочитанной и попросить продолжение',
     });
     assert(await enterPrivate.isVisible(), viewport + ': guest completion CTA missing');
     await enterPrivate.click();
-    await reader.waitForURL(base + '/login');
-    const registerLink = reader.getByRole('link', { name: 'Зарегистрироваться' });
-    assert(await registerLink.isVisible(), viewport + ': login has no registration route');
-    await registerLink.click();
-    await reader.waitForURL(base + '/register');
-    await reader.getByLabel('Отображаемое имя').fill('Читатель поиска');
-    await reader.getByLabel('Электронная почта').fill(
-      'loop2.reader.' + viewport + '.' + Date.now() + '@example.test');
-    await reader.getByLabel('Пароль (12–128 символов)').fill('DiscoveryReader2026Pass');
-    await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
-    await reader.waitForURL(base + '/me');
-    // Registration currently lands on /me, rather than restoring the requested
-    // chapter. Re-discover through the actual public UI (no direct URL shortcut).
-    await search(reader, filters);
-    assert(await bookLink(reader, bookId).isVisible(),
-      viewport + ': discovered book disappeared for registered reader');
-    await bookLink(reader, bookId).click();
-    await reader.waitForURL(base + '/books/' + bookId);
-    const secondStart = reader.getByRole('link', { name: 'Читать доступную главу' });
-    assert(await secondStart.isVisible(), viewport + ': no free start after registration');
-    await secondStart.click();
-    await reader.waitForURL(base + href);
-    const authenticatedEntry = reader.getByRole('link', {
-      name: 'Отметить главу прочитанной и попросить продолжение',
+    await reader.waitForURL(url => {
+      const current = new URL(url);
+      return current.pathname === '/login' &&
+        current.searchParams.get('next') === privatePath;
     });
-    assert(await authenticatedEntry.isVisible(),
-      viewport + ': public reader lost its private completion link');
-    const privatePath = '/read/' + chapterId;
-    await authenticatedEntry.click();
+    const registerLink = reader.getByRole('link', { name: 'Зарегистрироваться' });
+    assert(await registerLink.getAttribute('href') === '/register?next=' + privatePath,
+      viewport + ': registration link lost the trusted chapter destination');
+    await registerLink.click();
+    await reader.waitForURL(url => {
+      const current = new URL(url);
+      return current.pathname === '/register' &&
+        current.searchParams.get('next') === privatePath;
+    });
+    const email = 'loop2.reader.' + viewport + '.' + Date.now() + '@example.test';
+    const password = 'DiscoveryReader2026Pass';
+    await reader.getByLabel('Отображаемое имя').fill('Читатель поиска');
+    await reader.getByLabel('Электронная почта').fill(email);
+    await reader.getByLabel('Пароль (12–128 символов)').fill(password);
+    await reader.getByRole('button', { name: 'Создать учётную запись' }).click();
     await reader.waitForURL(base + privatePath);
     assert(await reader.getByText('Настоящая публикация через PostgreSQL.').isVisible(),
       viewport + ': authenticated reader lost the discovered text');
@@ -241,6 +233,28 @@ async function discoveryToMeaningfulRead(browser, viewport, width, height, bookI
       viewport + ': completed reader state not restored');
     assert(pg('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + chapterId) === '1',
       viewport + ': repeat chapter GET duplicated a meaningful read');
+
+    // An existing account also retains the exact same chapter after login.
+    await reader.goto(base + '/me');
+    await reader.getByRole('button', { name: 'Выйти' }).click();
+    await reader.waitForURL(base + '/login');
+    await reader.goto(base + href);
+    await reader.getByRole('link', {
+      name: 'Отметить главу прочитанной и попросить продолжение',
+    }).click();
+    await reader.waitForURL(url => {
+      const current = new URL(url);
+      return current.pathname === '/login' &&
+        current.searchParams.get('next') === privatePath;
+    });
+    await reader.getByLabel('Электронная почта').fill(email);
+    await reader.getByLabel('Пароль').fill(password);
+    await reader.getByRole('button', { name: 'Войти', exact: true }).click();
+    await reader.waitForURL(base + privatePath);
+    assert(await reader.getByText('Глава уже отмечена прочитанной.', { exact: false }).isVisible(),
+      viewport + ': reader login did not restore completed state');
+    assert(pg('SELECT count(*) FROM reader_chapter_completions WHERE chapter_id=' + chapterId) === '1',
+      viewport + ': reader login duplicated a completion');
     console.log('TOR Loop 02 ' + viewport +
       ' PASS: guest discovery -> public sample -> authenticated ChapterCompletedV1 exactly once');
   } finally {
