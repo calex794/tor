@@ -104,9 +104,7 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            call(&app, "GET", path, &cookies[1], "", &[])
-                .await
-                .status(),
+            call(&app, "GET", path, &cookies[1], "", &[]).await.status(),
             StatusCode::NOT_FOUND
         );
         assert_eq!(
@@ -218,9 +216,7 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
         "/admin/mail/book-rooms/0",
     ] {
         assert_eq!(
-            call(&app, "GET", path, &cookies[0], "", &[])
-                .await
-                .status(),
+            call(&app, "GET", path, &cookies[0], "", &[]).await.status(),
             StatusCode::UNPROCESSABLE_ENTITY
         );
     }
@@ -229,9 +225,7 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
         "/admin/mail/book-rooms/9223372036854775807",
     ] {
         assert_eq!(
-            call(&app, "GET", path, &cookies[0], "", &[])
-                .await
-                .status(),
+            call(&app, "GET", path, &cookies[0], "", &[]).await.status(),
             StatusCode::NOT_FOUND
         );
     }
@@ -247,9 +241,7 @@ async fn e_08_admin_reads_group_and_book_rooms_without_membership_and_audits() {
     .await;
     for path in [&group_path, &room_path] {
         assert_eq!(
-            call(&app, "GET", path, &cookies[0], "", &[])
-                .await
-                .status(),
+            call(&app, "GET", path, &cookies[0], "", &[]).await.status(),
             StatusCode::NOT_FOUND
         );
     }

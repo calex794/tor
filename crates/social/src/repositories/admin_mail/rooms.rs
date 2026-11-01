@@ -73,7 +73,15 @@ impl PgAdminMail {
         .fetch_all(&mut *tx)
         .await
         .map_err(unavailable)?;
-        audit_other(&mut tx, admin, "list_group_conversations", None, None, rows.len()).await?;
+        audit_other(
+            &mut tx,
+            admin,
+            "list_group_conversations",
+            None,
+            None,
+            rows.len(),
+        )
+        .await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(rows
             .into_iter()
@@ -99,13 +107,12 @@ impl PgAdminMail {
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
         let admin = authorize(&mut tx, digest).await?;
-        let found: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM social_group_conversations WHERE id=$1",
-        )
-        .bind(group_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let found: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if found.is_none() {
             return Err(MailError::NotFound);
         }
@@ -122,7 +129,12 @@ impl PgAdminMail {
         .await
         .map_err(unavailable)?;
         audit_other(
-            &mut tx, admin, "read_group_conversation", Some(group_id), None, rows.len(),
+            &mut tx,
+            admin,
+            "read_group_conversation",
+            Some(group_id),
+            None,
+            rows.len(),
         )
         .await?;
         tx.commit().await.map_err(unavailable)?;
@@ -210,7 +222,15 @@ impl PgAdminMail {
         .fetch_all(&mut *tx)
         .await
         .map_err(unavailable)?;
-        audit_other(&mut tx, admin, "read_book_room", None, Some(book_id), rows.len()).await?;
+        audit_other(
+            &mut tx,
+            admin,
+            "read_book_room",
+            None,
+            Some(book_id),
+            rows.len(),
+        )
+        .await?;
         tx.commit().await.map_err(unavailable)?;
         rows.reverse();
         Ok(rows

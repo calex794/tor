@@ -236,7 +236,6 @@ fn e_08_private_member_preview_is_read_only_mail_route() {
     assert!(!classify(Some("/me/books/{id}/preview"), "POST").route_known);
 }
 
-
 #[test]
 fn e_08_admin_room_read_routes_are_audited_and_read_only() {
     for template in [

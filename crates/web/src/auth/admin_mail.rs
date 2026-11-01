@@ -183,7 +183,6 @@ pub(super) async fn conversation(
     private_response(shell("Переписка пользователей", &body), &[])
 }
 
-
 fn messages_section(rows: &[AdminDirectMessage], older_link: &str) -> String {
     let mut body = String::from(r#"<section class="me-section" aria-label="Сообщения">"#);
     if rows.is_empty() {
