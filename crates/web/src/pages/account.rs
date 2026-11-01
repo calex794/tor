@@ -103,6 +103,7 @@ pub fn my_account_with_follow_updates(
     render_my_account(name, csrf, replies, unread, None)
 }
 
+#[allow(dead_code)] // Kept for legacy callers and inline tests.
 pub fn my_account_with_achievements(
     name: &str,
     csrf: &str,
