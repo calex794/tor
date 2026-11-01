@@ -144,6 +144,10 @@ jobs:
           SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
           SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
           SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
+          -- Only CI migrator can curate these canonical test genre terms.
+          INSERT INTO book_taxonomy_terms(kind,label,search_key) VALUES
+            ('genre','Fantasy','fantasy'),('genre','Adventure','adventure')
+          ON CONFLICT(kind,search_key) DO NOTHING;
           SQL
       - name: Database and HTTP integration
         run: |
