@@ -30,6 +30,12 @@ fn public_private_and_write_routes_are_distinct() {
         classify(Some("/read/{id}/want-continuation"), "POST").cost_class,
         CostClass::Write
     );
+    let organic_post = classify(Some("/api/v1/discovery/activate"), "POST");
+    let organic_asset = classify(Some("/assets/organic_discovery.js"), "GET");
+    assert!(organic_post.route_known && organic_asset.route_known);
+    assert_eq!(organic_post.cost_class, CostClass::Write);
+    assert_eq!(organic_post.product_area, ProductArea::Recommendations);
+    assert_eq!(organic_asset.traffic_surface, TrafficSurface::Static);
     let like_get = classify(Some("/books/{id}/like"), "GET");
     let like_post = classify(Some("/books/{id}/like"), "POST");
     assert_eq!(like_get.cost_class, CostClass::CheapRead);
