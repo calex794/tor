@@ -116,6 +116,16 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(granted.status(), StatusCode::OK);
+    // Without an explicit source, D may select the same Layer term after
+    // direct purchase lookup returns NotPurchased. Never force that fallback
+    // through C-06's direct first-exposure journal.
+    assert_eq!(
+        post_grant(app, chapter, Some(cookie), Some(csrf), ORIGIN, "{}")
+            .await
+            .status(),
+        StatusCode::OK,
+        "default paid grant must permit an authorized Layer fallback"
+    );
     // A Layer-only subscriber has no direct chapter purchase. Successful
     // Layer grants must not forge a D-06 first-exposure ledger entry.
     assert_eq!(
