@@ -136,3 +136,106 @@ async fn e_08_book_rooms_canonical_join_rejoin_visibility_and_retry() {
     // Books and audit history are intentionally left for disposal of tor_ci.
 }
 
+/// The repository's FOR SHARE/FOR UPDATE fences must hold against concurrent
+/// membership departure and a Book visibility hold, not just sequential checks.
+/// A postponed sender must never persist its text after either ACL change.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_book_room_send_cannot_race_leave_or_moderation_hold() {
+    let (pool, users) = fixture().await;
+    let actor = users[0];
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book_id: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES($1,'ru','Race-tested book room','public') RETURNING id",
+    )
+    .bind(format!("ci:e08:room:race:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let rooms = PgBookRooms::new(pool.clone());
+    rooms.join(actor, book_id).await.unwrap();
+
+    // Lock actor membership just before an exit commits.
+    let mut leave_tx = pool.begin().await.unwrap();
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM social_book_room_members
+         WHERE book_id=$1 AND user_id=$2 FOR UPDATE",
+    )
+    .bind(book_id)
+    .bind(actor)
+    .fetch_one(&mut *leave_tx)
+    .await
+    .unwrap();
+    assert_eq!(status, "active");
+    let sending = {
+        let rooms = rooms.clone();
+        tokio::spawn(async move {
+            rooms
+                .send(actor, book_id, "After leave", &key(820))
+                .await
+        })
+    };
+    tokio::task::yield_now().await;
+    sqlx::query(
+        "UPDATE social_book_room_members
+         SET status='left',left_at=clock_timestamp()
+         WHERE book_id=$1 AND user_id=$2",
+    )
+    .bind(book_id)
+    .bind(actor)
+    .execute(&mut *leave_tx)
+    .await
+    .unwrap();
+    leave_tx.commit().await.unwrap();
+    assert_eq!(sending.await.unwrap(), Err(MailError::NotFound));
+    assert_eq!(
+        rooms.messages(actor, book_id, None, 50).await,
+        Err(MailError::NotFound)
+    );
+
+    // The reader explicitly rejoins, then a later admin hold races a send.
+    rooms.join(actor, book_id).await.unwrap();
+    let mut hold_tx = pool.begin().await.unwrap();
+    let locked: i64 =
+        sqlx::query_scalar("SELECT id FROM books WHERE id=$1 FOR UPDATE")
+            .bind(book_id)
+            .fetch_one(&mut *hold_tx)
+            .await
+            .unwrap();
+    assert_eq!(locked, book_id);
+    let sending = {
+        let rooms = rooms.clone();
+        tokio::spawn(async move {
+            rooms
+                .send(actor, book_id, "After hold", &key(821))
+                .await
+        })
+    };
+    tokio::task::yield_now().await;
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book_id)
+        .execute(&mut *hold_tx)
+        .await
+        .unwrap();
+    hold_tx.commit().await.unwrap();
+    assert_eq!(sending.await.unwrap(), Err(MailError::NotFound));
+    assert_eq!(rooms.join(actor, book_id).await, Err(MailError::NotFound));
+    assert_eq!(
+        rooms.messages(actor, book_id, None, 50).await,
+        Err(MailError::NotFound)
+    );
+    let stored: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM social_book_room_messages WHERE book_id=$1")
+            .bind(book_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, 0, "no message may cross either ACL transition");
+
+    cleanup(&pool, &users).await;
+    // Book fixture remains in disposable tor_ci for database teardown.
+}
