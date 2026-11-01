@@ -148,4 +148,32 @@ async fn e_08_admin_mail_html_requires_live_role_and_audits() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(pg(&url, &audit).await, "3");
+
+    // This disposable CI database is shared with the later A-04/A-05 role
+    // regression. Do not leave a second active administrator behind: that
+    // would make the "last administrator cannot resign" assertion invalid.
+    // Keep the append-only mail access audit, and revoke only this fixture's
+    // test role after testing both role and session revocation.
+    pg(
+        &url,
+        &format!(
+            "UPDATE account_roles SET is_active=FALSE WHERE user_id={} AND role='administrator'",
+            users[0]
+        ),
+    )
+    .await;
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM account_roles
+                 WHERE user_id={} AND role='administrator' AND is_active",
+                users[0]
+            )
+        )
+        .await,
+        "0",
+        "HTTP fixture must not leak an administrator into other CI suites"
+    );
+    assert_eq!(pg(&url, &audit).await, "3");
 }
