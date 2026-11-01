@@ -213,7 +213,9 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
     // Twenty successes from another source against one attacked target must
     // not inflate the number of sources participating in the attack.
     for index in 1..=20u8 {
-        let source = secret.source(std::net::IpAddr::from([203, 0, 113, index])).0;
+        let source = secret
+            .source(std::net::IpAddr::from([203, 0, 113, index]))
+            .0;
         accounts
             .record_auth_observation(&AuthAttemptObservation {
                 target_key: Some(victim),
