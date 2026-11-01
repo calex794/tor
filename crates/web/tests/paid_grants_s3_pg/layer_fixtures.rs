@@ -8,12 +8,36 @@ use tor_commerce::{
     repositories::layers::PgLayers,
 };
 
+async fn post_asset_grant(
+    app: &Router,
+    chapter: i64,
+    object_id: &str,
+    cookie: &str,
+    csrf: &str,
+    body: &str,
+) -> Response {
+    let path = format!(
+        "/api/v1/reader/chapters/{chapter}/assets/{object_id}/delivery-grants"
+    );
+    let request = Request::builder()
+        .uri(path)
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::COOKIE, format!("tor-dev-session={cookie}; tor-dev-csrf={csrf}"))
+        .header("x-csrf-token", csrf)
+        .body(Body::from(body.to_owned()))
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap()
+}
+
 pub(super) async fn assert_layer_s3_grants(
     repo: PgLayers,
     app: &Router,
     url: &str,
     users: (i64, i64),
     edition: (i64, i64, i64),
+    image_object: &str,
     credentials: (&str, &str),
 ) -> String {
     let (author, subscriber) = users;
@@ -139,6 +163,35 @@ pub(super) async fn assert_layer_s3_grants(
         0,
         "Layer-only grant must not create a direct purchase exposure"
     );
+    // Paid assets use the same D-05 Layer authority as chapter ciphertext.
+    // Explicit and implicit Layer grants never mint a D-06 direct exposure.
+    for source in [r#"{"source":"layer"}"#, "{}"] {
+        let image = post_asset_grant(app, chapter, image_object, cookie, csrf, source).await;
+        assert_eq!(image.status(), StatusCode::OK, "Layer paid asset: {source}");
+        assert_eq!(
+            image.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        let image_grant = decode(image).await;
+        assert_eq!(image_grant["version_id"], published.to_string());
+        assert!(
+            image_grant["content"]["ciphertext_url"]
+                .as_str()
+                .unwrap()
+                .starts_with(ENDPOINT)
+        );
+    }
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures \
+                 WHERE user_id={subscriber} AND chapter_id={chapter}"
+            ),
+        ),
+        0,
+        "Layer paid illustration must not forge direct first-grant evidence"
+    );
     assert_eq!(
         granted.headers()[header::CACHE_CONTROL],
         "private, no-store"
@@ -195,6 +248,20 @@ pub(super) async fn assert_layer_s3_grants(
         .status(),
         StatusCode::FORBIDDEN,
         "revoked Layer must never authorize another signed URL"
+    );
+    assert_eq!(
+        post_asset_grant(
+            app,
+            chapter,
+            image_object,
+            cookie,
+            csrf,
+            r#"{"source":"layer"}"#,
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "revoked Layer must never sign a paid illustration"
     );
     assert_eq!(
         private_get(app, &layer_page, Some(cookie)).await.status(),
