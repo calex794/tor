@@ -121,7 +121,7 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(actual, (vec![genre_key], vec![tag_key]));
+    assert_eq!(actual, (vec![genre_key.clone()], vec![tag_key.clone()]));
     let links: Vec<i64> = sqlx::query_scalar(
         "SELECT term_id FROM book_taxonomy_links WHERE book_id=$1
          ORDER BY kind,position",
@@ -131,6 +131,63 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
     .await
     .unwrap();
     assert_eq!(links, vec![genre, tag]);
+
+    // Existing books can edit their IDs, but cannot overwrite concurrent
+    // changes or silently erase old metadata outside the canonical dictionary.
+    let initial = author.taxonomy_snapshot(user, book_id).await.unwrap().unwrap();
+    assert_eq!(initial.revision, 1);
+    assert!(initial.editable);
+    assert_eq!(initial.genres.iter().map(|t| t.id).collect::<Vec<_>>(), vec![genre]);
+    assert_eq!(initial.tags.iter().map(|t| t.id).collect::<Vec<_>>(), vec![tag]);
+    assert!(author.taxonomy_snapshot(user + 500, book_id).await.unwrap().is_none());
+    assert_eq!(
+        author.update_book_taxonomy(user + 500, book_id, 1, &selected).await,
+        Err(AuthorError::Missing)
+    );
+    assert_eq!(
+        author.update_book_taxonomy(user, book_id, 0, &selected).await,
+        Err(AuthorError::Invalid)
+    );
+    assert_eq!(
+        author.update_book_taxonomy(user, book_id, 1, &selected).await,
+        Ok(()),
+        "repeating the same selections must not advance revision"
+    );
+    assert_eq!(author.taxonomy_snapshot(user, book_id).await.unwrap().unwrap().revision, 1);
+    let genre_only = TaxonomySelection::parse(Some(&genre.to_string()), None, None).unwrap();
+    assert_eq!(
+        author.update_book_taxonomy(user, book_id, 1, &genre_only).await,
+        Ok(())
+    );
+    let changed = author.taxonomy_snapshot(user, book_id).await.unwrap().unwrap();
+    assert!(changed.editable);
+    assert_eq!(changed.revision, 2);
+    assert!(changed.tags.is_empty());
+    assert_eq!(
+        author.update_book_taxonomy(user, book_id, 1, &selected).await,
+        Err(AuthorError::Conflict),
+        "stale form cannot restore a removed tag"
+    );
+    let updated_tags: Vec<String> = sqlx::query_scalar("SELECT tags FROM books WHERE id=$1")
+        .bind(book_id).fetch_one(&pool).await.unwrap();
+    assert!(updated_tags.is_empty());
+    let updated_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT term_id FROM book_taxonomy_links WHERE book_id=$1 ORDER BY kind,position",
+    ).bind(book_id).fetch_all(&pool).await.unwrap();
+    assert_eq!(updated_ids, vec![genre]);
+
+    sqlx::query("UPDATE books SET tags=ARRAY['unmapped_legacy'] WHERE id=$1")
+        .bind(book_id).execute(&pool).await.unwrap();
+    let orphan = author.taxonomy_snapshot(user, book_id).await.unwrap().unwrap();
+    assert!(!orphan.editable, "legacy private values must not be discarded");
+    assert_eq!(orphan.raw_tags, vec!["unmapped_legacy"]);
+    assert_eq!(
+        author.update_book_taxonomy(user, book_id, 2, &genre_only).await,
+        Err(AuthorError::Conflict)
+    );
+    let preserved: Vec<String> = sqlx::query_scalar("SELECT tags FROM books WHERE id=$1")
+        .bind(book_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(preserved, vec!["unmapped_legacy"]);
 
     // Forged IDs never create free-text taxonomy or partial book/links.
     let mut forged = new_book(

@@ -321,6 +321,27 @@ async function draftBook(page, viewport) {
   const id = page.url().split('/').pop();
   assert(/^[1-9][0-9]*$/.test(id), 'author did not create canonical book ID');
 
+  // Owner-only edit page must rehydrate all existing canonical tags from PG.
+  await page.getByRole('link', { name: 'Жанры и теги книги' }).click();
+  await page.waitForURL(base + '/me/books/' + id + '/taxonomy');
+  const genres = page.locator('[data-taxonomy-picker][data-kind="genre"]');
+  assert(await genres.locator('[data-selected] button').count() === 2,
+    viewport + ': existing genre choices were lost on edit form');
+  assert(await page.locator('[data-taxonomy-picker][data-kind="tag"] [data-selected] button').count() === 1,
+    viewport + ': existing tag choice was lost on edit form');
+  assert(await page.locator('[data-taxonomy-picker][data-kind="fandom"] [data-selected] button').count() === 1,
+    viewport + ': existing fandom choice was lost on edit form');
+  // Change canonical order without changing catalog filtering semantics.
+  await genres.getByRole('button', { name: 'Удалить: Фэнтези' }).click();
+  await chooseAuthorTaxonomy(page, 'genre', 'фэнтези', 'Фэнтези');
+  await page.getByRole('button', { name: 'Сохранить теги' }).click();
+  await page.waitForURL(base + '/me/books/' + id);
+  await page.goto(base + '/me/books/' + id + '/taxonomy');
+  const idsInOrder = await page.locator('[data-taxonomy-picker][data-kind="genre"] [data-selected] button').allTextContents();
+  assert(idsInOrder.length === 2 && idsInOrder[0].includes('Приключения') &&
+    idsInOrder[1].includes('Фэнтези'), viewport + ': taxonomy edit did not persist order');
+  await page.goto(base + '/me/books/' + id);
+
   await page.getByRole('link', { name: 'Добавить главу' }).click();
   await page.waitForURL('**/chapters/new');
   await page.getByLabel('Номер главы').fill('1');
