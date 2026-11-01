@@ -362,11 +362,7 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = if let Some(cover_routes) = cover_routes {
-        app.merge(cover_routes)
-    } else {
-        app
-    };
+    let app = cover_routes.into_iter().fold(app, |app, cover| app.merge(cover));
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
