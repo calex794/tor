@@ -73,6 +73,29 @@ impl PgBookRooms {
         Self { pool }
     }
 
+    /// Public book title and current membership for the join/read page.
+    /// Hidden, held, deleted or unknown books share one NotFound response.
+    /// Every state-changing method independently rechecks these conditions.
+    pub async fn overview(&self, actor: i64, book_id: i64) -> Result<(String, bool), MailError> {
+        if actor <= 0 || book_id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let row: Option<(String, bool)> = sqlx::query_as(
+            "SELECT b.title, EXISTS(
+                 SELECT 1 FROM social_book_room_members m
+                 WHERE m.book_id=b.id AND m.user_id=$2 AND m.status='active')
+             FROM books b
+             WHERE b.id=$1 AND b.visibility='public'
+               AND NOT b.admin_hold AND NOT b.is_deleted",
+        )
+        .bind(book_id)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        row.ok_or(MailError::NotFound)
+    }
+
     /// Join or rejoin the one room bound to a public Book ID. An existing
     /// active membership is unchanged. Two simultaneous first joins cannot
     /// create two room identities due to the book_id primary key.

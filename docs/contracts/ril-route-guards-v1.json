@@ -1037,6 +1037,34 @@
       "source": "crates/web/src/auth.rs",
       "handler": "group_mail::leave",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/room",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/room/join",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::join",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/room/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/room/leave",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::leave",
+      "policy": "scoped"
     }
   ]
 }
