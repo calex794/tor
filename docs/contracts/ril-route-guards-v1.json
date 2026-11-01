@@ -1065,6 +1065,27 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_rooms::leave",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail",
+      "source": "crates/web/src/auth.rs",
+      "handler": "admin_mail::index",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/users/{user_id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "admin_mail::user",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "admin_mail::conversation",
+      "policy": "admin_mail"
     }
   ]
 }

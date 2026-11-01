@@ -21,6 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 EXPECTED_HOST = "pandaolate.ru"
 EXPECTED_UPSTREAM = "http://127.0.0.1:3000"
+AUDITED_ADMIN_MAIL = {
+    ("GET", "/admin/mail", "admin_mail::index", "admin_mail"),
+    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user", "admin_mail"),
+    ("GET", "/admin/mail/{id}", "admin_mail::conversation", "admin_mail"),
+}
 PRIVATE_PROBES = (
     ("/me", {301, 302, 303, 307, 308, 401, 403, 404}),
     ("/api/v1/chapters/1/read", {403, 404}),
@@ -72,7 +77,9 @@ def check_repository(root: Path = ROOT) -> list[str]:
         template = row["template"]
         policy = row["policy"]
         if template.startswith(("/admin", "/internal")) and policy != "deny":
-            problems.append(f"internal/admin route is not denied: {row['method']} {template}")
+            key = (row["method"], template, row["handler"], policy)
+            if row["source"] != "crates/web/src/auth.rs" or key not in AUDITED_ADMIN_MAIL:
+                problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
     return problems

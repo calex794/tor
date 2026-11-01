@@ -15,9 +15,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "admin_mail"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner"}
+PROTECTED = {"session", "scoped", "owner", "admin_mail"}
+ADMIN_MAIL_HANDLERS = {
+    ("GET", "/admin/mail", "admin_mail::index"): "users",
+    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
+    ("GET", "/admin/mail/{id}", "admin_mail::conversation"): "messages",
+}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
@@ -174,8 +179,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and policy in {"public", "entry", "csrf_only"}
             and entry["template"] != "/logout"):
         errors.append(f"{label}: protected route downgraded to public/entry")
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny":
+    admin_key = (entry["method"], entry["template"], entry["handler"])
+    audited_admin = (policy == "admin_mail"
+                     and entry["source"] == "crates/web/src/auth.rs"
+                     and admin_key in ADMIN_MAIL_HANDLERS)
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not audited_admin:
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_mail":
+        method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
+        if not method:
+            errors.append(f"{label}: unreviewed admin mail action")
+        elif not (
+            re.search(r"\bactor\s*\(\s*&state\s*,\s*&headers\s*\)", body)
+            and re.search(rf"\.{method}\s*\(\s*&digest\b", body)
+            and "PgAdminMail::new" in evidence
+            and "session_token_digest" in evidence
+        ):
+            errors.append(f"{label}: missing session-bound audited admin mail repository call")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 

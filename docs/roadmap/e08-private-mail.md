@@ -410,3 +410,8 @@ trusted-origin lookalike host and user-info spoofing cannot be projected,
 while same-origin and relative URLs still resolve through the original B
 public/owner checks. No new route, migration, external import, main change,
 or retained DB operation. Exact-head CI required.
+
+
+## 01.11.2026 - audited administrator mail HTML (Draft)
+
+Three source GET pages /admin/mail, /admin/mail/users/{user_id}, /admin/mail/{id} now project only the existing read-only audited PgAdminMail repository. Browser cookie digest, live administrator role and session, committed audit before response; no impersonation or direct SQL in web. Names and direct-message text escaped, no account emails, max 50 rows, CSP scripts disabled and no-store. RIL exceptions are limited to these three precise bindings; all other admin/internal routes remain blocked. A disposable HTTP/PG test checks normal-user denial, role/session revocation, audit and XSS. Pending exact-HEAD CI, independent review and retained DB ledger check. Per-access reason and retention policy are not implemented. No production/deploy/retained DB/main changes.

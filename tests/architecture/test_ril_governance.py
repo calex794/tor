@@ -48,6 +48,24 @@ class RilGovernanceTests(unittest.TestCase):
     def test_current_registration_and_guards_are_consistent(self):
         self.assertEqual([], check(self.root))
 
+    def test_admin_mail_cannot_read_with_unverified_digest(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail.rs",
+            ".users(&digest, q, query.before, 50)",
+            ".users(&[0; 32], q, query.before, 50)",
+            start="pub(super) async fn index(",
+        )
+        self.assert_detected("missing session-bound audited admin mail repository call")
+
+    def test_admin_mail_cannot_bypass_cookie_session(self):
+        self.mutate(
+            "crates/web/src/auth/admin_mail.rs",
+            "let digest = match actor(&state, &headers).await",
+            "let digest = match unverified_actor(&state, &headers).await",
+            start="pub(super) async fn conversation(",
+        )
+        self.assert_detected("missing verified PG session guard")
+
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",
