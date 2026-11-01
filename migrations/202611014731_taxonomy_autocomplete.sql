@@ -92,8 +92,13 @@ REVOKE ALL ON book_taxonomy_terms,book_taxonomy_aliases,book_taxonomy_links FROM
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='tor_app') THEN
+        -- The migrator grants generic DML via default privileges in CI.
+        -- Override those grants explicitly: authors cannot create or edit
+        -- approved vocabulary and cannot alter another book's term links.
+        REVOKE ALL ON book_taxonomy_terms,book_taxonomy_aliases,book_taxonomy_links FROM tor_app;
         GRANT SELECT ON book_taxonomy_terms,book_taxonomy_aliases TO tor_app;
         GRANT SELECT,INSERT ON book_taxonomy_links TO tor_app;
+        REVOKE ALL ON SEQUENCE book_taxonomy_terms_id_seq FROM tor_app;
     END IF;
 END
 $$;
