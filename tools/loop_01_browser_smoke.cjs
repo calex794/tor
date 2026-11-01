@@ -148,6 +148,10 @@ async function screenshot(page, screen, step) {
   } finally {
     await browser.close();
   }
+  console.log(
+    'TOR Loop 01 Chromium PASS: desktop/mobile real accounts, demand, owner release, ' +
+    'on-site update, read-state receipt and completed private-reader return'
+  );
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
