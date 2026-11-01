@@ -26,13 +26,11 @@ impl PgCatalog {
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (
                  b.visibility='public'
-                 OR (
-                   b.owner_user_id=$1
-                   AND EXISTS (
-                     SELECT 1 FROM book_members m
-                     WHERE m.book_id=b.id AND m.user_id=$1
-                       AND m.role='owner' AND m.is_active
-                   )
+                 OR EXISTS (
+                   SELECT 1 FROM book_members m
+                   WHERE m.book_id=b.id AND m.user_id=$1 AND m.is_active
+                     AND m.role IN ('owner','translator','moderator')
+                     AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
                  )
                )",
         )
@@ -66,6 +64,29 @@ impl PgCatalog {
                  WHERE m.book_id=b.id AND m.user_id=$2
                    AND m.role='owner' AND m.is_active
                )",
+        )
+        .bind(book_id)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// One actor-scoped title read, with no private cover, chapter or write grants.
+    pub async fn private_mail_title_for_member(
+        &self,
+        actor: i64,
+        book_id: i64,
+    ) -> Result<Option<String>, sqlx::Error> {
+        if actor <= 0 || book_id <= 0 {
+            return Ok(None);
+        }
+        sqlx::query_scalar(
+            "SELECT b.title FROM books b
+             JOIN book_members m ON m.book_id=b.id AND m.user_id=$2
+             WHERE b.id=$1 AND m.is_active
+               AND m.role IN ('owner','translator','moderator')
+               AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
+               AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(book_id)
         .bind(actor)

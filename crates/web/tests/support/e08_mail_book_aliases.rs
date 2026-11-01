@@ -11,6 +11,7 @@ pub(super) async fn verify(
     books: [i64; 3],
     cookies: &[String],
     csrf: &[String],
+    users: &[i64],
 ) {
     let [public, private, held] = books;
     let public_alias = format!("legacy-public-{nonce}");
@@ -50,7 +51,7 @@ pub(super) async fn verify(
     let previews = message["book_previews"].as_array().unwrap();
     assert_eq!(previews.len(), 2);
     assert_eq!(previews[0]["url"], format!("/books/{public}"));
-    assert_eq!(previews[1]["url"], format!("/me/books/{private}"));
+    assert_eq!(previews[1]["url"], format!("/me/books/{private}/preview"));
     assert_eq!(previews[1]["cover_url"], "");
     assert!(!message.to_string().contains("HELD-NEVER-DISCLOSE"));
     let body = message["body_without_book_links"].as_str().unwrap();
@@ -83,6 +84,119 @@ pub(super) async fn verify(
     let peer_body = item["body_without_book_links"].as_str().unwrap();
     assert!(peer_body.contains(&format!("/book/{private_alias}")));
     assert!(peer_body.contains(&format!("/books/{held_alias}")));
+
+
+    // Active members may read a hidden title; no mail participant inherits
+    // an editing right or a title after B-09 membership revocation.
+    let view = format!("/me/books/{private}/preview");
+    assert_eq!(
+        call(app, "GET", &view, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(app, "GET", &view, &cookies[2], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        db_url,
+        &format!(
+            "INSERT INTO book_members(book_id,user_id,role,share_percent)
+             VALUES({private},{},'translator',0)",
+            users[1]
+        ),
+    )
+    .await;
+    let accepted = call(app, "GET", &view, &cookies[1], "", &[]).await;
+    assert_eq!(accepted.status(), StatusCode::OK);
+    assert_eq!(accepted.headers()["cache-control"], "no-store");
+    let html = text(accepted).await;
+    assert!(html.contains("HIDDEN-NEVER-DISCLOSE"));
+    assert!(!html.contains("/chapters/new"));
+    assert_eq!(
+        call(
+            app,
+            "GET",
+            &format!("/me/books/{private}"),
+            &cookies[1],
+            "",
+            &[]
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let current = call(
+        app,
+        "GET",
+        &format!(
+            "/api/v1/me/messages?conversation_id={conversation_id}&after_id={}",
+            message_id - 1
+        ),
+        &cookies[1],
+        "",
+        &[],
+    )
+    .await;
+    let current: serde_json::Value = serde_json::from_str(&text(current).await).unwrap();
+    let cards = current["messages"][0]["book_previews"].as_array().unwrap();
+    assert_eq!(cards.len(), 2);
+    assert_eq!(cards[1]["url"], view);
+    assert_eq!(cards[1]["cover_url"], "");
+    pg(
+        db_url,
+        &format!(
+            "UPDATE book_members SET role='moderator'
+             WHERE book_id={private} AND user_id={}",
+            users[1]
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(app, "GET", &view, &cookies[1], "", &[])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    pg(
+        db_url,
+        &format!(
+            "UPDATE book_members SET is_active=FALSE
+             WHERE book_id={private} AND user_id={}",
+            users[1]
+        ),
+    )
+    .await;
+    assert_eq!(
+        call(app, "GET", &view, &cookies[1], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let revoked = call(
+        app,
+        "GET",
+        &format!(
+            "/api/v1/me/messages?conversation_id={conversation_id}&after_id={}",
+            message_id - 1
+        ),
+        &cookies[1],
+        "",
+        &[],
+    )
+    .await;
+    let revoked: serde_json::Value = serde_json::from_str(&text(revoked).await).unwrap();
+    assert_eq!(
+        revoked["messages"][0]["book_previews"].as_array().unwrap().len(),
+        1
+    );
+    assert!(revoked["messages"][0]["body_without_book_links"]
+        .as_str()
+        .unwrap()
+        .contains(&format!("/book/{private_alias}")));
 
     // Imported aliases are globally one-to-one. No second Book may claim
     // the same legacy ref and silently reassign previous mail links.

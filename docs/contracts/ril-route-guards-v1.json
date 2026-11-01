@@ -1047,6 +1047,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}/preview",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_book_previews::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/books/{id}/room",
       "source": "crates/web/src/auth.rs",
       "handler": "book_rooms::page",

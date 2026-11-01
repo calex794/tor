@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 155);
+    assert_eq!(unique.len(), 157);
 }
 
 #[test]
@@ -225,4 +225,13 @@ fn f_05_private_ranking_routes_are_known_bounded_and_not_catalog_events() {
         assert_ne!(route.route_family, "/unknown/");
     }
     assert!(!classify(Some("/api/v1/me/rankings"), "POST").route_known);
+}
+
+#[test]
+fn e_08_private_member_preview_is_read_only_mail_route() {
+    let page = classify(Some("/me/books/{id}/preview"), "GET");
+    assert!(page.route_known);
+    assert_eq!(page.product_area, ProductArea::Mail);
+    assert_eq!(page.cost_class, CostClass::Read);
+    assert!(!classify(Some("/me/books/{id}/preview"), "POST").route_known);
 }

@@ -166,6 +166,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/mail/{id}/messages"), "GET") => Some(153),
         (Some("/mail/groups/{id}/messages"), "GET") => Some(154),
         (Some("/mail/groups/{id}/transfer"), "POST") => Some(155),
+        (Some("/me/books/{id}/preview"), "GET") => Some(156),
         _ => None,
     };
     index

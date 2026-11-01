@@ -1,6 +1,13 @@
 //! E-08 mail presentation: public B catalog or exact owner-authorized private view.
 //! Never copy the source's unscoped include_hidden catalog fallback.
-use super::AuthState;
+use super::{deny, session_user, AuthState};
+use crate::auth_cookies::private_response;
+use crate::pages::{escape_html, layout};
+use axum::{
+    extract::{Path, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::{Redirect, Response},
+};
 use std::collections::{HashMap, HashSet};
 use tor_books::{
     repositories::{cover_slots::PgCoverSlots, PgCatalog},
@@ -204,7 +211,7 @@ fn project(
                 url: if public_title.is_some() {
                     format!("/books/{}", link.id)
                 } else {
-                    format!("/me/books/{}", link.id)
+                    format!("/me/books/{}/preview", link.id)
                 },
                 cover_url: if public_title.is_some() && covers.contains(&link.id) {
                     format!("/covers/{}/card.webp", link.id)
@@ -225,6 +232,43 @@ fn project(
         body_without_book_links: plain,
         book_previews: previews,
     }
+}
+
+
+//// Private Book mail destination: title only, no owner tools or chapters.
+/// Actor membership is checked together with the title to avoid ACL races.
+pub(super) async fn page(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let catalog = PgCatalog::new(state.accounts.pool().clone());
+    let title = match catalog.private_mail_title_for_member(actor, id).await {
+        Ok(Some(title)) => title,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let html = layout(
+        "Превью книги",
+        "Доступно участникам книжного проекта.",
+        &format!(
+            r#"<section class="me-page"><div class="container"><header class="ui-page-header"><h1>{}</h1></header><p>Просмотр доступен участнику книжного проекта.</p><a href="/mail">Вернуться к переписке</a></div></section>"#,
+            escape_html(&title),
+        ),
+    );
+    let mut response = private_response(html, &[]);
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
 
 /// Called only after actor authentication and conversation membership checks.
@@ -297,9 +341,9 @@ pub(super) async fn enrich(
             }
         }
     }
-    // A private title is projected only for a current canonical owner with
-    // active B-09 membership. Legacy aliases use that same B-owned ACL.
-    // Other mail participants (including inactive former owners) retain text.
+    // Actor-specific B-09 owner, translator or moderator membership is
+    // required for private titles and legacy aliases on every read.
+    // Revoked members retain the original source link as plain text.
     let mut owned_titles = HashMap::new();
     for batch in missing_public.chunks(CONCURRENT_LOOKUPS) {
         let mut jobs = tokio::task::JoinSet::new();
@@ -309,7 +353,7 @@ pub(super) async fn enrich(
             jobs.spawn(async move {
                 (
                     id,
-                    catalog.private_mail_title_for_owner(actor, id as i64).await,
+                    catalog.private_mail_title_for_member(actor, id as i64).await,
                 )
             });
         }
@@ -453,7 +497,7 @@ mod tests {
         assert_eq!(projected.body_without_book_links, "");
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].title, "Owner-only draft");
-        assert_eq!(projected.book_previews[0].url, "/me/books/13");
+        assert_eq!(projected.book_previews[0].url, "/me/books/13/preview");
         assert_eq!(projected.book_previews[0].cover_url, "");
         let denied = project(
             body,

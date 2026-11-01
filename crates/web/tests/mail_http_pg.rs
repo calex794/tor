@@ -863,7 +863,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     );
     assert_eq!(
         message["book_previews"][1]["url"],
-        format!("/me/books/{hidden}")
+        format!("/me/books/{hidden}/preview")
     );
     assert_eq!(message["book_previews"][1]["cover_url"], "");
     let remaining = message["body_without_book_links"].as_str().unwrap();
@@ -871,7 +871,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert!(!remaining.contains(&format!("/books/{hidden}")));
     assert!(remaining.contains(&format!("/books/{held}")));
     let owner_html = text(call(&reopened, "GET", &path, &cookies[0], "", &[]).await).await;
-    assert!(owner_html.contains(&format!("href=\"/me/books/{hidden}\"")));
+    assert!(owner_html.contains(&format!("href=\"/me/books/{hidden}/preview\"")));
     assert!(owner_html.contains(&format!("HIDDEN-NEVER-DISCLOSE-{nonce}")));
     assert!(!owner_html.contains("HELD-NEVER-DISCLOSE"));
     let html = text(call(&reopened, "GET", &path, &cookies[1], "", &[]).await).await;
@@ -920,6 +920,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         [public, hidden, held],
         &cookies,
         &csrf,
+        &users,
     )
     .await;
     assert_eq!(
