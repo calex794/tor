@@ -590,3 +590,7 @@ a site administrator, but this does not confer group membership or enable
 message posting, impersonation or moderation changes. Book titles and
 messages must be HTML-escaped and responses no-store. Real-PG/HTTP, RIL
 and browser acceptance must pass before merge. No main/production change.
+
+## 02.11.2026 — Ownership offers appear in on-site mail notifications
+
+A committed group-creator proposal now writes exactly one `social.group_creator_transfer.proposed` source event in the same PostgreSQL transaction. The existing five-second notification consumer shows a `mail` notification only to the proposed active recipient, linking to `/mail/group-transfers`. Before delivery it checks the original outbox aggregate and the live, unexpired offer, active creator/recipient accounts and memberships, as well as existing bilateral blocks and the recipient's mail notification preference. Revoked, declined, expired and departed-member offers are acknowledged but never projected as fresh notifications; no message body, group title or private history is copied into the notification. No migration, background service or new HTTP route is needed. Disposable PostgreSQL tests cover exact-once event recording, suppression and delivery. Draft only; main and production unchanged.

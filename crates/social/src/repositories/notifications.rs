@@ -84,7 +84,8 @@ impl PgNotifications {
                    AND e.event_type IN
                      ('social.mail.created','social.friendship.requested',
                       'social.friendship.accepted','social.friendship.removed',
-                      'social.group_mail.created')
+                      'social.group_mail.created',
+                      'social.group_creator_transfer.proposed')
                    AND NOT EXISTS (
                      SELECT 1 FROM event_deliveries d
                      WHERE d.event_id=e.id AND d.consumer='user_notifications')
@@ -153,6 +154,36 @@ impl PgNotifications {
                 .await
                 .map_err(unavailable)?;
                 status.as_deref() == Some("active")
+            } else if kind == "social.group_creator_transfer.proposed" {
+                // Only an unexpired offer to the same active member, from the
+                // still-active creator, can generate a notification. Locking
+                // the group and members serializes a delayed delivery with
+                // consent/decline/revoke and membership changes.
+                let pending: Option<i64> = sqlx::query_scalar(
+                    "SELECT t.id FROM social_group_creator_transfers t
+                     JOIN social_group_conversations g ON g.id=t.group_id
+                     JOIN social_group_members owner ON owner.group_id=t.group_id
+                       AND owner.user_id=t.from_user_id AND owner.status='active'
+                       AND owner.role='creator'
+                     JOIN social_group_members member ON member.group_id=t.group_id
+                       AND member.user_id=t.to_user_id AND member.status='active'
+                     JOIN users sender ON sender.id=t.from_user_id
+                       AND sender.account_state='active'
+                     JOIN users receiver ON receiver.id=t.to_user_id
+                       AND receiver.account_state='active'
+                     JOIN outbox_events e ON e.id=$4::uuid AND e.aggregate_id=t.id
+                     WHERE t.group_id=$1 AND t.from_user_id=$3 AND t.to_user_id=$2
+                       AND t.state='pending' AND t.expires_at>clock_timestamp()
+                     FOR SHARE OF g,owner,member,sender,receiver",
+                )
+                .bind(object_id)
+                .bind(recipient)
+                .bind(actor)
+                .bind(&event_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+                pending.is_some()
             } else {
                 object_id == actor
             };
@@ -180,6 +211,12 @@ impl PgNotifications {
                         "Новое сообщение в группе",
                         format!("{name} написал в группе"),
                         format!("/mail/groups/{object_id}"),
+                    ),
+                    "social.group_creator_transfer.proposed" => (
+                        "mail",
+                        "Предложение управлять группой",
+                        format!("{name} предлагает вам управление группой"),
+                        "/mail/group-transfers".to_owned(),
                     ),
                     "social.friendship.requested" => (
                         "friendship",

@@ -275,3 +275,84 @@ async fn e_08_creator_handoff_rechecks_membership_and_expiration() {
         .unwrap();
     cleanup(&pool, &users).await;
 }
+
+/// An ownership offer must reach the addressee, not every group member.
+/// Rejected, revoked, expired and departed-member offers must not produce
+/// late notifications; source events are acknowledged exactly once.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_creator_transfer_bell_notifies_only_for_live_proposals() {
+    let (pool, users) = fixture().await;
+    let (owner, recipient, other) = (users[0], users[1], users[2]);
+    let groups = PgGroupMail::new(pool.clone());
+    let notifications = PgNotifications::new(pool.clone());
+    let id = groups.create(owner, &[recipient, other], "Transfer alert").await.unwrap();
+
+    let first = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    let source_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events
+         WHERE event_type='social.group_creator_transfer.proposed' AND aggregate_id=$1",
+    )
+    .bind(first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(source_count, 1);
+    for _ in 0..10 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    let inbox = notifications.list(recipient, None, 50).await.unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].kind, "mail");
+    assert_eq!(inbox[0].url, "/mail/group-transfers");
+    assert!(inbox[0].title.contains("управлять группой"));
+    assert!(!inbox[0].body.contains("Transfer alert"));
+    assert!(notifications.list(owner, None, 50).await.unwrap().is_empty());
+    assert!(notifications.list(other, None, 50).await.unwrap().is_empty());
+    assert_eq!(notifications.deliver_pending(100).await.unwrap(), 0);
+
+    let declined = groups.propose_transfer(owner, id, other).await.unwrap_err();
+    assert_eq!(declined, MailError::Conflict, "only one offer at a time");
+    groups.revoke_transfer(owner, id, first).await.unwrap();
+    let second = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    groups.decline_transfer(recipient, second).await.unwrap();
+    let third = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    sqlx::query(
+        "UPDATE social_group_creator_transfers
+         SET created_at=clock_timestamp()-interval '10 days',
+             expires_at=clock_timestamp()-interval '3 days'
+         WHERE id=$1",
+    )
+    .bind(third)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fourth = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    groups.leave(recipient, id).await.unwrap();
+    for _ in 0..10 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    assert_eq!(notifications.list(recipient, None, 50).await.unwrap().len(), 1);
+    let receipt_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM event_deliveries d
+         JOIN outbox_events e ON e.id=d.event_id
+         WHERE d.consumer='user_notifications'
+           AND e.event_type='social.group_creator_transfer.proposed'
+           AND e.aggregate_id=ANY($1)",
+    )
+    .bind(vec![first, second, third, fourth])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipt_count, 4);
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
+}
