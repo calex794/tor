@@ -16,15 +16,16 @@ async fn post_asset_grant(
     csrf: &str,
     body: &str,
 ) -> Response {
-    let path = format!(
-        "/api/v1/reader/chapters/{chapter}/assets/{object_id}/delivery-grants"
-    );
+    let path = format!("/api/v1/reader/chapters/{chapter}/assets/{object_id}/delivery-grants");
     let request = Request::builder()
         .uri(path)
         .method("POST")
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::ORIGIN, ORIGIN)
-        .header(header::COOKIE, format!("tor-dev-session={cookie}; tor-dev-csrf={csrf}"))
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={cookie}; tor-dev-csrf={csrf}"),
+        )
         .header("x-csrf-token", csrf)
         .body(Body::from(body.to_owned()))
         .unwrap();
@@ -168,18 +169,13 @@ pub(super) async fn assert_layer_s3_grants(
     for source in [r#"{"source":"layer"}"#, "{}"] {
         let image = post_asset_grant(app, chapter, image_object, cookie, csrf, source).await;
         assert_eq!(image.status(), StatusCode::OK, "Layer paid asset: {source}");
-        assert_eq!(
-            image.headers()[header::CACHE_CONTROL],
-            "private, no-store"
-        );
+        assert_eq!(image.headers()[header::CACHE_CONTROL], "private, no-store");
         let image_grant = decode(image).await;
         assert_eq!(image_grant["version_id"], published.to_string());
-        assert!(
-            image_grant["content"]["ciphertext_url"]
-                .as_str()
-                .unwrap()
-                .starts_with(ENDPOINT)
-        );
+        assert!(image_grant["content"]["ciphertext_url"]
+            .as_str()
+            .unwrap()
+            .starts_with(ENDPOINT));
     }
     assert_eq!(
         scalar(
