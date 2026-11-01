@@ -159,15 +159,8 @@ const ROUTES: [RouteRegistration; 139] = {
         Reading,
         Write,
     );
-    result[134] = RouteRegistration::new(
-        "/me/creators",
-        "GET",
-        "/me/",
-        Exact,
-        Page,
-        Dashboard,
-        Read,
-    );
+    result[134] =
+        RouteRegistration::new("/me/creators", "GET", "/me/", Exact, Page, Dashboard, Read);
     result[135] = RouteRegistration::new(
         "/me/creators/{id}/unfollow",
         "POST",
