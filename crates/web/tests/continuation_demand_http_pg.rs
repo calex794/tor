@@ -177,18 +177,24 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "csrf_token={csrf}&version_id={version}&block_index=1&char_offset={}&expected_revision=0",
         "Первая глава".encode_utf16().count()
     );
+    let first_completion = call(
+        &app,
+        "POST",
+        &format!("/read/{chapter}/complete"),
+        &reader_cookie,
+        ORIGIN,
+        &first_finish,
+    )
+    .await;
+    assert_eq!(first_completion.status(), StatusCode::SEE_OTHER);
+    let first_return = format!("/read/{chapter}#continuation");
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("/read/{chapter}/complete"),
-            &reader_cookie,
-            ORIGIN,
-            &first_finish
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER
+        first_completion
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(first_return.as_str()),
+        "completion must return reader to the continuation action, not rankings"
     );
     assert_eq!(
         pg(
@@ -215,6 +221,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
 
     let ready = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
     assert!(ready.contains("Хочу продолжение"));
+    assert!(ready.contains("Мои рейтинги"));
     assert!(!ready.contains("user_id"));
     assert_eq!(
         call(
@@ -497,18 +504,23 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         StatusCode::BAD_REQUEST,
         "middle-of-chapter progress must not count as completion"
     );
+    let returned_completion = call(
+        &app,
+        "POST",
+        &finish_path,
+        &reader_cookie,
+        ORIGIN,
+        &finish_form,
+    )
+    .await;
+    assert_eq!(returned_completion.status(), StatusCode::SEE_OTHER);
+    let returned_location = format!("/read/{released}#continuation");
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &finish_path,
-            &reader_cookie,
-            ORIGIN,
-            &finish_form
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER
+        returned_completion
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(returned_location.as_str())
     );
     assert_eq!(
         call(
