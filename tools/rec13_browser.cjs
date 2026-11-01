@@ -2,6 +2,7 @@
 // Real browser-generated visibility, activation, C progress and explicit feedback.
 const {chromium} = require('playwright');
 const {createHash} = require('node:crypto');
+const {benchmarkOrganicActivation} = require('./rec13_organic_load.cjs');
 const {execFileSync} = require('node:child_process');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -109,6 +110,11 @@ async function completeFreeChapter(page, chapter, version) {
       await waitFor(()=>scalar(`SELECT count(*) FROM organic_discovery_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id=${user} AND c.book_id=${organic.book} AND c.kind='chapter_finished'`)===1,`G credits ${organic.source} reading, not REC`);
       assert.equal(scalar(`SELECT count(*) FROM rec_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id=${user} AND c.book_id=${organic.book}`),0,'organic credit polluted recommendation statistics');
     }
+    // Isolated authenticated load: 150 distinct genuine POST receipts at
+    // 25 requests/sec with CSRF, session cookies and PostgreSQL verification.
+    await benchmarkOrganicActivation({
+      page, sql, user, book:books[0], base, db
+    });
     // No-JS cards have canonical navigation but must not fabricate visible views.
     const disabledJS=await browser.newContext({javaScriptEnabled:false,viewport:{width:1440,height:900}});
     await disabledJS.addCookies(await desktop.cookies());
