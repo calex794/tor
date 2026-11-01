@@ -62,6 +62,7 @@ mod checkout;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
+mod direct_swap_browser;
 mod follow_read_state;
 mod followed_purchase_links;
 mod inbox;
@@ -177,6 +178,8 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    let swap_browser_enabled = paid_checkout_enabled
+        && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
         .map(|_| PgCoverJobs::new(accounts.pool().clone()));
@@ -190,6 +193,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        swap_browser_enabled,
         paid_reader_available,
         authoring,
         progress,
@@ -272,6 +276,10 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
+        .route(
+            "/me/refunds/swap",
+            get(direct_swap_browser::page).post(direct_swap_browser::submit),
+        )
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
@@ -372,7 +380,14 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::my_account_with_achievements(&name, &csrf, &replies, unread, &achievements),
+        pages::my_account_with_achievements_and_swap(
+            &name,
+            &csrf,
+            &replies,
+            unread,
+            &achievements,
+            state.swap_browser_enabled,
+        ),
         &cookies,
     )
 }

@@ -890,6 +890,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_likes::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/refunds/swap",
+      "source": "crates/web/src/auth.rs",
+      "handler": "direct_swap_browser::page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/refunds/swap",
+      "source": "crates/web/src/auth.rs",
+      "handler": "direct_swap_browser::submit",
+      "policy": "session"
     }
   ]
 }

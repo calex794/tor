@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 127)  # Book likes: 2 session-scoped actions.
-        self.assertEqual(report["route_pairs"], 125)  # Two book-like routes after index 122.
+        self.assertEqual(report["route_bindings"], 129)  # D-06 adds two gated swap routes.
+        self.assertEqual(report["route_pairs"], 127)  # Includes two D-06 swap routes.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
