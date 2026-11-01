@@ -281,6 +281,15 @@ async fn rec13_real_c_event_attributes_once_to_last_click() {
             .sum::<i64>(),
         1
     );
+    let attributed = rows
+        .iter()
+        .find(|row| row.book_id == book.to_string() && row.starts == 1)
+        .unwrap();
+    assert_eq!(attributed.surface, "home");
+    assert_eq!(attributed.source, "content");
+    assert_eq!(attributed.reason, "similar_by_content");
+    assert_eq!(attributed.generation, "fallback");
+    assert_eq!(attributed.algorithm_version, ALGORITHM);
 }
 
 #[tokio::test]

@@ -44,11 +44,11 @@ impl PgRecommendations {
             return Err(FeedbackError::Invalid);
         }
         let rows = sqlx::query(
-            "SELECT bucket_date::text,q.book_id::text,surface,source,position,
+            "SELECT bucket_date::text,q.book_id::text,surface,source,reason,generation,algorithm_version,position,
                     impressions,paired_clicks,unpaired_clicks,starts,completions
              FROM rec_quality_daily q JOIN rec_public_books b ON b.id=q.book_id
              WHERE bucket_date>=(now() AT TIME ZONE 'UTC')::date-$1
-             ORDER BY bucket_date DESC,q.book_id,surface,source,position LIMIT 100",
+             ORDER BY bucket_date DESC,q.book_id,surface,source,reason,generation,algorithm_version,position LIMIT 100",
         )
         .bind(days)
         .fetch_all(&self.pool)
@@ -60,6 +60,9 @@ impl PgRecommendations {
                     book_id: r.try_get("book_id")?,
                     surface: r.try_get("surface")?,
                     source: r.try_get("source")?,
+                    reason: r.try_get("reason")?,
+                    generation: r.try_get("generation")?,
+                    algorithm_version: r.try_get("algorithm_version")?,
                     position: r.try_get("position")?,
                     impressions: r.try_get("impressions")?,
                     paired_clicks: r.try_get("paired_clicks")?,
