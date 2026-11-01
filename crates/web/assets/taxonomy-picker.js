@@ -146,7 +146,12 @@
         choose(options[currentIndex]);
       }
     });
-    input.addEventListener("blur", () => setTimeout(closeList, 150));
+    input.addEventListener("blur", () => {
+      clearTimeout(timer);
+      ++requestId;
+      if (pending) pending.abort();
+      setTimeout(closeList, 150);
+    });
     renderChips();
   }
 })();
