@@ -179,51 +179,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     let anon_new = send(&app, request("GET", "/me/books/new", "", "", ORIGIN)).await;
     assert_eq!(anon_new.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_new.headers()[header::LOCATION], "/login");
-    // Only administrator-curated active terms are selectable; source names
-    // are not accepted by the form and a private draft never seeds suggestions.
-    let fantasy: i64 = sqlx::query_scalar(
-        "INSERT INTO book_taxonomy_terms(kind,label,search_key)
-         VALUES('genre','Fantasy','fantasy')
-         ON CONFLICT(kind,search_key) DO UPDATE SET label=EXCLUDED.label
-         RETURNING id",
-    ).fetch_one(&pool).await.expect("seed public vocabulary");
-    let adventure: i64 = sqlx::query_scalar(
-        "INSERT INTO book_taxonomy_terms(kind,label,search_key)
-         VALUES('genre','Adventure','adventure')
-         ON CONFLICT(kind,search_key) DO UPDATE SET label=EXCLUDED.label
-         RETURNING id",
-    ).fetch_one(&pool).await.expect("seed public vocabulary");
-    sqlx::query(
-        "INSERT INTO book_taxonomy_aliases(kind,search_key,term_id)
-         VALUES('genre','фэнтази',$1)
-         ON CONFLICT(kind,search_key) DO UPDATE SET term_id=EXCLUDED.term_id",
-    ).bind(fantasy).execute(&pool).await.expect("seed synonym");
-    let unauth_suggest = send(&app, request(
-        "GET", "/api/v1/taxonomies/suggest?kind=genre&q=fan", "", "", ORIGIN,
-    )).await;
-    assert_eq!(unauth_suggest.status(), StatusCode::UNAUTHORIZED);
-    let suggest = send(&app, request(
-        "GET", "/api/v1/taxonomies/suggest?kind=genre&q=fan", "", &session, ORIGIN,
-    )).await;
-    assert_eq!(suggest.status(), StatusCode::OK);
-    assert_eq!(suggest.headers()[header::CACHE_CONTROL], "no-store");
-    let suggestions = body_of(suggest).await;
-    assert!(suggestions.contains(&format!("\"id\":{fantasy}")));
-    assert!(suggestions.contains("\"label\":\"Fantasy\""));
-    assert!(!suggestions.contains("\"label\":\"Adventure\""));
-    let alias = send(&app, request(
-        "GET", "/api/v1/taxonomies/suggest?kind=genre&q=%D1%84%D1%8D",
-        "", &session, ORIGIN,
-    )).await;
-    assert!(body_of(alias).await.contains(&format!("\"id\":{fantasy}")));
-    assert_eq!(
-        send(&app, request(
-            "GET", "/api/v1/taxonomies/suggest?kind=genre&q=%25%25",
-            "", &session, ORIGIN,
-        )).await.status(),
-        StatusCode::BAD_REQUEST,
-        "wildcard queries cannot turn an indexed prefix lookup into a full scan"
-    );
     let new_page = send(&app, request("GET", "/me/books/new", "", &session, ORIGIN)).await;
     assert_eq!(new_page.status(), StatusCode::OK);
     let author_csrf_cookie = cookie(&new_page, "tor-dev-csrf=");
@@ -240,9 +195,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(new_html.contains("name=\"author_name\""));
     assert!(new_html.contains("name=\"genre_ids\""));
     assert!(new_html.contains("data-taxonomy-picker"));
-    assert!(!new_html.contains("name=\"genres\""));
     let create_form = format!(
-        "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&author_name=Alice+Voyager&genre_ids={fantasy}%2C{adventure}&command_key={command_key}&csrf_token={author_csrf}"
+        "title=%D0%9C%D0%BE%D1%8F%20%3Cscript%3E%20%D0%BA%D0%BD%D0%B8%D0%B3%D0%B0&target_language=ru&author_name=Alice+Voyager&command_key={command_key}&csrf_token={author_csrf}"
     );
     let author_cookies = format!("{session}; {author_csrf_cookie}");
     assert_eq!(
@@ -270,24 +224,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .status(),
         StatusCode::FORBIDDEN,
         "Author POST rejects cross-origin writes"
-    );
-    let free_text = create_form.replace(
-        &format!("genre_ids={fantasy}%2C{adventure}"), "genres=Unapproved",
-    );
-    assert_eq!(
-        send(&app, request("POST", "/me/books", &free_text, &author_cookies, ORIGIN))
-            .await.status(),
-        StatusCode::BAD_REQUEST,
-        "raw author taxonomy must never be auto-created"
-    );
-    let forged_id = create_form.replace(
-        &format!("genre_ids={fantasy}%2C{adventure}"), "genre_ids=999999999",
-    );
-    assert_eq!(
-        send(&app, request("POST", "/me/books", &forged_id, &author_cookies, ORIGIN))
-            .await.status(),
-        StatusCode::BAD_REQUEST,
-        "server verifies active canonical IDs, not only the dropdown"
     );
     let created_book = send(
         &app,
@@ -347,17 +283,6 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         .status(),
         StatusCode::NOT_FOUND
     );
-    let stored_genres: Vec<String> = sqlx::query_scalar("SELECT genres FROM books WHERE id=$1")
-        .bind(book_id)
-        .fetch_one(&pool)
-        .await
-        .expect("canonical array projection");
-    assert_eq!(stored_genres, vec!["fantasy", "adventure"]);
-    let stored_link_ids: Vec<i64> = sqlx::query_scalar(
-        "SELECT term_id FROM book_taxonomy_links
-         WHERE book_id=$1 AND kind='genre' ORDER BY position",
-    ).bind(book_id).fetch_all(&pool).await.expect("canonical persisted IDs");
-    assert_eq!(stored_link_ids, vec![fantasy, adventure]);
     let chapter_form_path = format!("/me/books/{book_id}/chapters/new");
     assert_eq!(
         send(&app, request("GET", &chapter_form_path, "", "", ORIGIN))

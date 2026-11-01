@@ -55,3 +55,54 @@ pub(super) async fn script() -> impl IntoResponse {
         include_str!("../../assets/taxonomy-picker.js"),
     )
 }
+
+/// Resolve author POST exclusively from canonical IDs. Keep the generated
+/// compatibility TEXT[] projection until F/REC migrate their read contracts.
+pub(super) async fn validated_author_book(
+    state: &AuthState,
+    actor: i64,
+    form: &NewBookForm,
+) -> Result<tor_books::services::authoring::NewBook, StatusCode> {
+    use tor_books::services::authoring::{
+        new_book_with_taxonomy, with_book_description, TaxonomyFields, TaxonomySelection,
+    };
+    // Raw labels are intentionally not a fallback: that would bypass the list.
+    if [form.genres.as_deref(), form.tags.as_deref(), form.fandoms.as_deref()]
+        .iter()
+        .any(|value| value.unwrap_or("").trim().len() > 0)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let selected = TaxonomySelection::parse(
+        form.genre_ids.as_deref(),
+        form.tag_ids.as_deref(),
+        form.fandom_ids.as_deref(),
+    )
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let names = state.authoring.resolve_taxonomy_selection(&selected).await.map_err(
+        |err| match err {
+            AuthorError::Invalid => StatusCode::BAD_REQUEST,
+            _ => StatusCode::SERVICE_UNAVAILABLE,
+        },
+    )?;
+    let identity = format!("manual:{actor}:{}", form.command_key);
+    let mut request = new_book_with_taxonomy(
+        &identity,
+        &form.target_language,
+        &form.title,
+        &form.command_key,
+        form.author_name.as_deref().unwrap_or(""),
+        "",
+        TaxonomyFields {
+            tags: "",
+            fandoms: "",
+        },
+    )
+    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+    request.genres = names.genres;
+    request.tags = names.tags;
+    request.fandoms = names.fandoms;
+    request.taxonomy_ids = selected;
+    Ok(request)
+}
