@@ -44,16 +44,18 @@ async fn d_06_swap_refuses_target_already_purchased_without_revoking_source() {
     .await
     .unwrap();
     assert_eq!((wallet, swapped, revoked, owned_count), (250, 0, 0, 1));
-    let readable: bool =
-        sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
-            .bind(intent.buyer_id)
-            .bind(intent.source_purchase_id)
-            .bind(source_chapter)
-            .bind(source_version)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert!(readable, "an ordinary second purchase must not revoke source");
+    let readable: bool = sqlx::query_scalar("SELECT tor_purchase_version_readable($1,$2,$3,$4)")
+        .bind(intent.buyer_id)
+        .bind(intent.source_purchase_id)
+        .bind(source_chapter)
+        .bind(source_version)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        readable,
+        "an ordinary second purchase must not revoke source"
+    );
     assert_eq!(owned.balance_after.get(), 250);
     pool.close().await;
 }
@@ -190,7 +192,11 @@ async fn d_06_swap_reconciles_wallet_platform_and_creator_balances() {
         target.0 - source.0,
         "net platform and creator claims must equal the reader's price difference",
     );
-    assert_eq!(1000 - wallet, target.0, "the reader pays only for the final chapter");
+    assert_eq!(
+        1000 - wallet,
+        target.0,
+        "the reader pays only for the final chapter"
+    );
     assert_eq!(receipt.balance_after, wallet);
     pool.close().await;
 }
