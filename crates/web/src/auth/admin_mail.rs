@@ -13,7 +13,7 @@ use axum::{
 use serde::Deserialize;
 use std::fmt::Write;
 use tor_accounts::services::security::session_token_digest;
-use tor_social::repositories::admin_mail::PgAdminMail;
+use tor_social::repositories::admin_mail::{AdminDirectMessage, PgAdminMail};
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,7 +46,7 @@ fn shell(title: &str, body: &str) -> Html<String> {
         title,
         "Административное чтение личной почты с аудитом.",
         &format!(
-            r#"<section class="me-page mail-page"><div class="container"><nav aria-label="Администрирование"><a href="/admin/mail">Почта пользователей</a></nav>{body}</div></section>"#
+            r#"<section class="me-page mail-page"><div class="container"><nav aria-label="Администрирование"><a href="/admin/mail">Личная почта</a> · <a href="/admin/mail/groups">Группы</a> · <a href="/admin/mail/book-rooms">Книжные чаты</a></nav>{body}</div></section>"#
         ),
     )
 }
@@ -181,6 +181,172 @@ pub(super) async fn conversation(
     }
     body.push_str("</section>");
     private_response(shell("Переписка пользователей", &body), &[])
+}
+
+
+fn messages_section(rows: &[AdminDirectMessage], older_link: &str) -> String {
+    let mut body = String::from(r#"<section class="me-section" aria-label="Сообщения">"#);
+    if rows.is_empty() {
+        body.push_str("<p>Сообщений нет.</p>");
+    }
+    for row in rows {
+        write!(
+            body,
+            r#"<article class="me-now-card" data-message-id="{}"><strong>{}</strong><p class="mail-message-body">{}</p></article>"#,
+            row.id,
+            escape_html(&row.sender_name),
+            escape_html(&row.body),
+        )
+        .expect("admin chat message");
+    }
+    if rows.len() == 50 {
+        if let Some(first) = rows.first() {
+            write!(
+                body,
+                r#"<a href="{older_link}?before={}">Предыдущие сообщения</a>"#,
+                first.id,
+            )
+            .expect("admin history cursor");
+        }
+    }
+    body.push_str("</section>");
+    body
+}
+
+pub(super) async fn groups(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<Cursor>,
+) -> Response {
+    let digest = match actor(&state, &headers).await {
+        Ok(digest) => digest,
+        Err(status) => return deny(status),
+    };
+    let rows = match PgAdminMail::new(state.accounts.pool().clone())
+        .groups(&digest, query.before, 50)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::mail::status(error)),
+    };
+    let mut body = String::from(r#"<h1>Групповые чаты</h1><section class="me-section">"#);
+    if rows.is_empty() {
+        body.push_str("<p>Групп пока нет.</p>");
+    }
+    for group in &rows {
+        write!(
+            body,
+            r#"<article class="me-now-card"><a href="/admin/mail/groups/{}">{}</a><p>Сообщений: {}</p></article>"#,
+            group.id,
+            escape_html(&group.title),
+            group.message_count,
+        )
+        .expect("group list");
+    }
+    if rows.len() == 50 {
+        if let Some(last) = rows.last() {
+            write!(
+                body,
+                r#"<a href="/admin/mail/groups?before={}">Предыдущие группы</a>"#,
+                last.id,
+            )
+            .expect("group pagination");
+        }
+    }
+    body.push_str("</section>");
+    private_response(shell("Групповые чаты", &body), &[])
+}
+
+pub(super) async fn group(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Query(query): Query<Cursor>,
+) -> Response {
+    let digest = match actor(&state, &headers).await {
+        Ok(digest) => digest,
+        Err(status) => return deny(status),
+    };
+    let rows = match PgAdminMail::new(state.accounts.pool().clone())
+        .group(&digest, id, query.before, 50)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::mail::status(error)),
+    };
+    let body = format!(
+        "<h1>Групповой чат #{id}</h1>{}",
+        messages_section(&rows, &format!("/admin/mail/groups/{id}")),
+    );
+    private_response(shell("Сообщения группы", &body), &[])
+}
+
+pub(super) async fn book_rooms(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<Cursor>,
+) -> Response {
+    let digest = match actor(&state, &headers).await {
+        Ok(digest) => digest,
+        Err(status) => return deny(status),
+    };
+    let rows = match PgAdminMail::new(state.accounts.pool().clone())
+        .book_rooms(&digest, query.before, 50)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::mail::status(error)),
+    };
+    let mut body = String::from(r#"<h1>Книжные чаты</h1><section class="me-section">"#);
+    if rows.is_empty() {
+        body.push_str("<p>Книжных чатов пока нет.</p>");
+    }
+    for book in &rows {
+        write!(
+            body,
+            r#"<article class="me-now-card"><a href="/admin/mail/book-rooms/{}">{}</a><p>Сообщений: {}</p></article>"#,
+            book.book_id,
+            escape_html(&book.title),
+            book.message_count,
+        )
+        .expect("book-room list");
+    }
+    if rows.len() == 50 {
+        if let Some(last) = rows.last() {
+            write!(
+                body,
+                r#"<a href="/admin/mail/book-rooms?before={}">Предыдущие книжные чаты</a>"#,
+                last.book_id,
+            )
+            .expect("book-room pagination");
+        }
+    }
+    body.push_str("</section>");
+    private_response(shell("Книжные чаты", &body), &[])
+}
+
+pub(super) async fn book_room(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Query(query): Query<Cursor>,
+) -> Response {
+    let digest = match actor(&state, &headers).await {
+        Ok(digest) => digest,
+        Err(status) => return deny(status),
+    };
+    let rows = match PgAdminMail::new(state.accounts.pool().clone())
+        .book_room(&digest, id, query.before, 50)
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::mail::status(error)),
+    };
+    let body = format!(
+        "<h1>Книжный чат #{id}</h1>{}",
+        messages_section(&rows, &format!("/admin/mail/book-rooms/{id}")),
+    );
+    private_response(shell("Сообщения книжного чата", &body), &[])
 }
 
 #[cfg(test)]
