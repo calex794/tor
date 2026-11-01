@@ -31,10 +31,7 @@ fn missing_or_unavailable(error: sqlx::Error) -> MailError {
 
 /// Lock the canonical book row against a concurrent draft/hold/deletion.
 /// This check is performed separately for join, send and read, not only join.
-async fn public_book(
-    tx: &mut Transaction<'_, Postgres>,
-    book_id: i64,
-) -> Result<(), MailError> {
+async fn public_book(tx: &mut Transaction<'_, Postgres>, book_id: i64) -> Result<(), MailError> {
     let available: Option<i64> = sqlx::query_scalar(
         "SELECT id FROM books WHERE id=$1 AND visibility='public'
          AND NOT admin_hold AND NOT is_deleted FOR SHARE",
