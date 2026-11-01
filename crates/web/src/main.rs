@@ -140,9 +140,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 pending_social_notifications = Some(
                     tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
                 );
-                pending_social_notifications = Some(
-                    tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
-                );
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
