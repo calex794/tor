@@ -86,6 +86,33 @@ class YdbExportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "truncated"):
             export.collect(Session(Tx(truncated=2)), SDK, "")
 
+    def test_more_than_1000_rows_across_multiple_result_chunks(self):
+        # The source admin API caps results at 1000. Query Service must
+        # preserve every row even when a result set spans several chunks.
+        class ChunkedTx:
+            def execute(self, sql, commit_tx=False, concurrent_result_sets=None):
+                self.committed = commit_tx
+                self.concurrent = concurrent_result_sets
+                terms = [
+                    {"taxonomy_id": ID, "taxonomy_type": "tag",
+                     "title": "Система", "status": "active"}
+                    for _ in range(1501)
+                ]
+                return Result([
+                    (0, [{"total_rows": 1501}], False),
+                    (1, [{"total_rows": 0}], False),
+                    (2, terms[:1000], False),
+                    (2, terms[1000:], False),
+                    (3, [], False),
+                ])
+        tx = ChunkedTx()
+        data = export.collect(Session(tx), SDK, "")
+        self.assertTrue(tx.committed)
+        self.assertFalse(tx.concurrent)
+        self.assertEqual(data["expected_counts"], {"taxonomies": 1501, "aliases": 0})
+        self.assertEqual(len(data["taxonomies"]), 1501)
+        self.assertEqual(data["aliases"], [])
+
     def test_sql_identifiers_are_fixed(self):
         self.assertEqual(export.ident("prefix", "book_taxonomies"),
                          chr(96) + "prefix/book_taxonomies" + chr(96))
