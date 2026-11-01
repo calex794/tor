@@ -520,3 +520,28 @@ TOR adds a member-managed role-transfer workflow (not claimed as NEwBOO source p
 
 Separate append-only migration `202611014287_e08_group_invitations.sql` tracks explicit, seven-day invitations. A creator may invite only an active account, bounded by the combined member/pending seat cap and the live pair-block check. An invitation does not create group membership or disclose message history. The recipient may explicitly accept or decline; acceptance locks the group, checks invitation expiry, membership status, size and bilateral blocks again, then atomically reactivates a left/removed member or inserts a new member. A declined/revoked/accepted invitation cannot be replayed. Transfer of creator role revokes pending invitations, and the current creator may revoke pending invitations. No scripts required for accept/decline/invite. Forms use session-bound Origin and CSRF verification, capped actor-scope reads and no-store. Source NEwBOO's initial group creation still adds its original participants directly; this new invitation flow applies to later additions and rejoining.
 All changes are Draft-only; exact-HEAD CI/PG/browser acceptance required; main, VPS, production and retained databases untouched.
+
+
+## 01.11.2026 — Manual admin-mail audit retention, no policy duration
+
+Draft migration \`202611019237_e08_admin_mail_audit_retention.sql\` provides a
+**privileged manual purge**, not an automatic retention period. A database
+operator must first approve a cutoff under the future privacy policy.
+Only the login \`tor_migrator\` can invoke
+\`SELECT public.social_mail_admin_audit_purge_before($1::timestamptz)\`.
+The function rejects NULL/future cutoffs, uses invoker rights, and deletes
+only earlier admin-access audit rows. It appends a metadata-only receipt
+(cutoff, removed count and timestamp) atomically with the deletion.
+
+Normal \`tor_app\` SELECT/INSERT on the original audit remains unchanged;
+UPDATE/DELETE remain denied. \`tor_app\` has neither function execution nor
+receipt-table access; an owner cannot directly DELETE audit history outside
+the explicit operation. Receipt rows are immutable even to the migrator.
+No web API, scheduler, cron job, automatic purge, message-content storage,
+production migration or duration such as 30/90 days is introduced.
+
+The isolated PostgreSQL regression checks runtime denial, invalid cutoffs,
+migrator-only cleanup, preservation of recent entries, immutable receipts,
+and idempotent repeat. The installed SQLx-ledger upgrade expects ten Draft
+E-08 migrations. **Unresolved governance:** actual retention duration and
+case-purpose policy before operational admin reading is approved.

@@ -203,3 +203,160 @@ async fn e_08_admin_mail_requires_live_role_session_and_durable_access_audit() {
         .unwrap();
     cleanup(&pool, &users).await;
 }
+
+
+/// Admin-mail audit remains immutable to app connections. Retention runs
+/// only on ephemeral tor_ci as the separate tor_migrator role and never via HTTP.
+#[tokio::test]
+#[ignore = "requires disposable /tor_ci and MIGRATOR_URL"]
+async fn e_08_admin_mail_retention_requires_migrator_and_preserves_recent_history() {
+    let (app, users) = fixture().await;
+    let actor = users[0];
+    let old: i64 = sqlx::query_scalar(
+        "INSERT INTO social_mail_admin_access_audit
+         (admin_user_id,action,result_count,created_at)
+         VALUES($1,'search_mail_users',0,now()-INTERVAL '61 days')
+         RETURNING id",
+    )
+    .bind(actor)
+    .fetch_one(&app)
+    .await
+    .unwrap();
+    let recent: i64 = sqlx::query_scalar(
+        "INSERT INTO social_mail_admin_access_audit
+         (admin_user_id,action,result_count)
+         VALUES($1,'search_mail_users',0)
+         RETURNING id",
+    )
+    .bind(actor)
+    .fetch_one(&app)
+    .await
+    .unwrap();
+
+    // Ordinary connections cannot mutate history or invoke retention.
+    assert!(
+        sqlx::query("UPDATE social_mail_admin_access_audit SET result_count=1 WHERE id=$1")
+            .bind(old)
+            .execute(&app)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM social_mail_admin_access_audit WHERE id=$1")
+            .bind(old)
+            .execute(&app)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT public.social_mail_admin_audit_purge_before(now()-INTERVAL '30 days')"
+        )
+        .fetch_one(&app)
+        .await
+        .is_err()
+    );
+    assert!(
+        sqlx::query("SELECT id FROM social_mail_admin_audit_retention_runs")
+            .fetch_all(&app)
+            .await
+            .is_err()
+    );
+
+    let url = std::env::var("MIGRATOR_URL").unwrap();
+    assert!(url.contains("127.0.0.1:5432/tor_ci"));
+    let migrator = PgPool::connect(&url).await.unwrap();
+    let role: String = sqlx::query_scalar("SELECT current_user::text")
+        .fetch_one(&migrator)
+        .await
+        .unwrap();
+    assert_eq!(role, "tor_migrator");
+    assert!(
+        sqlx::query("DELETE FROM social_mail_admin_access_audit WHERE id=$1")
+            .bind(old)
+            .execute(&migrator)
+            .await
+            .is_err(),
+        "direct DELETE still has the immutable audit trigger"
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT public.social_mail_admin_audit_purge_before(NULL)"
+        )
+        .fetch_one(&migrator)
+        .await
+        .is_err()
+    );
+    assert!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT public.social_mail_admin_audit_purge_before(now()+INTERVAL '1 day')"
+        )
+        .fetch_one(&migrator)
+        .await
+        .is_err()
+    );
+
+    let removed: i64 = sqlx::query_scalar(
+        "SELECT public.social_mail_admin_audit_purge_before(now()-INTERVAL '30 days')",
+    )
+    .fetch_one(&migrator)
+    .await
+    .unwrap();
+    assert!(removed >= 1);
+    let remaining_old: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM social_mail_admin_access_audit WHERE id=$1",
+    )
+    .bind(old)
+    .fetch_one(&app)
+    .await
+    .unwrap();
+    let remaining_recent: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM social_mail_admin_access_audit WHERE id=$1",
+    )
+    .bind(recent)
+    .fetch_one(&app)
+    .await
+    .unwrap();
+    assert_eq!((remaining_old, remaining_recent), (0, 1));
+
+    let receipt: (i64, bool) = sqlx::query_as(
+        "SELECT removed_count,cutoff_before<executed_at
+         FROM social_mail_admin_audit_retention_runs ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_one(&migrator)
+    .await
+    .unwrap();
+    assert_eq!(receipt, (removed, true));
+    assert!(
+        sqlx::query("UPDATE social_mail_admin_audit_retention_runs SET removed_count=0")
+            .execute(&migrator)
+            .await
+            .is_err(),
+        "the operator may not tamper with retention receipts"
+    );
+    assert!(
+        sqlx::query("DELETE FROM social_mail_admin_audit_retention_runs")
+            .execute(&migrator)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM social_mail_admin_access_audit WHERE id=$1")
+            .bind(recent)
+            .execute(&migrator)
+            .await
+            .is_err(),
+        "purge permission must not persist after the function returns"
+    );
+    // A second explicit cutoff is idempotent and still records a receipt.
+    let second: i64 = sqlx::query_scalar(
+        "SELECT public.social_mail_admin_audit_purge_before(now()-INTERVAL '30 days')",
+    )
+    .fetch_one(&migrator)
+    .await
+    .unwrap();
+    assert_eq!(second, 0);
+
+    migrator.close().await;
+    cleanup(&app, &users).await;
+}
