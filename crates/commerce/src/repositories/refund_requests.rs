@@ -185,6 +185,22 @@ impl PgDirectRefundRequests {
         if buyer_debits != 1 || !source_shares || !source_finance {
             return Err(DirectRefundRequestError::UnverifiedPurchase);
         }
+        // Recheck revocation in a fresh READ COMMITTED statement AFTER the
+        // purchase row lock. The earlier SELECT snapshot may predate a swap
+        // that committed while our FOR UPDATE was waiting.
+        let newly_revoked: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM chapter_purchase_revocations r
+                 WHERE r.purchase_id=$1
+               )",
+        )
+        .bind(purchase_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| DirectRefundRequestError::Unavailable)?;
+        if newly_revoked {
+            return Err(DirectRefundRequestError::Revoked);
+        }
         // New statement AFTER the FOR UPDATE purchase lock ensures we see
         // a competing signed grant that committed while we waited.
         let first_grant: bool = sqlx::query_scalar(
