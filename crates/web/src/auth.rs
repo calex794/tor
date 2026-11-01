@@ -377,7 +377,9 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::my_account_with_achievements(&name, &csrf, &replies, unread, &achievements),
+        pages::account::my_account_with_achievements_and_swap(
+            &name, &csrf, &replies, unread, &achievements, state.swap_browser_enabled,
+        ),
         &cookies,
     )
 }
