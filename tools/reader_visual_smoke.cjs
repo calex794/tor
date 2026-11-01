@@ -331,6 +331,14 @@ async function inspect(page, name, where) {
       );
       await completeButton.click();
       assert((await completionPost).status() === 303, name + ': authenticated finish must redirect');
+      await page.waitForURL('**/read/101#continuation');
+      assert(await page.getByText('Глава уже отмечена прочитанной').isVisible(),
+        name + ': completed reading must return to the same chapter');
+      // Rankings are still available, but completion must not force the
+      // reader away from the newly available continuation action.
+      const rankLink = page.getByRole('link', { name: 'Мои рейтинги' });
+      assert(await rankLink.isVisible(), name + ': explicit ranking link missing');
+      await rankLink.click();
       await page.waitForURL('**/me/rankings');
       assert(await page.getByRole('heading', { name: 'Мои книги' }).isVisible(),
         name + ': trusted completion was not immediately added to personal ranking');
