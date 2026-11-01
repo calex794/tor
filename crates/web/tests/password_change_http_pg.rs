@@ -2,7 +2,7 @@
 use axum::{
     body::{to_bytes, Body},
     extract::ConnectInfo,
-    http::{header, Request, StatusCode},
+    http::{header, HeaderValue, Request, StatusCode},
     response::Response,
     Router,
 };
@@ -10,7 +10,7 @@ use std::{
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tor_accounts::repositories::PgAccounts;
+use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -32,6 +32,12 @@ fn request(method: &str, path: &str, data: &str, cookies: &str, origin: &str) ->
         .extensions_mut()
         .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41007))));
     request
+}
+
+fn from_peer(mut req: Request<Body>, ip: [u8; 4]) -> Request<Body> {
+    req.extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from((ip, 41007))));
+    req
 }
 
 async fn send(app: &Router, req: Request<Body>) -> Response {
@@ -95,6 +101,7 @@ async fn password_rotation_impl() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never use production database");
     let catalog = PgCatalog::connect(&url).await.expect("PostgreSQL schema");
+    let audit_lookup = PgAccounts::from_pool(catalog.pool().clone());
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     accounts.probe().await.expect("accounts schema");
@@ -121,12 +128,15 @@ async fn password_rotation_impl() {
     );
     let created = send(
         &app,
-        request(
-            "POST",
-            "/register",
-            &registration,
-            &register_csrf_cookie,
-            ORIGIN,
+        from_peer(
+            request(
+                "POST",
+                "/register",
+                &registration,
+                &register_csrf_cookie,
+                ORIGIN,
+            ),
+            [198, 51, 100, 21],
         ),
     )
     .await;
@@ -201,18 +211,38 @@ async fn password_rotation_impl() {
         StatusCode::OK
     );
 
-    let rotated = send(
-        &app,
+    let mut change_request = from_peer(
         request("POST", "/me/settings/password", &change, &cookies, ORIGIN),
-    )
-    .await;
+        [203, 0, 113, 42],
+    );
+    change_request
+        .headers_mut()
+        .insert("x-forwarded-for", HeaderValue::from_static("192.0.2.222"));
+    change_request
+        .headers_mut()
+        .insert("x-real-ip", HeaderValue::from_static("192.0.2.223"));
+    let rotated = send(&app, change_request).await;
     assert_eq!(rotated.status(), StatusCode::SEE_OTHER);
     assert_eq!(rotated.headers()[header::LOCATION], "/me");
     let fresh_session = cookie(&rotated, "tor-dev-session=");
     assert_ne!(fresh_session, first_session);
     assert_ne!(fresh_session, second_session);
+    let digest = session_token_digest(fresh_session.split_once('=').unwrap().1);
+    let audit = audit_lookup
+        .active_session_login_audit(&digest)
+        .await
+        .unwrap()
+        .expect("the new live session has an atomic audit event");
+    assert_eq!(audit.verified_ip.as_deref(), Some("203.0.113.42"));
+    assert_eq!(audit.event_kind, "password_change");
 
     for old in [&first_session, &second_session] {
+        let old_digest = session_token_digest(old.split_once('=').unwrap().1);
+        assert!(audit_lookup
+            .active_session_login_audit(&old_digest)
+            .await
+            .unwrap()
+            .is_none());
         let declined = send(&app, request("GET", "/me", "", old, ORIGIN)).await;
         assert_eq!(declined.status(), StatusCode::SEE_OTHER);
         assert_eq!(declined.headers()[header::LOCATION], "/login");
