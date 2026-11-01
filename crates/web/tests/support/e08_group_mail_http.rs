@@ -424,9 +424,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
 
     // Only the current active creator can transfer to another active member.
     let transfer_path = format!("{path}/transfer");
-    let transfer_to = |id: i64, token: &str| {
-        format!("new_creator_id={id}&csrf_token={token}")
-    };
+    let transfer_to = |id: i64, token: &str| format!("new_creator_id={id}&csrf_token={token}");
     assert_eq!(
         call(
             &app,

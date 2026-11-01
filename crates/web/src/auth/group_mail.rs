@@ -436,7 +436,6 @@ pub(super) async fn send(
     }
 }
 
-
 pub(super) async fn transfer(
     State(state): State<AuthState>,
     Path(id): Path<i64>,

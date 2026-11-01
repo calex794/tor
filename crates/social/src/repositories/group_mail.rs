@@ -422,7 +422,6 @@ impl PgGroupMail {
         })
     }
 
-
     /// Transfer the creator role to an existing active member. Lock the group
     /// before the member rows so concurrent transfers cannot create two owners.
     /// A former creator can then leave normally; creation provenance stays put.
@@ -436,13 +435,12 @@ impl PgGroupMail {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        let group: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE",
-        )
-        .bind(group_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let group: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if group.is_none() {
             return Err(MailError::NotFound);
         }

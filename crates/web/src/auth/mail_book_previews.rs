@@ -234,7 +234,6 @@ fn project(
     }
 }
 
-
 //// Private Book mail destination: title only, no owner tools or chapters.
 /// Actor membership is checked together with the title to avoid ACL races.
 pub(super) async fn page(
@@ -353,7 +352,9 @@ pub(super) async fn enrich(
             jobs.spawn(async move {
                 (
                     id,
-                    catalog.private_mail_title_for_member(actor, id as i64).await,
+                    catalog
+                        .private_mail_title_for_member(actor, id as i64)
+                        .await,
                 )
             });
         }

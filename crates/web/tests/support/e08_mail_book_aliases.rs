@@ -85,20 +85,15 @@ pub(super) async fn verify(
     assert!(peer_body.contains(&format!("/book/{private_alias}")));
     assert!(peer_body.contains(&format!("/books/{held_alias}")));
 
-
     // Active members may read a hidden title; no mail participant inherits
     // an editing right or a title after B-09 membership revocation.
     let view = format!("/me/books/{private}/preview");
     assert_eq!(
-        call(app, "GET", &view, &cookies[0], "", &[])
-            .await
-            .status(),
+        call(app, "GET", &view, &cookies[0], "", &[]).await.status(),
         StatusCode::OK
     );
     assert_eq!(
-        call(app, "GET", &view, &cookies[2], "", &[])
-            .await
-            .status(),
+        call(app, "GET", &view, &cookies[2], "", &[]).await.status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -156,9 +151,7 @@ pub(super) async fn verify(
     )
     .await;
     assert_eq!(
-        call(app, "GET", &view, &cookies[1], "", &[])
-            .await
-            .status(),
+        call(app, "GET", &view, &cookies[1], "", &[]).await.status(),
         StatusCode::OK
     );
     pg(
@@ -171,9 +164,7 @@ pub(super) async fn verify(
     )
     .await;
     assert_eq!(
-        call(app, "GET", &view, &cookies[1], "", &[])
-            .await
-            .status(),
+        call(app, "GET", &view, &cookies[1], "", &[]).await.status(),
         StatusCode::NOT_FOUND
     );
     let revoked = call(
@@ -190,7 +181,10 @@ pub(super) async fn verify(
     .await;
     let revoked: serde_json::Value = serde_json::from_str(&text(revoked).await).unwrap();
     assert_eq!(
-        revoked["messages"][0]["book_previews"].as_array().unwrap().len(),
+        revoked["messages"][0]["book_previews"]
+            .as_array()
+            .unwrap()
+            .len(),
         1
     );
     assert!(revoked["messages"][0]["body_without_book_links"]
