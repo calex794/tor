@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 157] = [
+const ROUTES: [RouteRegistration; 163] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -167,6 +167,12 @@ const ROUTES: [RouteRegistration; 157] = [
     RouteRegistration::new("/mail/groups/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 154
     RouteRegistration::new("/mail/groups/{id}/transfer", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 155
     RouteRegistration::new("/me/books/{id}/preview", "GET", "/me/", Prefix, Page, ProductArea::Mail, Read), // 156
+    RouteRegistration::new("/mail/group-invitations", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 157
+    RouteRegistration::new("/mail/groups/{id}/invite", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 158
+    RouteRegistration::new("/mail/groups/{id}/invite", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 159
+    RouteRegistration::new("/mail/group-invitations/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 160
+    RouteRegistration::new("/mail/group-invitations/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 161
+    RouteRegistration::new("/mail/groups/{id}/invite/{invitation_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 162
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

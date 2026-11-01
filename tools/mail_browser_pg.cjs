@@ -345,7 +345,35 @@ module.exports = async (browser, base, out) => {
       await a.page.waitForURL('**/mail/groups');
       assert.equal((await a.context.request.get(base + groupPath)).status(), 404);
       assert.equal((await c.context.request.get(base + groupPath)).status(), 200);
-      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer PASS');
+
+      // A pending invitation is not membership: D cannot read until accepting.
+      await c.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' d'));
+      await c.page.getByRole('button', { name: 'Почта', exact: true }).click();
+      await c.page.waitForURL('**/mail/*');
+      await c.page.goto(base + groupPath + '/invite');
+      await c.page.locator('#group-invite-user').selectOption(String(d.id));
+      await c.page.getByRole('button', { name: 'Отправить приглашение' }).click();
+      await c.page.waitForURL('**/mail/groups/*/invite');
+      assert.equal((await d.context.request.get(base + groupPath)).status(), 404);
+      await d.page.goto(base + '/mail/group-invitations');
+      assert((await d.page.locator('body').innerText()).includes('Группа <встреча> ' + name));
+      await d.page.getByRole('button', { name: 'Принять' }).click();
+      await d.page.waitForURL('**/mail/groups/*');
+      assert.equal(new URL(d.page.url()).pathname, groupPath);
+      await d.page.locator('.mail-message-body').filter({ hasText: 'GROUP-MESSAGE-' + name })
+        .waitFor({ timeout: 15000 });
+      await d.page.locator('form[action="' + groupPath + '/leave"]')
+        .getByRole('button', { name: 'Выйти из группы' }).click();
+      await d.page.waitForURL('**/mail/groups');
+      assert.equal((await d.context.request.get(base + groupPath)).status(), 404);
+      await c.page.goto(base + groupPath + '/invite');
+      await c.page.locator('#group-invite-user').selectOption(String(d.id));
+      await c.page.getByRole('button', { name: 'Отправить приглашение' }).click();
+      await d.page.goto(base + '/mail/group-invitations');
+      await d.page.getByRole('button', { name: 'Отклонить' }).click();
+      await d.page.waitForURL('**/mail/group-invitations');
+      assert.equal((await d.context.request.get(base + groupPath)).status(), 404);
+      console.log('E-08/S057 group mail UI ' + name + ': create/read/send/replay/CSRF/third-user/notifications/leave/transfer/invite/accept/decline PASS');
       console.log(`E-08/S057 mail profile-to-send transport ${name}: PG/HTML/polling/replay/third-user/block/no-JS PASS`);
     } finally { for (const client of clients) await client.context.close(); }
   }

@@ -1,5 +1,7 @@
 //! E-08/S057 group-mail storage, isolated from immutable direct-mail pairs.
 //! All writes and membership checks are actor-scoped; public pages live in web.
+mod invitations;
+pub use invitations::PendingGroupInvite;
 use super::notification_events::{self, NotificationEvent};
 use crate::domain::{clean_body, valid_key, MailError, SentMessage};
 use sqlx::PgPool;
@@ -497,6 +499,15 @@ impl PgGroupMail {
         if changed.rows_affected() != 2 {
             return Err(MailError::Conflict);
         }
+        // The new creator does not inherit unreviewed outstanding invitations.
+        sqlx::query(
+            "UPDATE social_group_invitations SET state='revoked',resolved_at=clock_timestamp()
+             WHERE group_id=$1 AND state='pending'",
+        )
+        .bind(group_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
         tx.commit().await.map_err(unavailable)
     }
 

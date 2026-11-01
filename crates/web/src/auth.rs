@@ -212,7 +212,7 @@ fn router_inner(
     let app = Router::new()
         .merge(settings_routes::router())
         .merge(referral_routes::router())
-        .merge(notifications::router())
+        .merge(notifications::router().merge(group_mail::invitations::router()))
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),

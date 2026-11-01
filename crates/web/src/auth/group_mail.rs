@@ -1,4 +1,5 @@
 //! E-08/S057 group mail browser pages, separate from direct mail and support.
+pub(super) mod invitations;
 use super::{deny, session_user, AuthState};
 use crate::{
     auth_cookies::private_response,
@@ -102,7 +103,7 @@ fn render_index(
     csrf: &str,
 ) -> Html<String> {
     let mut body = String::from(
-        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1></header><section class="me-section" aria-label="Групповые переписки">"#,
+        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1><p><a href="/mail/group-invitations">Приглашения</a></p></header><section class="me-section" aria-label="Групповые переписки">"#,
     );
     if rows.is_empty() {
         body.push_str("<p>Групповых переписок пока нет.</p>");
@@ -227,6 +228,11 @@ fn render_detail(
     )
     .expect("group send form");
     if group.is_creator {
+        write!(
+            body,
+            r#"<p><a href="/mail/groups/{id}/invite">Пригласить участника</a></p>"#
+        )
+        .expect("invite link");
         if members.len() > 1 {
             write!(
                 body,

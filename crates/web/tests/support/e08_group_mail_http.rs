@@ -582,5 +582,276 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .await,
         "1"
     );
+
+    // Explicit invitations do not add a member before the recipient accepts.
+    // After leaving, the old invitation cannot be replayed; a new one is needed.
+    let invite_page = format!("{path}/invite");
+    assert_eq!(
+        call(&app, "GET", &invite_page, &cookies[0], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &invite_page, &cookies[3], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/start/{}", users[3]),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let invite_html = text(call(&app, "GET", &invite_page, &cookies[2], "", &[]).await).await;
+    assert!(invite_html.contains("Отправить приглашение"));
+    assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 3", users[3])));
+    let invite_form = format!(
+        "invited_user_id={}&csrf_token={}",
+        users[3], tokens[2],
+    );
+    assert_eq!(
+        call(
+            &app, "POST", &invite_page, &cookies[0], &invite_form, &[]
+        ).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &invite_page,
+            &cookies[2],
+            &format!("invited_user_id={}&csrf_token=wrong", users[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&app, "POST", &invite_page, &cookies[2], &invite_form, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "POST", &invite_page, &cookies[2], &invite_form, &[])
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let first_invite: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM social_group_invitations WHERE group_id={group_id} AND invited_user_id={} AND state='pending'",
+            users[3],
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[3], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let invitations = text(
+        call(&app, "GET", "/mail/group-invitations", &cookies[3], "", &[]).await,
+    )
+    .await;
+    assert!(invitations.contains("Team &lt;script&gt;"));
+    assert!(invitations.contains("Group reader 2"));
+    assert!(!invitations.contains("<script>"));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/group-invitations/{first_invite}/accept"),
+            &cookies[0],
+            &format!("csrf_token={}", tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/group-invitations/{first_invite}/decline"),
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/group-invitations/{first_invite}/accept"),
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[3], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    // A new invitation is required after an explicit decline.
+    assert_eq!(
+        call(&app, "POST", &invite_page, &cookies[2], &invite_form, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let second_invite: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM social_group_invitations WHERE group_id={group_id} AND invited_user_id={} AND state='pending'",
+            users[3],
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert!(second_invite > first_invite);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/group-invitations/{second_invite}/accept"),
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[3], "", &[])
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{path}/leave"),
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "GET", &path, &cookies[3], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/group-invitations/{second_invite}/accept"),
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "POST", &invite_page, &cookies[2], &invite_form, &[])
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let third_invite: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM social_group_invitations WHERE group_id={group_id} AND invited_user_id={} AND state='pending'",
+            users[3],
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    let revoke = format!("{path}/invite/{third_invite}/revoke");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &revoke,
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &revoke,
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("/mail/group-invitations/{third_invite}/accept"),
+            &cookies[3],
+            &format!("csrf_token={}", tokens[3]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM social_group_members WHERE group_id={group_id} AND user_id={} AND status='left'",
+                users[3]
+            ),
+        )
+        .await,
+        "1"
+    );
     // All fixtures live in tor_ci, which is discarded after this run.
 }

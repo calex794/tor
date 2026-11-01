@@ -246,6 +246,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/group_mail/invitations.rs":
+            proof = {
+                "inbox": {"pending_for"}, "invite_page": {"pending_sent"},
+                "invite": {"invite"}, "accept": {"accept_invite"},
+                "decline": {"decline_invite"}, "revoke": {"revoke_invite"},
+            }.get(entry["handler"], proof)
         if entry["source"] == "crates/web/src/auth/notifications.rs":
             proof = {
                 "page": {"list_section"}, "mark_one": {"mark_read"},
