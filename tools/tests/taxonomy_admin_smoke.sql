@@ -8,7 +8,7 @@ DECLARE
     alias_name TEXT;
     v_term_id BIGINT;
     second_id BIGINT;
-    book_id BIGINT;
+    v_book_id BIGINT;
     actual_tags TEXT[];
     actual_links BIGINT[];
     actual_revision BIGINT;
@@ -44,34 +44,34 @@ BEGIN
     IF NOT rejected THEN RAISE EXCEPTION 'canonical/alias collision accepted'; END IF;
     INSERT INTO books(source_identity,target_language,title,visibility,tags)
         VALUES('ci-curation:'||suffix,'ru','Curation isolated book','draft',
-               ARRAY[alias_name]) RETURNING id INTO book_id;
-    IF NOT admin_taxonomy_reconcile_book(book_id,'ci-smoke') THEN
+               ARRAY[alias_name]) RETURNING id INTO v_book_id;
+    IF NOT admin_taxonomy_reconcile_book(v_book_id,'ci-smoke') THEN
         RAISE EXCEPTION 'expected canonical reconciliation';
     END IF;
     SELECT tags,taxonomy_revision INTO actual_tags,actual_revision
-      FROM books WHERE id=book_id;
+      FROM books WHERE id=v_book_id;
     SELECT array_agg(term_id ORDER BY position) INTO actual_links
-      FROM book_taxonomy_links WHERE book_taxonomy_links.book_id=book_id;
+      FROM book_taxonomy_links WHERE book_taxonomy_links.book_id=v_book_id;
     IF actual_tags<>ARRAY[admin_taxonomy_key(label)]
        OR actual_links<>ARRAY[v_term_id] OR actual_revision<>2 THEN
         RAISE EXCEPTION 'book legacy arrays, links or revision mismatch';
     END IF;
-    IF admin_taxonomy_reconcile_book(book_id,'ci-smoke') THEN
+    IF admin_taxonomy_reconcile_book(v_book_id,'ci-smoke') THEN
         RAISE EXCEPTION 'idempotent reconciliation rewrote book';
     END IF;
-    UPDATE books SET tags=ARRAY['unknown'||suffix] WHERE id=book_id;
+    UPDATE books SET tags=ARRAY['unknown'||suffix] WHERE id=v_book_id;
     rejected:=false;
     BEGIN
-        PERFORM admin_taxonomy_reconcile_book(book_id,'ci-smoke');
+        PERFORM admin_taxonomy_reconcile_book(v_book_id,'ci-smoke');
     EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;
     END;
     IF NOT rejected THEN RAISE EXCEPTION 'unknown legacy label not rejected'; END IF;
-    SELECT tags INTO actual_tags FROM books WHERE id=book_id;
+    SELECT tags INTO actual_tags FROM books WHERE id=v_book_id;
     IF actual_tags<>ARRAY['unknown'||suffix] THEN
         RAISE EXCEPTION 'unknown legacy metadata was discarded';
     END IF;
     IF (SELECT count(*) FROM book_taxonomy_curation_events
-        WHERE book_taxonomy_curation_events.book_id=book_id
+        WHERE book_taxonomy_curation_events.book_id=v_book_id
           AND action='reconcile_book')<>1 THEN
         RAISE EXCEPTION 'unexpected number of audited reconciliations';
     END IF;
