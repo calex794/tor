@@ -5,9 +5,10 @@ use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
+    Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use tor_accounts::services::security::generate_session_token;
@@ -18,6 +19,72 @@ use tor_discussions::{
     },
     repositories::public_book_comments::{CreateResult, PgPublicBookComments, PublicComment},
 };
+
+pub(super) async fn mention_script() -> Response {
+    private_response(
+        (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/javascript; charset=utf-8",
+            )],
+            include_str!("../../assets/mentions.js"),
+        )
+            .into_response(),
+        &[],
+    )
+}
+
+#[derive(Deserialize)]
+pub(super) struct MentionsQuery {
+    book_id: i64,
+    q: String,
+}
+
+#[derive(Serialize)]
+struct MentionOption {
+    user_id: i64,
+    label: String,
+}
+
+#[derive(Serialize)]
+struct MentionOptions {
+    items: Vec<MentionOption>,
+}
+
+pub(super) async fn discover_mentions(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Query(query): Query<MentionsQuery>,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    };
+    let repo = PgPublicBookComments::new(state.accounts.pool().clone());
+    match repo
+        .mention_candidates(actor, query.book_id, &query.q)
+        .await
+    {
+        Ok(items) => private_response(
+            Json(MentionOptions {
+                items: items
+                    .into_iter()
+                    .map(|item| MentionOption {
+                        user_id: item.user_id,
+                        label: item.display_name,
+                    })
+                    .collect(),
+            })
+            .into_response(),
+            &[],
+        ),
+        Err(tor_discussions::repositories::public_book_comments::ListCommentsError::Invalid) => {
+            deny(StatusCode::BAD_REQUEST)
+        }
+        Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
 
 #[derive(Default, Deserialize)]
 pub(super) struct CommentsQuery {
@@ -30,6 +97,7 @@ pub(super) struct CommentForm {
     command_key: String,
     parent_id: Option<i64>,
     csrf_token: Option<String>,
+    return_to: Option<String>,
 }
 
 // Only our fixed markup is trusted; every user-controlled segment is escaped.
@@ -66,7 +134,7 @@ fn comments_list(book_id: i64, comments: &[PublicComment], csrf: Option<&str>) -
                 "<details class=\"comment-reply\"><summary>Ответить на комментарий №{id}</summary>
                  <form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
                  <label for=\"reply-{id}\">Ваш ответ на комментарий №{id}</label>
-                 <textarea class=\"ui-textarea comments-form__input\" id=\"reply-{id}\" name=\"body\" rows=\"3\" maxlength=\"2000\" required></textarea>
+                 <textarea data-mention-book=\"{book_id}\" class=\"ui-textarea comments-form__input\" id=\"reply-{id}\" name=\"body\" rows=\"3\" maxlength=\"2000\" required></textarea>
                  <input type=\"hidden\" name=\"parent_id\" value=\"{id}\">
                  <input type=\"hidden\" name=\"command_key\" value=\"{}\">
                  <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
@@ -110,7 +178,7 @@ fn comments_page(
             "<form method=\"post\" action=\"/books/{book_id}/comments\" class=\"comments-form\">
              <label for=\"comment-body\">Ваш комментарий</label>
              <p id=\"spoiler-help\">Чтобы скрыть спойлер, заключите текст в ||двойные черты||.</p>
-             <textarea class=\"ui-textarea comments-form__input\" id=\"comment-body\" aria-describedby=\"spoiler-help\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
+             <textarea data-mention-book=\"{book_id}\" class=\"ui-textarea comments-form__input\" id=\"comment-body\" aria-describedby=\"spoiler-help\" name=\"body\" rows=\"3\" maxlength=\"2000\" placeholder=\"Написать комментарий\" required></textarea>
              <input type=\"hidden\" name=\"command_key\" value=\"{}\">
              <input type=\"hidden\" name=\"csrf_token\" value=\"{}\">
              <button class=\"ui-button ui-button--primary comments-form__submit\" type=\"submit\">Отправить</button>
@@ -134,7 +202,7 @@ fn comments_page(
          </div></div>
          {form}
          {list}
-         </section></div></section>",
+         </section></div></section><script defer src=\"/assets/mentions.js\"></script>",
         list = comments_list(book_id, comments, csrf),
     );
     pages::layout(
@@ -174,10 +242,17 @@ pub(super) async fn page(
     } else {
         (None, Vec::new())
     };
-    private_response(
+    let mut response = private_response(
         comments_page(book_id, &visible.title, &comments, token.as_deref()),
         &cookies,
-    )
+    );
+    // Permit only self-hosted JS on this editor page; all other private
+    // pages retain their script-src 'none' policy.
+    response.headers_mut().insert(
+        "content-security-policy",
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"),
+    );
+    response
 }
 
 pub(super) async fn submit(
@@ -213,6 +288,13 @@ pub(super) async fn submit(
     if form.parent_id.is_some_and(|id| id <= 0) {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    // The Inbox may request one fixed local destination, never a client URL.
+    // No Inbox redirect is accepted for a root comment.
+    let redirect_to_inbox = match form.return_to.as_deref() {
+        None => false,
+        Some("inbox") if form.parent_id.is_some() => true,
+        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+    };
     // Preserve existing root command hashes; reply identities include their parent.
     let payload = match form.parent_id {
         Some(parent) => format!("book:{book_id}\nreply:{parent}\n{}", body.as_str()),
@@ -231,10 +313,14 @@ pub(super) async fn submit(
         )
         .await
     {
-        CreateResult::Created(_) | CreateResult::Replayed(_) => private_response(
-            Redirect::to(&format!("/books/{book_id}/comments#comments")),
-            &[],
-        ),
+        CreateResult::Created(_) | CreateResult::Replayed(_) => {
+            let destination = if redirect_to_inbox {
+                "/me/inbox".to_owned()
+            } else {
+                format!("/books/{book_id}/comments#comments")
+            };
+            private_response(Redirect::to(&destination), &[])
+        }
         CreateResult::Conflict => deny(StatusCode::CONFLICT),
         CreateResult::NotFound => deny(StatusCode::NOT_FOUND),
         CreateResult::Unavailable => deny(StatusCode::SERVICE_UNAVAILABLE),

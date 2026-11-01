@@ -15,18 +15,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner"}
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
-    "own_ratings", "set_rating",
+    "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
+    "visible_summary", "set_like",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "saved_place", "saved_state", "save_position", "add_book", "remove_book",
     "purchased_s3_completion_state", "complete_purchased_s3",
     "set_ril_behavior_consent", "readable_purchases",
-    "record_verified_continuation",
+    "record_verified_continuation", "follow", "unfollow", "set_read_state",
+    "delivery_preference", "set_delivery_preference",
+    "active_role",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",
@@ -117,6 +120,18 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
     # All current registrations use one same-crate module prefix.
     if "::" in module:
         return root / "__unsupported_nested_handler__"
+    if source == root / "crates/web/src/auth/settings_routes.rs":
+        # This router explicitly imports sibling account handlers with super::.
+        allowed = {"profile_http", "notification_settings", "password_reset", "password_change", "session_security"}
+        if module not in allowed:
+            return root / "__unsupported_account_handler__"
+        return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/referral_routes.rs":
+        # Only these three sibling handlers may be bound through the F-09 router.
+        allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
+        if module not in allowed:
+            return root / "__unsupported_referral_handler__"
+        return source.parent / f"{module}.rs"
     if source.name in {"lib.rs", "mod.rs"}:
         return source.parent / f"{module}.rs"
     return source.with_suffix("") / f"{module}.rs"
@@ -127,7 +142,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body
@@ -165,10 +180,29 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy in PROTECTED:
         if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
             errors.append(f"{label}: missing verified PG session guard")
-        if not ("StatusCode::UNAUTHORIZED" in evidence or "Redirect::to(\"/login\")" in evidence):
+        # Only the typed private reader may redirect to a specific local chapter.
+        # Never allow an arbitrary dynamic redirect to satisfy a session guard.
+        fixed_reader_return = (
+            entry["template"] == "/read/{id}"
+            and entry["handler"] == "private_reader::page"
+            and "Path(id): Path<u64>" in evidence
+            and "Ok(None) =>" in evidence
+            and 'format!("/login?next=/read/{id}")' in evidence
+            and "return private_response(Redirect::to(&destination), &[])" in evidence
+        )
+        if not (
+            "StatusCode::UNAUTHORIZED" in evidence
+            or 'Redirect::to("/login")' in evidence
+            or fixed_reader_return
+        ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
+        # Shared write helpers contain both calls; each route must prove its own.
+        if policy == "scoped" and entry["template"] == "/me/books/{id}/follow":
+            proof = {"follow"}
+        elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
+            proof = {"unfollow"}
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
@@ -180,6 +214,14 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "StatusCode::FORBIDDEN" in evidence
         ):
             errors.append(f"{label}: missing Origin+CSRF rejection")
+    if policy == "recovery":
+        allowed = {("POST", "/forgot-password", "password_reset::request"),
+                   ("POST", "/reset-password", "password_reset::confirm")}
+        if (entry["method"], entry["template"], entry["handler"]) not in allowed:
+            errors.append(f"{label}: recovery exception is not allowed here")
+        if ("login_limiter::limit(" not in evidence
+                or len(re.findall(r"\bpermit_auth_attempt\s*\(", limiter)) < 2):
+            errors.append(f"{label}: missing distributed recovery rate limit")
     if policy == "entry":
         if entry["method"] != "POST" or entry["template"] not in {"/login", "/register"}:
             errors.append(f"{label}: entry exception only applies to login/register POST")

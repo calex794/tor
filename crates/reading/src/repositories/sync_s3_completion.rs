@@ -238,7 +238,7 @@ impl PgReadingSync {
                     jsonb_build_object('user_id',$2,'book_id',$3,
                         'chapter_id',$4,'version_id',$5,'purchase_id',$6,
                         'authority','C-verified-purchased-position'),
-                    ARRAY['ranking-eligibility-v1'])",
+                    ARRAY['ranking-eligibility-v1','achievements-v1'])",
             )
             .bind(&event_id)
             .bind(actor)

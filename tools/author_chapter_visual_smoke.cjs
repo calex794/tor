@@ -85,6 +85,8 @@ async function inspect(page, viewport, name) {
       await page.waitForURL(/\/chapters\/\d+\/edit$/);
       assert(await page.getByRole('heading', { name: 'Редактировать главу' }).isVisible(),
         viewport + ': missing draft editor');
+      assert(await page.locator('h1 a[href^="/reader/"]').count() === 0,
+        viewport + ': unpublished draft must not advertise an unreadable reader page');
       assert(await page.getByText('Редакция №1.').isVisible(),
         viewport + ': initial chapter revision missing');
       await page.getByLabel('Текст главы').fill('Обновлённая версия: **важная строка**.');
@@ -162,6 +164,17 @@ async function inspect(page, viewport, name) {
         viewport + ': published editor lacks immediate release explanation');
       assert(await page.getByRole('button', { name: 'Сохранить изменения' }).isVisible(),
         viewport + ': published free chapter editor has no Save');
+      // NEwBOO "В главу": in TOR the chapter title itself is clickable.
+      const linkedTitle = page.locator('h1 a.author-chapter-view-link');
+      assert(await linkedTitle.getAttribute('href') === '/reader/' + chapterId,
+        viewport + ': published chapter title does not lead to the real reader');
+      await linkedTitle.click();
+      await page.waitForURL(base + '/reader/' + chapterId);
+      assert(await page.getByText('PUBLIC B06 new').isVisible(),
+        viewport + ': title-to-reader navigation lost the published chapter');
+      await page.goto(base + '/me/books/' + bookId +
+        '/chapters/' + chapterId + '/edit');
+      await inspect(page, viewport, 'published-editor-title-link');
       const release = await page.goto(base + '/me/books/' + bookId +
         '/chapters/' + chapterId + '/release');
       assert(release && release.status() === 404,
@@ -209,6 +222,65 @@ async function inspect(page, viewport, name) {
         assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
           viewport + ': new reader bookmark is missing');
 
+        // E-05 / S014: an account-follow is independent of saving a Book.
+        // Exercise the real user action and private author-follow listing.
+        await reader.goto(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Следить за автором' }).isVisible(),
+          viewport + ': creator-follow control missing from book');
+        await reader.getByRole('button', { name: 'Следить за автором' }).click();
+        await reader.waitForURL(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
+          viewport + ': account-follow did not persist');
+        await reader.goto(base + '/me/creators');
+        assert(await reader.getByRole('heading', { name: 'Подписки на авторов' }).isVisible(),
+          viewport + ': private followed-creators page missing');
+        assert(await reader.getByText('Автор ' + viewport).isVisible(),
+          viewport + ': authoritative owner not in reader follows');
+        assert(await reader.getByRole('link', { name: 'Новая книга ' + viewport }).isVisible(),
+          viewport + ': source Book attribution missing');
+        await inspect(reader, viewport, 'creator-followed');
+        await reader.getByRole('button', { name: 'Отписаться от автора' }).click();
+        await reader.waitForURL(base + '/me/creators');
+        assert(await reader.getByText(/Вы пока не подписаны на авторов/).isVisible(),
+          viewport + ': unsubscribe did not deactivate the follow');
+        await reader.goto(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Следить за автором' }).isVisible(),
+          viewport + ': re-follow after unsubscribe unavailable');
+        await reader.getByRole('button', { name: 'Следить за автором' }).click();
+        await reader.waitForURL(base + '/books/' + bookId);
+        assert(await reader.getByRole('button', { name: 'Отписаться от автора' }).isVisible(),
+          viewport + ': new active creator period absent');
+
+        // The author publishes a new chapter in the same account after the
+        // reader follows the author. This is not a BookFollow: the feed entry
+        // must be produced by the creator-follow period alone.
+        await page.goto(base + '/me/books/' + bookId);
+        await page.getByRole('link', { name: 'Добавить главу' }).click();
+        await page.waitForURL('**/chapters/new');
+        await page.getByLabel('Номер главы').fill('3');
+        await page.getByLabel('Название главы').fill('Глава после подписки');
+        await page.getByLabel('Текст главы').fill('Новая глава после подписки автора.');
+        await page.getByRole('button', { name: 'Сохранить главу' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId);
+        await reader.goto(base + '/me/library');
+        const updates = reader.locator('#new-chapters');
+        assert(await updates.getByRole('heading', { name: 'Новые главы подписок' }).isVisible(),
+          viewport + ': release feed missing');
+        assert(await updates.getByText('Глава после подписки').isVisible(),
+          viewport + ': release by followed author in same account was not delivered to feed');
+        // The authenticated follow feed intentionally opens free chapters in
+        // /read/:id so the reader can save progress and complete the chapter.
+        const newRelease = updates.locator('a[href^="/read/"]').last();
+        assert(await newRelease.isVisible(), viewport + ': free author release has no private reader link');
+        const newReleaseHref = await newRelease.getAttribute('href');
+        assert(/^\/read\/\d+$/.test(newReleaseHref),
+          viewport + ': free author release must open the completion-capable reader');
+        await newRelease.click();
+        await reader.waitForURL(base + newReleaseHref);
+        assert(await reader.getByText('Новая глава после подписки автора.').isVisible(),
+          viewport + ': reader could not open the author release');
+        await inspect(reader, viewport, 'author-release-feed');
+
         const privateReader = await reader.goto(base + '/read/' + chapterId);
         assert(privateReader && privateReader.status() === 200,
           viewport + ': account-only free reader failed');
@@ -223,6 +295,25 @@ async function inspect(page, viewport, name) {
           viewport + ': new reader did not persist a chapter-specific place');
         await inspect(reader, viewport, 'cross-user-saved');
 
+        // C-08/S007: saved books and reading positions have independent lifetimes.
+        // A second authenticated account must not inherit the reader's bookmark.
+        await page.goto(base + '/me/library');
+        assert(await page.getByRole('region', { name: 'Сохранённые книги' })
+          .locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': reader bookmark leaked into the author account');
+        const savedBooks = reader.getByRole('region', { name: 'Сохранённые книги' });
+        const savedCard = savedBooks.locator('.library-card').filter({
+          has: reader.locator('a[href="/books/' + bookId + '"]'),
+        });
+        await savedCard.getByRole('button', { name: 'Убрать из библиотеки' }).click();
+        await reader.waitForURL(base + '/me/library');
+        await reader.reload();
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': removed bookmark returned after reload');
+        assert(await reader.locator('a[href="/read/' + chapterId + '#p-1"]').isVisible(),
+          viewport + ': removing bookmark erased the saved reading position');
+        await inspect(reader, viewport, 'bookmark-removed');
+
         await reader.goto(base + '/me');
         await reader.getByRole('button', { name: 'Выйти' }).click();
         await reader.waitForURL('**/login');
@@ -235,6 +326,8 @@ async function inspect(page, viewport, name) {
         await reader.waitForURL('**/me');
         await reader.goto(base + '/me/library');
         const resume = reader.locator('a[href="/read/' + chapterId + '#p-1"]');
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 0,
+          viewport + ': removed bookmark returned after logout and login');
         assert(await resume.isVisible(),
           viewport + ': reader lost saved place after logout and login');
         await resume.click();
@@ -244,6 +337,17 @@ async function inspect(page, viewport, name) {
         assert(await reader.getByText('PUBLIC B06 new').isVisible(),
           viewport + ': resumed reader text differs from author publication');
         await inspect(reader, viewport, 'cross-user-resumed');
+
+        await reader.goto(base + '/books/' + bookId);
+        await reader.getByRole('link', { name: 'Добавить в библиотеку' }).click();
+        await reader.waitForURL(base + '/me/library/add/' + bookId);
+        await reader.getByRole('button', { name: 'Сохранить книгу' }).click();
+        await reader.waitForURL(base + '/me/library');
+        assert(await savedBooks.locator('a[href="/books/' + bookId + '"]').count() === 1,
+          viewport + ': removed book could not be saved again exactly once');
+        assert(await resume.isVisible(),
+          viewport + ': re-adding bookmark changed saved reading position');
+        await inspect(reader, viewport, 'bookmark-restored');
       } finally {
         await guestContext.close();
         await readerContext.close();

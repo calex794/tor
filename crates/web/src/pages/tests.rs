@@ -58,6 +58,8 @@ fn catalog_metadata_must_be_escaped_in_cards() {
             tag: None,
             fandom: None,
             cursor: None,
+            previous_cursor: None,
+            page_number: 1,
             sort: "oldest",
             total: Some(1),
             options: None,
@@ -120,6 +122,29 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
 }
 
 #[test]
+fn auth_forms_preserve_explicit_private_reader_return() {
+    let login = login_form_with_next("csrf", Some("/read/42")).0;
+    assert!(login.contains("name=\"next\" value=\"/read/42\""));
+    assert!(login.contains("href=\"/register?next=/read/42\""));
+    let register = registration_form_with_next("csrf", Some("/read/42")).0;
+    assert!(register.contains("name=\"next\" value=\"/read/42\""));
+    assert!(register.contains("href=\"/login?next=/read/42\""));
+    let error = registration_form_with_error_and_next(
+        "csrf",
+        "Reader",
+        "reader@example.test",
+        Some("Повторите отправку"),
+        Some("/read/42"),
+    )
+    .0;
+    assert!(error.contains("name=\"next\" value=\"/read/42\""));
+    assert!(!login_form("csrf").0.contains("name=\"next\""));
+    assert!(!registration_form("csrf").0.contains("name=\"next\""));
+    assert!(!login.contains("<!--AUTH_RETURN_FIELD-->"));
+    assert!(!register.contains("<!--AUTH_LOGIN_NEXT-->"));
+}
+
+#[test]
 fn account_failure_is_complete_branded_page_without_credentials() {
     let html = account_error_page(
         "Не удалось завершить регистрацию",
@@ -137,7 +162,7 @@ fn account_failure_is_complete_branded_page_without_credentials() {
 
 #[test]
 fn profile_shows_only_actual_user_features() {
-    let html = my_account("<reader>", "csrf").0;
+    let html = my_account("<reader>", "csrf", &[]).0;
     assert!(html.contains("&lt;reader&gt;"));
     assert!(html.contains("href=\"/me/books\""));
     assert!(html.contains("href=\"/me/library\""));
@@ -362,4 +387,36 @@ fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
     .0;
     assert!(private.contains("href=\"/reader/78\""));
     assert!(!private.contains("href=\"/read/78\""));
+}
+
+#[test]
+fn b_18_navigation_follows_books_in_catalog_layout() {
+    let query = CatalogPageQuery {
+        query: "",
+        language: None,
+        genre: None,
+        tag: None,
+        fandom: None,
+        cursor: Some("20"),
+        previous_cursor: None,
+        page_number: 1,
+        sort: "oldest",
+        total: Some(42),
+        options: None,
+    };
+    let html = catalog_search(
+        &[PublicBookCard {
+            id: 20,
+            title: "Последняя на странице".into(),
+            language: "ru".into(),
+            author_name: None,
+            genres: vec![],
+        }],
+        query,
+    )
+    .0;
+    let card = html.find("Последняя на странице").expect("book card");
+    let navigation = html.find("catalog-pagination").expect("page controls");
+    assert!(navigation > card, "page navigation follows the book grid");
+    assert!(html.contains("Страница 1"));
 }

@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 79);
+    assert_eq!(unique.len(), 125);
 }
 
 #[test]
@@ -30,6 +30,11 @@ fn public_private_and_write_routes_are_distinct() {
         classify(Some("/read/{id}/want-continuation"), "POST").cost_class,
         CostClass::Write
     );
+    let like_get = classify(Some("/books/{id}/like"), "GET");
+    let like_post = classify(Some("/books/{id}/like"), "POST");
+    assert_eq!(like_get.cost_class, CostClass::CheapRead);
+    assert_eq!(like_post.cost_class, CostClass::Write);
+    assert_eq!(like_post.route_family, "/books/");
     let get = classify(Some("/login"), "GET");
     let post = classify(Some("/login"), "POST");
     assert_eq!(get.product_area, ProductArea::Auth);

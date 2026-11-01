@@ -25,6 +25,32 @@ impl CookiePolicy {
         }
     }
 
+    fn guest_name(&self) -> &'static str {
+        if self.secure {
+            "__Host-tor-guest"
+        } else {
+            "tor-dev-guest"
+        }
+    }
+
+    pub(crate) fn guest_token(&self, headers: &HeaderMap) -> Option<String> {
+        cookie_value(headers, self.guest_name()).filter(|token| valid_token(token))
+    }
+
+    pub(crate) fn guest_cookie(&self, token: &str) -> String {
+        // An invitation is often opened from another site. Strict would hide
+        // this guest cookie on the next cross-site top-level navigation and
+        // make a later invitation overwrite the original first touch.
+        // Lax still excludes the guest identity from cross-site subrequests.
+        self.cookie(self.guest_name(), token, 30 * 24 * 60 * 60, "Lax")
+    }
+
+    pub(crate) fn cleared_guest_cookie(&self) -> String {
+        // A new account has consumed the guest invitation; do not carry it
+        // into a second account created later in the same browser.
+        self.cookie(self.guest_name(), "", 0, "Lax")
+    }
+
     fn csrf_name(&self) -> &'static str {
         if self.secure {
             "__Host-tor-csrf"
@@ -33,14 +59,14 @@ impl CookiePolicy {
         }
     }
 
-    fn cookie(&self, name: &str, value: &str, age: u32) -> String {
+    fn cookie(&self, name: &str, value: &str, age: u32, same_site: &str) -> String {
         let secure = if self.secure { "; Secure" } else { "" };
-        format!("{name}={value}; Path=/; Max-Age={age}; HttpOnly; SameSite=Strict{secure}")
+        format!("{name}={value}; Path=/; Max-Age={age}; HttpOnly; SameSite={same_site}{secure}")
     }
 
     pub(crate) fn csrf_token_cookie(&self) -> (String, String) {
         let token = generate_session_token();
-        let cookie = self.cookie(self.csrf_name(), &token, CSRF_AGE);
+        let cookie = self.cookie(self.csrf_name(), &token, CSRF_AGE, "Strict");
         (token, cookie)
     }
 
@@ -54,13 +80,13 @@ impl CookiePolicy {
     }
 
     pub(crate) fn session_cookie(&self, token: &str) -> String {
-        self.cookie(self.session_name(), token, SESSION_AGE)
+        self.cookie(self.session_name(), token, SESSION_AGE, "Strict")
     }
 
     pub(crate) fn cleared_cookies(&self) -> [String; 2] {
         [
-            self.cookie(self.session_name(), "", 0),
-            self.cookie(self.csrf_name(), "", 0),
+            self.cookie(self.session_name(), "", 0, "Strict"),
+            self.cookie(self.csrf_name(), "", 0, "Strict"),
         ]
     }
 
@@ -125,6 +151,11 @@ fn constant_time_equal(a: &[u8], b: &[u8]) -> bool {
         .zip(b)
         .fold(0_u8, |diff, (left, right)| diff | (left ^ right))
         == 0
+}
+
+/// Uniform response for denied authenticated operations.
+pub(crate) fn deny(status: StatusCode) -> Response {
+    private_response(status, &[])
 }
 
 pub(crate) fn private_response<T: IntoResponse>(result: T, cookies: &[String]) -> Response {
@@ -206,6 +237,52 @@ mod tests {
             .iter()
             .all(|x| x.contains("Max-Age=0")));
         assert!(!policy(false).session_cookie(&token).contains("; Secure"));
+    }
+
+    #[test]
+    fn guest_referral_cookie_survives_cross_site_top_level_navigation() {
+        for secure in [false, true] {
+            let config = policy(secure);
+            let token = generate_session_token();
+            let guest = config.guest_cookie(&token);
+            assert!(guest.contains("; SameSite=Lax"));
+            assert!(!guest.contains("; SameSite=Strict"));
+            assert!(guest.contains("; HttpOnly"));
+            assert!(guest.contains("; Path=/"));
+            assert!(guest.contains("Max-Age=2592000"));
+            assert!(!guest.contains("Domain="));
+            if secure {
+                assert!(guest.starts_with("__Host-tor-guest="));
+                assert!(guest.contains("; Secure"));
+            } else {
+                assert!(guest.starts_with("tor-dev-guest="));
+                assert!(!guest.contains("; Secure"));
+            }
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::COOKIE,
+                format!("{}={token}", config.guest_name()).parse().unwrap(),
+            );
+            assert_eq!(
+                config.guest_token(&headers).as_deref(),
+                Some(token.as_str())
+            );
+
+            // Authentication and CSRF never inherit the referral's Lax policy.
+            let cleared = config.cleared_guest_cookie();
+            assert!(cleared.contains("; Max-Age=0"));
+            assert!(cleared.contains("; SameSite=Lax"));
+            assert!(cleared.contains("; HttpOnly"));
+            if secure {
+                assert!(cleared.starts_with("__Host-tor-guest="));
+                assert!(cleared.contains("; Secure"));
+            } else {
+                assert!(cleared.starts_with("tor-dev-guest="));
+            }
+            assert!(config.session_cookie(&token).contains("; SameSite=Strict"));
+            assert!(config.csrf_token_cookie().1.contains("; SameSite=Strict"));
+        }
     }
 
     #[test]

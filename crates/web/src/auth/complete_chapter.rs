@@ -86,8 +86,20 @@ pub(super) async fn complete(
                     Ok(_) | Err(RankingStoreError::Conflict) => {}
                     Err(_) => tracing::warn!("ranking delivery queued after completed chapter"),
                 }
+                if state
+                    .achievements
+                    .accept_completed_chapter(&event_id)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("achievement delivery queued after completed chapter");
+                }
             }
-            private_response(Redirect::to("/me/rankings"), &[])
+            // Keep the reader at the chapter they actually finished. On the
+            // current frontier the now-eligible continuation request appears
+            // immediately below the completion confirmation; rankings remain
+            // available through an explicit link, not an involuntary detour.
+            private_response(Redirect::to(&format!("/read/{id}#continuation")), &[])
         }
         Err(error) => deny(status(error)),
     }

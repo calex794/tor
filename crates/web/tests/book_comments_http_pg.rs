@@ -328,11 +328,333 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         .await,
         "1"
     );
+    let writer_session = generate_session_token();
+    let writer_csrf = generate_session_token();
+    let writer_id = PgAccounts::from_pool(pool.clone())
+        .register_with_session(
+            &format!("e03-recipient-{nonce}@tor-ci.example"),
+            "Other reader",
+            &hash_password("E03OnlyTestingPassword2026").unwrap(),
+            &session_token_digest(&writer_session),
+            std::num::NonZeroU32::new(3600).unwrap(),
+        )
+        .await
+        .unwrap();
+    let writer_cookie = format!("tor-dev-session={writer_session}; tor-dev-csrf={writer_csrf}");
+    let incoming_form = format!(
+        "body=NEVER_COPY_THIS_SPOILER&parent_id={parent}&command_key={}&csrf_token={writer_csrf}",
+        generate_session_token()
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &comments_path,
+                &writer_cookie,
+                ORIGIN,
+                &incoming_form
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    let incoming_id: i64 = pg(&url,&format!("SELECT id FROM discussion_comments WHERE author_user_id={writer_id} AND book_id={book}")).await.parse().unwrap();
+    let link = format!(
+        "/books/{book}/comments?after={}#comment-{incoming_id}",
+        incoming_id + 1
+    );
+    let account = call(&app, "GET", "/me", &cookies, ORIGIN, "").await;
+    assert_eq!(account.status(), StatusCode::OK);
+    assert!(account
+        .headers()
+        .get(header::CACHE_CONTROL)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("no-store"));
+    let account_html = html(account).await;
+    assert_eq!(account_html.matches(&link).count(), 1);
+    assert!(account_html.contains("Книга &lt;script&gt;"));
+    assert!(!account_html.contains("NEVER_COPY_THIS_SPOILER"));
+    assert!(account_html.contains("Не прочитано"));
+    // The standalone Inbox is private and never includes the comment body.
+    assert_eq!(
+        call(&app, "GET", "/api/v1/me/inbox", "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let inbox_path = "/me/inbox?filter=unread";
+    let inbox = call(&app, "GET", inbox_path, &cookies, ORIGIN, "").await;
+    assert_eq!(inbox.status(), StatusCode::OK);
+    let inbox_html = html(inbox).await;
+    assert!(inbox_html.contains("Входящие обсуждения"));
+    assert!(inbox_html.contains(&link));
+    assert!(!inbox_html.contains("NEVER_COPY_THIS_SPOILER"));
+    assert!(inbox_html.contains("Ответить на сообщение"));
+    assert!(inbox_html.contains("name=\"parent_id\""));
+    let inline_key = inbox_html
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    assert_eq!(inline_key.len(), 43);
+    let inline_form = format!(
+        "body=Inbox%20answer&parent_id={incoming_id}&command_key={inline_key}&csrf_token={csrf}&return_to=inbox"
+    );
+    let inline_path = format!("/books/{book}/comments");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &inline_path,
+            &cookies,
+            "https://evil.invalid",
+            &inline_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &inline_path,
+            &cookies,
+            ORIGIN,
+            &inline_form.replace("return_to=inbox", "return_to=https%3A%2F%2Fevil.invalid")
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    // A real Inbox form must retain all of the existing comment command guards.
+    for (cookie, form, expected) in [
+        (
+            format!("tor-dev-csrf={csrf}"),
+            inline_form.clone(),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            cookies.clone(),
+            inline_form.replace(&csrf, "forged"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            cookies.clone(),
+            inline_form.replace(&format!("&parent_id={incoming_id}"), ""),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            cookies.clone(),
+            inline_form.replace(
+                &format!("parent_id={incoming_id}"),
+                "parent_id=9223372036854775807",
+            ),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        assert_eq!(
+            call(&app, "POST", &inline_path, &cookie, ORIGIN, &form)
+                .await
+                .status(),
+            expected
+        );
+    }
+    for _ in 0..2 {
+        let response = call(&app, "POST", &inline_path, &cookies, ORIGIN, &inline_form).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(header::LOCATION).unwrap(),
+            "/me/inbox"
+        );
+    }
+    assert_eq!(
+        pg(&url, &format!("SELECT count(*) FROM discussion_comments WHERE parent_id={incoming_id} AND author_user_id={user}")).await,
+        "1"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &inline_path,
+            &cookies,
+            ORIGIN,
+            &inline_form.replace("Inbox%20answer", "Different%20answer")
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    // A form opened before moderation must not bypass the fresh parent check.
+    pg(
+        &url,
+        &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={incoming_id}"),
+    )
+    .await;
+    assert_eq!(
+        call(&app, "POST", &inline_path, &cookies, ORIGIN, &inline_form)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    pg(
+        &url,
+        &format!("UPDATE discussion_comments SET visibility='visible' WHERE id={incoming_id}"),
+    )
+    .await;
+    let json = html(call(&app, "GET", "/api/v1/me/inbox", &cookies, ORIGIN, "").await).await;
+    let item: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(item["items"][0]["id"], incoming_id.to_string());
+    assert_eq!(item["items"][0]["kind"], "reply");
+    assert_eq!(item["items"][0]["is_read"], false);
+    assert!(!json.contains("NEVER_COPY_THIS_SPOILER"));
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?filter=unknown",
+            &cookies,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?limit=51",
+            &cookies,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let read_path = format!("/me/replies/{incoming_id}/read-state");
+    let read_form = format!("csrf_token={csrf}&state=read");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_path,
+            &cookies,
+            "https://evil.invalid",
+            &read_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_path,
+            &writer_cookie,
+            ORIGIN,
+            &format!("csrf_token={writer_csrf}&state=read")
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", &read_path, &cookies, ORIGIN, &read_form)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert!(html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await)
+        .await
+        .contains("Отметить непрочитанным"));
+    let read_inbox = html(
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?filter=read",
+            &cookies,
+            ORIGIN,
+            "",
+        )
+        .await,
+    )
+    .await;
+    assert!(read_inbox.contains(&incoming_id.to_string()));
+    assert!(!html(
+        call(
+            &app,
+            "GET",
+            "/api/v1/me/inbox?filter=unread",
+            &cookies,
+            ORIGIN,
+            ""
+        )
+        .await,
+    )
+    .await
+    .contains(&format!("\"id\":\"{incoming_id}\"")));
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &read_path,
+                &cookies,
+                ORIGIN,
+                &format!("csrf_token={csrf}&state=unread")
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert!(html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await)
+        .await
+        .contains("Отметить прочитанным"));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_path,
+            &cookies,
+            ORIGIN,
+            "csrf_token=invalid&state=read"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+
+    assert!(
+        !html(call(&app, "GET", "/me", &writer_cookie, ORIGIN, "").await)
+            .await
+            .contains(&link)
+    );
+    assert_eq!(
+        call(&app, "GET", "/me", "", ORIGIN, "").await.status(),
+        StatusCode::SEE_OTHER
+    );
     pg(
         &url,
         &format!("UPDATE discussion_comments SET visibility='hidden' WHERE id={parent}"),
     )
     .await;
+    assert!(!html(call(&app, "GET", "/me", &cookies, ORIGIN, "").await)
+        .await
+        .contains(&link));
+
     assert_eq!(
         call(&app, "POST", &comments_path, &cookies, ORIGIN, &reply_form)
             .await
@@ -365,11 +687,69 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
     )
     .await;
+    // E-03: a selected participant without a public handle is addressed by ID,
+    // but must be validated server-side before creating an Inbox reference.
+    let discover_url = format!("/api/v1/social/mentions/discover?book_id={book}&q=Ot");
+    assert_eq!(
+        call(&app, "GET", &discover_url, "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let candidates = html(call(&app, "GET", &discover_url, &cookies, ORIGIN, "").await).await;
+    assert!(candidates.contains(&format!("\"user_id\":{writer_id}")));
+    let mention_key = generate_session_token();
+    let mention_form = format!(
+        "body=Look%20%40%5Buser%3A{writer_id}%5D&command_key={mention_key}&csrf_token={csrf}"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &comments_path,
+                &cookies,
+                ORIGIN,
+                &mention_form
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    let mention_id: i64 = pg(
+        &url,
+        &format!(
+        "SELECT id FROM discussion_comments WHERE book_id={book} AND command_key='{mention_key}'"
+    ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert_eq!(pg(&url, &format!(
+        "SELECT count(*) FROM discussion_comment_mentions WHERE comment_id={mention_id} AND recipient_user_id={writer_id}"
+    )).await, "1");
+    let notification =
+        html(call(&app, "GET", "/api/v1/me/inbox", &writer_cookie, ORIGIN, "").await).await;
+    assert!(notification.contains("\"kind\":\"mention\""));
+    assert!(notification.contains(&format!("\"id\":\"{mention_id}\"")));
+    assert!(!notification.contains("Look"));
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE id={mention_id}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE parent_id={incoming_id}"),
+    )
+    .await;
     pg(
         &url,
         &format!("DELETE FROM discussion_comments WHERE parent_id={parent}"),
     )
     .await;
+    pg(&url, &format!("DELETE FROM users WHERE id={writer_id}")).await;
     pg(&url, &format!("DELETE FROM users WHERE id={user}")).await;
     pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }
