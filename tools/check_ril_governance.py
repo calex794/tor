@@ -238,6 +238,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "group_mail::poll": {"messages", "messages_after"},
             "group_mail::send": {"send"},
             "group_mail::leave": {"leave"},
+            "group_mail::transfer": {"transfer_creator"},
             "book_rooms::page": {"overview"},
             "book_rooms::join": {"join"},
             "book_rooms::send": {"send"},
