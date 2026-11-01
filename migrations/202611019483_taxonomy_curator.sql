@@ -16,10 +16,9 @@ CREATE INDEX book_taxonomy_curation_events_newest
 
 CREATE FUNCTION admin_taxonomy_key(value TEXT) RETURNS TEXT
 LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
-    SELECT lower(replace(
-        regexp_replace(btrim(value), '[[:space:]]+', ' ', 'g'),
-        'ё', 'е'
-    ));
+    SELECT replace(lower(
+        regexp_replace(btrim(value), '[[:space:]]+', ' ', 'g')
+    ), 'ё', 'е');
 $$;
 
 CREATE FUNCTION admin_taxonomy_guard(curator_tag TEXT) RETURNS void

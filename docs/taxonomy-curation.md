@@ -66,3 +66,38 @@ TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci' \
 book scanning, default AI-generated tags, or production rollout. These
 require explicit product and staff-authority decisions. Repo workflows
 run only on disposable `tor_ci`; main/prod remain untouched.
+
+## Подготовка кандидатов из NEwBOO
+
+В репозитории NEwBOO есть код и схема двух таблиц YDB,
+`book_taxonomies` и `book_taxonomy_aliases`, **но нет полного снимка
+записей**. Его административный API ограничивает предвыборку максимум
+1 000 строками: через него нельзя обоснованно заявить полноту экспорта.
+
+Для переноса нужен независимый read-only экспорт обеих таблиц вместе с
+`COUNT(*)` из того же снимка данных. JSON должен иметь вид:
+
+```json
+{
+  "source": "newboo-ydb-book-taxonomies-full-snapshot",
+  "expected_counts": {"taxonomies": 1, "aliases": 0},
+  "taxonomies": [{
+    "taxonomy_id": "11111111-1111-4111-8111-111111111111",
+    "taxonomy_type": "tag", "title": "Система", "status": "active"
+  }],
+  "aliases": []
+}
+```
+
+```sh
+python3 tools/newboo_taxonomy_bridge.py full.json \
+  --out newboo-candidates.csv --report newboo-review.json
+```
+
+Файл-кандидат **не означает административное одобрение**. Конвертер
+проверяет количество и идентичность строк, типы, статусы, коллизии алиасов,
+сомнительную семантическую эквивалентность и не переносит заблокированные,
+слитые или неактивные метки. При фатальном конфликте CSV не выдаётся,
+сохраняется отчёт для проверки. Семантические синонимы автоматически не
+склеиваются. После ручного разбора отчёта проверенные строки допускаются
+к сухому прогону через `tools/taxonomy_import_csv.py`.

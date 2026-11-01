@@ -14,6 +14,9 @@ DECLARE
     actual_revision BIGINT;
     rejected BOOLEAN;
 BEGIN
+    IF admin_taxonomy_key('Ёжик') <> admin_taxonomy_key('Ежик') THEN
+        RAISE EXCEPTION 'capital Russian Yo/Ye key must match';
+    END IF;
     IF current_database()<>'tor_ci' OR current_user<>'tor_migrator' THEN
         RAISE EXCEPTION 'only disposable migration-owner tor_ci is accepted';
     END IF;
