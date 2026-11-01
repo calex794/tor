@@ -55,6 +55,7 @@ impl PgRecommendations {
         for statement in [
             "DELETE FROM rec_assignments WHERE id IN(SELECT id FROM rec_assignments WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM organic_discovery_touches WHERE id IN(SELECT id FROM organic_discovery_touches WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
+            "DELETE FROM organic_discovery_unattributed_reads WHERE source_event_id IN(SELECT source_event_id FROM organic_discovery_unattributed_reads WHERE occurred_at<now()-interval '30 days' ORDER BY occurred_at LIMIT 1000)",
             "DELETE FROM rec_reader_signals WHERE source_event_id IN(SELECT source_event_id FROM rec_reader_signals WHERE occurred_at<now()-interval '30 days' ORDER BY occurred_at LIMIT 1000)",
             "DELETE FROM rec_preference_commands WHERE (user_id,command_key) IN(SELECT user_id,command_key FROM rec_preference_commands WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM rec_quality_daily WHERE bucket_date<(now() AT TIME ZONE 'UTC')::date-180",

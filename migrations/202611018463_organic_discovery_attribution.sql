@@ -36,6 +36,19 @@ CREATE TABLE organic_discovery_first_conversions (
     occurred_at timestamptz NOT NULL,
     PRIMARY KEY(subject_id,book_id,kind)
 );
+-- C-verified first reads by a consented reader with no eligible REC or
+-- organic navigation. This is NOT a third traffic source, and no anonymous
+-- reader or raw browsing activity is persisted. 30d raw/180d aggregate.
+CREATE TABLE organic_discovery_unattributed_reads (
+    subject_id uuid NOT NULL REFERENCES rec_subjects(subject_id) ON DELETE CASCADE,
+    book_id bigint NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    kind text NOT NULL CHECK(kind IN ('chapter_started','chapter_finished')),
+    source_event_id uuid NOT NULL UNIQUE,
+    occurred_at timestamptz NOT NULL,
+    bucket_date date NOT NULL,
+    PRIMARY KEY(subject_id,book_id,kind)
+);
+CREATE INDEX organic_unattributed_retention ON organic_discovery_unattributed_reads(occurred_at);
 CREATE TABLE organic_discovery_dirty (
     bucket_date date NOT NULL,
     book_id bigint NOT NULL,
@@ -44,7 +57,7 @@ CREATE TABLE organic_discovery_dirty (
 CREATE TABLE organic_discovery_quality_daily (
     bucket_date date NOT NULL,
     book_id bigint NOT NULL,
-    source text NOT NULL CHECK(source IN ('search','catalog')),
+    source text NOT NULL CHECK(source IN ('search','catalog','unattributed')),
     issued bigint NOT NULL CHECK(issued>=0),
     clicks bigint NOT NULL CHECK(clicks>=0),
     book_opens bigint NOT NULL CHECK(book_opens>=0),

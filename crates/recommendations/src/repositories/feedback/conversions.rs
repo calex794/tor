@@ -141,6 +141,35 @@ impl PgRecommendations {
                                     .bind(&assignment).bind(event).execute(&mut *tx).await?;
                                 dirty(&mut tx, &assignment).await?;
                             }
+                        } else {
+                            // Preserve the denominator: a real first C read
+                            // without an eligible navigation is unattributed.
+                            // No impression, raw search or anonymous actor is
+                            // inferred. The same G receipt locks this event.
+                            let inserted = sqlx::query(
+                                "INSERT INTO organic_discovery_unattributed_reads
+                                 (subject_id,book_id,kind,source_event_id,occurred_at,bucket_date)
+                                 SELECT $1::uuid,v.book_id,v.kind,v.event_id,v.occurred_at,
+                                        (v.occurred_at AT TIME ZONE 'UTC')::date
+                                 FROM rec_verified_read_events_v2 v
+                                 WHERE v.event_id=$2::uuid AND v.first_for_book
+                                 ON CONFLICT DO NOTHING",
+                            )
+                            .bind(&subject)
+                            .bind(event)
+                            .execute(&mut *tx)
+                            .await?;
+                            if inserted.rows_affected() == 1 {
+                                sqlx::query(
+                                    "INSERT INTO organic_discovery_dirty(bucket_date,book_id)
+                                     SELECT bucket_date,book_id
+                                     FROM organic_discovery_unattributed_reads
+                                     WHERE source_event_id=$1::uuid ON CONFLICT DO NOTHING",
+                                )
+                                .bind(event)
+                                .execute(&mut *tx)
+                                .await?;
+                            }
                         }
                     }
                 }

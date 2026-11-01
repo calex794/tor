@@ -208,6 +208,23 @@ impl PgRecommendations {
             .bind(book)
             .execute(&mut *tx)
             .await?;
+            // Count C-verified first reads with no eligible click separately.
+            // "Unattributed" is a denominator diagnostic, never an organic
+            // impression or a third navigation source.
+            sqlx::query(
+                "INSERT INTO organic_discovery_quality_daily
+                 (bucket_date,book_id,source,issued,clicks,book_opens,starts,completions)
+                 SELECT bucket_date,book_id,'unattributed',0,0,0,
+                        count(*) FILTER(WHERE kind='chapter_started'),
+                        count(*) FILTER(WHERE kind='chapter_finished')
+                 FROM organic_discovery_unattributed_reads
+                 WHERE bucket_date=$1::date AND book_id=$2
+                 GROUP BY bucket_date,book_id",
+            )
+            .bind(&day)
+            .bind(book)
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
         Ok(rows.len())

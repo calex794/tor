@@ -94,7 +94,7 @@ async function completeFreeChapter(page, chapter, version) {
     // Search and unfiltered catalogue are independently attributed to actual C reading.
     const organicPaths=[
       {book:books[0],url:'/catalog?q=Browser%20recommendation%200',source:'search',read:organicChapters[0]},
-      {book:books[1],url:'/catalog',source:'catalog',read:organicChapters[1]},
+      {book:books[1],url:'/catalog?sort=newest',source:'catalog',read:organicChapters[1]},
     ];
     for (const organic of organicPaths) {
       const response=await page.goto(base+organic.url);
@@ -126,12 +126,18 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal(scalar(`SELECT count(*) FROM rec_assignments WHERE ticket_digest IN(${assignmentFilter})`),hashes.length);
     await plain.waitForTimeout(1200);
     assert.equal(scalar(`SELECT count(*) FROM rec_assignments WHERE ticket_digest IN(${assignmentFilter}) AND viewed_at IS NOT NULL`),0,'no-JS assignments must not create view telemetry');
-    await plain.goto(base+'/catalog');
+    await plain.goto(base+'/catalog?sort=newest');
     const organicPlain=plain.locator('a.book-mini-card__link[data-organic-ticket]').first();
     assert.ok(await organicPlain.count(),'no-JS catalog still issues opaque tickets');
     const plainTicket=await organicPlain.getAttribute('data-organic-ticket');
     const plainHash=createHash('sha256').update(plainTicket).digest('hex');
     assert.equal(scalar(`SELECT count(*) FROM organic_discovery_touches WHERE ticket_digest=decode('${plainHash}','hex') AND clicked_at IS NOT NULL`),0,'no-JS page load fabricated organic click');
+    // A genuine no-JS click still opens the same canonical book, but does
+    // not create an analytics receipt for a ticket it never activated.
+    const plainHref=await organicPlain.getAttribute('href');
+    await organicPlain.click();
+    await plain.waitForURL(base+plainHref);
+    assert.equal(scalar(`SELECT count(*) FROM organic_discovery_touches WHERE ticket_digest=decode('${plainHash}','hex') AND clicked_at IS NOT NULL`),0,'no-JS click fabricated organic activation');
     await disabledJS.close();
     // Five real SSR surfaces carry permitted cards, never paid rights.
     for (const target of ['/', '/catalog', `/books/${book}`, '/me/library', `/read/${chapter}`]) {
@@ -166,6 +172,23 @@ async function completeFreeChapter(page, chapter, version) {
     await mobilePage.locator('[data-rec-panel]').scrollIntoViewIfNeeded();
     assert.ok(await mobilePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'horizontal overflow');
     await mobilePage.screenshot({path:path.join(shots,'rec13-mobile.png'),fullPage:true});
+    const mobileUser=scalar(`SELECT id FROM users WHERE email_normalized='${mobileEmail}'`);
+    await mobilePage.goto(base+'/catalog?sort=newest');
+    assert.equal(await mobilePage.locator('a[data-organic-ticket]').count(),0,'no opt-in must not issue organic tickets');
+    await mobilePage.goto(base+'/me/recommendations');
+    await mobilePage.getByRole('checkbox').check();
+    await mobilePage.getByRole('button',{name:'Сохранить выбор'}).click();
+    await mobilePage.waitForURL('**/me/recommendations');
+    await mobilePage.goto(base+'/catalog?q=Browser%20recommendation%201');
+    const mobileOrganic=mobilePage.locator(`a.book-mini-card__link[href='/books/${books[1]}'][data-organic-ticket]`).first();
+    assert.ok(await mobileOrganic.isVisible(),'missing mobile search ticket after explicit consent');
+    await mobileOrganic.scrollIntoViewIfNeeded();
+    await mobileOrganic.click();
+    await mobilePage.waitForURL(base+`/books/${books[1]}`);
+    await waitFor(()=>scalar(`SELECT count(*) FROM organic_discovery_touches t JOIN rec_subjects s ON s.subject_id=t.subject_id WHERE s.user_id=${mobileUser} AND t.book_id=${books[1]} AND t.source='search' AND t.clicked_at IS NOT NULL AND t.book_opened_at IS NOT NULL`)===1,'mobile organic click and real 200 open');
+    await mobilePage.goto(base+`/read/${organicChapters[1].chapter}`);
+    await completeFreeChapter(mobilePage,organicChapters[1].chapter,organicChapters[1].version);
+    await waitFor(()=>scalar(`SELECT count(*) FROM organic_discovery_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id=${mobileUser} AND c.book_id=${books[1]} AND c.kind='chapter_finished'`)===1,'mobile organic C first completion');
     await mobile.close();
     await page.goto(base+'/me/recommendations');
     const restoring=page.locator('article').filter({has:page.locator(`a[href='/books/${book}']`)}).first();
@@ -184,7 +207,7 @@ async function completeFreeChapter(page, chapter, version) {
     assert.equal(scalar(`SELECT count(*) FROM organic_discovery_touches t JOIN rec_subjects s ON s.subject_id=t.subject_id WHERE s.user_id=${user}`),0,'opt-out must erase organic attribution');
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user} AND book_id=${book}`),1);
     assert.deepEqual(errors,[]);
-    console.log('REC13 browser PASS: five surfaces, REC and separate search/catalog C conversions, mobile, no-JS, opt-out');
+    console.log('REC13 browser PASS: REC, search/catalog C conversions, mobile organic completion, no-JS click, opt-out');
   } finally {
     if (browser) await browser.close();
     const uuid=value=>value===null?'NULL':`'${value}'::uuid`;
