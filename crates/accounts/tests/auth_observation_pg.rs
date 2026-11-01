@@ -209,6 +209,29 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
             && signal.bad_passwords == 10
             && signal.successes == 20));
 
+    // Failed-source counts must exclude unrelated successful NAT users.
+    // Twenty successes from another source against one attacked target must
+    // not inflate the number of sources participating in the attack.
+    for index in 1..=20u8 {
+        let source = secret.source(std::net::IpAddr::from([203, 0, 113, index])).0;
+        accounts
+            .record_auth_observation(&AuthAttemptObservation {
+                target_key: Some(victim),
+                user_id: Some(user_id),
+                source_key: Some(source),
+                subnet_key: None,
+                agent: UserAgentFamily::Unknown,
+                outcome: AuthAttemptOutcome::Success,
+            })
+            .await
+            .unwrap();
+    }
+    let signals = accounts.auth_risk_signals().await.unwrap();
+    assert!(signals.iter().any(|signal| signal.category == "distributed_target"
+        && signal.bad_passwords == 16
+        && signal.distinct_sources == 16
+        && signal.successes == 20));
+
     // A flood with no trusted source must not be grouped into one fake IP.
     for index in 0..16 {
         accounts
