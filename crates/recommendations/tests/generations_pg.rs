@@ -260,9 +260,9 @@ async fn rec13_public_content_changes_invalidate_general_review() {
         "UPDATE chapters SET title='Unreviewed title',edit_revision=edit_revision+1 WHERE id=$1",
     )
     .bind(chapter)
-        .execute(&pool)
-        .await
-        .unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_reviewed_book_eligible(&pool, book, false).await;
     approve_current_audience(&pool, book, reviewer).await;
 
