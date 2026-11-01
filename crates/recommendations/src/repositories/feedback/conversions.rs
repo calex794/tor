@@ -16,8 +16,7 @@ impl PgRecommendations {
 
     /// Receipt and all F effects commit together. The authoritative C fact is untouched.
     pub async fn accept_read_event(&self, event: &str) -> Result<bool, FeedbackError> {
-        self.accept_read_event_with_policy(event, true, true)
-            .await
+        self.accept_read_event_with_policy(event, true, true).await
     }
     pub(super) async fn accept_read_event_with_policy(
         &self,
