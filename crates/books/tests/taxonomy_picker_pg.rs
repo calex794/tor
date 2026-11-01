@@ -83,6 +83,23 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         .await
         .unwrap();
     assert!(by_alias.iter().any(|row| row.id == tag));
+    // Search with capital Ё must hit the same prefix key as lowercase е.
+    let yo_label = format!("Ёжик{stamp}");
+    let yo_key = format!("ежик{stamp}");
+    let yo_id: i64 = sqlx::query_scalar(
+        "INSERT INTO book_taxonomy_terms(kind,label,search_key)
+         VALUES('tag',$1,$2) RETURNING id",
+    )
+    .bind(&yo_label)
+    .bind(&yo_key)
+    .fetch_one(&admin_pool)
+    .await
+    .unwrap();
+    let by_capital_yo = author
+        .suggest_taxonomies("tag", &yo_label, 15)
+        .await
+        .unwrap();
+    assert!(by_capital_yo.iter().any(|row| row.id == yo_id));
     assert_eq!(
         author.suggest_taxonomies("tag", "%", 15).await.unwrap_err(),
         AuthorError::Invalid,

@@ -47,12 +47,12 @@ CREATE TABLE book_taxonomy_links (
 CREATE INDEX book_taxonomy_links_term_idx ON book_taxonomy_links(term_id,book_id);
 
 -- Only visible, approved facet strings are eligible to be suggested.
--- NFKC is implemented by the existing B writer for new labels; migration
--- folds the known B labels and ё/е for search equivalence.
+-- Use the same lowercase/whitespace/ё->е key as B and the curator.
+-- Full Unicode NFKC is deliberately not asserted by this migration.
 INSERT INTO book_taxonomy_terms(kind,label,search_key)
 SELECT DISTINCT ON(kind,search_key) kind,name,search_key
 FROM (
-    SELECT kind,name,lower(replace(btrim(name),'ё','е')) AS search_key
+    SELECT kind,name,replace(lower(regexp_replace(btrim(name), '[[:space:]]+', ' ', 'g')),'ё','е') AS search_key
     FROM public_catalog_facets
     WHERE reference_count > 0 AND char_length(name) BETWEEN 1 AND 40
       AND name = btrim(name) AND name !~ '[[:cntrl:]]'
@@ -66,7 +66,7 @@ ON CONFLICT(kind,search_key) DO NOTHING;
 -- continue to operate through their established TEXT[]/facets indexes.
 WITH old_labels AS (
     SELECT b.id AS book_id, f.kind,
-           lower(replace(btrim(item.label),'ё','е')) AS search_key,
+           replace(lower(regexp_replace(btrim(item.label), '[[:space:]]+', ' ', 'g')),'ё','е') AS search_key,
            min(item.ordinal) AS first_position
     FROM books b
     CROSS JOIN LATERAL (
@@ -76,7 +76,7 @@ WITH old_labels AS (
     ) AS f(kind,labels)
     CROSS JOIN LATERAL unnest(f.labels)
         WITH ORDINALITY AS item(label,ordinal)
-    GROUP BY b.id,f.kind,lower(replace(btrim(item.label),'ё','е'))
+    GROUP BY b.id,f.kind,replace(lower(regexp_replace(btrim(item.label), '[[:space:]]+', ' ', 'g')),'ё','е')
 ), matched AS (
     SELECT l.book_id,l.kind,t.id AS term_id,l.first_position
     FROM old_labels l JOIN book_taxonomy_terms t
