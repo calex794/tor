@@ -48,10 +48,7 @@ impl TaxonomySelection {
             }
             let mut ids = Vec::new();
             for part in raw.split(',') {
-                if ids.len() >= 8
-                    || part.is_empty()
-                    || !part.bytes().all(|b| b.is_ascii_digit())
-                {
+                if ids.len() >= 8 || part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
                     return Err(AuthorError::Invalid);
                 }
                 let id = part.parse::<i64>().map_err(|_| AuthorError::Invalid)?;
@@ -538,14 +535,24 @@ mod taxonomy_selection_tests {
         assert_eq!(selected.genre_ids, vec![11, 28]);
         assert_eq!(selected.tag_ids, vec![90]);
         assert!(selected.fandom_ids.is_empty());
-        assert!(TaxonomySelection::parse(None, None, None).unwrap().is_empty());
+        assert!(TaxonomySelection::parse(None, None, None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn forged_duplicate_and_oversized_selections_are_rejected() {
         for value in [
-            "1,1", "0", "-1", "1,", ",1", "1,,2", "xyz", "1 2",
-            "99999999999999999999999999999", "1,2,3,4,5,6,7,8,9",
+            "1,1",
+            "0",
+            "-1",
+            "1,",
+            ",1",
+            "1,,2",
+            "xyz",
+            "1 2",
+            "99999999999999999999999999999",
+            "1,2,3,4,5,6,7,8,9",
         ] {
             assert_eq!(
                 TaxonomySelection::parse(Some(value), None, None).unwrap_err(),

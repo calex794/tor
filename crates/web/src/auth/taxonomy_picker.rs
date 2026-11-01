@@ -29,16 +29,19 @@ pub(super) async fn suggest(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let items = match state.authoring.suggest_taxonomies(
-        &query.kind,
-        &query.q,
-        query.limit.unwrap_or(15),
-    ).await {
-        Ok(rows) => rows.into_iter().map(|term| Suggestion {
-            id: term.id,
-            label: term.label,
-            usage: term.usage,
-        }).collect(),
+    let items = match state
+        .authoring
+        .suggest_taxonomies(&query.kind, &query.q, query.limit.unwrap_or(15))
+        .await
+    {
+        Ok(rows) => rows
+            .into_iter()
+            .map(|term| Suggestion {
+                id: term.id,
+                label: term.label,
+                usage: term.usage,
+            })
+            .collect(),
         Err(AuthorError::Invalid) => return deny(StatusCode::BAD_REQUEST),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
@@ -67,9 +70,13 @@ pub(super) async fn validated_author_book(
         new_book_with_taxonomy, with_book_description, TaxonomyFields, TaxonomySelection,
     };
     // Raw labels are intentionally not a fallback: that would bypass the list.
-    if [form.genres.as_deref(), form.tags.as_deref(), form.fandoms.as_deref()]
-        .iter()
-        .any(|value| value.unwrap_or("").trim().len() > 0)
+    if [
+        form.genres.as_deref(),
+        form.tags.as_deref(),
+        form.fandoms.as_deref(),
+    ]
+    .iter()
+    .any(|value| value.unwrap_or("").trim().len() > 0)
     {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -79,12 +86,14 @@ pub(super) async fn validated_author_book(
         form.fandom_ids.as_deref(),
     )
     .map_err(|_| StatusCode::BAD_REQUEST)?;
-    let names = state.authoring.resolve_taxonomy_selection(&selected).await.map_err(
-        |err| match err {
+    let names = state
+        .authoring
+        .resolve_taxonomy_selection(&selected)
+        .await
+        .map_err(|err| match err {
             AuthorError::Invalid => StatusCode::BAD_REQUEST,
             _ => StatusCode::SERVICE_UNAVAILABLE,
-        },
-    )?;
+        })?;
     let identity = format!("manual:{actor}:{}", form.command_key);
     let mut request = new_book_with_taxonomy(
         &identity,

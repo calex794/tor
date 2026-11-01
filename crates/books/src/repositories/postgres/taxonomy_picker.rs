@@ -27,12 +27,18 @@ impl PgAuthoring {
     ) -> Result<Vec<TaxonomySuggestion>, AuthorError> {
         if !matches!(kind, "genre" | "tag" | "fandom")
             || !(2..=60).contains(&query.chars().count())
-            || query.chars().any(|c| c.is_control() || matches!(c, '%' | '_' | '\\'))
+            || query
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '%' | '_' | '\\'))
         {
             return Err(AuthorError::Invalid);
         }
-        let key = query.split_whitespace().collect::<Vec<_>>().join(" ")
-            .to_lowercase().replace('ё', "е");
+        let key = query
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+            .replace('ё', "е");
         if key.chars().count() < 2 {
             return Err(AuthorError::Invalid);
         }
@@ -72,11 +78,7 @@ impl PgAuthoring {
             .collect()
     }
 
-    async fn names_for_ids(
-        &self,
-        kind: &str,
-        ids: &[i64],
-    ) -> Result<Vec<String>, AuthorError> {
+    async fn names_for_ids(&self, kind: &str, ids: &[i64]) -> Result<Vec<String>, AuthorError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -92,7 +94,9 @@ impl PgAuthoring {
         let mut names = HashMap::new();
         for row in rows {
             let id: i64 = row.try_get("id").map_err(|_| AuthorError::Unavailable)?;
-            let name: String = row.try_get("search_key").map_err(|_| AuthorError::Unavailable)?;
+            let name: String = row
+                .try_get("search_key")
+                .map_err(|_| AuthorError::Unavailable)?;
             names.insert(id, name);
         }
         ids.iter()

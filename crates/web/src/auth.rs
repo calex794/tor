@@ -21,12 +21,7 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
-use tor_books::{
-    repositories::postgres::PgAuthoring,
-    services::authoring::{
-        AuthorError,
-    },
-};
+use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
@@ -84,8 +79,8 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
-mod taxonomy_picker;
 mod sync_actions;
+mod taxonomy_picker;
 mod types;
 use types::*;
 pub(crate) fn router(

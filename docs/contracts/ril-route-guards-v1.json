@@ -890,6 +890,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_likes::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/taxonomies/suggest",
+      "source": "crates/web/src/auth.rs",
+      "handler": "taxonomy_picker::suggest",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/taxonomy-picker.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "taxonomy_picker::script",
+      "policy": "public"
     }
   ]
 }
