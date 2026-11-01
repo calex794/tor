@@ -616,8 +616,17 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 1", users[1])));
     assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 3", users[3])));
     let invite_form = format!("invited_user_id={}&csrf_token={}", users[3], tokens[2],);
+    // A cross-session token is rejected before the member-role check.
     assert_eq!(
         call(&app, "POST", &invite_page, &cookies[0], &invite_form, &[])
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    // With the actor's own valid token, a non-creator still cannot invite.
+    let member_form = format!("invited_user_id={}&csrf_token={}", users[3], tokens[0]);
+    assert_eq!(
+        call(&app, "POST", &invite_page, &cookies[0], &member_form, &[])
             .await
             .status(),
         StatusCode::NOT_FOUND
