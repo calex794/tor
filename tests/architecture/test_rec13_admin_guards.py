@@ -51,7 +51,7 @@ class RecAdminGuardTests(unittest.TestCase):
         page = (ROOT / "crates/web/src/recommendation_http/pages.rs").read_text()
         self.assertIn("переходы из поиска и каталога", page)
         self.assertIn("подтверждённое чтение", page)
-        self.assertIn("Текст поисковых запросов не сохраняется", page)
+        self.assertIn("В аналитике рекомендаций текст поисковых запросов не сохраняется", page)
         self.assertIn("Сбор по умолчанию выключен", page)
 
     def test_organic_runtime_flag_is_declared_and_off_by_default(self):
