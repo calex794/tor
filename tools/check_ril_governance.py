@@ -213,7 +213,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             proof = {"unfollow"}
         mail_calls = {
             "mail::index": {"mailbox"}, "mail::start": {"start"},
-            "mail::conversation": {"messages"}, "mail::send": {"send"},
+            "mail::conversation": {"messages"}, "mail::poll": {"messages"}, "mail::send": {"send"},
             "mail::block": {"set_block"},
             "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
             "friendship::request": {"request"}, "friendship::remove": {"remove"},

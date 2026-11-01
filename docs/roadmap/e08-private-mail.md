@@ -415,3 +415,10 @@ or retained DB operation. Exact-head CI required.
 ## 01.11.2026 - audited administrator mail HTML (Draft)
 
 Three source GET pages /admin/mail, /admin/mail/users/{user_id}, /admin/mail/{id} now project only the existing read-only audited PgAdminMail repository. Browser cookie digest, live administrator role and session, committed audit before response; no impersonation or direct SQL in web. Names and direct-message text escaped, no account emails, max 50 rows, CSP scripts disabled and no-store. RIL exceptions are limited to these three precise bindings; all other admin/internal routes remain blocked. A disposable HTTP/PG test checks normal-user denial, role/session revocation, audit and XSS. Pending exact-HEAD CI, independent review and retained DB ledger check. Per-access reason and retention policy are not implemented. No production/deploy/retained DB/main changes.
+
+
+## 01.11.2026 — Source-compatible mail polling endpoint (Draft, pending exact-head CI)
+
+The pinned NEwBOO source implements authenticated `GET /mail/{conversation_id}/messages` with `after_id`/`before_id` cursors and the `ok/messages/has_more_older/oldest_message_id/newest_message_id` response. TOR previously registered the same route only for POST; its browser used the different `GET /api/v1/me/messages` API. This slice adds GET to the existing path and migrates the page's polling/older-prepend JS to it. Both POST send and the existing strict TOR JSON API remain unchanged.
+
+The new GET reuses the same actor-scoped `MailService::messages` and actor-authorized `mail_book_previews::enrich` as the existing HTML/JSON paths. It returns `no-store`; third-user access fails 404, guest fails 401, and unknown client claims or simultaneous before/after cursors fail 400. Isolated HTTP regressions check paging, privacy and output contract. No schema change or product behavior is invented. **Exact-head CI and independent review pending.**

@@ -163,6 +163,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/mail"), "GET") => Some(150),
         (Some("/admin/mail/users/{user_id}"), "GET") => Some(151),
         (Some("/admin/mail/{id}"), "GET") => Some(152),
+        (Some("/mail/{id}/messages"), "GET") => Some(153),
         _ => None,
     };
     index

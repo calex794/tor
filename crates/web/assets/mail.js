@@ -70,7 +70,7 @@
   }
   function schedule(delay = 3000) { clearTimeout(timer); timer = setTimeout(poll, delay); }
   async function get(query) {
-    const response = await fetch('/api/v1/me/messages?' + query, {
+    const response = await fetch('/mail/' + encodeURIComponent(list.dataset.conversation) + '/messages?' + query, {
       credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }
     });
     if (!response.ok) throw new Error('mail-request');
@@ -81,7 +81,7 @@
     if (document.hidden) { schedule(10000); return; }
     busy = true;
     try {
-      const query = new URLSearchParams({conversation_id: list.dataset.conversation, limit: '50', after_id: String(last)});
+      const query = new URLSearchParams({limit: '50', after_id: String(last)});
       const data = await get(query);
       add(data.messages || []);
       status.textContent = data.blocked ? 'Новые сообщения заблокированы. Обновите страницу.' : '';
@@ -92,12 +92,12 @@
     event.preventDefault();
     if (older.dataset.loading === 'true') return;
     older.dataset.loading = 'true';
-    const query = new URLSearchParams({conversation_id: list.dataset.conversation, limit:'50', before_id: older.dataset.beforeId});
+    const query = new URLSearchParams({limit:'50', before_id: older.dataset.beforeId});
     try {
       const data = await get(query);
       const messages = data.messages || [];
       add(messages, true);
-      if (!data.has_more || messages.length === 0) older.remove();
+      if (!data.has_more_older || messages.length === 0) older.remove();
       else older.dataset.beforeId = data.oldest_message_id;
     } catch (_) { status.textContent = 'Не удалось загрузить предыдущие сообщения.'; }
     finally { older.dataset.loading = 'false'; }

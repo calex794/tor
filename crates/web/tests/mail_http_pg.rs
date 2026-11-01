@@ -26,6 +26,8 @@ mod book_room_http;
 mod group_mail_http;
 #[path = "support/e08_mail_book_aliases.rs"]
 mod mail_book_aliases;
+#[path = "support/e08_mail_source_poll.rs"]
+mod source_poll;
 #[path = "support/e08_notification_open.rs"]
 mod notification_open;
 #[path = "support/e08_notification_preferences.rs"]
@@ -323,6 +325,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             StatusCode::SEE_OTHER
         );
     }
+    source_poll::verify(&app, id, &cookies).await;
     // Real recipient-only notification projection, not an AJAX mail read receipt.
     let notifications = PgNotifications::new(pool.clone());
     for _ in 0..12 {

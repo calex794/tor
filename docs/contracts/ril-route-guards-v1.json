@@ -1086,6 +1086,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "admin_mail::conversation",
       "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::poll",
+      "policy": "scoped"
     }
   ]
 }
