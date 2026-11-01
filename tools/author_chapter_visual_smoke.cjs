@@ -268,11 +268,13 @@ async function inspect(page, viewport, name) {
           viewport + ': release feed missing');
         assert(await updates.getByText('Глава после подписки').isVisible(),
           viewport + ': release by followed author in same account was not delivered to feed');
-        const newRelease = updates.locator('a[href^="/reader/"]').last();
-        assert(await newRelease.isVisible(), viewport + ': free author release has no reader link');
+        // The authenticated follow feed intentionally opens free chapters in
+        // /read/:id so the reader can save progress and complete the chapter.
+        const newRelease = updates.locator('a[href^="/read/"]').last();
+        assert(await newRelease.isVisible(), viewport + ': free author release has no private reader link');
         const newReleaseHref = await newRelease.getAttribute('href');
-        assert(/^\/reader\/\d+$/.test(newReleaseHref),
-          viewport + ': author release link is not a reader route');
+        assert(/^\/read\/\d+$/.test(newReleaseHref),
+          viewport + ': free author release must open the completion-capable reader');
         await newRelease.click();
         await reader.waitForURL(base + newReleaseHref);
         assert(await reader.getByText('Новая глава после подписки автора.').isVisible(),
