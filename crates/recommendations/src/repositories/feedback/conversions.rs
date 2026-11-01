@@ -16,12 +16,14 @@ impl PgRecommendations {
 
     /// Receipt and all F effects commit together. The authoritative C fact is untouched.
     pub async fn accept_read_event(&self, event: &str) -> Result<bool, FeedbackError> {
-        self.accept_read_event_with_policy(event, true).await
+        self.accept_read_event_with_policy(event, true, true)
+            .await
     }
     pub(super) async fn accept_read_event_with_policy(
         &self,
         event: &str,
         collect: bool,
+        collect_organic: bool,
     ) -> Result<bool, FeedbackError> {
         if event.len() != 36 || !event.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
             return Err(FeedbackError::Invalid);
@@ -78,8 +80,9 @@ impl PgRecommendations {
                     // channel. The outbox-row lock and REC subject lock make
                     // the decision atomic across replaying workers. Ties
                     // favor REC, so an organic click may not double count it.
-                    let organic: Option<String> = sqlx::query_scalar(
-                        "SELECT t.id::text FROM organic_discovery_touches t
+                    let organic: Option<String> = if collect_organic {
+                        sqlx::query_scalar(
+                            "SELECT t.id::text FROM organic_discovery_touches t
                          JOIN rec_verified_read_events_v2 v ON v.event_id=$1::uuid
                          WHERE t.subject_id=$2::uuid AND t.book_id=v.book_id
                            AND t.clicked_at<=v.occurred_at
@@ -91,12 +94,15 @@ impl PgRecommendations {
                                  AND a.clicked_at>=t.clicked_at AND a.clicked_at<=v.occurred_at
                                  AND a.clicked_at>=v.occurred_at-make_interval(days=>$3::int))
                          ORDER BY t.clicked_at DESC,t.id ASC LIMIT 1",
-                    )
-                    .bind(event)
-                    .bind(&subject)
-                    .bind(days)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+                        )
+                        .bind(event)
+                        .bind(&subject)
+                        .bind(days)
+                        .fetch_optional(&mut *tx)
+                        .await?
+                    } else {
+                        None
+                    };
                     if let Some(touch) = organic {
                         let inserted = sqlx::query(
                             "INSERT INTO organic_discovery_first_conversions
@@ -141,7 +147,7 @@ impl PgRecommendations {
                                     .bind(&assignment).bind(event).execute(&mut *tx).await?;
                                 dirty(&mut tx, &assignment).await?;
                             }
-                        } else {
+                        } else if collect_organic {
                             // Preserve the denominator: a real first C read
                             // without an eligible navigation is unattributed.
                             // No impression, raw search or anonymous actor is

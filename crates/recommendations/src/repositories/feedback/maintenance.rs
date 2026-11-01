@@ -33,10 +33,15 @@ impl PgRecommendations {
     }
 
     /// Called by the G-owned worker with the application pool, never from an HTTP GET.
-    pub async fn tick_feedback(&self, collect: bool) -> Result<usize, FeedbackError> {
+    pub async fn tick_feedback(
+        &self,
+        collect: bool,
+        collect_organic: bool,
+    ) -> Result<usize, FeedbackError> {
         let pending = self.pending_read_events().await?;
         for event in &pending {
-            self.accept_read_event_with_policy(event, collect).await?;
+            self.accept_read_event_with_policy(event, collect, collect && collect_organic)
+                .await?;
         }
         self.refresh_quality().await?;
         self.refresh_organic_quality().await?;

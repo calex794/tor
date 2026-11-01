@@ -11,7 +11,12 @@ pub fn spawn(store: PgRecommendations) -> Option<JoinHandle<()>> {
         let mut loops = 0_u64;
         loop {
             let collect = std::env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1");
-            let result = store.tick_feedback(collect).await;
+            // REC and organic are separate collection boundaries. Disabling
+            // organic must not write unattributed C reads or resolve any
+            // previously issued organic tickets into new organic conversions.
+            let collect_organic = collect
+                && std::env::var("TOR_ORGANIC_ATTRIBUTION_ENABLED").as_deref() == Ok("1");
+            let result = store.tick_feedback(collect, collect_organic).await;
             if result.is_err() {
                 eprintln!("rec_feedback_worker: batch failed; retry deferred");
             }
