@@ -142,7 +142,6 @@ fn start_test_writer(executable: &str, db: &Path, socket: &Path) -> ChildGuard {
     process
 }
 
-
 // The writer polls a nonblocking Unix socket; on a busy CI runner its
 // best-effort publisher can miss the 250ms acknowledgement deadline despite
 // a healthy writer. Retry the SAME ID for a bounded time and require an ACK.
