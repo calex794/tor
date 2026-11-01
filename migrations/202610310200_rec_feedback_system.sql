@@ -1,5 +1,6 @@
 -- REC-13. Additive B/C/F schema submitted to I; no paid rights or historic DDL edits.
--- Unknown audiences are deliberately not eligible for recommendation.
+-- Recommendation audience is an optional exclusion layer. Unknown book
+-- access levels (B-09 NULL) are deliberately NOT eligible for recommendation.
 CREATE TABLE book_recommendation_audiences (
     book_id bigint PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
     audience text NOT NULL CHECK (audience IN ('general','adult','unreviewed')),
@@ -12,12 +13,17 @@ CREATE TABLE book_recommendation_relations (
     PRIMARY KEY(book_id,related_book_id),
     CHECK(book_id<>related_book_id)
 );
--- B-owned bounded public metadata port. Adult eligibility is not inferred.
+-- B-owned bounded public metadata port. The canonical public/basic policy is
+-- authoritative: no additional admin approval and no approval revocation on
+-- chapter, publication, cover or book edits. Existing basic books without a
+-- recommendation settings row remain eligible. Explicit adult/unreviewed are
+-- excluded, as are NULL/unknown B age tiers and adult/pro_adult books.
 CREATE VIEW rec_public_books WITH (security_barrier=true) AS
 SELECT b.id,b.title,b.target_language,b.author_name,b.genres,b.tags,b.created_at
-FROM books b JOIN book_recommendation_audiences a ON a.book_id=b.id
+FROM books b LEFT JOIN book_recommendation_audiences a ON a.book_id=b.id
 WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
-  AND a.audience='general';
+  AND b.access_level='basic'
+  AND COALESCE(a.audience,'general')='general';
 
 CREATE TABLE rec_subjects (
     user_id bigint PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

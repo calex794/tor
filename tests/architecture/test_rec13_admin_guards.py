@@ -31,16 +31,17 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertIn('missing independent administrator role guard',checker)
 
     def test_rec13_uses_canonical_b_policy_not_parallel_approval(self):
-        migration = (ROOT / "migrations/202611010004_rec_restore_b_discovery.sql").read_text()
+        migration = (ROOT / "migrations/202610310200_rec_feedback_system.sql").read_text()
         policy = (ROOT / "crates/books/src/repositories/recommendation_policy.rs").read_text()
         author = (ROOT / "crates/web/src/recommendation_http/author.rs").read_text()
-        self.assertIn("CREATE OR REPLACE VIEW rec_public_books", migration)
+        self.assertIn("CREATE VIEW rec_public_books", migration)
         self.assertIn("b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted", migration)
         self.assertIn("b.access_level='basic'", migration)
         self.assertIn("COALESCE(a.audience,'general')='general'", migration)
-        self.assertIn("DROP TABLE rec_general_audience_approvals", migration)
-        for table in ("books", "chapters", "chapter_publications", "book_cover_slots"):
-            self.assertIn(f"ON {table}", migration)
+        self.assertNotIn("rec_general_audience_approvals", migration)
+        self.assertNotIn("rec_review_revoke_", migration)
+        self.assertFalse((ROOT / "migrations/202611010003_rec_general_review_gate.sql").exists())
+        self.assertFalse((ROOT / "migrations/202611010004_rec_restore_b_discovery.sql").exists())
         self.assertNotIn("rec_general_audience_approvals", policy)
         self.assertNotIn("settings.reviewed", author)
         self.assertIn("!verified.administrator", (ROOT / "crates/web/src/recommendation_http/admin.rs").read_text())
