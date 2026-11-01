@@ -241,7 +241,10 @@ async function testViewport(browser, buyer, viewport) {
       assert.equal(revoked.status(), 401);
       await page.getByLabel("Электронная почта").fill(email);
       await page.getByLabel("Пароль", { exact: true }).fill("S034RealStorageE2EPassword2026");
+      const login = page.waitForResponse((r) =>
+        new URL(r.url()).pathname === "/login" && r.request().method() === "POST");
       await page.getByRole("button", { name: "Войти", exact: true }).click();
+      assert.equal((await login).status(), 303, "real login must create a new session");
       await page.waitForURL("**/me");
       await page.goto(SITE + "/me/purchases");
       const grant = page.waitForResponse((r) =>
