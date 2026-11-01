@@ -232,3 +232,29 @@ fn f_05_private_ranking_routes_are_known_bounded_and_not_catalog_events() {
     }
     assert!(!classify(Some("/api/v1/me/rankings"), "POST").route_known);
 }
+
+#[test]
+fn e_08_private_member_preview_is_read_only_mail_route() {
+    let page = classify(Some("/me/books/{id}/preview"), "GET");
+    assert!(page.route_known);
+    assert_eq!(page.product_area, ProductArea::Mail);
+    assert_eq!(page.cost_class, CostClass::CheapRead);
+    assert!(!classify(Some("/me/books/{id}/preview"), "POST").route_known);
+}
+
+#[test]
+fn e_08_admin_room_read_routes_are_audited_and_read_only() {
+    for template in [
+        "/admin/mail/groups",
+        "/admin/mail/groups/{id}",
+        "/admin/mail/book-rooms",
+        "/admin/mail/book-rooms/{id}",
+    ] {
+        let route = classify(Some(template), "GET");
+        assert!(route.route_known);
+        assert_eq!(route.traffic_surface, TrafficSurface::Admin);
+        assert_eq!(route.product_area, ProductArea::Admin);
+        assert_eq!(route.cost_class, CostClass::CheapRead);
+        assert!(!classify(Some(template), "POST").route_known);
+    }
+}

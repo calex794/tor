@@ -16,9 +16,9 @@ CREATE INDEX book_taxonomy_curation_events_newest
 
 -- Share a single NFKC key with the authoring path.
 CREATE FUNCTION admin_taxonomy_key(value TEXT) RETURNS TEXT
-LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
     SELECT book_taxonomy_key(value);
-$;
+$$;
 
 CREATE FUNCTION admin_taxonomy_guard(curator_tag TEXT) RETURNS void
 LANGUAGE plpgsql SECURITY INVOKER AS $$
