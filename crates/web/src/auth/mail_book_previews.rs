@@ -420,10 +420,7 @@ mod tests {
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].id, 12);
         assert_eq!(refs[1].id, 13);
-        let titles = HashMap::from([
-            (12, "Public 12".to_owned()),
-            (13, "Public 13".to_owned()),
-        ]);
+        let titles = HashMap::from([(12, "Public 12".to_owned()), (13, "Public 13".to_owned())]);
         let output = project(body, &refs, &titles, &HashSet::new(), &HashMap::new());
         assert!(output
             .body_without_book_links
@@ -437,7 +434,9 @@ mod tests {
         assert_eq!(output.book_previews.len(), 2);
         assert_eq!(output.book_previews[0].url, "/books/12");
         assert_eq!(output.book_previews[1].url, "/books/13");
-        assert!(!output.body_without_book_links.contains("genuine https://tor.test/books/12"));
+        assert!(!output
+            .body_without_book_links
+            .contains("genuine https://tor.test/books/12"));
     }
 
     #[test]
@@ -468,13 +467,7 @@ mod tests {
         let mut titles = HashMap::new();
         titles.insert(12, "<img onerror=alert(1)>".into());
         let covers = HashSet::from([12]);
-        let projected = project(
-            body,
-            &test_links(body),
-            &titles,
-            &covers,
-            &HashMap::new(),
-        );
+        let projected = project(body, &test_links(body), &titles, &covers, &HashMap::new());
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].url, "/books/12");
         assert_eq!(projected.book_previews[0].cover_url, "/covers/12/card.webp");

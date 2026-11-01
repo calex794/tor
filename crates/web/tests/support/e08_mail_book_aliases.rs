@@ -188,8 +188,7 @@ pub(super) async fn verify(
     )
     .await;
     assert_eq!(host_response.status(), StatusCode::OK);
-    let host_json: serde_json::Value =
-        serde_json::from_str(&text(host_response).await).unwrap();
+    let host_json: serde_json::Value = serde_json::from_str(&text(host_response).await).unwrap();
     let host_view = &host_json["message"];
     assert_eq!(host_view["book_previews"].as_array().unwrap().len(), 1);
     assert_eq!(
