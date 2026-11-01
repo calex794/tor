@@ -79,8 +79,10 @@ impl PgRecommendations {
                     // channel. The outbox-row lock and REC subject lock make
                     // the decision atomic across replaying workers. Ties
                     // favor REC, so an organic click may not double count it.
-                    let organic: Option<String> = if collect_organic {
-                        sqlx::query_scalar(
+                    // A past organic navigation can still supersede an
+                    // older REC click. If organic collection is now OFF,
+                    // treat it as a veto without writing organic attribution.
+                    let organic: Option<String> = sqlx::query_scalar(
                             "SELECT t.id::text FROM organic_discovery_touches t
                          JOIN rec_verified_read_events_v2 v ON v.event_id=$1::uuid
                          WHERE t.subject_id=$2::uuid AND t.book_id=v.book_id
@@ -93,16 +95,16 @@ impl PgRecommendations {
                                  AND a.clicked_at>=t.clicked_at AND a.clicked_at<=v.occurred_at
                                  AND a.clicked_at>=v.occurred_at-make_interval(days=>$3::int))
                          ORDER BY t.clicked_at DESC,t.id ASC LIMIT 1",
-                        )
-                        .bind(event)
-                        .bind(&subject)
-                        .bind(days)
-                        .fetch_optional(&mut *tx)
-                        .await?
-                    } else {
-                        None
-                    };
-                    if let Some(touch) = organic {
+                    )
+                    .bind(event)
+                    .bind(&subject)
+                    .bind(days)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                    if organic.is_some() && !collect_organic {
+                        // The last click was organic before the flag changed:
+                        // do not collect it, nor miscredit an older REC touch.
+                    } else if let Some(touch) = organic {
                         let inserted = sqlx::query(
                             "INSERT INTO organic_discovery_first_conversions
                              (subject_id,book_id,kind,touch_id,source_event_id,occurred_at)
