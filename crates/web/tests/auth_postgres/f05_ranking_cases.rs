@@ -353,7 +353,7 @@ async fn f_05_http_reader_finish_form_to_personal_ranking() {
     )
     .await;
     assert_eq!(completed.status(), StatusCode::SEE_OTHER);
-    assert_eq!(completed.headers()[header::LOCATION], "/me/rankings");
+    assert_eq!(completed.headers()[header::LOCATION], "/read/101#continuation");
     assert_eq!(
         send(
             &app,
