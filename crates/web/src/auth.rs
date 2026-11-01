@@ -20,6 +20,7 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
+use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{
@@ -281,11 +282,20 @@ fn router_inner(
             post(follow_read_state::submit),
         )
         .route("/me/rankings", get(rankings::page))
-        .route("/books/{id}/like", get(book_likes::page).post(book_likes::submit))
-        .route("/me/books/{id}/rate", get(book_stars::page).post(book_stars::submit))
+        .route(
+            "/books/{id}/like",
+            get(book_likes::page).post(book_likes::submit),
+        )
+        .route(
+            "/me/books/{id}/rate",
+            get(book_stars::page).post(book_stars::submit),
+        )
         .route("/read/{id}/text-issues", post(text_issues::submit))
         .route("/me/books/{id}/issues", get(text_issues::author_page))
-        .route("/me/books/{id}/issues/{issue_id}/status", post(text_issues::change_status))
+        .route(
+            "/me/books/{id}/issues/{issue_id}/status",
+            post(text_issues::change_status),
+        )
         .route(
             "/reader/{id}/thanks",
             get(chapter_thanks::page).post(chapter_thanks::submit),
@@ -494,15 +504,8 @@ async fn cover_settings(
         },
         None => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let slots =
-        tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone());
-    let current = match slots
-        .public_variant(
-            id,
-            tor_books::repositories::cover_slots::PublicCoverKind::Main,
-        )
-        .await
-    {
+    let slots = PgCoverSlots::new(state.accounts.pool().clone());
+    let current = match slots.public_variant(id, PublicCoverKind::Main).await {
         Ok(current) => current.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
