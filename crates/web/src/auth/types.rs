@@ -72,6 +72,9 @@ pub(super) struct NewBookForm {
     pub(super) genres: Option<String>,
     pub(super) tags: Option<String>,
     pub(super) fandoms: Option<String>,
+    pub(super) genre_ids: Option<String>,
+    pub(super) tag_ids: Option<String>,
+    pub(super) fandom_ids: Option<String>,
     pub(super) command_key: String,
     pub(super) csrf_token: Option<String>,
 }

@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const base = 'http://127.0.0.1:3098';
 const dbUrl = process.env.APP_URL;
+const taxonomySeedUrl = process.env.MIGRATION_URL;
 const shots = process.env.TOR_SEARCH_SHOTS || 'search-shots';
 fs.mkdirSync(shots, { recursive: true });
 
@@ -17,6 +18,41 @@ function pg(sql) {
   return execFileSync('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-At', '-d', dbUrl, '-c', sql], {
     encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
+}
+// Only CI fixture setup uses the migrator role: tor_app has read-only
+// vocabulary access and cannot fabricate new public taxonomy labels.
+function seedTaxonomy(kind, label) {
+  assert(taxonomySeedUrl, 'taxonomy fixture needs MIGRATION_URL');
+  const parsed = new URL(taxonomySeedUrl);
+  assert(parsed.pathname === '/tor_ci' && ['127.0.0.1', 'localhost'].includes(parsed.hostname),
+    'refusing taxonomy fixture outside disposable local tor_ci');
+  assert(['genre', 'tag', 'fandom'].includes(kind), 'unexpected taxonomy kind');
+  assert(/^[\p{L}\p{N} -]+$/u.test(label), 'unexpected taxonomy fixture label');
+  const quote = value => "'" + value.replaceAll("'", "''") + "'";
+  const key = label.toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  execFileSync('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-At', '-d', taxonomySeedUrl,
+    '-c', 'INSERT INTO book_taxonomy_terms(kind,label,search_key) VALUES(' +
+      quote(kind) + ',' + quote(label) + ',' + quote(key) + ')' +
+      ' ON CONFLICT(kind,search_key) DO UPDATE SET label=EXCLUDED.label'], {
+    encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+function seedSearchTaxonomies() {
+  for (const [kind, label] of [
+    ['genre', 'Фэнтези'], ['genre', 'Приключения'],
+    ['tag', 'f02tag-desktop'], ['tag', 'f02tag-mobile'],
+    ['fandom', 'f02fandom-desktop'], ['fandom', 'f02fandom-mobile'],
+  ]) seedTaxonomy(kind, label);
+}
+async function chooseAuthorTaxonomy(page, kind, query, label) {
+  const picker = page.locator('[data-taxonomy-picker][data-kind="' + kind + '"]');
+  assert(await picker.count() === 1, 'missing canonical ' + kind + ' picker');
+  await picker.locator('[data-query]').fill(query);
+  const option = picker.getByRole('option', { name: new RegExp(label, 'i') });
+  await option.waitFor({ state: 'visible' });
+  await option.click();
+  assert(await picker.locator('[data-selected] button').filter({ hasText: label }).count() === 1,
+    kind + ': canonical taxonomy chip did not persist');
 }
 function changeBook(id, phase) {
   assert(/^[1-9][0-9]*$/.test(id), 'invalid book ID');
@@ -274,14 +310,37 @@ async function draftBook(page, viewport) {
   await page.goto(base + '/me/books/new');
   await page.getByLabel('Название книги').fill(title);
   await page.getByLabel('Автор произведения (необязательно)').fill('АвторПоиска');
-  await page.getByLabel('Жанры через запятую (до 8)').fill('Фэнтези, Приключения');
-  await page.getByLabel('Теги через запятую (до 8)').fill('f02tag-' + viewport);
-  await page.getByLabel('Фэндомы через запятую (до 8)').fill('f02fandom-' + viewport);
+  // Real searchable multi-select: no hidden free-text fallback.
+  await chooseAuthorTaxonomy(page, 'genre', 'фэнтези', 'Фэнтези');
+  await chooseAuthorTaxonomy(page, 'genre', 'приключения', 'Приключения');
+  await chooseAuthorTaxonomy(page, 'tag', 'f02tag-' + viewport, 'f02tag-' + viewport);
+  await chooseAuthorTaxonomy(page, 'fandom', 'f02fandom-' + viewport, 'f02fandom-' + viewport);
   await page.getByLabel('Язык').fill('ru');
   await page.getByRole('button', { name: 'Создать книгу' }).click();
   await page.waitForURL(/\/me\/books\/\d+$/);
   const id = page.url().split('/').pop();
   assert(/^[1-9][0-9]*$/.test(id), 'author did not create canonical book ID');
+
+  // Owner-only edit page must rehydrate all existing canonical tags from PG.
+  await page.getByRole('link', { name: 'Жанры и теги книги' }).click();
+  await page.waitForURL(base + '/me/books/' + id + '/taxonomy');
+  const genres = page.locator('[data-taxonomy-picker][data-kind="genre"]');
+  assert(await genres.locator('[data-selected] button').count() === 2,
+    viewport + ': existing genre choices were lost on edit form');
+  assert(await page.locator('[data-taxonomy-picker][data-kind="tag"] [data-selected] button').count() === 1,
+    viewport + ': existing tag choice was lost on edit form');
+  assert(await page.locator('[data-taxonomy-picker][data-kind="fandom"] [data-selected] button').count() === 1,
+    viewport + ': existing fandom choice was lost on edit form');
+  // Change canonical order without changing catalog filtering semantics.
+  await genres.getByRole('button', { name: 'Удалить: Фэнтези' }).click();
+  await chooseAuthorTaxonomy(page, 'genre', 'фэнтези', 'Фэнтези');
+  await page.getByRole('button', { name: 'Сохранить теги' }).click();
+  await page.waitForURL(base + '/me/books/' + id);
+  await page.goto(base + '/me/books/' + id + '/taxonomy');
+  const idsInOrder = await page.locator('[data-taxonomy-picker][data-kind="genre"] [data-selected] button').allTextContents();
+  assert(idsInOrder.length === 2 && idsInOrder[0].includes('Приключения') &&
+    idsInOrder[1].includes('Фэнтези'), viewport + ': taxonomy edit did not persist order');
+  await page.goto(base + '/me/books/' + id);
 
   await page.getByRole('link', { name: 'Добавить главу' }).click();
   await page.waitForURL('**/chapters/new');
@@ -297,6 +356,7 @@ async function draftBook(page, viewport) {
 
 (async () => {
   assert(pg('SELECT current_database()') === 'tor_ci', 'refusing non-test database');
+  seedSearchTaxonomies();
   const browser = await chromium.launch({ headless: true });
   try {
     for (const [viewport, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {

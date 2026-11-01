@@ -18,6 +18,55 @@
     },
     {
       "method": "GET",
+      "template": "/admin/mail",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::index",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/book-rooms",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::book_rooms",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/book-rooms/{id}",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::book_room",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/groups",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::groups",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/groups/{id}",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::group",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/users/{user_id}",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::user",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/{id}",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::conversation",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
       "template": "/api/v1/admin/recommendations/quality",
       "handler": "admin::quality",
       "policy": "administrator",
@@ -70,6 +119,13 @@
       "template": "/api/v1/me/library",
       "source": "crates/web/src/auth.rs",
       "handler": "library_actions::api_list",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::get",
       "policy": "scoped"
     },
     {
@@ -137,6 +193,13 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/taxonomies/suggest",
+      "source": "crates/web/src/auth.rs",
+      "handler": "taxonomy_picker::suggest",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
       "template": "/assets/account-reset.js",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "password_reset::script",
@@ -154,6 +217,13 @@
       "template": "/assets/brand/pandaolate-header.png",
       "source": "crates/web/src/lib.rs",
       "handler": "pages::brand_logo",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/mail.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::script",
       "policy": "public"
     },
     {
@@ -214,6 +284,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/taxonomy-picker.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "taxonomy_picker::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/books/{id}",
       "source": "crates/web/src/lib.rs",
       "handler": "book_detail",
@@ -231,6 +308,13 @@
       "template": "/books/{id}/like",
       "source": "crates/web/src/auth.rs",
       "handler": "book_likes::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/books/{id}/room",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::page",
       "policy": "scoped"
     },
     {
@@ -295,6 +379,69 @@
       "source": "crates/web/src/lib.rs",
       "handler": "login",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/mail",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::index",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/group-invitations",
+      "source": "crates/web/src/auth/group_mail/invitations.rs",
+      "handler": "inbox",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/group-transfers",
+      "source": "crates/web/src/auth/group_mail/transfers.rs",
+      "handler": "inbox",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::index",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::detail",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups/{id}/invite",
+      "source": "crates/web/src/auth/group_mail/invitations.rs",
+      "handler": "invite_page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::poll",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/{id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::conversation",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::poll",
+      "policy": "scoped"
     },
     {
       "method": "GET",
@@ -375,6 +522,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}/preview",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_book_previews::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/rate",
       "source": "crates/web/src/auth.rs",
       "handler": "book_stars::page",
@@ -392,6 +546,13 @@
       "template": "/me/books/{id}/settings/covers",
       "source": "crates/web/src/auth.rs",
       "handler": "cover_settings",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/taxonomy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_taxonomy::edit",
       "policy": "owner"
     },
     {
@@ -494,6 +655,13 @@
     },
     {
       "method": "GET",
+      "template": "/notifications",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "page",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
       "template": "/ops/overview",
       "source": "crates/web/src/lib.rs",
       "handler": "operator_overview::page",
@@ -577,6 +745,13 @@
       "policy": "public"
     },
     {
+      "method": "GET",
+      "template": "/users/{display_name}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "public_profile::page",
+      "policy": "public"
+    },
+    {
       "method": "PATCH",
       "template": "/api/v1/me",
       "source": "crates/web/src/auth/settings_routes.rs",
@@ -602,6 +777,13 @@
       "template": "/api/v1/me/library/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "library_actions::api_add",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail_api::post",
       "policy": "scoped"
     },
     {
@@ -711,6 +893,27 @@
     },
     {
       "method": "POST",
+      "template": "/books/{id}/room/join",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::join",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/room/leave",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::leave",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/books/{id}/room/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_rooms::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/forgot-password",
       "source": "crates/web/src/auth/settings_routes.rs",
       "handler": "password_reset::request",
@@ -729,6 +932,111 @@
       "source": "crates/web/src/auth.rs",
       "handler": "logout",
       "policy": "csrf_only"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/group-invitations/{id}/accept",
+      "source": "crates/web/src/auth/group_mail/invitations.rs",
+      "handler": "accept",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/group-invitations/{id}/decline",
+      "source": "crates/web/src/auth/group_mail/invitations.rs",
+      "handler": "decline",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/group-transfers/{id}/accept",
+      "source": "crates/web/src/auth/group_mail/transfers.rs",
+      "handler": "accept",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/group-transfers/{id}/decline",
+      "source": "crates/web/src/auth/group_mail/transfers.rs",
+      "handler": "decline",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::create",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/disband",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::disband",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/invite",
+      "source": "crates/web/src/auth/group_mail/invitations.rs",
+      "handler": "invite",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/invite/{invitation_id}/revoke",
+      "source": "crates/web/src/auth/group_mail/invitations.rs",
+      "handler": "revoke",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/leave",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::leave",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::send",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/transfer",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::transfer",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/groups/{id}/transfer/{offer_id}/revoke",
+      "source": "crates/web/src/auth/group_mail/transfers.rs",
+      "handler": "revoke",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/start/{recipient_user_id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::start",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/block",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::block",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/mail/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "mail::send",
+      "policy": "scoped"
     },
     {
       "method": "POST",
@@ -841,6 +1149,13 @@
       "handler": "author::save",
       "policy": "owner",
       "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/taxonomy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_taxonomy::save",
+      "policy": "owner"
     },
     {
       "method": "POST",
@@ -963,6 +1278,27 @@
     },
     {
       "method": "POST",
+      "template": "/notifications/preferences",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "save_preferences",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/read-all",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_all",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/notifications/{id}/read",
+      "source": "crates/web/src/auth/notifications.rs",
+      "handler": "mark_one",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
       "template": "/read/{id}/complete",
       "source": "crates/web/src/auth.rs",
       "handler": "complete_chapter::complete",
@@ -1004,111 +1340,6 @@
       "policy": "recovery"
     },
     {
-      "method": "PUT",
-      "template": "/api/v1/me/progress/free",
-      "source": "crates/web/src/auth.rs",
-      "handler": "sync_actions::put_free",
-      "policy": "scoped"
-    },
-    {
-      "method": "PUT",
-      "template": "/api/v1/me/progress/purchased",
-      "source": "crates/web/src/auth.rs",
-      "handler": "sync_actions::put_purchased",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/api/v1/me/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail_api::get",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/assets/mail.js",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::script",
-      "policy": "public"
-    },
-    {
-      "method": "GET",
-      "template": "/mail",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::index",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::conversation",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/notifications",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "page",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/users/{display_name}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "public_profile::page",
-      "policy": "public"
-    },
-    {
-      "method": "POST",
-      "template": "/api/v1/me/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail_api::post",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/{id}/block",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::block",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/{id}/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::send",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/start/{recipient_user_id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::start",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/notifications/{id}/read",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "mark_one",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/notifications/read-all",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "mark_all",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/notifications/preferences",
-      "source": "crates/web/src/auth/notifications.rs",
-      "handler": "save_preferences",
-      "policy": "scoped"
-    },
-    {
       "method": "POST",
       "template": "/users/{target_user_id}/block",
       "source": "crates/web/src/auth.rs",
@@ -1130,221 +1361,18 @@
       "policy": "scoped"
     },
     {
-      "method": "GET",
-      "template": "/mail/groups",
+      "method": "PUT",
+      "template": "/api/v1/me/progress/free",
       "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::index",
+      "handler": "sync_actions::put_free",
       "policy": "scoped"
     },
     {
-      "method": "POST",
-      "template": "/mail/groups",
+      "method": "PUT",
+      "template": "/api/v1/me/progress/purchased",
       "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::create",
+      "handler": "sync_actions::put_purchased",
       "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/groups/{id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::detail",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::send",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/leave",
-      "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::leave",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/transfer",
-      "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::transfer",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/me/books/{id}/preview",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail_book_previews::page",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/books/{id}/room",
-      "source": "crates/web/src/auth.rs",
-      "handler": "book_rooms::page",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/books/{id}/room/join",
-      "source": "crates/web/src/auth.rs",
-      "handler": "book_rooms::join",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/books/{id}/room/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "book_rooms::send",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/books/{id}/room/leave",
-      "source": "crates/web/src/auth.rs",
-      "handler": "book_rooms::leave",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::index",
-      "policy": "admin_mail"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail/users/{user_id}",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::user",
-      "policy": "admin_mail"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail/{id}",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::conversation",
-      "policy": "admin_mail"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/{id}/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "mail::poll",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/groups/{id}/messages",
-      "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::poll",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/group-invitations",
-      "source": "crates/web/src/auth/group_mail/invitations.rs",
-      "handler": "inbox",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/groups/{id}/invite",
-      "source": "crates/web/src/auth/group_mail/invitations.rs",
-      "handler": "invite_page",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/invite",
-      "source": "crates/web/src/auth/group_mail/invitations.rs",
-      "handler": "invite",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/group-invitations/{id}/accept",
-      "source": "crates/web/src/auth/group_mail/invitations.rs",
-      "handler": "accept",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/group-invitations/{id}/decline",
-      "source": "crates/web/src/auth/group_mail/invitations.rs",
-      "handler": "decline",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/invite/{invitation_id}/revoke",
-      "source": "crates/web/src/auth/group_mail/invitations.rs",
-      "handler": "revoke",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/disband",
-      "source": "crates/web/src/auth.rs",
-      "handler": "group_mail::disband",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/mail/group-transfers",
-      "source": "crates/web/src/auth/group_mail/transfers.rs",
-      "handler": "inbox",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/group-transfers/{id}/accept",
-      "source": "crates/web/src/auth/group_mail/transfers.rs",
-      "handler": "accept",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/group-transfers/{id}/decline",
-      "source": "crates/web/src/auth/group_mail/transfers.rs",
-      "handler": "decline",
-      "policy": "scoped"
-    },
-    {
-      "method": "POST",
-      "template": "/mail/groups/{id}/transfer/{offer_id}/revoke",
-      "source": "crates/web/src/auth/group_mail/transfers.rs",
-      "handler": "revoke",
-      "policy": "scoped"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail/groups",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::groups",
-      "policy": "admin_mail"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail/groups/{id}",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::group",
-      "policy": "admin_mail"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail/book-rooms",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::book_rooms",
-      "policy": "admin_mail"
-    },
-    {
-      "method": "GET",
-      "template": "/admin/mail/book-rooms/{id}",
-      "source": "crates/web/src/auth/admin_mail_routes.rs",
-      "handler": "admin_mail::book_room",
-      "policy": "admin_mail"
     }
   ]
 }

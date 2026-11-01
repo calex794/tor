@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 190] = [
+const ROUTES: [RouteRegistration; 194] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -200,6 +200,10 @@ const ROUTES: [RouteRegistration; 190] = [
     RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 187
     RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 188
     RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 189
+    RouteRegistration::new("/api/v1/taxonomies/suggest", "GET", "/api/v1/taxonomies/", Exact, Api, Catalog, Read), // 190
+    RouteRegistration::new("/assets/taxonomy-picker.js", "GET", "/assets/", Exact, Static, System, Free), // 191
+    RouteRegistration::new("/me/books/{id}/taxonomy", "GET", "/me/", Prefix, Page, Dashboard, Read), // 192
+    RouteRegistration::new("/me/books/{id}/taxonomy", "POST", "/me/", Prefix, Page, Dashboard, Write), // 193
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

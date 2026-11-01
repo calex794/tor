@@ -13,12 +13,37 @@
         <input id="book-author" name="author_name" type="text" maxlength="160">
         <label for="book-description">Аннотация книги (до 4000 символов)</label>
         <textarea id="book-description" name="description" rows="6" maxlength="4000" placeholder="О чём эта книга?"></textarea>
-        <label for="book-genres">Жанры через запятую (до 8)</label>
-        <input id="book-genres" name="genres" type="text" maxlength="400" placeholder="Фэнтези, Приключения">
-        <label for="book-tags">Теги через запятую (до 8)</label>
-        <input id="book-tags" name="tags" type="text" maxlength="400" placeholder="Магия, Академия">
-        <label for="book-fandoms">Фэндомы через запятую (до 8)</label>
-        <input id="book-fandoms" name="fandoms" type="text" maxlength="400" placeholder="Наруто, Звёздные войны">
+        <div class="taxonomy-picker" data-taxonomy-picker data-kind="genre" data-limit="8">
+          <label for="book-genre-query">Жанры <small>(до 8)</small></label>
+          <div class="taxonomy-picker__chips" data-selected aria-live="polite"></div>
+          <input type="hidden" name="genre_ids" data-selected-ids value="">
+          <input id="book-genre-query" data-query type="search" role="combobox" aria-autocomplete="list"
+                 aria-expanded="false" aria-controls="book-genre-results" autocomplete="off"
+                 placeholder="Начните вводить название жанра" maxlength="60">
+          <ul id="book-genre-results" class="taxonomy-picker__results" data-results role="listbox" hidden></ul>
+          <p class="taxonomy-picker__hint" data-hint aria-live="polite">Введите минимум два символа.</p>
+        </div>
+        <div class="taxonomy-picker" data-taxonomy-picker data-kind="tag" data-limit="8">
+          <label for="book-tag-query">Сюжетные теги <small>(до 8)</small></label>
+          <div class="taxonomy-picker__chips" data-selected aria-live="polite"></div>
+          <input type="hidden" name="tag_ids" data-selected-ids value="">
+          <input id="book-tag-query" data-query type="search" role="combobox" aria-autocomplete="list"
+                 aria-expanded="false" aria-controls="book-tag-results" autocomplete="off"
+                 placeholder="Например, система или культивация" maxlength="60">
+          <ul id="book-tag-results" class="taxonomy-picker__results" data-results role="listbox" hidden></ul>
+          <p class="taxonomy-picker__hint" data-hint aria-live="polite">Введите минимум два символа.</p>
+        </div>
+        <div class="taxonomy-picker" data-taxonomy-picker data-kind="fandom" data-limit="8">
+          <label for="book-fandom-query">Фэндомы <small>(до 8)</small></label>
+          <div class="taxonomy-picker__chips" data-selected aria-live="polite"></div>
+          <input type="hidden" name="fandom_ids" data-selected-ids value="">
+          <input id="book-fandom-query" data-query type="search" role="combobox" aria-autocomplete="list"
+                 aria-expanded="false" aria-controls="book-fandom-results" autocomplete="off"
+                 placeholder="Название вселенной или франшизы" maxlength="60">
+          <ul id="book-fandom-results" class="taxonomy-picker__results" data-results role="listbox" hidden></ul>
+          <p class="taxonomy-picker__hint" data-hint aria-live="polite">Введите минимум два символа.</p>
+        </div>
+        <noscript><p>Для выбора тегов включите JavaScript. Без тегов черновик можно создать.</p></noscript>
         <label for="book-language">Язык</label>
         <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
         <button class="button" type="submit">Создать книгу</button>
@@ -26,4 +51,5 @@
       <p class="auth-card__footer"><a href="/me/books">Вернуться к моим книгам</a></p>
     </div>
   </div>
+  <script src="/assets/taxonomy-picker.js" defer></script>
 </section>

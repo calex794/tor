@@ -149,6 +149,10 @@ jobs:
           SELECT setval(pg_get_serial_sequence('books','id'), GREATEST((SELECT max(id) FROM books),1), true);
           SELECT setval(pg_get_serial_sequence('chapters','id'), GREATEST((SELECT max(id) FROM chapters),1), true);
           SELECT setval(pg_get_serial_sequence('chapter_versions','id'), GREATEST((SELECT max(id) FROM chapter_versions),1), true);
+          -- Only CI migrator can curate these canonical test genre terms.
+          INSERT INTO book_taxonomy_terms(kind,label,search_key) VALUES
+            ('genre','Fantasy','fantasy'),('genre','Adventure','adventure')
+          ON CONFLICT(kind,search_key) DO NOTHING;
           SQL
       - name: Database and HTTP integration
         run: |
@@ -170,6 +174,7 @@ jobs:
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
+          TEST_TAXONOMY_MIGRATOR_URL=postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci cargo test -p tor-books --test taxonomy_picker_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1

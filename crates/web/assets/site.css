@@ -536,3 +536,28 @@ button:disabled, input:disabled { cursor: not-allowed; }
   font-variant-numeric: tabular-nums;
   padding: 0.5rem 0.25rem;
 }
+
+/* B/TAX-01: compact, keyboard-accessible canonical taxonomy multi-picker. */
+.taxonomy-picker { position: relative; display: grid; gap: 6px; margin-block: 6px 14px; }
+.taxonomy-picker label small { font-weight: 400; color: #647567; }
+.taxonomy-picker__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.taxonomy-picker__chips:empty { display: none; }
+.taxonomy-picker__chip { border: 1px solid #b1c9b6; background: #ecf5ef; color: #244d31;
+  padding: 6px 9px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 13px; }
+.taxonomy-picker__chip:focus-visible { outline: 3px solid #44835b; outline-offset: 2px; }
+.taxonomy-picker__results { padding: 4px; margin: -4px 0 0; list-style: none; background: #fff;
+  border: 1px solid #b5c9ba; border-radius: 10px; box-shadow: 0 12px 24px #11291b20;
+  max-height: 260px; overflow-y: auto; z-index: 5; }
+.taxonomy-picker__results[hidden] { display: none; }
+.taxonomy-picker__results li { padding: 9px 12px; border-radius: 7px; display: flex;
+  justify-content: space-between; gap: 12px; cursor: pointer; font-size: 14px; }
+.taxonomy-picker__results li[aria-selected="true"], .taxonomy-picker__results li:hover {
+  background: #e4f1e8; }
+.taxonomy-picker__usage { font-size: 12px; color: #617965; white-space: nowrap; }
+.taxonomy-picker__hint { font-size: 12px; color: #617965; margin: 0; }
+@media (prefers-color-scheme: dark) {
+  .taxonomy-picker__results { background: #16231a; border-color: #48604a; }
+  .taxonomy-picker__chip { background: #203c29; color: #edf6f0; border-color: #4b7356; }
+  .taxonomy-picker__results li[aria-selected="true"], .taxonomy-picker__results li:hover {
+    background: #244c30; }
+}

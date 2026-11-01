@@ -20,12 +20,7 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
-use tor_books::{
-    repositories::postgres::PgAuthoring,
-    services::authoring::{
-        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
-    },
-};
+use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
@@ -57,6 +52,7 @@ mod book_likes;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
+mod book_taxonomy;
 mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
@@ -93,6 +89,7 @@ mod security_retention;
 mod session_security;
 mod settings_routes;
 mod sync_actions;
+mod taxonomy_picker;
 mod types;
 use types::*;
 pub(crate) fn router(
@@ -264,6 +261,8 @@ fn router_inner(
             get(password_change::page).post(password_change::submit),
         )
         .route("/assets/mentions.js", get(book_comments::mention_script))
+        .route("/assets/taxonomy-picker.js", get(taxonomy_picker::script))
+        .route("/api/v1/taxonomies/suggest", get(taxonomy_picker::suggest))
         .route(
             "/api/v1/social/mentions/discover",
             get(book_comments::discover_mentions),
@@ -337,6 +336,10 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
+        .route(
+            "/me/books/{id}/taxonomy",
+            get(book_taxonomy::edit).post(book_taxonomy::save),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
@@ -425,7 +428,10 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let command_key = generate_session_token();
-    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
+    crate::auth_cookies::private_response_with_taxonomy_picker(
+        author_pages::new_book(&csrf, &command_key),
+        &cookies,
+    )
 }
 async fn create_book(
     State(state): State<AuthState>,
@@ -444,23 +450,9 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let identity = format!("manual:{actor}:{}", form.command_key);
-    let request = match new_book_with_taxonomy(
-        &identity,
-        &form.target_language,
-        &form.title,
-        &form.command_key,
-        form.author_name.as_deref().unwrap_or(""),
-        form.genres.as_deref().unwrap_or(""),
-        TaxonomyFields {
-            tags: form.tags.as_deref().unwrap_or(""),
-            fandoms: form.fandoms.as_deref().unwrap_or(""),
-        },
-    )
-    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    {
+    let request = match taxonomy_picker::validated_author_book(&state, actor, &form).await {
         Ok(request) => request,
-        Err(_) => return deny(StatusCode::BAD_REQUEST),
+        Err(status) => return deny(status),
     };
     match state.authoring.create_owned_book(actor, &request).await {
         Ok(id) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
