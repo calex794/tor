@@ -15,6 +15,7 @@ fn auth_next_markup(next: Option<&str>) -> (String, String) {
     )
 }
 
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form(csrf: &str) -> Html<String> {
     registration_form_with_next(csrf, None)
 }
@@ -25,6 +26,7 @@ pub fn registration_form_with_next(csrf: &str, next: Option<&str>) -> Html<Strin
 
 /// Use server-side validation instead of the browser's locale-dependent
 /// English popups. Keep the email/name, but never replay the password.
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form_with_error(
     csrf: &str,
     display_name: &str,
@@ -64,6 +66,7 @@ pub fn registration_form_with_error_and_next(
     layout("Регистрация", "Создать личный кабинет читателя.", &content)
 }
 
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn login_form(csrf: &str) -> Html<String> {
     login_form_with_next(csrf, None)
 }
