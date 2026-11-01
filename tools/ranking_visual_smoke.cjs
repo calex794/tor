@@ -118,6 +118,11 @@ async function screenshot(page, name) {
       assert(await page.getByRole('button', { name: 'Глава прочитана' }).isVisible(),
         viewport + ': server-validated chapter completion button missing');
       await page.getByRole('button', { name: 'Глава прочитана' }).click();
+      await page.waitForURL('**/read/101#continuation');
+      const rankings = page.getByRole('link', { name: 'Мои рейтинги' });
+      assert(await rankings.isVisible(),
+        viewport + ': completed chapter must offer a voluntary rankings link');
+      await rankings.click();
       await page.waitForURL('**/me/rankings');
 
       const withBadge = await page.goto(base + '/me', { waitUntil: 'networkidle' });
