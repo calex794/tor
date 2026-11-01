@@ -10,6 +10,7 @@
       <form class="auth-form" method="post" action="/register" autocomplete="on" novalidate>
         <!--FORM_ERROR-->
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <!--AUTH_RETURN_FIELD-->
         <label for="register-name">Отображаемое имя</label>
         <input id="register-name" name="display_name" type="text" autocomplete="nickname" required maxlength="80" value="<!--DISPLAY_NAME-->">
         <label for="register-email">Электронная почта</label>
@@ -21,7 +22,7 @@
         <input id="register-invite" name="manual_invite_code" type="text" autocomplete="off" maxlength="64" value="">
         <button class="button" type="submit">Создать учётную запись</button>
       </form>
-      <p class="auth-card__footer">Уже есть учётная запись? <a href="/login">Войти</a></p>
+      <p class="auth-card__footer">Уже есть учётная запись? <a href="/login<!--AUTH_LOGIN_NEXT-->">Войти</a></p>
     </div>
   </div>
 </section>

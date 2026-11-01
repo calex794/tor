@@ -122,6 +122,29 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
 }
 
 #[test]
+fn auth_forms_preserve_explicit_private_reader_return() {
+    let login = login_form_with_next("csrf", Some("/read/42")).0;
+    assert!(login.contains("name=\"next\" value=\"/read/42\""));
+    assert!(login.contains("href=\"/register?next=/read/42\""));
+    let register = registration_form_with_next("csrf", Some("/read/42")).0;
+    assert!(register.contains("name=\"next\" value=\"/read/42\""));
+    assert!(register.contains("href=\"/login?next=/read/42\""));
+    let error = registration_form_with_error_and_next(
+        "csrf",
+        "Reader",
+        "reader@example.test",
+        Some("Повторите отправку"),
+        Some("/read/42"),
+    )
+    .0;
+    assert!(error.contains("name=\"next\" value=\"/read/42\""));
+    assert!(!login_form("csrf").0.contains("name=\"next\""));
+    assert!(!registration_form("csrf").0.contains("name=\"next\""));
+    assert!(!login.contains("<!--AUTH_RETURN_FIELD-->"));
+    assert!(!register.contains("<!--AUTH_LOGIN_NEXT-->"));
+}
+
+#[test]
 fn account_failure_is_complete_branded_page_without_credentials() {
     let html = account_error_page(
         "Не удалось завершить регистрацию",

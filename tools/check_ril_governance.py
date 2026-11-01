@@ -202,7 +202,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if policy in PROTECTED:
         if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
             errors.append(f"{label}: missing verified PG session guard")
-        if not ("StatusCode::UNAUTHORIZED" in evidence or "Redirect::to(\"/login\")" in evidence):
+        # Only the typed private reader may redirect to a specific local chapter.
+        # Never allow an arbitrary dynamic redirect to satisfy a session guard.
+        fixed_reader_return = (
+            entry["template"] == "/read/{id}"
+            and entry["handler"] == "private_reader::page"
+            and "Path(id): Path<u64>" in evidence
+            and "Ok(None) =>" in evidence
+            and 'format!("/login?next=/read/{id}")' in evidence
+            and "return private_response(Redirect::to(&destination), &[])" in evidence
+        )
+        if not (
+            "StatusCode::UNAUTHORIZED" in evidence
+            or 'Redirect::to("/login")' in evidence
+            or fixed_reader_return
+        ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
