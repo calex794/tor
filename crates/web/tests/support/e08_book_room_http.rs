@@ -157,9 +157,8 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
         .unwrap()
         .to_owned();
     assert_eq!(command_key.len(), 43);
-    let payload = format!(
-        "body=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&command_key={command_key}"
-    );
+    let payload =
+        format!("body=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&command_key={command_key}");
     let body = format!("{payload}&csrf_token={}", tokens[0]);
     let nonmember_body = format!("{payload}&csrf_token={}", tokens[1]);
     let send_path = format!("{page}/messages");
