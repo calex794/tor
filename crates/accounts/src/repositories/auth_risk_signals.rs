@@ -23,8 +23,8 @@ pub const AUTH_RISK_SIGNALS_SQL: &str = "WITH recent AS (
                SELECT 'source_spray'::text AS category,
                       encode(source_key,'hex') AS key_hex,
                       count(*) AS attempts,
-                      count(DISTINCT target_key) AS distinct_targets,
-                      count(DISTINCT source_key) AS distinct_sources,
+                      count(DISTINCT target_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) AS distinct_targets,
+                      count(DISTINCT source_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) AS distinct_sources,
                       count(*) FILTER (WHERE outcome='bad_password') AS bad_passwords,
                       count(*) FILTER (WHERE outcome='unknown_account') AS unknown_accounts,
                       count(*) FILTER (WHERE outcome='success') AS successes
@@ -36,8 +36,8 @@ pub const AUTH_RISK_SIGNALS_SQL: &str = "WITH recent AS (
                SELECT 'distributed_target'::text AS category,
                       encode(target_key,'hex') AS key_hex,
                       count(*) AS attempts,
-                      count(DISTINCT target_key) AS distinct_targets,
-                      count(DISTINCT source_key) AS distinct_sources,
+                      count(DISTINCT target_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) AS distinct_targets,
+                      count(DISTINCT source_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) AS distinct_sources,
                       count(*) FILTER (WHERE outcome='bad_password') AS bad_passwords,
                       count(*) FILTER (WHERE outcome='unknown_account') AS unknown_accounts,
                       count(*) FILTER (WHERE outcome='success') AS successes
