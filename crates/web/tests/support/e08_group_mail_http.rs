@@ -863,11 +863,9 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     let disband = format!("{path}/disband");
     let signed = format!("confirmation=DELETE&csrf_token={}", tokens[2]);
     let former_signed = format!("confirmation=DELETE&csrf_token={}", tokens[0]);
-    assert!(
-        text(call(&app, "GET", &path, &cookies[2], "", &[]).await)
-            .await
-            .contains("Удалить группу и историю")
-    );
+    assert!(text(call(&app, "GET", &path, &cookies[2], "", &[]).await)
+        .await
+        .contains("Удалить группу и историю"));
     assert_eq!(
         call(&app, "POST", &disband, &cookies[0], &former_signed, &[])
             .await
