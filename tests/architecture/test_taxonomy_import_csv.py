@@ -38,6 +38,22 @@ class TaxonomyImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "colliding"):
             importer.checked_csv(file)
 
+    def test_unicode_yo_case_and_space_collisions(self):
+        # Mirrors current database key contract, not full Unicode NFKC.
+        for a, b in [
+            ("Ёжик", "Ежик"),
+            ("СИСТЕМА", "система"),
+            ("Космическая  опера", "Космическая опера"),
+        ]:
+            with self.subTest(a=a, b=b):
+                file = self.csv(
+                    "kind,label,aliases\n"
+                    f"tag,{a},\n"
+                    f"tag,{b},\n"
+                )
+                with self.assertRaisesRegex(ValueError, "colliding"):
+                    importer.checked_csv(file)
+
     def test_quote_is_data_not_executable_sql(self):
         transaction = importer.make_transaction(
             [("fandom", "Wizard's Tale", ["魔法师"])], "ci-review"

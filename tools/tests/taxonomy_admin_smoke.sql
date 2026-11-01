@@ -24,6 +24,21 @@ BEGIN
     alias_name := 'LegacyAlias' || suffix;
     v_term_id := admin_taxonomy_add_term('tag',label,'ci-smoke');
     IF v_term_id<=0 THEN RAISE EXCEPTION 'new term not created'; END IF;
+    IF admin_taxonomy_add_term('tag',label,'ci-smoke')<>v_term_id THEN
+        RAISE EXCEPTION 'replayed canonical name did not reuse its ID';
+    END IF;
+    IF (SELECT count(*) FROM book_taxonomy_curation_events
+        WHERE term_id=v_term_id AND action='create_term')<>1 THEN
+        RAISE EXCEPTION 'replayed canonical name duplicated its audit';
+    END IF;
+    rejected:=false;
+    BEGIN
+        PERFORM admin_taxonomy_add_term('tag',upper(label),'ci-smoke');
+    EXCEPTION WHEN unique_violation THEN rejected:=true;
+    END;
+    IF NOT rejected THEN
+        RAISE EXCEPTION 'alternate canonical spelling was accepted';
+    END IF;
     PERFORM admin_taxonomy_add_alias('tag',v_term_id,alias_name,'ci-smoke');
     PERFORM admin_taxonomy_add_alias('tag',v_term_id,alias_name,'ci-smoke');
     -- Qualified term-ID check; an idempotent alias must have only one row.

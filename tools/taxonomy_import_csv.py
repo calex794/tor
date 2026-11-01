@@ -99,7 +99,7 @@ def main(argv=None):
         )
         if result.returncode:
             raise RuntimeError(result.stderr.strip()[-1200:] or "psql batch failed")
-        print(f"Imported {len(rows)} approved terms atomically")
+        print(f"Processed {len(rows)} approved terms atomically (exact repeats unchanged)")
         return 0
     except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         print(f"taxonomy CSV importer: {exc}", file=sys.stderr)

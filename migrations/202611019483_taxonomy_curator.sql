@@ -40,7 +40,7 @@ $$;
 CREATE FUNCTION admin_taxonomy_add_term(
     desired_kind TEXT, desired_label TEXT, curator_tag TEXT
 ) RETURNS BIGINT LANGUAGE plpgsql SECURITY INVOKER AS $$
-DECLARE k TEXT; result_id BIGINT;
+DECLARE k TEXT; result_id BIGINT; previous_label TEXT; previous_status TEXT;
 BEGIN
     PERFORM admin_taxonomy_guard(curator_tag);
     IF desired_kind NOT IN ('genre','tag','fandom') OR desired_kind IS NULL
@@ -56,6 +56,18 @@ BEGIN
     IF EXISTS (SELECT 1 FROM book_taxonomy_aliases
                WHERE kind=desired_kind AND search_key=k) THEN
         RAISE EXCEPTION 'canonical name conflicts with an existing alias'
+            USING ERRCODE='23505';
+    END IF;
+    -- A reviewed CSV may be replayed without duplicate IDs or audit events.
+    -- Inactive terms and alternate spellings of the same key are conflicts.
+    SELECT id,label,status INTO result_id,previous_label,previous_status
+      FROM book_taxonomy_terms
+     WHERE kind=desired_kind AND search_key=k;
+    IF FOUND THEN
+        IF previous_status='active' AND previous_label=desired_label THEN
+            RETURN result_id;
+        END IF;
+        RAISE EXCEPTION 'canonical name collision or inactive term'
             USING ERRCODE='23505';
     END IF;
     INSERT INTO book_taxonomy_terms(kind,label,search_key)

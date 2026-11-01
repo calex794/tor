@@ -18,7 +18,11 @@ python3 tools/taxonomy_admin.py reconcile 123 --curator review-20261101
 python3 tools/taxonomy_admin.py --confirm-db tor_ci reconcile 123 --apply --curator review-20261101
 ```
 
-`add` creates the immutable canonical ID. `alias` maps a normalized spelling
+`add` creates the immutable canonical ID or returns an existing ID only when
+the exact label and active status match. Repeated approved CSV imports cannot
+duplicate audit records. Alternative spellings, inactive terms and conflicts
+with another term's alias are rejected instead of being silently renamed.
+`alias` maps a normalized spelling
 to exactly one active term in the same kind. Repeated identical aliases are
 idempotent. The same spelling cannot belong to a different canonical term
 or collide with another canonical name. Both operations have migration-owner
@@ -66,7 +70,15 @@ TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci' \
 
 По умолчанию операция только проверяет CSV: база не подключается.
 Запись требует `--apply`, подтверждения имени базы и миграционной роли.
-Один конфликт (алиас/название/тип) откатывает **весь** импорт. Ограничения:
+Повторная загрузка идентичного утверждённого CSV допустима; новые проверенные
+алиасы можно добавлять к существующему активному термину только при точном
+совпадении исходного канонического названия. Один конфликт
+(алиас/название/тип) откатывает **весь** импорт.
+
+Нормализация сейчас включает нижний регистр, последовательности пробелов
+и русское «ё»/«е». **Unicode NFKC не реализован**: похожие совместимые
+символы не объединяются автоматически и требуют редакционной проверки.
+Ограничения:
 до 10 000 терминов, 10 алиасов для каждого, 5 МБ на файл.
 
 **Not implemented:** automatic tag merging, a web staff panel, bulk private
