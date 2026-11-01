@@ -347,3 +347,44 @@ data, no main merge, no VPS/production actions.
 ## 01.11.2026 — E-08: публичные книжные комнаты получили HTML-маршруты (Draft)
 
 Подготовлены четыре новых защищённых маршрута: GET `/books/{id}/room`, POST `/books/{id}/room/join`, POST `/books/{id}/room/messages`, POST `/books/{id}/room/leave`. На публичной карточке книги добавлена ссылка «Книжный чат». Анонимный пользователь направляется на вход; вошедший до вступления видит только название публичной книги и кнопку вступления, но не историю. После вступления доступны 50 сообщений на странице, отправка с одноразовым ключом, выход. Любая запись требует Origin/CSRF и серверной проверки членства. Скрытые, удалённые, заблокированные книги возвращают 404; повторное вступление не создаёт новую комнату. Добавлены 4 учётных записи RIL с политикой scoped и подготовлен HTTP/PostgreSQL сценарий. **Только Draft PR, новый CI обязателен.**
+
+## 01.11.2026 — S057: audited administrator direct-mail read backend (Draft)
+
+Pinned NEwBOO `app/web/routes/mail_admin_routes.py` exposes
+`/admin/mail`, `/admin/mail/users/{user_id}` and
+`/admin/mail/{conversation_id}` only after `require_admin(request)`.
+TOR already has active `account_roles.administrator` and server-side
+`sessions`, but no corresponding E-08 admin mail route. Public user
+identifiers must never be accepted as proof of administrator authority.
+
+This isolated slice introduces an E-owned read-only `PgAdminMail`
+repository and append-only SQLx migration
+`202611010060_e08_admin_mail_audit.sql`. Each query accepts **only a
+verified 32-byte session digest**, joins the current non-revoked session,
+active account and active administrator role in one transaction with
+`FOR SHARE` locks, and writes an immutable audit record in that
+transaction **before** returning mail data. Audit stores numeric IDs,
+action, row count and timestamp, never message text, password or email.
+Admin display-name search, per-user direct conversation list, and
+conversation message history are capped at 50 rows and cursor-scoped.
+Non-admin, revoked session, revoked role, invalid cursor and nonexistent
+resource fail closed. No role claim from URL, form, or request header
+is trusted; no direct/group/book-room ACL is widened.
+
+Negative PostgreSQL regression runs only in disposable `/tor_ci`:
+unprivileged sessions cannot read any content, live admin session may
+read only through audited methods, immutability trigger denies edits,
+role/session revocation immediately denies subsequent reads and does
+not create successful audit records. The installed-ledger regression
+now expects **eight** E-08 Draft migrations atop the current main
+baseline, retaining all historical main migrations byte-identically.
+
+**Safety boundary:** no HTTP route, admin HTML page, staff workflow,
+group/public-room mail access, export endpoint or background scrape is
+enabled by this slice. Source admin UI parity is **not** claimed.
+A later integration must use an actual cookie-derived digest, enforce
+server-side administrator role each request, display bounded escaped
+results, define staff purpose/retention policy and add full HTTP/PG/
+browser abuse regressions before exposing private content. Existing
+source legacy alias import and independent review remain unclosed.
+No main, production, SSH, VPS or retained PostgreSQL operation.
