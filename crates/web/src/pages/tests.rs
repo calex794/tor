@@ -420,3 +420,21 @@ fn b_18_navigation_follows_books_in_catalog_layout() {
     assert!(navigation > card, "page navigation follows the book grid");
     assert!(html.contains("Страница 1"));
 }
+
+#[test]
+fn s005_checkout_link_is_only_visible_when_private_reader_is_enabled() {
+    let preview = tor_reading::services::PublicPaidChapterPreview {
+        book_id: 99,
+        book_title: "<script>Книга</script>".to_owned(),
+        chapter_no: 7,
+        chapter_title: "Глава <непубличная>".to_owned(),
+        price_minor: 1234,
+    };
+    let denied = paid_chapter_paywall_checkout(&preview, None).0;
+    assert!(!denied.contains("/me/chapters/103/buy"));
+    let allowed = paid_chapter_paywall_checkout(&preview, Some(103)).0;
+    assert!(allowed.contains("href=\"/me/chapters/103/buy\""));
+    assert!(allowed.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+    assert!(!allowed.contains("<script>Книга</script>"));
+    assert!(!allowed.contains("storage_object"));
+}

@@ -82,6 +82,7 @@ mod referral_routes;
 mod reply_read_state;
 mod reset_delivery;
 mod security_retention;
+mod single_checkout_browser;
 mod session_security;
 mod settings_routes;
 mod sync_actions;
@@ -275,6 +276,10 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
+        .route(
+            "/me/chapters/{id}/buy",
+            get(single_checkout_browser::page).post(single_checkout_browser::submit),
+        )
         .route(
             "/me/books/{id}/buy-chapters",
             get(batch_checkout_browser::page).post(batch_checkout_browser::submit),

@@ -72,6 +72,7 @@ pub fn router_with_postgres_reading_auth_covers(
                 secure,
                 public_origin.clone(),
             )),
+            false,
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -108,6 +109,7 @@ pub fn router_with_postgres_reading_auth_cover_uploads(
             true,
             Some(objects),
             Some(follows),
+            false,
         )
         .merge(uploads),
     )
@@ -126,5 +128,6 @@ pub fn router_with_postgres_reading_covers(
         false,
         Some(objects),
         None,
+        false,
     ))
 }

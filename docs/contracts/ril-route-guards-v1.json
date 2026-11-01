@@ -1016,6 +1016,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "sync_actions::put_purchased",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "single_checkout_browser::page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "single_checkout_browser::submit",
+      "policy": "session"
     }
   ]
 }
