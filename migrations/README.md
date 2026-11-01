@@ -35,3 +35,18 @@ An additional migration `202610260001_cover_image_jobs.sql` creates G-owned veri
 ## E-05/S014: creator-follow release feed (2026-10-31)
 
 Migration `202610310191_creator_follow_release_feed.sql` extends the canonical first-release fact with a nullable `creator_user_id` snapshot and adds creator-follow periods to the existing `reader_followed_release_candidates` view. New first publications record the verified owner in the same PostgreSQL transaction for immediate free, explicit free and verified paid release paths. Old events without an author snapshot are intentionally not backfilled: ownership history cannot be reconstructed safely. The view uses the time interval of each creator-follow period and `UNION` to deduplicate a chapter when a reader follows both its book and its author. It continues to expose only metadata for free and verified paid releases; it does not grant access or send email/push. Existing per-reader read/unread state and keyset pagination remain unchanged.
+
+
+## D-06: moderator step-up for direct refunds (2026-10-31)
+
+Migration `202610310293_d06_refund_admin_step_up.sql` adds a short-lived,
+single-use, transaction-scoped proof to the existing opaque `sessions` row.
+The proof binds the active administrator session to the exact refund request,
+revision and normalized decision reason. A password-backed web handler must
+verify the current password through the bounded `PasswordJobs` worker and
+pass the resulting in-memory `VerifiedPassword` capability to the D repository.
+The proof expires after five minutes and is consumed in the same PostgreSQL
+transaction as the refund reversal. Session revocation, password rotation and
+administrator-role revocation invalidate the operation. No separate proof
+service/table, HTTP refund route, public refund switch or server deployment is
+introduced by this migration.
