@@ -1345,6 +1345,34 @@
       "source": "crates/web/src/auth/admin_mail_routes.rs",
       "handler": "admin_mail::book_room",
       "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-text-issues.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "text_issue_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/issues",
+      "source": "crates/web/src/auth.rs",
+      "handler": "text_issues::author_page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/issues/{issue_id}/status",
+      "source": "crates/web/src/auth.rs",
+      "handler": "text_issues::change_status",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/read/{id}/text-issues",
+      "source": "crates/web/src/auth.rs",
+      "handler": "text_issues::submit",
+      "policy": "scoped"
     }
   ]
 }

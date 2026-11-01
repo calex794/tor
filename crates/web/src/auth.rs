@@ -20,6 +20,7 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
+use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{
@@ -93,6 +94,7 @@ mod security_retention;
 mod session_security;
 mod settings_routes;
 mod sync_actions;
+mod text_issues;
 mod types;
 use types::*;
 pub(crate) fn router(
@@ -287,6 +289,12 @@ fn router_inner(
         .route(
             "/me/books/{id}/rate",
             get(book_stars::page).post(book_stars::submit),
+        )
+        .route("/read/{id}/text-issues", post(text_issues::submit))
+        .route("/me/books/{id}/issues", get(text_issues::author_page))
+        .route(
+            "/me/books/{id}/issues/{issue_id}/status",
+            post(text_issues::change_status),
         )
         .route(
             "/reader/{id}/thanks",
@@ -496,15 +504,8 @@ async fn cover_settings(
         },
         None => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let slots =
-        tor_books::repositories::cover_slots::PgCoverSlots::new(state.accounts.pool().clone());
-    let current = match slots
-        .public_variant(
-            id,
-            tor_books::repositories::cover_slots::PublicCoverKind::Main,
-        )
-        .await
-    {
+    let slots = PgCoverSlots::new(state.accounts.pool().clone());
+    let current = match slots.public_variant(id, PublicCoverKind::Main).await {
         Ok(current) => current.is_some(),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };

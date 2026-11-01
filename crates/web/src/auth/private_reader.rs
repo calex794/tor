@@ -75,8 +75,14 @@ pub(super) async fn page(
         }
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
+    let mut response = private_response(
         pages::private_reader_with_demand(id, &chapter, &csrf, saved, revision, completed, demand),
         &cookies,
-    )
+    );
+    // E-12: the only new script is self-hosted and cannot run inline JS.
+    response.headers_mut().insert(
+        "content-security-policy",
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("fixed CSP"),
+    );
+    response
 }
