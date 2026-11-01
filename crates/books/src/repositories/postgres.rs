@@ -7,8 +7,8 @@ mod chapter_published_edit;
 mod chapter_release;
 mod owned_book_hash;
 mod owned_chapter_pages;
-mod taxonomy_picker;
 pub mod taxonomy_edit;
+mod taxonomy_picker;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{

@@ -38,14 +38,26 @@ fn chips(entries: &[TaxonomyEntry]) -> String {
 }
 
 fn ids(entries: &[TaxonomyEntry]) -> String {
-    entries.iter().map(|term| term.id.to_string()).collect::<Vec<_>>().join(",")
+    entries
+        .iter()
+        .map(|term| term.id.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
-fn page_html(book_id: i64, title: &str, csrf: &str, snapshot: &TaxonomySnapshot) -> axum::response::Html<String> {
+fn page_html(
+    book_id: i64,
+    title: &str,
+    csrf: &str,
+    snapshot: &TaxonomySnapshot,
+) -> axum::response::Html<String> {
     if !snapshot.editable {
         let raw = |values: &[String]| {
-            if values.is_empty() { "—".to_owned() }
-            else { pages::escape_html(&values.join(", ")) }
+            if values.is_empty() {
+                "—".to_owned()
+            } else {
+                pages::escape_html(&values.join(", "))
+            }
         };
         let content = format!(
             "<section class=\"section auth-section\"><div class=\"container\"><div class=\"auth-card author-card\">\
@@ -72,7 +84,11 @@ fn page_html(book_id: i64, title: &str, csrf: &str, snapshot: &TaxonomySnapshot)
         .replace("<!--TAG_IDS-->", &ids(&snapshot.tags))
         .replace("<!--FANDOM_CHIPS-->", &chips(&snapshot.fandoms))
         .replace("<!--FANDOM_IDS-->", &ids(&snapshot.fandoms));
-    pages::layout("Теги книги", "Редактирование жанров, тегов и фэндомов.", &html)
+    pages::layout(
+        "Теги книги",
+        "Редактирование жанров, тегов и фэндомов.",
+        &html,
+    )
 }
 
 pub(super) async fn edit(
@@ -106,7 +122,9 @@ pub(super) async fn save(
     Form(form): Form<TaxonomyEditForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -116,14 +134,18 @@ pub(super) async fn save(
         Err(status) => return deny(status),
     };
     let selection = match TaxonomySelection::parse(
-        form.genre_ids.as_deref(), form.tag_ids.as_deref(), form.fandom_ids.as_deref(),
+        form.genre_ids.as_deref(),
+        form.tag_ids.as_deref(),
+        form.fandom_ids.as_deref(),
     ) {
         Ok(selection) => selection,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
-    match state.authoring.update_book_taxonomy(
-        actor, book_id, form.taxonomy_revision, &selection,
-    ).await {
+    match state
+        .authoring
+        .update_book_taxonomy(actor, book_id, form.taxonomy_revision, &selection)
+        .await
+    {
         Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}")), &[]),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),

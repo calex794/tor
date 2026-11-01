@@ -52,6 +52,7 @@ mod book_follow_actions;
 mod book_likes;
 mod book_stars;
 mod book_stats_http;
+mod book_taxonomy;
 mod chapter_thanks;
 mod checkout;
 mod complete_chapter;
@@ -81,7 +82,6 @@ mod session_security;
 mod settings_routes;
 mod sync_actions;
 mod taxonomy_picker;
-mod book_taxonomy;
 mod types;
 use types::*;
 pub(crate) fn router(
@@ -307,7 +307,10 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
-        .route("/me/books/{id}/taxonomy", get(book_taxonomy::edit).post(book_taxonomy::save))
+        .route(
+            "/me/books/{id}/taxonomy",
+            get(book_taxonomy::edit).post(book_taxonomy::save),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
