@@ -25,6 +25,54 @@ pub fn valid_command_key(key: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Exact selected canonical IDs; user input may never create a new term.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct TaxonomySelection {
+    pub genre_ids: Vec<i64>,
+    pub tag_ids: Vec<i64>,
+    pub fandom_ids: Vec<i64>,
+}
+impl TaxonomySelection {
+    pub fn parse(
+        genre_ids: Option<&str>,
+        tag_ids: Option<&str>,
+        fandom_ids: Option<&str>,
+    ) -> Result<Self, AuthorError> {
+        fn group(raw: Option<&str>) -> Result<Vec<i64>, AuthorError> {
+            let raw = raw.unwrap_or("").trim();
+            if raw.is_empty() {
+                return Ok(Vec::new());
+            }
+            if raw.len() > 170 {
+                return Err(AuthorError::Invalid);
+            }
+            let mut ids = Vec::new();
+            for part in raw.split(',') {
+                if ids.len() >= 8
+                    || part.is_empty()
+                    || !part.bytes().all(|b| b.is_ascii_digit())
+                {
+                    return Err(AuthorError::Invalid);
+                }
+                let id = part.parse::<i64>().map_err(|_| AuthorError::Invalid)?;
+                if id <= 0 || ids.contains(&id) {
+                    return Err(AuthorError::Invalid);
+                }
+                ids.push(id);
+            }
+            Ok(ids)
+        }
+        Ok(Self {
+            genre_ids: group(genre_ids)?,
+            tag_ids: group(tag_ids)?,
+            fandom_ids: group(fandom_ids)?,
+        })
+    }
+    pub fn is_empty(&self) -> bool {
+        self.genre_ids.is_empty() && self.tag_ids.is_empty() && self.fandom_ids.is_empty()
+    }
+}
+
 #[derive(Debug)]
 pub struct NewBook {
     pub source_identity: String,
@@ -36,6 +84,7 @@ pub struct NewBook {
     pub genres: Vec<String>,
     pub tags: Vec<String>,
     pub fandoms: Vec<String>,
+    pub taxonomy_ids: TaxonomySelection,
 }
 
 pub fn new_book(
@@ -65,6 +114,7 @@ pub fn new_book(
         genres: Vec::new(),
         tags: Vec::new(),
         fandoms: Vec::new(),
+        taxonomy_ids: TaxonomySelection::default(),
     })
 }
 

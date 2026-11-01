@@ -6,6 +6,7 @@ mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
 mod owned_book_hash;
+mod taxonomy_picker;
 mod owned_chapter_pages;
 use crate::{
     domain::{Book, BookKey, Visibility},
@@ -236,6 +237,7 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
+        taxonomy_picker::persist_links(&mut tx, book_id, book).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(book_id)
     }
