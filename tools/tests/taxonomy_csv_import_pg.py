@@ -109,6 +109,13 @@ def main():
         if audit_count() != initial_events + 1:
             raise AssertionError("failed import changed existing curation events")
 
+        fullwidth_case = make_csv(root, "fullwidth-spelling.csv", [
+            ("genre", f"ＦａｎｔａｓｙＣｓｖ{suffix}", ""),
+        ])
+        apply(fullwidth_case, expected_success=False)
+        if audit_count() != initial_events + 1:
+            raise AssertionError("NFKC-equivalent label was accepted as a rename")
+
         incompatible_case = make_csv(root, "different-spelling.csv", [
             ("tag", tag.replace("Ё", "Е"), ""),
         ])

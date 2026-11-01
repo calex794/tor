@@ -7,12 +7,14 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import unicodedata
 
 from taxonomy_admin import database_name
 
 def key(value):
-    # Preliminary duplicate check; PostgreSQL admin_taxonomy_key is authoritative.
-    return " ".join(value.lower().replace("ё", "е").split())
+    # Mirrors SQL NFKC, whitespace and ё/е; PostgreSQL locale is authoritative.
+    normalized = unicodedata.normalize("NFKC", value)
+    return " ".join(normalized.lower().replace("ё", "е").split())
 
 def checked_csv(file_path):
     source = Path(file_path)
@@ -39,7 +41,12 @@ def checked_csv(file_path):
                     raise ValueError(f"invalid label length or whitespace on row {lineno}")
                 if any(ord(c) < 32 or ord(c) == 127 or c == "\\" for c in name):
                     raise ValueError(f"unsafe control/backslash on row {lineno}")
-                token = (kind, key(name))
+                normalized_key = key(name)
+                if not 1 <= len(normalized_key) <= 80 or any(
+                    ord(c) < 32 or ord(c) == 127 for c in normalized_key
+                ):
+                    raise ValueError(f"invalid normalized key on row {lineno}")
+                token = (kind, normalized_key)
                 if token in seen:
                     raise ValueError(f"colliding labels/aliases at rows {seen[token]} and {lineno}")
                 seen[token] = lineno

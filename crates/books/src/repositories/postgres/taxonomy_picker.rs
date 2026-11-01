@@ -33,24 +33,31 @@ impl PgAuthoring {
         {
             return Err(AuthorError::Invalid);
         }
-        let key = query
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase()
-            .replace('ё', "е");
-        if key.chars().count() < 2 {
+        if query.split_whitespace().collect::<String>().chars().count() < 2 {
             return Err(AuthorError::Invalid);
         }
         let rows = sqlx::query(
-            "WITH matches AS (
-                SELECT id AS term_id,0 AS rank FROM book_taxonomy_terms
-                 WHERE kind=$1 AND status='active' AND search_key LIKE $2 || '%'
+            "WITH prefix AS (
+                SELECT book_taxonomy_key($2) AS k
+            ), matches AS (
+                SELECT t.id AS term_id,0 AS rank
+                FROM book_taxonomy_terms t CROSS JOIN prefix p
+                WHERE t.kind=$1 AND t.status='active'
+                  AND char_length(p.k)>=2
+                  -- NFKC can turn fullwidth punctuation into SQL wildcards.
+                  AND strpos(p.k,'%')=0 AND strpos(p.k,'_')=0
+                  AND strpos(p.k,chr(92))=0
+                  AND t.search_key LIKE p.k || '%'
                 UNION ALL
-                SELECT a.term_id,1 AS rank FROM book_taxonomy_aliases a
-                 JOIN book_taxonomy_terms t ON t.id=a.term_id
-                 WHERE a.kind=$1 AND t.kind=$1 AND t.status='active'
-                   AND a.search_key LIKE $2 || '%'
+                SELECT a.term_id,1 AS rank
+                FROM book_taxonomy_aliases a
+                JOIN book_taxonomy_terms t ON t.id=a.term_id
+                CROSS JOIN prefix p
+                WHERE a.kind=$1 AND t.kind=$1 AND t.status='active'
+                  AND char_length(p.k)>=2
+                  AND strpos(p.k,'%')=0 AND strpos(p.k,'_')=0
+                  AND strpos(p.k,chr(92))=0
+                  AND a.search_key LIKE p.k || '%'
             ), ranked AS (
                 SELECT term_id,min(rank) AS rank FROM matches GROUP BY term_id
             )
@@ -62,7 +69,7 @@ impl PgAuthoring {
             ORDER BY r.rank ASC,usage DESC,t.label ASC,t.id ASC LIMIT $3",
         )
         .bind(kind)
-        .bind(key)
+        .bind(query)
         .bind(i64::from(limit.clamp(1, 15)))
         .fetch_all(&self.pool)
         .await

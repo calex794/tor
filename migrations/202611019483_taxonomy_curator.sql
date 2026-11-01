@@ -14,12 +14,11 @@ CREATE TABLE book_taxonomy_curation_events (
 CREATE INDEX book_taxonomy_curation_events_newest
     ON book_taxonomy_curation_events(created_at DESC,id DESC);
 
+-- Share a single NFKC key with the authoring path.
 CREATE FUNCTION admin_taxonomy_key(value TEXT) RETURNS TEXT
-LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
-    SELECT replace(lower(
-        regexp_replace(btrim(value), '[[:space:]]+', ' ', 'g')
-    ), 'ё', 'е');
-$$;
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $
+    SELECT book_taxonomy_key(value);
+$;
 
 CREATE FUNCTION admin_taxonomy_guard(curator_tag TEXT) RETURNS void
 LANGUAGE plpgsql SECURITY INVOKER AS $$
@@ -91,6 +90,9 @@ BEGIN
         RAISE EXCEPTION 'invalid taxonomy alias' USING ERRCODE='22023';
     END IF;
     k := admin_taxonomy_key(raw_alias);
+    IF k='' OR char_length(k)>80 OR k ~ '[[:cntrl:]]' THEN
+        RAISE EXCEPTION 'invalid normalized alias key' USING ERRCODE='22023';
+    END IF;
     SELECT search_key INTO real_key FROM book_taxonomy_terms
     WHERE id=target_id AND kind=desired_kind AND status='active';
     IF real_key IS NULL THEN

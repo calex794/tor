@@ -54,6 +54,29 @@ class TaxonomyImportTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "colliding"):
                     importer.checked_csv(file)
 
+    def test_nfkc_compatibility_collisions(self):
+        for plain, compatible in [
+            ("Fantasy", "Ｆａｎｔａｓｙ"),
+            ("System", "Ｓｙｓｔｅｍ"),
+            ("Café", "Cafe\u0301"),
+        ]:
+            with self.subTest(plain=plain):
+                path = self.csv(
+                    "kind,label,aliases\n"
+                    f"tag,{plain},\n"
+                    f"tag,{compatible},\n"
+                )
+                with self.assertRaisesRegex(ValueError, "colliding"):
+                    importer.checked_csv(path)
+
+    def test_nfkc_does_not_rewrite_display_label(self):
+        rows = importer.checked_csv(self.csv(
+            "kind,label,aliases\n"
+            "genre,Ｓｙｓｔｅｍ,ＳｙｓｔｅｍⅣ\n"
+        ))
+        self.assertEqual(rows, [("genre", "Ｓｙｓｔｅｍ", ["ＳｙｓｔｅｍⅣ"])])
+        self.assertEqual(importer.key("ＳｙｓｔｅｍⅣ"), "systemiv")
+
     def test_quote_is_data_not_executable_sql(self):
         transaction = importer.make_transaction(
             [("fandom", "Wizard's Tale", ["魔法师"])], "ci-review"
