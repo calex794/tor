@@ -25,7 +25,6 @@ use tor_accounts::{
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
 use tor_books::repositories::{
-    paid_assets::PgPaidAssets,
     paid_storage::{PaidPublication, PgPaidStorage},
     PgCatalog,
 };
@@ -37,12 +36,14 @@ use tor_storage::{
         paid_delivery::PgPrivateDelivery, registry::PgStorageRegistry, s3::S3PrivateStore,
     },
     services::{
-        crypto::{seal_asset_with_keyring, seal_chapter, ContentKek, ContentKeyring},
+        crypto::{seal_chapter, ContentKek},
         provider::{upload_and_verify, PrivateObjectStore},
     },
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/asset_fixtures.rs"]
+mod asset_fixtures;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
 mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
@@ -358,26 +359,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .unwrap();
     registry.mark_ready(&receipt).await.unwrap();
 
-    // A real private illustration is G-verified and B-attached *before*
-    // the paid edition is published. It shares the chapter's immutable V1.
-    let image_id = ObjectId::parse("f0c0e034-2026-4034-8034-000000000036").unwrap();
-    let ring = ContentKeyring::v1_only(kek.clone());
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
-    png.extend_from_slice(&[0; 48]);
-    let sealed_asset =
-        seal_asset_with_keyring(pinned, image_id.clone(), &png, "image/png", &ring).unwrap();
-    let asset_reference = registry
-        .reserve_pending_asset(&sealed_asset, &ring, BUCKET)
-        .await
-        .unwrap();
-    let asset_receipt = upload_and_verify(&s3, &asset_reference, &sealed_asset.ciphertext)
-        .await
-        .unwrap();
-    registry.mark_ready(&asset_receipt).await.unwrap();
-    PgPaidAssets::new(pool.clone())
-        .attach_prepared(author, pinned, 1, "image/png", &image_id)
-        .await
-        .unwrap();
+    let image_id =
+        asset_fixtures::attach_verified_illustration(author, pinned, &pool, &registry, &s3, &kek)
+            .await;
 
     pg(
         &url,
