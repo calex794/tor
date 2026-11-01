@@ -101,12 +101,10 @@ impl PgRecommendations {
         .bind(&subject)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "DELETE FROM organic_discovery_unattributed_reads WHERE subject_id=$1::uuid",
-        )
-        .bind(&subject)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM organic_discovery_unattributed_reads WHERE subject_id=$1::uuid")
+            .bind(&subject)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM rec_feedback_state WHERE subject_id=$1::uuid")
             .bind(&subject)
             .execute(&mut *tx)

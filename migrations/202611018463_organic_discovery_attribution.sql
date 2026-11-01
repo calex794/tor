@@ -49,6 +49,8 @@ CREATE TABLE organic_discovery_unattributed_reads (
     PRIMARY KEY(subject_id,book_id,kind)
 );
 CREATE INDEX organic_unattributed_retention ON organic_discovery_unattributed_reads(occurred_at);
+-- Daily materialization needs a bounded index instead of scanning 30d of C facts.
+CREATE INDEX organic_unattributed_quality ON organic_discovery_unattributed_reads(bucket_date,book_id);
 CREATE TABLE organic_discovery_dirty (
     bucket_date date NOT NULL,
     book_id bigint NOT NULL,

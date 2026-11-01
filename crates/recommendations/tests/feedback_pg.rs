@@ -803,7 +803,13 @@ async fn organic_unattributed_first_c_read_is_counted_once_and_erased_on_opt_out
         .find(|r| r.book_id == book.to_string() && r.source == "unattributed")
         .unwrap();
     assert_eq!(
-        (row.issued, row.clicks, row.book_opens, row.starts, row.completions),
+        (
+            row.issued,
+            row.clicks,
+            row.book_opens,
+            row.starts,
+            row.completions
+        ),
         (0, 0, 0, 1, 0),
         "direct first C reading must be in the denominator, not organic clicks"
     );
@@ -847,7 +853,9 @@ async fn organic_ticket_is_neither_a_cross_user_capability_nor_a_hidden_book_byp
         .unwrap();
     let ticket = &issued[0].1;
     assert_eq!(
-        another_store.activate_organic(other, &[7; 32], ticket).await,
+        another_store
+            .activate_organic(other, &[7; 32], ticket)
+            .await,
         Err(FeedbackError::NotFound)
     );
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
