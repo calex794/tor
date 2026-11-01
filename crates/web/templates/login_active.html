@@ -9,6 +9,7 @@
       </header>
       <form class="auth-form" method="post" action="/login" autocomplete="on" novalidate>
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <!--AUTH_RETURN_FIELD-->
         <label for="login-email">Электронная почта</label>
         <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254">
         <label for="login-password">Пароль</label>
@@ -16,7 +17,7 @@
         <button class="button" type="submit">Войти</button>
       </form>
       <p><a href="/forgot-password">Забыли пароль?</a></p>
-      <p class="auth-card__footer">Нет учётной записи? <a href="/register">Зарегистрироваться</a></p>
+      <p class="auth-card__footer">Нет учётной записи? <a href="/register<!--AUTH_REGISTER_NEXT-->">Зарегистрироваться</a></p>
     </div>
   </div>
 </section>

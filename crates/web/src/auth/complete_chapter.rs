@@ -95,7 +95,11 @@ pub(super) async fn complete(
                     tracing::warn!("achievement delivery queued after completed chapter");
                 }
             }
-            private_response(Redirect::to("/me/rankings"), &[])
+            // Keep the reader at the chapter they actually finished. On the
+            // current frontier the now-eligible continuation request appears
+            // immediately below the completion confirmation; rankings remain
+            // available through an explicit link, not an involuntary detour.
+            private_response(Redirect::to(&format!("/read/{id}#continuation")), &[])
         }
         Err(error) => deny(status(error)),
     }

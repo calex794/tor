@@ -117,6 +117,12 @@ async fn d_06_swap_http_disabled_by_default() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci with both browser flags enabled"]
 async fn d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay() {
+    for width in [390, 1440] {
+        swap_journey(width).await;
+    }
+}
+
+async fn swap_journey(width: u32) {
     assert_eq!(
         std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref(),
         Ok("1")
@@ -347,6 +353,39 @@ async fn d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay() {
         StatusCode::NOT_FOUND,
         "another account cannot settle the quoted purchase"
     );
+    // The same foreign purchase must be denied whether or not an unrelated
+    // reader has a wallet. Neither path may create an idempotency claim.
+    pg(
+        &url,
+        &format!(
+        "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES({other},0,'RUB')"
+    ),
+    );
+    assert_eq!(
+        send(&site, "POST", &foreign_cookie, ORIGIN, &submit)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let missing = submit.replace(
+        &format!("source={source_purchase}&"),
+        "source=9223372036854775807&",
+    );
+    assert_eq!(
+        send(&site, "POST", &cookie, ORIGIN, &missing)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+        "SELECT COUNT(*) FROM finance_direct_swap_commands WHERE buyer_user_id IN ({buyer},{other})"
+    )
+        ),
+        "0"
+    );
     pg(
         &url,
         &format!("UPDATE chapters SET price_amount=451 WHERE id={target_ch}"),
@@ -367,10 +406,45 @@ async fn d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay() {
         &url,
         &format!("UPDATE chapters SET price_amount=450 WHERE id={target_ch}"),
     );
-    let finished = send(&site, "POST", &cookie, ORIGIN, &submit).await;
-    assert_eq!(finished.status(), StatusCode::OK);
-    assert!(html(finished).await.contains("Глава обменена"));
-    let repeated = send(&site, "POST", &cookie, ORIGIN, &submit).await;
+    // Complete the form in real Chromium over TCP, then replay its exact
+    // confirmation through HTTP and verify the persisted accounting below.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
+        .await
+        .unwrap();
+    let service = site.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            service.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+    let browser = tokio::task::spawn_blocking(move || {
+        Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/direct_swap_browser_pg.cjs"
+            ))
+            .env("SWAP_TEST_SESSION", session)
+            .env("SWAP_TEST_CSRF", csrf)
+            .env("SWAP_TEST_CHOICE", format!("{source_purchase}:{target_ch}"))
+            .env("SWAP_TEST_WIDTH", width.to_string())
+            .output()
+            .expect("Node and Chromium installed for swap acceptance")
+    })
+    .await
+    .unwrap();
+    server.abort();
+    let _ = server.await;
+    assert!(
+        browser.status.success(),
+        "Chromium: {}",
+        String::from_utf8_lossy(&browser.stderr)
+    );
+    let submit = String::from_utf8(browser.stdout).unwrap();
+    let submit = submit.trim();
+    let repeated = send(&site, "POST", &cookie, ORIGIN, submit).await;
     assert_eq!(repeated.status(), StatusCode::OK);
     assert!(html(repeated)
         .await
