@@ -157,13 +157,22 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
         .unwrap()
         .to_owned();
     assert_eq!(command_key.len(), 43);
-    let body = format!(
-        "body=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&command_key={command_key}&csrf_token={}",
-        tokens[0]
+    let payload = format!(
+        "body=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E&command_key={command_key}"
     );
+    let body = format!("{payload}&csrf_token={}", tokens[0]);
+    let nonmember_body = format!("{payload}&csrf_token={}", tokens[1]);
     let send_path = format!("{page}/messages");
+    // A token from another session must fail CSRF before membership lookup.
     assert_eq!(
         call(&app, "POST", &send_path, &cookies[1], &body, &[])
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    // Valid own-session CSRF reaches the repository and denies the outsider.
+    assert_eq!(
+        call(&app, "POST", &send_path, &cookies[1], &nonmember_body, &[])
             .await
             .status(),
         StatusCode::NOT_FOUND
