@@ -192,6 +192,10 @@ def load_group(api, repo, label, sha=None, run_ids=(), max_runs=50, max_jobs=150
                 raise MetricsError("Duplicate job name in a workflow")
             start, created, end = (timestamp(job.get(k)) for k in
                                    ("started_at", "created_at", "completed_at"))
+            # GitHub data can be partial: a reported success must also be a
+            # completed job. Never infer success from stale/missing status.
+            if job.get("status") != "completed":
+                complete = False
             if job.get("conclusion") == "skipped":
                 jobs_skipped += 1
                 skipped_job_names.add(signature)

@@ -185,6 +185,7 @@ impl PgReadingSync {
             .map(parse_receipt)
             .transpose()?
             .ok_or(SyncError::Conflict)?;
+        started::record(&mut tx, actor, book_id, chapter_id, version_id, None).await?;
         if finished {
             // One successful CAS + one unique C completion + one durable
             // outbox event. A V2 replay or a second device cannot duplicate it.
@@ -410,6 +411,17 @@ impl PgReadingSync {
             .map(parse_receipt)
             .transpose()?
             .ok_or(SyncError::Conflict)?;
+        if storage_object.is_none() {
+            started::record(
+                &mut tx,
+                actor,
+                book_id,
+                chapter_id,
+                version_id,
+                Some(purchase_id),
+            )
+            .await?;
+        }
         if finished {
             // The C cursor, completion and outbox are committed as one unit.
             // One user/book/chapter can only produce a single completion.
@@ -446,6 +458,9 @@ impl PgReadingSync {
         Ok(receipt)
     }
 }
+
+#[path = "sync_started.rs"]
+mod started;
 
 #[path = "sync_s3_completion.rs"]
 mod s3_completion;

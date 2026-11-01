@@ -27,6 +27,8 @@ mod catalog_http;
 mod chapter_import_assets;
 pub mod cover_delivery;
 mod cover_http;
+mod recommendation_http;
+pub mod recommendation_worker;
 mod referral_book_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
@@ -516,18 +518,24 @@ fn make_router(
             store,
         )
     });
-    app.with_state(AppState {
-        books: repo,
-        postgres,
-        reader,
-        search,
-        paid_batch_browser_enabled: active_auth
-            && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
-        covers,
-        follow_control,
-    })
-    .merge(api)
-    .merge(search_api)
+    let rec_runtime = follow_control.as_ref().map(|control| {
+        let (accounts, cookies) = control.browser_context();
+        recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
+    });
+    let app = app
+        .with_state(AppState {
+            books: repo,
+            postgres,
+            reader,
+            search,
+            paid_batch_browser_enabled: active_auth
+                && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
+            covers,
+            follow_control,
+        })
+        .merge(api)
+        .merge(search_api);
+    recommendation_http::instrument(app, rec_runtime)
 }
 
 #[cfg(test)]

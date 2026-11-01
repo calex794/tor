@@ -18,10 +18,24 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/admin/recommendations/quality",
+      "handler": "admin::quality",
+      "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
       "template": "/api/v1/books",
       "source": "crates/books/src/api/mod.rs",
       "handler": "list_books",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/books/{id}/recommendations",
+      "handler": "api::book_feed",
+      "policy": "public",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "GET",
@@ -88,10 +102,24 @@
     },
     {
       "method": "GET",
+      "template": "/api/v1/me/recommendation-feedback",
+      "handler": "api::feedback_list",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
       "template": "/api/v1/me/referrals",
       "source": "crates/web/src/auth/referral_routes.rs",
       "handler": "referral_dashboard::api_get",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/recommendations",
+      "handler": "api::feed",
+      "policy": "public",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "GET",
@@ -169,6 +197,20 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::newboo_stylesheet",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/organic_discovery.js",
+      "handler": "organic::script",
+      "policy": "public",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/recommendations.js",
+      "handler": "pages::script",
+      "policy": "public",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "GET",
@@ -347,6 +389,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}/recommendations",
+      "handler": "author::page",
+      "policy": "owner",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/settings/covers",
       "source": "crates/web/src/auth.rs",
       "handler": "cover_settings",
@@ -407,6 +456,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "rankings::page",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/recommendations",
+      "handler": "pages::page",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/me/recommendations/manage",
+      "handler": "admin::page",
+      "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "GET",
@@ -536,6 +599,20 @@
     },
     {
       "method": "POST",
+      "template": "/api/v1/admin/recommendations/control",
+      "handler": "admin::control",
+      "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/discovery/activate",
+      "handler": "organic::activate",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
       "template": "/api/v1/me/library/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "library_actions::api_add",
@@ -568,6 +645,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "rankings::api_resume",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/me/recommendation-feedback",
+      "handler": "api::feedback",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "POST",
@@ -610,6 +694,20 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "grant",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/recommendations/activate",
+      "handler": "api::activate",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/recommendations/impressions",
+      "handler": "api::impressions",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "POST",
@@ -760,6 +858,13 @@
     },
     {
       "method": "POST",
+      "template": "/me/books/{id}/recommendations",
+      "handler": "author::save",
+      "policy": "owner",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/unfollow",
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::unfollow",
@@ -806,6 +911,27 @@
       "source": "crates/web/src/auth.rs",
       "handler": "rankings::browser_resume",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/recommendations/consent",
+      "handler": "pages::consent",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/me/recommendations/feedback",
+      "handler": "pages::feedback",
+      "policy": "scoped",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/me/recommendations/manage",
+      "handler": "admin::form_control",
+      "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
       "method": "POST",

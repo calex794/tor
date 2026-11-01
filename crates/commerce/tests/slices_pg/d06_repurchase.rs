@@ -1,4 +1,6 @@
-use super::d06_refund_approval::{d06_approval_cleanup, d06_approval_fixture};
+use super::d06_refund_approval::{
+    d06_approval_cleanup, d06_approval_fixture, issue_refund_step_up,
+};
 use super::*;
 use tor_commerce::{
     domain::batch_checkout::{BatchChapterOffer, BatchCheckoutError, BatchPurchaseCommand},
@@ -13,8 +15,16 @@ use tor_contracts::paid_delivery::DeliveryError;
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_repurchase_after_approved_refund_keeps_full_old_money_history() {
     let f = d06_approval_fixture("d06_repurchase_once", 86400).await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "approved").await;
     let approval = PgDirectRefundApprovals::new(f.pool.clone())
-        .approve_once(f.moderator, f.request, 1, "approved")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "approved",
+        )
         .await
         .unwrap();
     assert_eq!(approval.credited_minor, 300);
@@ -145,8 +155,16 @@ async fn d_06_repurchase_after_approved_refund_keeps_full_old_money_history() {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_repurchase_two_distinct_keys_only_one_new_wallet_debit() {
     let f = d06_approval_fixture("d06_repurchase_race", 86400).await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "approved").await;
     PgDirectRefundApprovals::new(f.pool.clone())
-        .approve_once(f.moderator, f.request, 1, "approved")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "approved",
+        )
         .await
         .unwrap();
     let checkout = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
@@ -182,8 +200,16 @@ async fn d_06_repurchase_two_distinct_keys_only_one_new_wallet_debit() {
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn d_06_batch_can_buy_refunded_and_new_chapter_atomically() {
     let f = d06_approval_fixture("d06_repurchase_batch", 86400).await;
+    let (session_digest, step_up_token) = issue_refund_step_up(&f, "approved").await;
     PgDirectRefundApprovals::new(f.pool.clone())
-        .approve_once(f.moderator, f.request, 1, "approved")
+        .approve_once(
+            f.moderator,
+            &session_digest,
+            &step_up_token,
+            f.request,
+            1,
+            "approved",
+        )
         .await
         .unwrap();
     let book: i64 = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")

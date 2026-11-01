@@ -43,6 +43,10 @@ MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
+# Dedicated throwaway network-namespace ingress test: no PostgreSQL, no live hosts.
+ISOLATED_GATEWAY_WORKFLOWS = {"tor-vps-ingress.yml"}
+# Additional exact-head PG/HTTP/Chromium acceptance; never a deployment gate.
+ACCEPTANCE_WORKFLOWS = {"rec-feedback-acceptance.yml"}
 POSTGRES_SUITES = {
     "postgres", "migrations", "reader_browser", "cover_browser", "cover_s3",
     "search_load", "paid_e2e", "backup_recovery", "purchased_recovery",
@@ -64,6 +68,11 @@ KNOWN_PACKAGES = CRITICAL_PACKAGES | {
 # Standalone test/harness edits do not change the library consumed by other suites.
 # New/unclassified tests deliberately fall back to full, never to an empty pack.
 TEST_SUITES = {
+    "tools/rec13_browser_acceptance.sh": {"postgres"},
+    "tools/rec13_browser.cjs": {"postgres"},
+    "crates/recommendations/tests/feedback_pg.rs": {"rust", "postgres"},
+    "crates/recommendations/tests/generations_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/recommendation_feedback_http_pg.rs": {"rust", "postgres"},
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
@@ -94,6 +103,7 @@ TEST_SUITES = {
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
     "tools/referral_share_browser_smoke.cjs": {"reader_browser"},
     "tools/author_chapter_visual_smoke.cjs": {"reader_browser"},
+    "tools/loop_01_browser_smoke.cjs": {"reader_browser"},
     "tools/chapter_file_import_browser.cjs": {"reader_browser"},
     "tools/search_visual_smoke.cjs": {"reader_browser"},
     "tools/ranking_visual_smoke.cjs": {"reader_browser"},

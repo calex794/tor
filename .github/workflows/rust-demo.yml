@@ -30,6 +30,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Rust unit and HTTP integration
         run: cargo test --workspace --all-targets
+      - name: Repeat trace writer crash recovery with CPU contention
+        run: |
+          python3 -c 'while True: pass' &
+          load_pid=$!
+          trap 'kill "$load_pid" 2>/dev/null || true; wait "$load_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3; do
+            echo "Trace crash recovery under CPU contention: attempt $attempt/3"
+            cargo test -p tor-observability --test trace_store_daemon \
+              writer_crash_does_not_block_publisher_and_restart_recovers_old_traces \
+              -- --exact --test-threads=1
+          done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build release outside VPS
