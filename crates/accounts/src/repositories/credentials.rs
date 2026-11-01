@@ -3,6 +3,13 @@ use super::postgres::{PgAccounts, INSERT_AUDITED_SESSION};
 use crate::domain::access_audit::LoginAuditContext;
 use std::num::NonZeroU32;
 
+/// Private audit data for a proven live session; deliberately not serializable.
+#[derive(sqlx::FromRow)]
+pub struct SessionLoginAudit {
+    pub verified_ip: Option<String>,
+    pub event_kind: String,
+}
+
 /// One atomic credential change; secret fields deliberately have no Debug output.
 pub struct PasswordRotation<'a> {
     pub user_id: i64,
@@ -15,6 +22,24 @@ pub struct PasswordRotation<'a> {
 }
 
 impl PgAccounts {
+    /// Internal audit lookup bound to a live session proof, not a public DTO.
+    /// The caller must never serialize this private IP/event pair to the browser.
+    pub async fn active_session_login_audit(
+        &self,
+        digest: &[u8; 32],
+    ) -> Result<Option<SessionLoginAudit>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT host(e.verified_ip) AS verified_ip, e.event_kind FROM account_login_events e
+             JOIN sessions s ON s.session_id=e.session_id
+             JOIN users u ON u.id=s.user_id
+             WHERE s.token_hash=$1 AND s.revoked_at IS NULL
+               AND s.expires_at>now() AND u.account_state='active'",
+        )
+        .bind(digest.as_slice())
+        .fetch_optional(self.pool())
+        .await
+    }
+
     /// Read only the hash required for an already authenticated password change.
     pub async fn password_hash_for_user(
         &self,

@@ -11,15 +11,15 @@ use crate::domain::{
 use sqlx::{Postgres, Row, Transaction};
 use tor_contracts::paid_delivery::PositiveId;
 
-pub(super) struct FinanceTerms {
-    pub(super) allocation: PurchaseAllocation,
-    pub(super) refund_policy_version: String,
-    pub(super) refund_window_seconds: i64,
+pub(crate) struct FinanceTerms {
+    pub(crate) allocation: PurchaseAllocation,
+    pub(crate) refund_policy_version: String,
+    pub(crate) refund_window_seconds: i64,
 }
 
 /// Read and lock one published terms revision and the frozen B-10 share lines.
 /// No current member percentages are ever recomputed for an old purchase.
-pub(super) async fn load_terms(
+pub(crate) async fn load_terms(
     tx: &mut Transaction<'_, Postgres>,
     book_id: i64,
     share_revision: i64,
@@ -92,7 +92,7 @@ pub(super) async fn load_terms(
 /// library pin, exact B-10 share snapshot and reader_wallet_entries. A failure
 /// here aborts them ALL. The deferred PostgreSQL trigger checks every credit
 /// against the same immutable financial and B-10 evidence at COMMIT.
-pub(super) async fn post_purchase(
+pub(crate) async fn post_purchase(
     tx: &mut Transaction<'_, Postgres>,
     purchase_id: i64,
     book_id: i64,

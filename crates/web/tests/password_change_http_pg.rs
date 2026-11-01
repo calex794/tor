@@ -101,7 +101,7 @@ async fn password_rotation_impl() {
     let url = std::env::var("TEST_DATABASE_URL").expect("isolated TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never use production database");
     let catalog = PgCatalog::connect(&url).await.expect("PostgreSQL schema");
-    let pool = catalog.pool().clone();
+    let audit_lookup = PgAccounts::from_pool(catalog.pool().clone());
     let reader = PgReader::new(catalog.pool().clone());
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     accounts.probe().await.expect("accounts schema");
@@ -228,18 +228,21 @@ async fn password_rotation_impl() {
     assert_ne!(fresh_session, first_session);
     assert_ne!(fresh_session, second_session);
     let digest = session_token_digest(fresh_session.split_once('=').unwrap().1);
-    let audit: (Option<String>, String) = sqlx::query_as(
-        "SELECT host(e.verified_ip), e.event_kind FROM account_login_events e
-         JOIN sessions s ON s.session_id=e.session_id WHERE s.token_hash=$1",
-    )
-    .bind(digest.as_slice())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(audit.0.as_deref(), Some("203.0.113.42"));
-    assert_eq!(audit.1, "password_change");
+    let audit = audit_lookup
+        .active_session_login_audit(&digest)
+        .await
+        .unwrap()
+        .expect("the new live session has an atomic audit event");
+    assert_eq!(audit.verified_ip.as_deref(), Some("203.0.113.42"));
+    assert_eq!(audit.event_kind, "password_change");
 
     for old in [&first_session, &second_session] {
+        let old_digest = session_token_digest(old.split_once('=').unwrap().1);
+        assert!(audit_lookup
+            .active_session_login_audit(&old_digest)
+            .await
+            .unwrap()
+            .is_none());
         let declined = send(&app, request("GET", "/me", "", old, ORIGIN)).await;
         assert_eq!(declined.status(), StatusCode::SEE_OTHER);
         assert_eq!(declined.headers()[header::LOCATION], "/login");
