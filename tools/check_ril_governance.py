@@ -15,9 +15,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail"}
+ADMIN_MAIL_HANDLERS = {
+    ("GET", "/admin/mail", "admin_mail::index"): "users",
+    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
+    ("GET", "/admin/mail/{id}", "admin_mail::conversation"): "messages",
+    ("GET", "/admin/mail/groups", "admin_mail::groups"): "groups",
+    ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
+    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
+    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
 SCOPE_CALLS = {
     "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
     "activate_organic",
@@ -32,6 +41,8 @@ SCOPE_CALLS = {
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
     "active_role", "create_free",
+    "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
+    "send_unkeyed", "set_block", "request", "remove",
 }
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",
@@ -130,6 +141,10 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/admin_mail_routes.rs":
+        return (source.parent / "admin_mail.rs"
+                if module == "admin_mail"
+                else root / "__unsupported_admin_mail_handler__")
     if source == root / "crates/web/src/auth/referral_routes.rs":
         # Only these three sibling handlers may be bound through the F-09 router.
         allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
@@ -176,8 +191,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and policy in {"public", "entry", "csrf_only"}
             and entry["template"] != "/logout"):
         errors.append(f"{label}: protected route downgraded to public/entry")
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny":
+    admin_key = (entry["method"], entry["template"], entry["handler"])
+    audited_admin = (policy == "admin_mail"
+                     and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
+                     and admin_key in ADMIN_MAIL_HANDLERS)
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not audited_admin:
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_mail":
+        method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
+        if not method:
+            errors.append(f"{label}: unreviewed admin mail action")
+        elif not (
+            re.search(r"\bactor\s*\(\s*&state\s*,\s*&headers\s*\)", body)
+            and re.search(rf"\.{method}\s*\(\s*&digest\b", body)
+            and "PgAdminMail::new" in evidence
+            and "session_token_digest" in evidence
+        ):
+            errors.append(f"{label}: missing session-bound audited admin mail repository call")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
@@ -207,6 +237,45 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             proof = {"follow"}
         elif policy == "scoped" and entry["template"] == "/me/books/{id}/unfollow":
             proof = {"unfollow"}
+        mail_calls = {
+            "mail::index": {"mailbox"}, "mail::start": {"start"},
+            "mail::conversation": {"messages"}, "mail::poll": {"messages"}, "mail::send": {"send"},
+            "mail::block": {"set_block"},
+            "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
+            "friendship::request": {"request"}, "friendship::remove": {"remove"},
+            "friendship::block": {"set_block"},
+            "group_mail::index": {"list"},
+            "group_mail::create": {"create"},
+            "group_mail::detail": {"get", "messages"},
+            "group_mail::poll": {"messages", "messages_after"},
+            "group_mail::send": {"send"},
+            "group_mail::leave": {"leave"},
+            "group_mail::transfer": {"propose_transfer"},
+            "group_mail::disband": {"disband"},
+            "mail_book_previews::page": {"private_mail_title_for_member"},
+            "book_rooms::page": {"overview"},
+            "book_rooms::join": {"join"},
+            "book_rooms::send": {"send"},
+            "book_rooms::leave": {"leave"},
+        }
+        proof = mail_calls.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
+            proof = {
+                "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
+                "accept": {"accept_transfer"}, "decline": {"decline_transfer"},
+                "revoke": {"revoke_transfer"},
+            }.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/group_mail/invitations.rs":
+            proof = {
+                "inbox": {"pending_for"}, "invite_page": {"pending_sent"},
+                "invite": {"invite"}, "accept": {"accept_invite"},
+                "decline": {"decline_invite"}, "revoke": {"revoke_invite"},
+            }.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/notifications.rs":
+            proof = {
+                "page": {"list_section"}, "mark_one": {"mark_read"},
+                "mark_all": {"mark_all_read"}, "save_preferences": {"set_preferences"},
+            }.get(entry["handler"], proof)
         if not _contains_scoped_call(evidence, proof):
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
