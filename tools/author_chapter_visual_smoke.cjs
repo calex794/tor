@@ -222,6 +222,34 @@ async function inspect(page, viewport, name) {
         assert(await reader.locator('.library-card a[href="/books/' + bookId + '"]').isVisible(),
           viewport + ': new reader bookmark is missing');
 
+        // S010: real reader UI -> server-side book like -> public counter.
+        const likeLink = reader.locator('a[href="/books/' + bookId + '/like"]');
+        assert(await likeLink.isVisible(), viewport + ': S010 book like entry missing');
+        await likeLink.click();
+        await reader.waitForURL(base + '/books/' + bookId + '/like');
+        assert(await reader.getByText('Отметок «Нравится»: 0').isVisible(),
+          viewport + ': S010 initial public count wrong');
+        await reader.getByRole('button', { name: 'Нравится', exact: true }).click();
+        await reader.waitForURL(base + '/books/' + bookId + '/like?done=added');
+        assert(await reader.getByText('Отметок «Нравится»: 1').isVisible(),
+          viewport + ': S010 like was not persisted');
+        await reader.reload();
+        assert(await reader.getByText('Отметок «Нравится»: 1').isVisible(),
+          viewport + ': S010 like lost on reload');
+        await guest.goto(base + '/books/' + bookId);
+        assert(await guest.getByText('Нравится: 1').isVisible(),
+          viewport + ': S010 public counter not visible to guest');
+        await reader.getByRole('button', { name: 'Убрать отметку «Нравится»' }).click();
+        await reader.waitForURL(base + '/books/' + bookId + '/like?done=removed');
+        assert(await reader.getByText('Отметок «Нравится»: 0').isVisible(),
+          viewport + ': S010 unlike did not restore zero');
+        await reader.reload();
+        assert(await reader.getByRole('button', { name: 'Нравится', exact: true }).isVisible(),
+          viewport + ': S010 unlike state was not durable');
+        await guest.reload();
+        assert(await guest.getByText('Нравится: 0').isVisible(),
+          viewport + ': S010 public counter not updated after unlike');
+
         // E-05 / S014: an account-follow is independent of saving a Book.
         // Exercise the real user action and private author-follow listing.
         await reader.goto(base + '/books/' + bookId);
