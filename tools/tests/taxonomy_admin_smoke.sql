@@ -6,13 +6,12 @@ DECLARE
     suffix TEXT := substr(md5(clock_timestamp()::text),1,10);
     label TEXT;
     alias_name TEXT;
-    term_id BIGINT;
+    v_term_id BIGINT;
     second_id BIGINT;
     book_id BIGINT;
     actual_tags TEXT[];
     actual_links BIGINT[];
     actual_revision BIGINT;
-    events_count BIGINT;
     rejected BOOLEAN;
 BEGIN
     IF current_database()<>'tor_ci' OR current_user<>'tor_migrator' THEN
@@ -20,16 +19,14 @@ BEGIN
     END IF;
     label := 'CurationTest' || suffix;
     alias_name := 'LegacyAlias' || suffix;
-    term_id := admin_taxonomy_add_term('tag',label,'ci-smoke');
-    IF term_id<=0 THEN RAISE EXCEPTION 'new term not created'; END IF;
+    v_term_id := admin_taxonomy_add_term('tag',label,'ci-smoke');
+    IF v_term_id<=0 THEN RAISE EXCEPTION 'new term not created'; END IF;
+    PERFORM admin_taxonomy_add_alias('tag',v_term_id,alias_name,'ci-smoke');
     PERFORM admin_taxonomy_add_alias('tag',term_id,alias_name,'ci-smoke');
-    PERFORM admin_taxonomy_add_alias('tag',term_id,alias_name,'ci-smoke');
-    SELECT count(*) INTO events_count FROM book_taxonomy_curation_events
-     WHERE term_id=term_id AND action='add_alias';
     -- Qualified term-ID check; an idempotent alias must have only one row.
     IF (SELECT count(*) FROM book_taxonomy_aliases
         WHERE kind='tag' AND search_key=admin_taxonomy_key(alias_name)
-          AND book_taxonomy_aliases.term_id=term_id) <> 1 THEN
+          AND book_taxonomy_aliases.term_id=v_term_id) <> 1 THEN
         RAISE EXCEPTION 'alias idempotency or normalization failed';
     END IF;
     rejected:=false;
@@ -56,7 +53,7 @@ BEGIN
     SELECT array_agg(term_id ORDER BY position) INTO actual_links
       FROM book_taxonomy_links WHERE book_taxonomy_links.book_id=book_id;
     IF actual_tags<>ARRAY[admin_taxonomy_key(label)]
-       OR actual_links<>ARRAY[term_id] OR actual_revision<>2 THEN
+       OR actual_links<>ARRAY[v_term_id] OR actual_revision<>2 THEN
         RAISE EXCEPTION 'book legacy arrays, links or revision mismatch';
     END IF;
     IF admin_taxonomy_reconcile_book(book_id,'ci-smoke') THEN
