@@ -1,6 +1,6 @@
 //! E-08/S057 book room HTTP path over disposable PostgreSQL.
 use super::{call, pg, text, ORIGIN};
-use axum::http::{header, StatusCode};
+use axum::http::StatusCode;
 use std::{
     num::NonZeroU32,
     time::{SystemTime, UNIX_EPOCH},
