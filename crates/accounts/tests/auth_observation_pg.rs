@@ -227,10 +227,12 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
             .unwrap();
     }
     let signals = accounts.auth_risk_signals().await.unwrap();
-    assert!(signals.iter().any(|signal| signal.category == "distributed_target"
-        && signal.bad_passwords == 16
-        && signal.distinct_sources == 16
-        && signal.successes == 20));
+    assert!(signals
+        .iter()
+        .any(|signal| signal.category == "distributed_target"
+            && signal.bad_passwords == 16
+            && signal.distinct_sources == 16
+            && signal.successes == 20));
 
     // A flood with no trusted source must not be grouped into one fake IP.
     for index in 0..16 {
