@@ -58,8 +58,8 @@ class RilExposureTests(unittest.TestCase):
     def test_current_contract_is_loopback_and_off_by_default(self):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
-        self.assertEqual(report["route_bindings"], 149)  # REC-13 plus taxonomy picker and edit routes.
-        self.assertEqual(report["route_pairs"], 147)  # Includes four taxonomy routes.
+        self.assertEqual(report["route_bindings"], 196)  # REC-13, E-08, and taxonomy picker/edit.
+        self.assertEqual(report["route_pairs"], 194)  # Includes four taxonomy route pairs.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
@@ -107,6 +107,18 @@ class RilExposureTests(unittest.TestCase):
         })
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assertTrue(any("internal/admin" in x for x in check_repository(self.root)))
+
+    def test_exact_admin_mail_exception_cannot_be_extended(self):
+        self.assertEqual(check_repository(self.root), [])
+        target = self.root / "docs/contracts/ril-route-guards-v1.json"
+        rows = json.loads(target.read_text())
+        rows["routes"].append({
+            "method": "GET", "template": "/admin/mail/export",
+            "source": "crates/web/src/auth.rs",
+            "handler": "admin_mail::index", "policy": "admin_mail",
+        })
+        target.write_text(json.dumps(rows))
+        self.assertTrue(any("internal/admin" in issue for issue in check_repository(self.root)))
 
     def test_expected_https_nginx_server_is_safe(self):
         self.assertEqual(check_nginx(GOOD_NGINX), [])
