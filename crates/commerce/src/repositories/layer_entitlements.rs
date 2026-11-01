@@ -109,6 +109,12 @@ impl EntitlementPort for PgLayerChapterEntitlements {
 /// purchase IDs always select the original V1; without one, direct purchases
 /// take priority and Layer may grant the current published edition.
 /// Hard denials and database inconsistencies never fall through to Layer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReaderEntitlementSource {
+    Direct,
+    Layer,
+}
+
 #[derive(Clone)]
 pub struct PgReaderEntitlements {
     direct: PgDirectEntitlements,
@@ -122,6 +128,47 @@ impl PgReaderEntitlements {
             layer: PgLayerChapterEntitlements::new(pool),
         }
     }
+
+    /// Report which D-owned authority actually selected the entitlement.
+    /// A requested source or an absent purchase_id is not proof of source.
+    /// The HTTP caller must re-authorize through the selected authority
+    /// before revealing a signed grant; direct evidence is direct-only.
+    pub async fn resolve_with_source(
+        &self,
+        actor: Actor,
+        chapter_id: PositiveId,
+        purchase_id: Option<PositiveId>,
+    ) -> Result<(EntitlementDecision, ReaderEntitlementSource), DeliveryError> {
+        let direct = self
+            .direct
+            .resolve_entitlement(actor, chapter_id, purchase_id)
+            .await?;
+        if purchase_id.is_some() {
+            return Ok((direct, ReaderEntitlementSource::Direct));
+        }
+        match direct {
+            EntitlementDecision::Allowed { .. }
+            | EntitlementDecision::Denied {
+                reason: DenialReason::Locked | DenialReason::Hidden | DenialReason::Unknown,
+            } => Ok((direct, ReaderEntitlementSource::Direct)),
+            EntitlementDecision::Denied {
+                reason: DenialReason::NotPurchased | DenialReason::Refunded,
+            } => {
+                let layer = self
+                    .layer
+                    .resolve_entitlement(actor, chapter_id, None)
+                    .await?;
+                match layer {
+                    EntitlementDecision::Allowed { .. } => {
+                        Ok((layer, ReaderEntitlementSource::Layer))
+                    }
+                    EntitlementDecision::Denied { .. } => {
+                        Ok((direct, ReaderEntitlementSource::Direct))
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -132,30 +179,9 @@ impl EntitlementPort for PgReaderEntitlements {
         chapter_id: PositiveId,
         purchase_id: Option<PositiveId>,
     ) -> Result<EntitlementDecision, DeliveryError> {
-        let direct = self
-            .direct
-            .resolve_entitlement(actor, chapter_id, purchase_id)
+        let (decision, _source) = self
+            .resolve_with_source(actor, chapter_id, purchase_id)
             .await?;
-        if purchase_id.is_some() {
-            return Ok(direct);
-        }
-        match direct {
-            EntitlementDecision::Allowed { .. }
-            | EntitlementDecision::Denied {
-                reason: DenialReason::Locked | DenialReason::Hidden | DenialReason::Unknown,
-            } => Ok(direct),
-            EntitlementDecision::Denied {
-                reason: DenialReason::NotPurchased | DenialReason::Refunded,
-            } => {
-                let layer = self
-                    .layer
-                    .resolve_entitlement(actor, chapter_id, None)
-                    .await?;
-                match layer {
-                    EntitlementDecision::Allowed { .. } => Ok(layer),
-                    EntitlementDecision::Denied { .. } => Ok(direct),
-                }
-            }
-        }
+        Ok(decision)
     }
 }
