@@ -98,6 +98,16 @@ class ReviewedAliasesTest(unittest.TestCase):
         with self.assertRaisesRegex(aliases.ImportErrorDetail, "repeated source or TOR Book"):
             aliases.prepare(self.source, self.mapping)
 
+    def test_trailing_dot_does_not_create_unreachable_alias(self):
+        self.given(source_rows=[
+            {"book_id": "10", "public_id": "Valid-Key", "slug": "alias.v2."},
+        ], map_rows=[
+            {"newboo_book_id": "10", "tor_book_id": "42", "tor_source_identity": "source:10", "tor_target_language": "ru", "reviewed": "yes"},
+        ])
+        entries, unsupported = aliases.prepare(self.source, self.mapping)
+        self.assertEqual([alias for alias, _ in entries], ["valid-key"])
+        self.assertEqual(unsupported, [(10, "slug", "alias.v2.")])
+
     def test_check_only_does_not_write_sql(self):
         self.given()
         output = Path(self.temp.name) / "out.sql"

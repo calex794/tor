@@ -46,7 +46,8 @@ def positive_id(value, label):
 
 def safe_alias(raw):
     raw = raw.strip().lower()
-    return raw if ALIAS.fullmatch(raw) else None
+    # The mail URL parser strips trailing dots as sentence punctuation.
+    return raw if ALIAS.fullmatch(raw) and not raw.endswith(".") else None
 
 
 def identity(value, label, maximum):
