@@ -11,30 +11,42 @@ import newboo_ydb_taxonomy_export as export
 ID = "11111111-1111-4111-8111-111111111111"
 
 class Result:
-    def __init__(self, rows):
-        self.rows = rows
+    def __init__(self, indexed_rows):
+        self.indexed_rows = indexed_rows
     def __enter__(self):
-        return [types.SimpleNamespace(
-            rows=[types.SimpleNamespace(**row) for row in self.rows]
-        )]
+        return [
+            types.SimpleNamespace(
+                index=index,
+                truncated=truncated,
+                rows=[types.SimpleNamespace(**row) for row in rows],
+            )
+            for index, rows, truncated in self.indexed_rows
+        ]
     def __exit__(self, *args):
         return False
 
 class Tx:
-    def __init__(self, broken=False):
+    def __init__(self, broken=False, omitted=None, truncated=None):
         self.calls = []
         self.broken = broken
-    def execute(self, sql, commit_tx=False):
-        self.calls.append((sql, commit_tx))
-        if "COUNT(*)" in sql:
-            return Result([{"total_rows": 2 if self.broken and "book_taxonomies" in sql else 1}])
-        if "ORDER BY taxonomy_id" in sql:
-            return Result([{"taxonomy_id": ID, "taxonomy_type": "tag",
-                            "title": "Система", "status": "active"}])
-        if "ORDER BY alias_id" in sql:
-            return Result([{"alias_id": "a1", "taxonomy_id": ID,
-                            "taxonomy_type": "tag", "alias": "System"}])
-        raise AssertionError("unexpected YDB query")
+        self.omitted = omitted
+        self.truncated = truncated
+    def execute(self, sql, commit_tx=False, concurrent_result_sets=None):
+        self.calls.append((sql, commit_tx, concurrent_result_sets))
+        if sql.count("SELECT ") != 4:
+            raise AssertionError("snapshot must use exactly four SELECT statements")
+        groups = [
+            (0, [{"total_rows": 2 if self.broken else 1}]),
+            (1, [{"total_rows": 1}]),
+            (2, [{"taxonomy_id": ID, "taxonomy_type": "tag",
+                  "title": "Система", "status": "active"}]),
+            (3, [{"alias_id": "a1", "taxonomy_id": ID,
+                  "taxonomy_type": "tag", "alias": "System"}]),
+        ]
+        return Result([
+            (index, rows, index == self.truncated)
+            for index, rows in groups if index != self.omitted
+        ])
 
 class Session:
     def __init__(self, tx):
@@ -56,15 +68,23 @@ class YdbExportTests(unittest.TestCase):
         obj = export.collect(session, SDK, "")
         self.assertEqual(session.modes, ["snapshot-readonly"])
         self.assertEqual(obj["expected_counts"], {"taxonomies": 1, "aliases": 1})
-        self.assertEqual([v for _, v in tx.calls], [False, False, False, True])
-        for sql, _ in tx.calls:
-            self.assertIn("SELECT", sql)
-            for forbidden in ("LIMIT", "INSERT", "UPDATE", "DELETE", "DROP"):
-                self.assertNotIn(forbidden, sql.upper())
+        self.assertEqual(len(tx.calls), 1)
+        sql, commit, concurrent = tx.calls[0]
+        self.assertTrue(commit)
+        self.assertFalse(concurrent)
+        self.assertEqual(sql.count("SELECT "), 4)
+        for forbidden in ("LIMIT", "INSERT", "UPDATE", "DELETE", "DROP"):
+            self.assertNotIn(forbidden, sql.upper())
 
     def test_count_mismatch_is_fatal(self):
         with self.assertRaisesRegex(ValueError, "differs"):
             export.collect(Session(Tx(broken=True)), SDK, "")
+
+    def test_missing_result_set_or_truncation_is_fatal(self):
+        with self.assertRaisesRegex(ValueError, "omitted"):
+            export.collect(Session(Tx(omitted=3)), SDK, "")
+        with self.assertRaisesRegex(ValueError, "truncated"):
+            export.collect(Session(Tx(truncated=2)), SDK, "")
 
     def test_sql_identifiers_are_fixed(self):
         self.assertEqual(export.ident("prefix", "book_taxonomies"),

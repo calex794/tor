@@ -33,13 +33,21 @@ def validate_target(endpoint, database, confirmation):
     if database != confirmation:
         raise ValueError("--confirm-database mismatch")
 
-def stream(tx, sql, keys, *, commit=False):
-    data = []
-    with tx.execute(sql, commit_tx=commit) as batches:
+def read_all_result_sets(tx, statement, expected_columns):
+    """One execute / one snapshot; stream multiple result-set chunks by SDK index."""
+    datasets = [[] for _ in expected_columns]
+    observed = set()
+    with tx.execute(statement, commit_tx=True, concurrent_result_sets=False) as batches:
         for batch in batches:
+            index = getattr(batch, "index", None)
+            if type(index) is not int or not 0 <= index < len(datasets):
+                raise ValueError("missing or unexpected YDB result-set index")
+            if getattr(batch, "truncated", False):
+                raise ValueError("YDB result set was truncated")
+            observed.add(index)
             for row in batch.rows:
                 item = {}
-                for key in keys:
+                for key in expected_columns[index]:
                     value = getattr(row, key)
                     if isinstance(value, UUID):
                         value = str(value)
@@ -48,33 +56,41 @@ def stream(tx, sql, keys, *, commit=False):
                     if isinstance(value, str) and len(value) > 256:
                         raise ValueError("source value exceeds safety cap")
                     item[key] = value
-                data.append(item)
-                if len(data) > MAX_ROWS:
+                datasets[index].append(item)
+                if len(datasets[index]) > MAX_ROWS:
                     raise ValueError("source table exceeds safety cap")
-    return data
+    if observed != set(range(len(datasets))):
+        raise ValueError("YDB omitted one or more expected result sets")
+    return datasets
 
 def collect(session, ydb, prefix):
-    """All four SELECT queries share one QuerySnapshotReadOnly transaction."""
+    """Four SELECT result sets in one SnapshotReadOnly query, no interactive TX."""
     terms = ident(prefix, "book_taxonomies")
     aliases = ident(prefix, "book_taxonomy_aliases")
+    statement = (
+        f"SELECT COUNT(*) AS total_rows FROM {terms};\n"
+        f"SELECT COUNT(*) AS total_rows FROM {aliases};\n"
+        f"SELECT taxonomy_id,taxonomy_type,title,status FROM {terms} ORDER BY taxonomy_id;\n"
+        f"SELECT alias_id,taxonomy_id,taxonomy_type,alias FROM {aliases} ORDER BY alias_id;"
+    )
     tx = session.transaction(ydb.QuerySnapshotReadOnly())
-    n1 = stream(tx, f"SELECT COUNT(*) AS total_rows FROM {terms};", ("total_rows",))
-    n2 = stream(tx, f"SELECT COUNT(*) AS total_rows FROM {aliases};", ("total_rows",))
+    n1, n2, rows1, rows2 = read_all_result_sets(
+        tx, statement,
+        (("total_rows",), ("total_rows",),
+         ("taxonomy_id", "taxonomy_type", "title", "status"),
+         ("alias_id", "taxonomy_id", "taxonomy_type", "alias")),
+    )
     if len(n1) != 1 or len(n2) != 1:
-        raise ValueError("count query failed")
+        raise ValueError("count query did not yield exactly one row")
     counts = (n1[0]["total_rows"], n2[0]["total_rows"])
     if any(type(n) is not int or not 0 <= n <= MAX_ROWS for n in counts):
         raise ValueError("bad source count")
-    rows1 = stream(tx, f"SELECT taxonomy_id,taxonomy_type,title,status FROM {terms} ORDER BY taxonomy_id;",
-                   ("taxonomy_id", "taxonomy_type", "title", "status"))
-    rows2 = stream(tx, f"SELECT alias_id,taxonomy_id,taxonomy_type,alias FROM {aliases} ORDER BY alias_id;",
-                   ("alias_id", "taxonomy_id", "taxonomy_type", "alias"), commit=True)
     if (len(rows1), len(rows2)) != counts:
         raise ValueError("YDB streamed row count differs from snapshot counts")
     return {"source": SOURCE,
             "expected_counts": {"taxonomies": counts[0], "aliases": counts[1]},
             "taxonomies": rows1, "aliases": rows2,
-            "capture": {"mode": "query-snapshot-readonly",
+            "capture": {"mode": "query-snapshot-readonly-single-execute",
                         "timestamp_utc": datetime.now(timezone.utc).isoformat()}}
 
 def retrieve(ydb, endpoint, database, prefix):
