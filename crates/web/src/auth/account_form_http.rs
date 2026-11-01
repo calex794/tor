@@ -467,7 +467,7 @@ pub(super) async fn login(
             return login_storage_error(LoginOutcome::SessionUnavailable);
         }
     }
-    // No next parameter is accepted: redirects always stay on this site.
+    // Only a validated local /read/{id} destination is accepted; otherwise /me.
     observed.report(auth_observation::Outcome::Success, Some(user.id));
     observability::record_login_outcome(LoginOutcome::Success);
     private_response(
