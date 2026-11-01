@@ -79,7 +79,13 @@ async fn d_05_pg_wallet_journal_kinds_and_provenance_are_fail_closed() {
     // credits without an actual chapter purchase, and a Layer debit with
     // missing historical term. All probes use independent auto-rollback SQL.
     for (index, kind, delta, purchase_id, layer_term_id) in [
-        (1, "verified_funding", 1_i64, None::<i64>, Some(bought.term_id)),
+        (
+            1,
+            "verified_funding",
+            1_i64,
+            None::<i64>,
+            Some(bought.term_id),
+        ),
         (2, "verified_funding", -1, None, None),
         (3, "chapter_purchase", -1, None, None),
         (4, "chapter_refund", 1, None, None),
