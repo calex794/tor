@@ -101,3 +101,35 @@ python3 tools/newboo_taxonomy_bridge.py full.json \
 сохраняется отчёт для проверки. Семантические синонимы автоматически не
 склеиваются. После ручного разбора отчёта проверенные строки допускаются
 к сухому прогону через `tools/taxonomy_import_csv.py`.
+
+### Полная выгрузка из YDB — только чтение
+
+Команда `tools/newboo_ydb_taxonomy_export.py` создаёт настоящий полный
+JSON-снимок из YDB NEwBOO. Она использует SDK `ydb==3.30.0`,
+отдельно запрошенные `COUNT(*)` и полные потоковые SELECT обеих таблиц
+в **одной** транзакции `QuerySnapshotReadOnly`. Нет `LIMIT 1000` и
+потери записей из-за пагинации административного API.
+
+```sh
+export NEWBOO_YDB_ENDPOINT='grpcs://<ydb-host>:2135'
+export NEWBOO_YDB_DATABASE='/database-path'
+# Установить минимально привилегированные YDB SDK credentials через env.
+python3 tools/newboo_ydb_taxonomy_export.py \
+  --confirm-database /database-path \
+  --out newboo-full-taxonomy.json
+python3 tools/newboo_taxonomy_bridge.py newboo-full-taxonomy.json \
+  --out reviewed-candidates.csv --report review.json
+```
+
+Необязательный `--table-prefix` задаёт проверенный префикс пути двух
+таблиц, если они расположены не в корне БД. Снимок содержит только
+публичные/непубличные **названия таксономий**, их UUID, статусы и алиасы:
+не извлекает книги, тексты, пользователей или ссылки книг на метки.
+
+YDB credentials и параметры подключения **не записываются в репозиторий**.
+Скрипт запускается вручную, не активирован в GitHub Actions и не делает
+записей в YDB. Итоговый JSON создаётся атомарно и не перезаписывает
+существующий файл. При расхождении количества строк экспорт отклоняется.
+
+В рамках этих PR реальный YDB-снимок не выгружался: подключения и
+учётных данных NEwBOO в задачах TOR не предоставлялись.
