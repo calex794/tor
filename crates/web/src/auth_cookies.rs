@@ -240,7 +240,9 @@ mod tests {
     fn taxonomy_picker_is_only_same_origin_external_js_exception() {
         let private = private_response(StatusCode::OK, &[]);
         assert!(private.headers()["content-security-policy"]
-            .to_str().unwrap().contains("script-src 'none'"));
+            .to_str()
+            .unwrap()
+            .contains("script-src 'none'"));
         let scoped = private_response_with_taxonomy_picker(StatusCode::OK, &[]);
         let headers = scoped.headers();
         let csp = headers["content-security-policy"].to_str().unwrap();
