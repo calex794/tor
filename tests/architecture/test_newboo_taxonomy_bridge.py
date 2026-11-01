@@ -62,6 +62,38 @@ class BridgeTests(unittest.TestCase):
         _, report = bridge.prepare(data)
         self.assertTrue(any("collides" in e for e in report["fatal_errors"]))
 
+    def test_conflict_writes_report_but_never_creates_candidate(self):
+        src = fixture()
+        src["taxonomies"].append({
+            "taxonomy_id": "44444444-4444-4444-8444-444444444444",
+            "taxonomy_type": "tag", "title": "System", "status": "active"})
+        src["expected_counts"]["taxonomies"] += 1
+        source = self.write(src)
+        output = source.parent / "candidate.csv"
+        report = source.parent / "review.json"
+        self.assertEqual(bridge.main([
+            str(source), "--out", str(output), "--report", str(report)]), 2)
+        self.assertFalse(output.exists())
+        self.assertTrue(report.exists())
+        self.assertTrue(json.loads(report.read_text(encoding="utf-8"))["fatal_errors"])
+
+    def test_successful_conversion_is_accepted_by_real_tor_importer(self):
+        source = self.write(fixture())
+        output = source.parent / "candidate.csv"
+        report = source.parent / "review.json"
+        self.assertEqual(bridge.main([
+            str(source), "--out", str(output), "--report", str(report)]), 0)
+        from taxonomy_import_csv import checked_csv
+        rows = checked_csv(str(output))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len(json.loads(report.read_text(encoding="utf-8"))["manual_review"]), 1)
+
+    def test_no_input_or_report_can_be_overwritten_as_candidate(self):
+        source = self.write(fixture())
+        self.assertEqual(bridge.main([
+            str(source), "--out", str(source), "--report", str(source.parent / "r.json")]), 2)
+        self.assertEqual(bridge.load(source)["expected_counts"]["taxonomies"], 3)
+
     def test_different_normalization_semantics_are_reported_not_merged(self):
         self.assertEqual(bridge.tor_key("Ёжик"), "ежик")
         self.assertEqual(bridge.semantic("гг"), "главный герой")

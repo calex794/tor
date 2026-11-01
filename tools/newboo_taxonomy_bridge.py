@@ -3,9 +3,11 @@
 import argparse
 import csv
 import json
+import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 import unicodedata
 from taxonomy_import_csv import checked_csv
 
@@ -147,20 +149,38 @@ def main(argv=None):
     parser.add_argument("--report", required=True)
     args = parser.parse_args(argv)
     try:
-        data = load(args.snapshot)
+        source, output, report_path = (Path(args.snapshot).resolve(),
+                                       Path(args.out).resolve(),
+                                       Path(args.report).resolve())
+        if len({source, output, report_path}) != 3:
+            raise ValueError("source, candidate and report must be distinct paths")
+        data = load(source)
         terms, report = prepare(data)
-        Path(args.report).write_text(
+        if len(terms) > 10_000:
+            report["fatal_errors"].append("source exceeds TOR importer 10,000-term limit")
+        report_path.write_text(
             json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         if report["fatal_errors"]:
             raise ValueError(f"{len(report['fatal_errors'])} conflicts; inspect report")
-        if Path(args.report).resolve() == Path(args.out).resolve():
-            raise ValueError("candidate and report must be distinct files")
-        with Path(args.out).open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(("kind", "label", "aliases"))
-            for term in terms:
-                writer.writerow((term["kind"], term["label"], "|".join(term["aliases"])))
-        checked_csv(args.out)
+        # Write and revalidate a temporary CSV; never leave a partially
+        # accepted candidate file that a curator could accidentally import.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", newline="", suffix=".csv",
+                prefix=".newboo-candidates-", dir=output.parent, delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                writer = csv.writer(handle)
+                writer.writerow(("kind", "label", "aliases"))
+                for term in terms:
+                    writer.writerow((term["kind"], term["label"], "|".join(term["aliases"])))
+            checked_csv(str(temporary))
+            os.replace(temporary, output)
+            temporary = None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
         print(f"{len(terms)} candidate terms; {len(report['manual_review'])} review notes")
         return 0
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
