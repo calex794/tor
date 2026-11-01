@@ -1,6 +1,6 @@
 //! BKR-96: one Save immediately activates an immutable version of an already
 //! published FREE chapter. A purchased/paid chapter is never editable here.
-use super::PgAuthoring;
+use super::{chapter_outbox::enqueue_chapter_published, PgAuthoring};
 use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, OwnedChapter, SaveChapter, SavedChapter,
 };
@@ -283,6 +283,8 @@ impl PgAuthoring {
                 if changed.rows_affected() != 1 {
                     return Err(AuthorError::Conflict);
                 }
+                enqueue_chapter_published(&mut tx, input.book_id, chapter_id, version_id, false)
+                    .await?;
             }
             new_revision
         };

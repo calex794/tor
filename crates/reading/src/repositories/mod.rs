@@ -21,6 +21,9 @@ pub use follow_updates::{FollowUpdatesError, PgFollowUpdates, UpdatesCursor};
 pub mod notification_preferences;
 pub use notification_preferences::{DeliveryMode, PgNotificationPreferences, PreferenceError};
 
+pub mod staged_updates;
+pub use staged_updates::{PgStagedRevisions, RevisionCursor, StagedRevisionError};
+
 pub mod book_stats;
 
 pub mod book_likes;

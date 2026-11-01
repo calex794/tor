@@ -1,6 +1,7 @@
 //! B S3-09/11: owner-only atomic verified paid edition attachment and publish.
 //! No S3 call inside this transaction: G uploads/verifies before B commits.
 //! No entitlement is created here; D remains the sole rights authority.
+use super::postgres::chapter_outbox::enqueue_chapter_published;
 use crate::services::authoring::{valid_command_key, AuthorError, ChapterAccess, SaveChapter};
 use crate::services::paid_asset_markers::referenced_private_image_ids;
 use async_trait::async_trait;
@@ -492,6 +493,16 @@ impl PgPaidStorage {
                 .execute(&mut *tx)
                 .await
                 .map_err(map_write)?;
+                // The verified paid publication and its notification event
+                // commit atomically; KeepCurrent and exact replay emit nothing.
+                enqueue_chapter_published(
+                    &mut tx,
+                    book_id,
+                    chapter_id,
+                    version_id,
+                    current.is_none(),
+                )
+                .await?;
             }
         }
         tx.commit().await.map_err(map_write)?;
