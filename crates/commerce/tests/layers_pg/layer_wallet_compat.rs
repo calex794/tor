@@ -45,7 +45,10 @@ async fn d_05_pg_wallet_journal_kinds_and_provenance_are_fail_closed() {
         "chapter_refund",
         "chapter_swap_credit",
     ] {
-        assert!(kinds.contains(kind), "wallet CHECK excluded {kind}: {kinds}");
+        assert!(
+            kinds.contains(kind),
+            "wallet CHECK excluded {kind}: {kinds}"
+        );
     }
     let direction: String = sqlx::query_scalar(
         "SELECT pg_get_constraintdef(oid)
@@ -59,26 +62,24 @@ async fn d_05_pg_wallet_journal_kinds_and_provenance_are_fail_closed() {
     assert!(direction.contains("purchase_id"));
     assert!(direction.contains("layer_term_id"));
 
-    let balance_before: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let count_before: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let balance_before: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let count_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // CHECK failures must reject fake funding, unsupported kinds, direct
     // credits without an actual chapter purchase, and a Layer debit with
     // missing historical term. All probes use independent auto-rollback SQL.
     for (index, kind, delta, purchase_id, layer_term_id) in [
-        (1, "verified_funding", 1_i64, None, Some(bought.term_id)),
+        (1, "verified_funding", 1_i64, None::<i64>, Some(bought.term_id)),
         (2, "verified_funding", -1, None, None),
         (3, "chapter_purchase", -1, None, None),
         (4, "chapter_refund", 1, None, None),
@@ -112,20 +113,18 @@ async fn d_05_pg_wallet_journal_kinds_and_provenance_are_fail_closed() {
         );
     }
 
-    let balance_after: i64 = sqlx::query_scalar(
-        "SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let count_after: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1",
-    )
-    .bind(buyer)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let balance_after: i64 =
+        sqlx::query_scalar("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let count_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM reader_wallet_entries WHERE user_id=$1")
+            .bind(buyer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(balance_after, balance_before);
     assert_eq!(count_after, count_before);
     pool.close().await;
