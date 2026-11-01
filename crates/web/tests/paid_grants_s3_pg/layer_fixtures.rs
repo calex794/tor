@@ -116,6 +116,19 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(granted.status(), StatusCode::OK);
+    // A Layer-only subscriber has no direct chapter purchase. Successful
+    // Layer grants must not forge a D-06 first-exposure ledger entry.
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures \
+                 WHERE user_id={subscriber} AND chapter_id={chapter}"
+            ),
+        ),
+        0,
+        "Layer-only grant must not create a direct purchase exposure"
+    );
     assert_eq!(
         granted.headers()[header::CACHE_CONTROL],
         "private, no-store"
