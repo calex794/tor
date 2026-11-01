@@ -6,6 +6,15 @@ use tor_reading::services::PublicPaidChapterPreview;
 /// No paid body, purchase token, signed URL, S3 key or false purchase form.
 /// The real checkout is separately authenticated and feature-gated in D.
 pub fn paid_chapter_paywall(chapter: &PublicPaidChapterPreview) -> Html<String> {
+    paid_chapter_paywall_checkout(chapter, None)
+}
+
+/// Offer a path only when wallet purchase and the private S3 reader are mounted.
+/// The checkout endpoint still checks the actual attached edition and actor.
+pub fn paid_chapter_paywall_checkout(
+    chapter: &PublicPaidChapterPreview,
+    checkout_id: Option<u64>,
+) -> Html<String> {
     let book = escape_html(&chapter.book_title);
     let title = escape_html(&chapter.chapter_title);
     let price = if chapter.price_minor > 0 {
@@ -17,6 +26,9 @@ pub fn paid_chapter_paywall(chapter: &PublicPaidChapterPreview) -> Html<String> 
     } else {
         String::from("Стоимость главы пока не указана.")
     };
+    let buy_link = checkout_id.map_or_else(String::new, |id| {
+        format!("<a class=\"button\" href=\"/me/chapters/{id}/buy\">Проверить покупку главы</a>")
+    });
     let html = format!(
         r#"<section class="section reader-page reader-access-page">
   <div class="container">
@@ -27,6 +39,7 @@ pub fn paid_chapter_paywall(chapter: &PublicPaidChapterPreview) -> Html<String> 
       <p>{price} Текст главы доступен только после подтверждения покупки.</p>
       <p>Войдите в аккаунт, чтобы проверить купленные главы и доступные способы получения доступа.</p>
       <nav aria-label="Действия с платной главой">
+        {buy_link}
         <a class="button" href="/login">Войти</a>
         <a class="button button--small" href="/me">Мой кабинет</a>
         <a href="/books/{}#chapters">Вернуться к книге</a>

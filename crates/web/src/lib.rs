@@ -68,6 +68,7 @@ struct AppState {
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
     paid_batch_browser_enabled: bool,
+    paid_single_browser_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
@@ -385,7 +386,7 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
-    ril::instrument(make_router(repo, None, None, false, None, None))
+    ril::instrument(make_router(repo, None, None, false, None, None, false))
 }
 pub fn router_with_postgres(catalog: PgCatalog) -> Router {
     ril::instrument(make_router(
@@ -395,6 +396,7 @@ pub fn router_with_postgres(catalog: PgCatalog) -> Router {
         false,
         None,
         None,
+        false,
     ))
 }
 pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Router {
@@ -405,6 +407,7 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
         false,
         None,
         None,
+        false,
     ))
 }
 
@@ -428,6 +431,7 @@ pub fn router_with_postgres_reading_auth(
                 secure,
                 public_origin.clone(),
             )),
+            false,
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -440,6 +444,7 @@ fn make_router(
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
     follow_control: Option<book_follow_page::FollowBookControl>,
+    paid_browser_available: bool,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
@@ -517,6 +522,9 @@ fn make_router(
             reader,
             search,
             paid_batch_browser_enabled: active_auth
+                && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
+            paid_single_browser_enabled: active_auth
+                && paid_browser_available
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
             follow_control,
