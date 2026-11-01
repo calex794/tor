@@ -1,5 +1,5 @@
-//! E-08: losing the historical founder after an explicit transfer must
-//! not cascade-delete a group controlled by a different active participant.
+/// E-08: losing the historical founder after an explicit transfer must
+/// not cascade-delete a group controlled by a different active participant.
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
 async fn e_08_group_survives_founder_deletion_after_creator_transfer() {
