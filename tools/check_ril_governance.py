@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "admin_mail"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "admin_mail"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -28,6 +28,8 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
 }
 SCOPE_CALLS = {
+    "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
+    "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
     "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
@@ -43,6 +45,7 @@ SCOPE_CALLS = {
     "send_unkeyed", "set_block", "request", "remove",
 }
 OWNER_CALLS = {
+    "recommendation_settings", "update_recommendation_settings",
     "list_owned_books", "create_owned_book", "owned_book",
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
@@ -283,6 +286,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "StatusCode::FORBIDDEN" in evidence
         ):
             errors.append(f"{label}: missing Origin+CSRF rejection")
+    rec_admin = {
+        ("GET", "/api/v1/admin/recommendations/quality", "admin::quality"),
+        ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
+        ("GET", "/me/recommendations/manage", "admin::page"),
+        ("POST", "/me/recommendations/manage", "admin::form_control"),
+    }
+    route_key = (entry["method"], entry["template"], entry["handler"])
+    if route_key in rec_admin and policy != "administrator":
+        errors.append(f"{label}: recommendation administration policy downgraded")
+    if policy == "administrator":
+        if route_key not in rec_admin or entry["source"] != "crates/web/src/recommendation_http/mod.rs":
+            errors.append(f"{label}: administrator exception is not allowed here")
+        if not ("session_actor(" in evidence and "!verified.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence):
+            errors.append(f"{label}: missing independent administrator role guard")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}

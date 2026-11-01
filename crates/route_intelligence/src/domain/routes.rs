@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 172] = [
+const ROUTES: [RouteRegistration; 190] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -135,53 +135,71 @@ const ROUTES: [RouteRegistration; 172] = [
     RouteRegistration::new("/me/books/{id}/follow-creator", "POST", "/me/", Prefix, Page, Reading, Write), // 122
     RouteRegistration::new("/books/{id}/like", "GET", "/books/", Prefix, Page, Reading, Read), // 123
     RouteRegistration::new("/books/{id}/like", "POST", "/books/", Prefix, Page, Reading, Write), // 124
-    RouteRegistration::new("/mail", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 125
-    RouteRegistration::new("/mail/start/{recipient_user_id}", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 126
-    RouteRegistration::new("/mail/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 127
-    RouteRegistration::new("/mail/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 128
-    RouteRegistration::new("/mail/{id}/block", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 129
-    RouteRegistration::new("/api/v1/me/messages", "GET", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Read), // 130
-    RouteRegistration::new("/api/v1/me/messages", "POST", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Write), // 131
-    RouteRegistration::new("/assets/mail.js", "GET", "/assets/", Exact, Static, ProductArea::Mail, Free), // 132
-    RouteRegistration::new("/users/{display_name}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 133
-    RouteRegistration::new("/users/{target_user_id}/friend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 134
-    RouteRegistration::new("/users/{target_user_id}/unfriend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 135
-    RouteRegistration::new("/users/{target_user_id}/block", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 136
-    RouteRegistration::new("/notifications", "GET", "/notifications/", Exact, Page, Dashboard, Read), // 137
-    RouteRegistration::new("/notifications/{id}/read", "POST", "/notifications/", Prefix, Page, Dashboard, Write), // 138
-    RouteRegistration::new("/notifications/read-all", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 139
-    RouteRegistration::new("/notifications/preferences", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 140
-    RouteRegistration::new("/mail/groups", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 141
-    RouteRegistration::new("/mail/groups", "POST", "/mail/", Exact, Page, ProductArea::Mail, Write), // 142
-    RouteRegistration::new("/mail/groups/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 143
-    RouteRegistration::new("/mail/groups/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 144
-    RouteRegistration::new("/mail/groups/{id}/leave", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 145
-    RouteRegistration::new("/books/{id}/room", "GET", "/books/", Prefix, Page, ProductArea::Mail, Read), // 146
-    RouteRegistration::new("/books/{id}/room/join", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 147
-    RouteRegistration::new("/books/{id}/room/messages", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 148
-    RouteRegistration::new("/books/{id}/room/leave", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 149
-    RouteRegistration::new("/admin/mail", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 150
-    RouteRegistration::new("/admin/mail/users/{user_id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 151
-    RouteRegistration::new("/admin/mail/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 152
-    RouteRegistration::new("/mail/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 153
-    RouteRegistration::new("/mail/groups/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 154
-    RouteRegistration::new("/mail/groups/{id}/transfer", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 155
-    RouteRegistration::new("/me/books/{id}/preview", "GET", "/me/", Prefix, Page, ProductArea::Mail, Read), // 156
-    RouteRegistration::new("/mail/group-invitations", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 157
-    RouteRegistration::new("/mail/groups/{id}/invite", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 158
-    RouteRegistration::new("/mail/groups/{id}/invite", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 159
-    RouteRegistration::new("/mail/group-invitations/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 160
-    RouteRegistration::new("/mail/group-invitations/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 161
-    RouteRegistration::new("/mail/groups/{id}/invite/{invitation_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 162
-    RouteRegistration::new("/mail/groups/{id}/disband", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 163
-    RouteRegistration::new("/mail/group-transfers", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 164
-    RouteRegistration::new("/mail/group-transfers/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 165
-    RouteRegistration::new("/mail/group-transfers/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 166
-    RouteRegistration::new("/mail/groups/{id}/transfer/{offer_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 167
-    RouteRegistration::new("/admin/mail/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 168
-    RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 169
-    RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 170
-    RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 171
+    RouteRegistration::new("/api/v1/recommendations", "GET", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Read), // 125
+    RouteRegistration::new("/api/v1/books/{id}/recommendations", "GET", "/api/v1/books/", Prefix, Api, ProductArea::Recommendations, Read), // 126
+    RouteRegistration::new("/api/v1/recommendations/impressions", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 127
+    RouteRegistration::new("/api/v1/recommendations/activate", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 128
+    RouteRegistration::new("/api/v1/me/recommendation-feedback", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 129
+    RouteRegistration::new("/api/v1/me/recommendation-feedback", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 130
+    RouteRegistration::new("/me/recommendations", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read), // 131
+    RouteRegistration::new("/me/recommendations/consent", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 132
+    RouteRegistration::new("/me/recommendations/feedback", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 133
+    RouteRegistration::new("/api/v1/admin/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 134
+    RouteRegistration::new("/api/v1/admin/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 135
+    RouteRegistration::new("/me/recommendations/manage", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 136
+    RouteRegistration::new("/me/recommendations/manage", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 137
+    RouteRegistration::new("/me/books/{id}/recommendations", "GET", "/me/", Prefix, Page, ProductArea::Recommendations, Read), // 138
+    RouteRegistration::new("/me/books/{id}/recommendations", "POST", "/me/", Prefix, Page, ProductArea::Recommendations, Write), // 139
+    RouteRegistration::new("/assets/recommendations.js", "GET", "/assets/", Exact, Static, System, Free), // 140
+    RouteRegistration::new("/api/v1/discovery/activate", "POST", "/api/v1/discovery/", Exact, Api, ProductArea::Recommendations, Write), // 141
+    RouteRegistration::new("/assets/organic_discovery.js", "GET", "/assets/", Exact, Static, System, Free), // 142
+    RouteRegistration::new("/mail", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 143
+    RouteRegistration::new("/mail/start/{recipient_user_id}", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 144
+    RouteRegistration::new("/mail/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 145
+    RouteRegistration::new("/mail/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 146
+    RouteRegistration::new("/mail/{id}/block", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 147
+    RouteRegistration::new("/api/v1/me/messages", "GET", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Read), // 148
+    RouteRegistration::new("/api/v1/me/messages", "POST", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Write), // 149
+    RouteRegistration::new("/assets/mail.js", "GET", "/assets/", Exact, Static, ProductArea::Mail, Free), // 150
+    RouteRegistration::new("/users/{display_name}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 151
+    RouteRegistration::new("/users/{target_user_id}/friend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 152
+    RouteRegistration::new("/users/{target_user_id}/unfriend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 153
+    RouteRegistration::new("/users/{target_user_id}/block", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 154
+    RouteRegistration::new("/notifications", "GET", "/notifications/", Exact, Page, Dashboard, Read), // 155
+    RouteRegistration::new("/notifications/{id}/read", "POST", "/notifications/", Prefix, Page, Dashboard, Write), // 156
+    RouteRegistration::new("/notifications/read-all", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 157
+    RouteRegistration::new("/notifications/preferences", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 158
+    RouteRegistration::new("/mail/groups", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 159
+    RouteRegistration::new("/mail/groups", "POST", "/mail/", Exact, Page, ProductArea::Mail, Write), // 160
+    RouteRegistration::new("/mail/groups/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 161
+    RouteRegistration::new("/mail/groups/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 162
+    RouteRegistration::new("/mail/groups/{id}/leave", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 163
+    RouteRegistration::new("/books/{id}/room", "GET", "/books/", Prefix, Page, ProductArea::Mail, Read), // 164
+    RouteRegistration::new("/books/{id}/room/join", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 165
+    RouteRegistration::new("/books/{id}/room/messages", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 166
+    RouteRegistration::new("/books/{id}/room/leave", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 167
+    RouteRegistration::new("/admin/mail", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 168
+    RouteRegistration::new("/admin/mail/users/{user_id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 169
+    RouteRegistration::new("/admin/mail/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 170
+    RouteRegistration::new("/mail/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 171
+    RouteRegistration::new("/mail/groups/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 172
+    RouteRegistration::new("/mail/groups/{id}/transfer", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 173
+    RouteRegistration::new("/me/books/{id}/preview", "GET", "/me/", Prefix, Page, ProductArea::Mail, Read), // 174
+    RouteRegistration::new("/mail/group-invitations", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 175
+    RouteRegistration::new("/mail/groups/{id}/invite", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 176
+    RouteRegistration::new("/mail/groups/{id}/invite", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 177
+    RouteRegistration::new("/mail/group-invitations/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 178
+    RouteRegistration::new("/mail/group-invitations/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 179
+    RouteRegistration::new("/mail/groups/{id}/invite/{invitation_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 180
+    RouteRegistration::new("/mail/groups/{id}/disband", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 181
+    RouteRegistration::new("/mail/group-transfers", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 182
+    RouteRegistration::new("/mail/group-transfers/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 183
+    RouteRegistration::new("/mail/group-transfers/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 184
+    RouteRegistration::new("/mail/groups/{id}/transfer/{offer_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 185
+    RouteRegistration::new("/admin/mail/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 186
+    RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 187
+    RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 188
+    RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 189
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

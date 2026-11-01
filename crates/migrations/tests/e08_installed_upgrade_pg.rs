@@ -9,8 +9,8 @@ use std::{borrow::Cow, collections::HashMap, env, error::Error, time::Duration};
 use tor_migrations::repositories::MIGRATOR;
 
 const E08_VERSIONS: [i64; 14] = [
-    202610310200,
-    202610310201,
+    202610310295,
+    202610310296,
     202610310300,
     202611010010,
     202611010020,

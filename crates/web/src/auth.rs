@@ -158,6 +158,7 @@ fn router_inner(
     security_retention::start(accounts.clone());
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
+    let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
@@ -365,12 +366,15 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    if let Some(cover_routes) = cover_routes {
+    let app = if let Some(cover_routes) = cover_routes {
         app.merge(cover_routes)
     } else {
         app
-    }
+    };
+    let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
+    crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
+
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
