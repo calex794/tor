@@ -178,6 +178,16 @@ def check(root: Path = ROOT) -> list[str]:
         for name in MONEY_FLAGS:
             if name not in values or values[name].get("default_enabled") is not False:
                 errors.append(f"{name}: must default disabled until release proof")
+        for name in ("recommendations_enabled", "recommendation_attribution_enabled",
+                     "organic_discovery_attribution_enabled"):
+            if values.get(name, {}).get("default_enabled") is not False:
+                errors.append(f"{name}: must default disabled until exact-head proof")
+        organic = values.get("organic_discovery_attribution_enabled", {})
+        if set(organic.get("requires", [])) != {
+                "recommendations_enabled", "recommendation_attribution_enabled"}:
+            errors.append("organic discovery must require both REC and attribution gates")
+        if "TOR_ORGANIC_ATTRIBUTION_ENABLED" not in organic.get("gate", ""):
+            errors.append("organic discovery flag must name its actual runtime environment gate")
         if values.get("recommendations_public_fallback_enabled", {}).get("default_enabled") is not True:
             errors.append("safe public recommendations fallback must default true")
         if "url_import" not in flags.get("forbidden_runtime_features", []):

@@ -92,6 +92,14 @@
       "requires": [
         "recommendations_enabled"
       ]
+    },
+    "organic_discovery_attribution_enabled": {
+      "default_enabled": false,
+      "gate": "Loop 02 / #387 opt-in search/catalog click, verified book-open and C reading; env TOR_ORGANIC_ATTRIBUTION_ENABLED",
+      "requires": [
+        "recommendations_enabled",
+        "recommendation_attribution_enabled"
+      ]
     }
   },
   "forbidden_runtime_features": [

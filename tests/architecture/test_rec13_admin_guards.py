@@ -3,6 +3,7 @@ import importlib.util
 import shutil
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -45,6 +46,26 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertNotIn("rec_general_audience_approvals", policy)
         self.assertNotIn("settings.reviewed", author)
         self.assertIn("!verified.administrator", (ROOT / "crates/web/src/recommendation_http/admin.rs").read_text())
+
+    def test_organic_consent_discloses_search_catalog_and_verified_reading(self):
+        page = (ROOT / "crates/web/src/recommendation_http/pages.rs").read_text()
+        self.assertIn("переходы из поиска и каталога", page)
+        self.assertIn("подтверждённое чтение", page)
+        self.assertIn("Текст поисковых запросов не сохраняется", page)
+        self.assertIn("Сбор по умолчанию выключен", page)
+
+    def test_organic_runtime_flag_is_declared_and_off_by_default(self):
+        contract = json.loads((ROOT / "docs/contracts/release-flags-v1.json").read_text())
+        flag = contract["flags"]["organic_discovery_attribution_enabled"]
+        self.assertIs(flag["default_enabled"], False)
+        self.assertEqual(set(flag["requires"]), {
+            "recommendations_enabled", "recommendation_attribution_enabled"
+        })
+        self.assertIn("TOR_ORGANIC_ATTRIBUTION_ENABLED", flag["gate"])
+        runtime = (ROOT / "crates/web/src/recommendation_http/mod.rs").read_text()
+        worker = (ROOT / "crates/web/src/recommendation_worker.rs").read_text()
+        self.assertIn("TOR_ORGANIC_ATTRIBUTION_ENABLED", runtime)
+        self.assertIn("TOR_ORGANIC_ATTRIBUTION_ENABLED", worker)
 
     def test_reader_control_does_not_accept_browser_actor(self):
         text=(ROOT/'crates/web/src/recommendation_http/api.rs').read_text()
