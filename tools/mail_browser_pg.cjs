@@ -327,19 +327,31 @@ module.exports = async (browser, base, out) => {
       assert.equal((await c.context.request.get(base + groupPath)).status(), 200,
         'other members retain access when someone exits');
 
-      // Ownership is transferred by a native POST. The former creator may then
-      // leave, while the new creator cannot orphan the group by leaving.
+      // A creator's POST only proposes. Ownership stays put until the
+      // addressed participant explicitly accepts from their own session.
       await a.page.goto(base + groupPath);
       await a.page.locator('#group-new-creator').selectOption(String(c.id));
-      await a.page.getByRole('button', { name: 'Передать управление' }).click();
-      await a.page.locator('#group-new-creator').waitFor({ state: 'detached', timeout: 15000 });
-      assert.equal(await a.page.locator('#group-new-creator').count(), 0,
-        'previous creator lost management rights');
+      await a.page.getByRole('button', { name: 'Предложить управление' }).click();
+      await a.page.waitForURL('**/mail/group-transfers');
+      assert((await a.page.locator('body').innerText()).includes('Отозвать предложение'));
+      await a.page.goto(base + groupPath);
+      assert.equal(await a.page.locator('#group-new-creator').count(), 1,
+        'creator retains ownership until an offer is accepted');
       await c.page.goto(base + groupPath);
+      assert.equal(await c.page.locator('form[action="' + groupPath + '/leave"]').count(), 1,
+        'proposed successor can still leave before accepting');
+      await c.page.goto(base + '/mail/group-transfers');
+      assert((await c.page.locator('body').innerText()).includes('Группа <встреча> ' + name));
+      await c.page.getByRole('button', { name: 'Принять управление' }).click();
+      await c.page.waitForURL('**/mail/groups/*');
+      assert.equal(new URL(c.page.url()).pathname, groupPath);
       assert.equal(await c.page.locator('#group-new-creator').count(), 1,
-        'new creator can manage group');
+        'successor becomes creator only after accepting');
       assert.equal(await c.page.locator('form[action="' + groupPath + '/leave"]').count(), 0,
         'new creator cannot leave without another transfer');
+      await a.page.reload();
+      assert.equal(await a.page.locator('#group-new-creator').count(), 0,
+        'previous creator relinquishes ownership after acceptance');
       await a.page.locator('form[action="' + groupPath + '/leave"]')
         .getByRole('button', { name: 'Выйти из группы' }).click();
       await a.page.waitForURL('**/mail/groups');

@@ -1,5 +1,6 @@
 //! E-08/S057 group mail browser pages, separate from direct mail and support.
 pub(super) mod invitations;
+pub(super) mod transfers;
 use super::{deny, session_user, AuthState};
 use crate::{
     auth_cookies::private_response,
@@ -110,7 +111,7 @@ fn render_index(
     csrf: &str,
 ) -> Html<String> {
     let mut body = String::from(
-        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1><p><a href="/mail/group-invitations">Приглашения</a></p></header><section class="me-section" aria-label="Групповые переписки">"#,
+        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1><p><a href="/mail/group-invitations">Приглашения</a> · <a href="/mail/group-transfers">Передача управления</a></p></header><section class="me-section" aria-label="Групповые переписки">"#,
     );
     if rows.is_empty() {
         body.push_str("<p>Групповых переписок пока нет.</p>");
@@ -182,7 +183,7 @@ fn render_detail(
     let id = group.id;
     let last = messages.last().map_or(0, |message| message.id);
     let mut body = format!(
-        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a></p></header><section class="me-section" id="group-messages" data-group-id="{id}" data-actor-id="{actor}" data-last-id="{last}" aria-label="Сообщения группы">"#,
+        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a> · <a href="/mail/group-transfers">Предложения управления</a></p></header><section class="me-section" id="group-messages" data-group-id="{id}" data-actor-id="{actor}" data-last-id="{last}" aria-label="Сообщения группы">"#,
         escape_html(&group.title)
     );
     write!(
@@ -258,9 +259,10 @@ fn render_detail(
             }
             write!(
                 body,
-                r#"</select><input type="hidden" name="csrf_token" value="{csrf}"><button class="ui-button ui-button--ghost" type="submit">Передать управление</button></form>"#
+                r#"</select><input type="hidden" name="csrf_token" value="{csrf}"><button class="ui-button ui-button--ghost" type="submit">Предложить управление</button></form>"#
             )
             .expect("creator transfer action");
+            body.push_str("<p>Роль перейдёт участнику только после его явного согласия. До принятия управление остаётся у вас.</p>");
         }
         if members.len() == 1 {
             write!(
@@ -269,7 +271,7 @@ fn render_detail(
             )
             .expect("group disband form");
         } else {
-            body.push_str("<p>Создатель не может выйти. Передайте управление действующему участнику либо дождитесь выхода остальных для удаления группы.</p>");
+            body.push_str("<p>Создатель не может выйти. Предложите управление другому участнику и получите его согласие либо дождитесь выхода остальных для удаления группы.</p>");
         }
     } else {
         write!(
@@ -471,10 +473,10 @@ pub(super) async fn transfer(
         return deny(status);
     }
     match group_store(&state)
-        .transfer_creator(actor, id, form.new_creator_id)
+        .propose_transfer(actor, id, form.new_creator_id)
         .await
     {
-        Ok(()) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
+        Ok(_) => private_response(Redirect::to("/mail/group-transfers"), &[]),
         Err(error) => deny(super::mail::status(error)),
     }
 }

@@ -1,3 +1,11 @@
+async fn consented_handoff(store: &PgGroupMail, owner: i64, group: i64, recipient: i64) {
+    let offer = store.propose_transfer(owner, group, recipient).await.unwrap();
+    assert!(store.get(owner, group).await.unwrap().is_creator);
+    assert!(!store.get(recipient, group).await.unwrap().is_creator);
+    assert_eq!(store.accept_transfer(recipient, offer).await, Ok(group));
+    assert_eq!(store.accept_transfer(recipient, offer).await, Err(MailError::NotFound));
+}
+
 /// E-08: losing the historical founder after an explicit transfer must
 /// not cascade-delete a group controlled by a different active participant.
 #[tokio::test]
@@ -13,10 +21,7 @@ async fn e_08_group_survives_founder_deletion_after_creator_transfer() {
 
     assert!(groups.get(founder, group_id).await.unwrap().is_creator);
     assert!(!groups.get(successor, group_id).await.unwrap().is_creator);
-    groups
-        .transfer_creator(founder, group_id, successor)
-        .await
-        .unwrap();
+    consented_handoff(&groups, founder, group_id, successor).await;
     groups.leave(founder, group_id).await.unwrap();
     assert!(groups.get(successor, group_id).await.unwrap().is_creator);
 
@@ -90,10 +95,7 @@ async fn e_08_group_creator_account_close_and_deletion_require_explicit_handoff(
     assert!(groups.get(founder, group_id).await.unwrap().is_creator);
     assert_eq!(groups.members(founder, group_id).await.unwrap().len(), 3);
 
-    groups
-        .transfer_creator(founder, group_id, successor)
-        .await
-        .unwrap();
+    consented_handoff(&groups, founder, group_id, successor).await;
     for sql in [
         "DELETE FROM users WHERE id=$1",
         "UPDATE users SET account_state='closed' WHERE id=$1",
@@ -116,7 +118,7 @@ async fn e_08_group_creator_account_close_and_deletion_require_explicit_handoff(
         .await
         .unwrap();
     assert_eq!(
-        groups.transfer_creator(successor, group_id, other).await,
+        groups.propose_transfer(successor, group_id, other).await,
         Err(MailError::NotFound)
     );
 
@@ -170,6 +172,104 @@ async fn e_08_group_disband_requires_sole_active_creator() {
     assert_eq!(remaining, 0);
     sqlx::query("UPDATE users SET account_state='closed' WHERE id=$1")
         .bind(creator)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
+}
+
+
+/// The recipient, never the sender, controls acceptance. A stale, revoked,
+/// declined or replayed proposal cannot change the creator role.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_creator_handoff_requires_consent_and_is_single_use() {
+    let (pool, users) = fixture().await;
+    let (owner, recipient, stranger) = (users[0], users[1], users[2]);
+    let groups = PgGroupMail::new(pool.clone());
+    let id = groups.create(owner, &[recipient], "Consented handoff").await.unwrap();
+    let first = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    assert!(groups.get(owner, id).await.unwrap().is_creator);
+    assert!(!groups.get(recipient, id).await.unwrap().is_creator);
+    assert_eq!(groups.leave(owner, id).await, Err(MailError::Conflict));
+    assert_eq!(
+        groups.propose_transfer(owner, id, recipient).await,
+        Err(MailError::Conflict)
+    );
+    assert_eq!(groups.accept_transfer(stranger, first).await, Err(MailError::NotFound));
+    assert_eq!(groups.decline_transfer(stranger, first).await, Err(MailError::NotFound));
+    assert_eq!(groups.revoke_transfer(stranger, id, first).await, Err(MailError::NotFound));
+
+    groups.decline_transfer(recipient, first).await.unwrap();
+    assert_eq!(groups.accept_transfer(recipient, first).await, Err(MailError::NotFound));
+    let second = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    assert!(second > first);
+    groups.revoke_transfer(owner, id, second).await.unwrap();
+    assert_eq!(groups.accept_transfer(recipient, second).await, Err(MailError::NotFound));
+    assert_eq!(groups.revoke_transfer(owner, id, second).await, Err(MailError::NotFound));
+
+    let third = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    let (a, b) = tokio::join!(
+        groups.accept_transfer(recipient, third),
+        groups.accept_transfer(recipient, third)
+    );
+    assert!(a.is_ok() != b.is_ok(), "only one acceptance can succeed");
+    assert!(groups.get(recipient, id).await.unwrap().is_creator);
+    assert!(!groups.get(owner, id).await.unwrap().is_creator);
+    assert_eq!(groups.accept_transfer(recipient, third).await, Err(MailError::NotFound));
+    assert_eq!(groups.propose_transfer(owner, id, stranger).await, Err(MailError::NotFound));
+    assert_eq!(groups.revoke_transfer(owner, id, third).await, Err(MailError::NotFound));
+
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
+}
+
+/// A member who leaves or an offer that expires cannot be made creator.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_creator_handoff_rechecks_membership_and_expiration() {
+    let (pool, users) = fixture().await;
+    let (owner, recipient) = (users[0], users[1]);
+    let groups = PgGroupMail::new(pool.clone());
+    let id = groups.create(owner, &[recipient], "Stale offers").await.unwrap();
+    let first = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    groups.leave(recipient, id).await.unwrap();
+    assert_eq!(groups.accept_transfer(recipient, first).await, Err(MailError::NotFound));
+    groups.revoke_transfer(owner, id, first).await.unwrap();
+
+    // Recipient explicitly rejoins through a fresh membership invitation.
+    let invite = groups.invite(owner, id, recipient).await.unwrap();
+    groups.accept_invite(recipient, invite).await.unwrap();
+    let second = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    sqlx::query(
+        "UPDATE social_group_creator_transfers
+         SET created_at=clock_timestamp()-interval '10 days',
+             expires_at=clock_timestamp()-interval '3 days'
+         WHERE id=$1",
+    )
+    .bind(second)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(groups.accept_transfer(recipient, second).await, Err(MailError::NotFound));
+    let third = groups.propose_transfer(owner, id, recipient).await.unwrap();
+    assert!(third > second);
+    let expired: String = sqlx::query_scalar(
+        "SELECT state FROM social_group_creator_transfers WHERE id=$1",
+    )
+    .bind(second)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(expired, "expired");
+    groups.revoke_transfer(owner, id, third).await.unwrap();
+    assert!(groups.get(owner, id).await.unwrap().is_creator);
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(id)
         .execute(&pool)
         .await
         .unwrap();

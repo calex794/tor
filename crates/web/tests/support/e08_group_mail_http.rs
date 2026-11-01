@@ -237,7 +237,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(own_page.contains(r#"<script defer src="/assets/mail.js"></script>"#));
     assert!(own_page.contains("Team &lt;script&gt;"));
     assert!(!own_page.contains("Team <script>"));
-    assert!(own_page.contains("Создатель не может выйти. Передайте управление"));
+    assert!(own_page.contains("Создатель группы пока не может выйти"));
     assert!(own_page.contains("Участники (3)"));
     assert!(own_page.contains(&format!("action=\"{path}/transfer\"")));
     assert!(own_page.contains("Group reader 1"));
@@ -422,7 +422,8 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         StatusCode::OK
     );
 
-    // Only the current active creator can transfer to another active member.
+    // Only the creator can propose management. The roles stay unchanged until
+    // the named recipient explicitly accepts; old offers are single-use.
     let transfer_path = format!("{path}/transfer");
     let transfer_to = |id: i64, token: &str| format!("new_creator_id={id}&csrf_token={token}");
     assert_eq!(
@@ -493,14 +494,131 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[2], &tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let first_offer: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM social_group_creator_transfers WHERE group_id={group_id} AND state='pending'",
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[2], &tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let owner_before = text(call(&app, "GET", &path, &cookies[0], "", &[]).await).await;
+    assert!(owner_before.contains("Предложить управление"));
+    let recipient_before = text(call(&app, "GET", &path, &cookies[2], "", &[]).await).await;
+    assert!(recipient_before.contains(&format!("action=\"{path}/leave\"")));
+    assert!(!recipient_before.contains(&format!("action=\"{path}/transfer\"")));
+    assert_eq!(
         pg(
             &url,
             &format!(
-                "SELECT count(*) FROM social_group_members WHERE group_id={group_id} AND role='creator' AND status='active'"
+                "SELECT user_id FROM social_group_members WHERE group_id={group_id} AND role='creator' AND status='active'"
             ),
         )
         .await,
-        "1"
+        users[0].to_string(),
+    );
+
+    let transfers = "/mail/group-transfers";
+    let incoming = text(call(&app, "GET", transfers, &cookies[2], "", &[]).await).await;
+    assert!(incoming.contains("Принять управление"));
+    assert!(incoming.contains("Отказаться"));
+    assert!(incoming.contains("Team &lt;script&gt;"));
+    assert!(!incoming.contains("Team <script>"));
+    let outbox = text(call(&app, "GET", transfers, &cookies[0], "", &[]).await).await;
+    assert!(outbox.contains("Отозвать предложение"));
+    let accept = |id: i64| format!("/mail/group-transfers/{id}/accept");
+    let decline = |id: i64| format!("/mail/group-transfers/{id}/decline");
+    let revoke = |id: i64| format!("{path}/transfer/{id}/revoke");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &accept(first_offer),
+            &cookies[0],
+            &format!("csrf_token={}", tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &accept(first_offer),
+            &cookies[2],
+            "csrf_token=invalid",
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &revoke(first_offer),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &decline(first_offer),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &accept(first_offer),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
     );
     assert_eq!(
         call(
@@ -514,6 +632,90 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .await
         .status(),
         StatusCode::SEE_OTHER
+    );
+    let second_offer: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM social_group_creator_transfers WHERE group_id={group_id} AND state='pending'",
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert!(second_offer > first_offer);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &revoke(second_offer),
+            &cookies[0],
+            &format!("csrf_token={}", tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &accept(second_offer),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &transfer_path,
+            &cookies[0],
+            &transfer_to(users[2], &tokens[0]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let third_offer: i64 = pg(
+        &url,
+        &format!(
+            "SELECT id FROM social_group_creator_transfers WHERE group_id={group_id} AND state='pending'",
+        ),
+    )
+    .await
+    .parse()
+    .unwrap();
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &accept(third_offer),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &accept(third_offer),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
     );
     let previous_creator = text(call(&app, "GET", &path, &cookies[0], "", &[]).await).await;
     assert!(previous_creator.contains("Выйти из группы"));

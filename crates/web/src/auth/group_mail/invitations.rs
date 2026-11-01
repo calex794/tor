@@ -22,6 +22,7 @@ pub(crate) fn router() -> Router<AuthState> {
             "/mail/groups/{id}/invite/{invitation_id}/revoke",
             post(revoke),
         )
+        .merge(super::transfers::router())
 }
 
 async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<i64, StatusCode> {

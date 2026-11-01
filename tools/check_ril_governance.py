@@ -238,7 +238,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "group_mail::poll": {"messages", "messages_after"},
             "group_mail::send": {"send"},
             "group_mail::leave": {"leave"},
-            "group_mail::transfer": {"transfer_creator"},
+            "group_mail::transfer": {"propose_transfer"},
             "group_mail::disband": {"disband"},
             "mail_book_previews::page": {"private_mail_title_for_member"},
             "book_rooms::page": {"overview"},
@@ -247,6 +247,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
+            proof = {
+                "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
+                "accept": {"accept_transfer"}, "decline": {"decline_transfer"},
+                "revoke": {"revoke_transfer"},
+            }.get(entry["handler"], proof)
         if entry["source"] == "crates/web/src/auth/group_mail/invitations.rs":
             proof = {
                 "inbox": {"pending_for"}, "invite_page": {"pending_sent"},
