@@ -178,6 +178,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/mail/group-transfers/{id}/accept"), "POST") => Some(165),
         (Some("/mail/group-transfers/{id}/decline"), "POST") => Some(166),
         (Some("/mail/groups/{id}/transfer/{offer_id}/revoke"), "POST") => Some(167),
+        (Some("/admin/mail/groups"), "GET") => Some(168),
+        (Some("/admin/mail/groups/{id}"), "GET") => Some(169),
+        (Some("/admin/mail/book-rooms"), "GET") => Some(170),
+        (Some("/admin/mail/book-rooms/{id}"), "GET") => Some(171),
         _ => None,
     };
     index

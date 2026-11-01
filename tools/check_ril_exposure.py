@@ -25,6 +25,10 @@ AUDITED_ADMIN_MAIL = {
     ("GET", "/admin/mail", "admin_mail::index", "admin_mail"),
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user", "admin_mail"),
     ("GET", "/admin/mail/{id}", "admin_mail::conversation", "admin_mail"),
+    ("GET", "/admin/mail/groups", "admin_mail::groups", "admin_mail"),
+    ("GET", "/admin/mail/groups/{id}", "admin_mail::group", "admin_mail"),
+    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms", "admin_mail"),
+    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room", "admin_mail"),
 }
 PRIVATE_PROBES = (
     ("/me", {301, 302, 303, 307, 308, 401, 403, 404}),
@@ -78,7 +82,7 @@ def check_repository(root: Path = ROOT) -> list[str]:
         policy = row["policy"]
         if template.startswith(("/admin", "/internal")) and policy != "deny":
             key = (row["method"], template, row["handler"], policy)
-            if row["source"] != "crates/web/src/auth.rs" or key not in AUDITED_ADMIN_MAIL:
+            if row["source"] != "crates/web/src/auth/admin_mail_routes.rs" or key not in AUDITED_ADMIN_MAIL:
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")

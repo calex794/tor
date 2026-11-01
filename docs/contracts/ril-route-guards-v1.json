@@ -1083,21 +1083,21 @@
     {
       "method": "GET",
       "template": "/admin/mail",
-      "source": "crates/web/src/auth.rs",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
       "handler": "admin_mail::index",
       "policy": "admin_mail"
     },
     {
       "method": "GET",
       "template": "/admin/mail/users/{user_id}",
-      "source": "crates/web/src/auth.rs",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
       "handler": "admin_mail::user",
       "policy": "admin_mail"
     },
     {
       "method": "GET",
       "template": "/admin/mail/{id}",
-      "source": "crates/web/src/auth.rs",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
       "handler": "admin_mail::conversation",
       "policy": "admin_mail"
     },
@@ -1191,6 +1191,34 @@
       "source": "crates/web/src/auth/group_mail/transfers.rs",
       "handler": "revoke",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/groups",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::groups",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/groups/{id}",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::group",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/book-rooms",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::book_rooms",
+      "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/mail/book-rooms/{id}",
+      "source": "crates/web/src/auth/admin_mail_routes.rs",
+      "handler": "admin_mail::book_room",
+      "policy": "admin_mail"
     }
   ]
 }

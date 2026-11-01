@@ -22,6 +22,10 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
     ("GET", "/admin/mail/{id}", "admin_mail::conversation"): "messages",
+    ("GET", "/admin/mail/groups", "admin_mail::groups"): "groups",
+    ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
+    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
+    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
 }
 SCOPE_CALLS = {
     "list_books", "continue_reading", "free_state", "save_free",
@@ -133,6 +137,10 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/admin_mail_routes.rs":
+        return (source.parent / "admin_mail.rs"
+                if module == "admin_mail"
+                else root / "__unsupported_admin_mail_handler__")
     if source == root / "crates/web/src/auth/referral_routes.rs":
         # Only these three sibling handlers may be bound through the F-09 router.
         allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
@@ -181,7 +189,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: protected route downgraded to public/entry")
     admin_key = (entry["method"], entry["template"], entry["handler"])
     audited_admin = (policy == "admin_mail"
-                     and entry["source"] == "crates/web/src/auth.rs"
+                     and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                      and admin_key in ADMIN_MAIL_HANDLERS)
     if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not audited_admin:
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")

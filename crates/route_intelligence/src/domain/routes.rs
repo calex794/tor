@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 168] = [
+const ROUTES: [RouteRegistration; 172] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -178,6 +178,10 @@ const ROUTES: [RouteRegistration; 168] = [
     RouteRegistration::new("/mail/group-transfers/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 165
     RouteRegistration::new("/mail/group-transfers/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 166
     RouteRegistration::new("/mail/groups/{id}/transfer/{offer_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 167
+    RouteRegistration::new("/admin/mail/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 168
+    RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 169
+    RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 170
+    RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 171
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
