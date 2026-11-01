@@ -498,3 +498,16 @@ Alias extraction refuses Unicode-to-ASCII case-folding tricks (such as Kelvin si
 ## 01.11.2026 - live group mail polling (Draft)
 
 Added authenticated GET /mail/groups/{id}/messages with ascending after_id and bounded before_id windows. Membership row locks deny departed and nonmember users before returning text/sender names; GET does not send or notify. IDs remain decimal strings to preserve PostgreSQL BIGINT precision. Group detail (not group index) permits only same-origin /assets/mail.js in CSP; native HTML send and history remain usable without JavaScript. The shared mail asset now updates group messages without navigation and prepends older messages using textContent (never HTML injection). Disposable HTTP tests cover guest/nonmember/revoked access and cursors; Chromium opens the recipient group page before send and checks the message arrives without reload. No migrations, no main or production changes. Exact-head CI pending.
+
+## 01.11.2026 — Group polling CSP regression
+
+The new E-08 group-page polling script uses same-origin `fetch()` to
+`/mail/groups/{id}/messages`. The initial detail CSP allowed
+`script-src 'self'` but omitted `connect-src`, so its
+`default-src 'none'` blocked every browser fetch (real Chromium smoke
+failed on a recipient with no incoming group message). Only active group
+detail pages now permit `connect-src 'self'`; the group index retains
+`script-src 'none'`. A disposable HTTP regression checks both the
+CSP and the actual script link. This is an actual browser transport bug,
+not a schema, payment, or membership ACL change. Exact SHA PostgreSQL
+and Chromium CI must still pass before considering this fixed.

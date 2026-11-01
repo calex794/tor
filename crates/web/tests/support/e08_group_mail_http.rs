@@ -223,7 +223,18 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .status(),
         StatusCode::NOT_FOUND
     );
-    let own_page = text(call(&app, "GET", &path, &cookies[0], "", &[]).await).await;
+    // Group live polling uses same-origin fetch() and must be permitted by
+    // connect-src. The index remains script-free and cannot make connections.
+    let own_response = call(&app, "GET", &path, &cookies[0], "", &[]).await;
+    assert_eq!(own_response.status(), StatusCode::OK);
+    let group_csp = own_response.headers()[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .unwrap();
+    assert!(group_csp.contains("script-src 'self'"));
+    assert!(group_csp.contains("connect-src 'self'"));
+    assert!(group_csp.contains("default-src 'none'"));
+    let own_page = text(own_response).await;
+    assert!(own_page.contains(r#"<script defer src="/assets/mail.js"></script>"#));
     assert!(own_page.contains("Team &lt;script&gt;"));
     assert!(!own_page.contains("Team <script>"));
     assert!(own_page.contains("Создатель группы пока не может выйти"));

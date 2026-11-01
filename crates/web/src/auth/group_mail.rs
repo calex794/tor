@@ -43,7 +43,7 @@ fn shell(body: &str) -> Html<String> {
 
 fn secure(response: &mut Response, allow_mail_script: bool) {
     let policy = if allow_mail_script {
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     } else {
         "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     };
