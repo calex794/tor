@@ -343,6 +343,8 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let follower_updates =
         html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
     assert!(follower_updates.contains("Demand fulfilled"));
+    assert!(follower_updates.contains(&format!("href=\"/read/{released}\"")));
+    assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
     assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
     assert!(follower_updates.contains("Отметить прочитанной"));
     // A delivered on-site release must support an actor-scoped read receipt.
@@ -433,18 +435,17 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "0",
         "manual unread state cannot create a second release"
     );
-    let returned = html(
-        call(
-            &app,
-            "GET",
-            &format!("/reader/{released}"),
-            &reader_cookie,
-            ORIGIN,
-            "",
-        )
-        .await,
+    let returned_response = call(
+        &app,
+        "GET",
+        &format!("/read/{released}"),
+        &reader_cookie,
+        ORIGIN,
+        "",
     )
     .await;
+    assert_eq!(returned_response.status(), StatusCode::OK);
+    let returned = html(returned_response).await;
     assert!(returned.contains("C15 reader return"));
     assert_eq!(
         pg(
