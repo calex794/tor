@@ -11,6 +11,8 @@ mod layer_member_delete;
 mod layer_offer;
 #[path = "layers_pg/layer_picker.rs"]
 mod layer_picker;
+#[path = "layers_pg/layer_wallet_compat.rs"]
+mod layer_wallet_compat;
 #[path = "layers_pg/layer_wallet_evidence.rs"]
 mod layer_wallet_evidence;
 use sqlx::PgPool;
