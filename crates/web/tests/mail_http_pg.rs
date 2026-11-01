@@ -26,12 +26,12 @@ mod book_room_http;
 mod group_mail_http;
 #[path = "support/e08_mail_book_aliases.rs"]
 mod mail_book_aliases;
-#[path = "support/e08_mail_source_poll.rs"]
-mod source_poll;
 #[path = "support/e08_notification_open.rs"]
 mod notification_open;
 #[path = "support/e08_notification_preferences.rs"]
 mod notification_preferences;
+#[path = "support/e08_mail_source_poll.rs"]
+mod source_poll;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(

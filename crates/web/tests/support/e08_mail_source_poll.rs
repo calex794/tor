@@ -1,7 +1,10 @@
 //! Source-compatible GET /mail/{id}/messages: actor scope, cursors, safe JSON.
 //! Called by the existing disposable /tor_ci mail HTTP scenario.
 use super::{call, text};
-use axum::{http::{header, StatusCode}, Router};
+use axum::{
+    http::{header, StatusCode},
+    Router,
+};
 
 pub(super) async fn verify(app: &Router, id: i64, cookies: &[String]) {
     let path = format!("/mail/{id}/messages");
@@ -10,9 +13,7 @@ pub(super) async fn verify(app: &Router, id: i64, cookies: &[String]) {
         StatusCode::UNAUTHORIZED,
     );
     assert_eq!(
-        call(app, "GET", &path, &cookies[2], "", &[])
-            .await
-            .status(),
+        call(app, "GET", &path, &cookies[2], "", &[]).await.status(),
         StatusCode::NOT_FOUND,
         "unrelated user must not discover a private conversation",
     );
@@ -58,7 +59,10 @@ pub(super) async fn verify(app: &Router, id: i64, cookies: &[String]) {
     let older = call(
         app,
         "GET",
-        &format!("{path}?before_id={}&limit=50", id_from_string(message_id) + 1),
+        &format!(
+            "{path}?before_id={}&limit=50",
+            id_from_string(message_id) + 1
+        ),
         &cookies[0],
         "",
         &[],
