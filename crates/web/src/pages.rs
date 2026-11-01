@@ -412,10 +412,16 @@ pub fn reader_with_login_link(
             "<!--CHAPTER_CONTENT-->",
             &tor_reading::domain::renderer::render(&chapter.body_markdown),
         );
-    layout(
+    let seo = seo_head::disabled_chapter_head(
+        &chapter.book_title,
+        &chapter.chapter_title,
+        chapter.version_no,
+    );
+    layout_with_seo(
         &chapter.chapter_title,
         "Опубликованная бесплатная глава.",
         &html,
+        &seo,
     )
 }
 

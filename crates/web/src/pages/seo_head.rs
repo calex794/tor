@@ -98,9 +98,45 @@ fn render_book_head(
     html
 }
 
+/// SEO-05a: the anonymous public reader is already authorized by C/B,
+/// but no indexed publication owner/origin has been verified for chapters.
+pub(super) fn disabled_chapter_head(
+    book_title: &str,
+    chapter_title: &str,
+    version_no: i32,
+) -> String {
+    let book = escape_html(&compact(book_title, 120));
+    let title = escape_html(&compact(chapter_title, 180));
+    format!(
+        "<meta name=\"robots\" content=\"noindex,nofollow\">\n\
+         <meta property=\"og:type\" content=\"article\">\n\
+         <meta property=\"og:title\" content=\"{title}\">\n\
+         <meta property=\"og:description\" content=\"Бесплатная глава книги «{book}». Версия {version_no}.\">\n\
+         <meta name=\"twitter:card\" content=\"summary\">"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seo_05_free_chapter_metadata_is_safe_and_never_indexable() {
+        let html = disabled_chapter_head(
+            "<script>Книга</script>",
+            "\" onload=\"evil",
+            2,
+        );
+        assert!(html.contains("name=\"robots\" content=\"noindex,nofollow\""));
+        assert!(html.contains("property=\"og:type\" content=\"article\""));
+        assert!(html.contains("Версия 2"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&quot;"));
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("rel=\"canonical\""));
+    }
+
+
 
     fn public_decision(id: u64) -> SeoDecision {
         SeoPolicy::new(SeoSite::Pandaolate, SeoMode::Public).decide(SeoPage::Book {
