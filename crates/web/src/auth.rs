@@ -29,8 +29,8 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences,
-    PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
+    PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -362,7 +362,9 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = cover_routes.into_iter().fold(app, |app, cover| app.merge(cover));
+    let app = cover_routes
+        .into_iter()
+        .fold(app, |app, cover| app.merge(cover));
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
