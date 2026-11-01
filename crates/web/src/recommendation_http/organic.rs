@@ -53,7 +53,11 @@ pub(super) async fn activate(
         Ok(identity) => identity,
         Err(status) => return deny(status),
     };
-    match state.store.activate_organic(actor, &session, &body.ticket).await {
+    match state
+        .store
+        .activate_organic(actor, &session, &body.ticket)
+        .await
+    {
         Ok(()) => private_response(StatusCode::NO_CONTENT, &[]),
         Err(error) => api::error(error),
     }
@@ -63,7 +67,10 @@ pub(super) async fn activate(
 pub(super) async fn script() -> Response {
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "public, max-age=300"),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],

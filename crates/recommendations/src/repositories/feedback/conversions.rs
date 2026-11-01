@@ -125,23 +125,24 @@ impl PgRecommendations {
                             super::organic::mark_dirty(&mut tx, &touch).await?;
                         }
                     } else {
-                    let assignment: Option<String>=sqlx::query_scalar(
-                        "SELECT a.id::text FROM rec_assignments a JOIN rec_verified_read_events_v2 v ON v.event_id=$1::uuid
+                        let assignment: Option<String>=sqlx::query_scalar(
+                            "SELECT a.id::text FROM rec_assignments a JOIN rec_verified_read_events_v2 v ON v.event_id=$1::uuid
                          WHERE a.subject_id=$2::uuid AND a.book_id=v.book_id AND a.clicked_at<=v.occurred_at
-                           AND a.clicked_at>=v.occurred_at-make_interval(days=>$3::int)
+                               AND a.clicked_at>=v.occurred_at-make_interval(days=>$3::int)
                          ORDER BY a.clicked_at DESC,a.id ASC LIMIT 1 FOR UPDATE OF a")
-                        .bind(event).bind(&subject).bind(days).fetch_optional(&mut *tx).await?;
-                    if let Some(assignment) = assignment {
-                        let inserted=sqlx::query("INSERT INTO rec_first_conversions(subject_id,book_id,kind,assignment_id,source_event_id,occurred_at) SELECT $1::uuid,book_id,kind,$2::uuid,event_id,occurred_at FROM rec_verified_read_events_v2 WHERE event_id=$3::uuid ON CONFLICT DO NOTHING")
-                            .bind(&subject).bind(&assignment).bind(event).execute(&mut *tx).await?;
-                        if inserted.rows_affected() == 1 {
-                            sqlx::query("UPDATE rec_assignments a SET started_at=CASE WHEN v.kind='chapter_started' THEN v.occurred_at ELSE a.started_at END,completed_at=CASE WHEN v.kind='chapter_finished' THEN v.occurred_at ELSE a.completed_at END FROM rec_verified_read_events_v2 v WHERE a.id=$1::uuid AND v.event_id=$2::uuid")
-                                .bind(&assignment).bind(event).execute(&mut *tx).await?;
-                            sqlx::query("INSERT INTO rec_attribution_events(assignment_id,kind,source_event_id,occurred_at,trust) SELECT $1::uuid,kind,event_id,occurred_at,'domain_committed' FROM rec_verified_read_events_v2 WHERE event_id=$2::uuid ON CONFLICT DO NOTHING")
-                                .bind(&assignment).bind(event).execute(&mut *tx).await?;
-                            dirty(&mut tx, &assignment).await?;
+                            .bind(event).bind(&subject).bind(days).fetch_optional(&mut *tx).await?;
+                        if let Some(assignment) = assignment {
+                            let inserted=sqlx::query("INSERT INTO rec_first_conversions(subject_id,book_id,kind,assignment_id,source_event_id,occurred_at) SELECT $1::uuid,book_id,kind,$2::uuid,event_id,occurred_at FROM rec_verified_read_events_v2 WHERE event_id=$3::uuid ON CONFLICT DO NOTHING")
+                                .bind(&subject).bind(&assignment).bind(event).execute(&mut *tx).await?;
+                            if inserted.rows_affected() == 1 {
+                                sqlx::query("UPDATE rec_assignments a SET started_at=CASE WHEN v.kind='chapter_started' THEN v.occurred_at ELSE a.started_at END,completed_at=CASE WHEN v.kind='chapter_finished' THEN v.occurred_at ELSE a.completed_at END FROM rec_verified_read_events_v2 v WHERE a.id=$1::uuid AND v.event_id=$2::uuid")
+                                    .bind(&assignment).bind(event).execute(&mut *tx).await?;
+                                sqlx::query("INSERT INTO rec_attribution_events(assignment_id,kind,source_event_id,occurred_at,trust) SELECT $1::uuid,kind,event_id,occurred_at,'domain_committed' FROM rec_verified_read_events_v2 WHERE event_id=$2::uuid ON CONFLICT DO NOTHING")
+                                    .bind(&assignment).bind(event).execute(&mut *tx).await?;
+                                dirty(&mut tx, &assignment).await?;
+                            }
                         }
-                    }                    }
+                    }
 
                 }
             }

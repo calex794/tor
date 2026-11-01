@@ -179,14 +179,15 @@ pub(super) async fn append(State(state): State<Runtime>, request: Request, next:
         if let (Some((actor, digest)), Some(book)) = (identity, seed) {
             let _ = state.store.record_book_open(actor, &digest, book).await;
             if state.organic {
-                let _ = state.store.record_organic_book_open(actor, &digest, book).await;
+                let _ = state
+                    .store
+                    .record_organic_book_open(actor, &digest, book)
+                    .await;
             }
         }
     }
-    let organic_eligible = state.collection
-        && state.organic
-        && surface == Surface::Catalog
-        && identity.is_some();
+    let organic_eligible =
+        state.collection && state.organic && surface == Surface::Catalog && identity.is_some();
     let feed = api::load(&state, identity, surface, seed, 10)
         .await
         .ok()
@@ -287,7 +288,10 @@ mod organic_catalog_tests {
         assert_eq!(organic_source("sort=newest&page=2"), OrganicSource::Catalog);
         assert_eq!(organic_source("q="), OrganicSource::Catalog);
         assert_eq!(organic_source("q=magic"), OrganicSource::Search);
-        assert_eq!(organic_source("genre=fantasy&sort=oldest"), OrganicSource::Search);
+        assert_eq!(
+            organic_source("genre=fantasy&sort=oldest"),
+            OrganicSource::Search
+        );
         assert_eq!(organic_source("tag=system"), OrganicSource::Search);
     }
 }

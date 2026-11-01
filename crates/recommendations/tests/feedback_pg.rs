@@ -572,7 +572,9 @@ async fn rec13_preference_epoch_survives_ttl_erasure() {
 async fn organic_search_tickets_need_consent_session_and_real_public_open() {
     let (pool, store, actor, book) = fixture("organic-session").await;
     assert_eq!(
-        store.issue_organic_tickets(actor, &[7; 32], OrganicSource::Search, &[book]).await,
+        store
+            .issue_organic_tickets(actor, &[7; 32], OrganicSource::Search, &[book])
+            .await,
         Err(FeedbackError::Forbidden),
     );
     enable(&store, actor).await;
@@ -586,7 +588,10 @@ async fn organic_search_tickets_need_consent_session_and_real_public_open() {
         store.activate_organic(actor, &[8; 32], ticket).await,
         Err(FeedbackError::NotFound),
     );
-    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    store
+        .record_organic_book_open(actor, &[7; 32], book)
+        .await
+        .unwrap();
     let opened_before: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM organic_discovery_touches WHERE book_id=$1 AND book_opened_at IS NOT NULL",
     )
@@ -594,10 +599,22 @@ async fn organic_search_tickets_need_consent_session_and_real_public_open() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(opened_before, 0, "plain GET cannot count as opened organic click");
-    store.activate_organic(actor, &[7; 32], ticket).await.unwrap();
-    store.activate_organic(actor, &[7; 32], ticket).await.unwrap();
-    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    assert_eq!(
+        opened_before, 0,
+        "plain GET cannot count as opened organic click"
+    );
+    store
+        .activate_organic(actor, &[7; 32], ticket)
+        .await
+        .unwrap();
+    store
+        .activate_organic(actor, &[7; 32], ticket)
+        .await
+        .unwrap();
+    store
+        .record_organic_book_open(actor, &[7; 32], book)
+        .await
+        .unwrap();
     let event = canonical_start(&pool, actor, book).await;
     assert!(store.accept_read_event(&event).await.unwrap());
     assert!(!store.accept_read_event(&event).await.unwrap());
@@ -619,9 +636,23 @@ async fn organic_search_tickets_need_consent_session_and_real_public_open() {
     assert_eq!(other, 0);
     store.refresh_organic_quality().await.unwrap();
     let rows = store.organic_quality(7).await.unwrap();
-    let quality = rows.iter().find(|r| r.book_id == book.to_string() && r.source == "search").unwrap();
-    assert_eq!((quality.issued, quality.clicks, quality.book_opens, quality.starts), (1, 1, 1, 1));
-    store.set_consent(actor, false, 1, &new_ticket().unwrap()).await.unwrap();
+    let quality = rows
+        .iter()
+        .find(|r| r.book_id == book.to_string() && r.source == "search")
+        .unwrap();
+    assert_eq!(
+        (
+            quality.issued,
+            quality.clicks,
+            quality.book_opens,
+            quality.starts
+        ),
+        (1, 1, 1, 1)
+    );
+    store
+        .set_consent(actor, false, 1, &new_ticket().unwrap())
+        .await
+        .unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM organic_discovery_touches WHERE book_id=$1",
@@ -661,8 +692,14 @@ async fn organic_and_recommendation_compete_for_one_c_event() {
         .issue_organic_tickets(actor, &[7; 32], OrganicSource::Catalog, &[book])
         .await
         .unwrap();
-    store.activate_organic(actor, &[7; 32], &organic[0].1).await.unwrap();
-    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    store
+        .activate_organic(actor, &[7; 32], &organic[0].1)
+        .await
+        .unwrap();
+    store
+        .record_organic_book_open(actor, &[7; 32], book)
+        .await
+        .unwrap();
     let first = canonical_start(&pool, actor, book).await;
     assert!(store.accept_read_event(&first).await.unwrap());
     let organic_count: i64 = sqlx::query_scalar(
@@ -691,8 +728,14 @@ async fn a_later_recommendation_click_wins_over_organic() {
         .issue_organic_tickets(actor, &[7; 32], OrganicSource::Search, &[book])
         .await
         .unwrap();
-    store.activate_organic(actor, &[7; 32], &organic[0].1).await.unwrap();
-    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    store
+        .activate_organic(actor, &[7; 32], &organic[0].1)
+        .await
+        .unwrap();
+    store
+        .record_organic_book_open(actor, &[7; 32], book)
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE organic_discovery_touches SET created_at=now()-interval '20 seconds',clicked_at=now()-interval '10 seconds'
          WHERE book_id=$1 AND subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=$2)",
