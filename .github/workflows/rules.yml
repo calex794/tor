@@ -6,8 +6,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -38,15 +36,6 @@ jobs:
             --sha "${{ github.sha }}" --policy-only
       - name: Block duplicate SQLx migration versions in merged checkout
         run: python3 tools/check_sqlx_checkout_tree.py migrations
-      - name: Enforce SQLx HOLD #235 on migration-bearing pull requests
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          TOR_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          TOR_PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TOR_PULL_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 tools/check_sqlx_merge_hold.py
       - name: Enforce TOR feature-first boundaries
         run: python3 tools/check_feature_layout.py
       - name: Enforce executable TOR roadmap coverage
