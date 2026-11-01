@@ -314,6 +314,78 @@ async function inspect(page, viewport, name) {
         assert(await reader.getByText('PUBLIC B06 new').isVisible(),
           viewport + ': resumed reader text differs from author publication');
         await inspect(reader, viewport, 'cross-user-resumed');
+        
+        // E-12/S047-S048: a real reader selection becomes a version-pinned
+        // issue. The author edits the chapter separately and closes the task.
+        const issueReader = await reader.goto(base + '/read/' + chapterId);
+        assert(issueReader && issueReader.status() === 200,
+          viewport + ': E-12 reader is not available');
+        assert(await reader.locator('.reader-issues form').isVisible(),
+          viewport + ': E-12 correction form is missing');
+        const selectedQuote = await reader.evaluate(() => {
+          const span = Array.from(document.querySelectorAll(
+            '.reader-private__content [data-md-start]')).find(
+              element => element.textContent.includes('PUBLIC'));
+          if (!span || !span.firstChild || span.firstChild.nodeType !== Node.TEXT_NODE) return false;
+          const offset = span.firstChild.textContent.indexOf('PUBLIC');
+          if (offset < 0) return false;
+          const range = document.createRange();
+          range.setStart(span.firstChild, offset);
+          range.setEnd(span.firstChild, offset + 6);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event('selectionchange'));
+          return true;
+        });
+        assert(selectedQuote && await reader.locator('#issue-quote').inputValue() === 'PUBLIC',
+          viewport + ': E-12 exact source quotation was not selected');
+        assert(await reader.locator('#issue-block').inputValue() === '1',
+          viewport + ': E-12 selection lost its block');
+        await reader.getByLabel('Предложение').fill('PUBLIC исправлено');
+        await reader.getByRole('button', { name: 'Отправить автору' }).click();
+        await reader.waitForURL(base + '/read/' + chapterId + '?issue=sent');
+
+        const issueQueue = base + '/me/books/' + bookId + '/issues';
+        const forbiddenReaderQueue = await reader.goto(issueQueue);
+        assert(forbiddenReaderQueue && forbiddenReaderQueue.status() === 404,
+          viewport + ': E-12 reader gained access to someone else\'s issue queue');
+        const authorQueue = await page.goto(issueQueue);
+        assert(authorQueue && authorQueue.status() === 200,
+          viewport + ': E-12 owner cannot open the issue queue');
+        assert(await page.locator('.auth-card blockquote').getByText('PUBLIC', { exact: true }).isVisible(),
+          viewport + ': E-12 author cannot see the verified quote');
+        await inspect(page, viewport, 'text-issue-author-queue');
+
+        const editIssueChapter = '/me/books/' + bookId + '/chapters/' + chapterId + '/edit';
+        const issueEditorLink = page.locator('a[href="' + editIssueChapter + '"]');
+        assert(await issueEditorLink.isVisible(),
+          viewport + ': E-12 task does not lead to the correct chapter editor');
+        await issueEditorLink.click();
+        await page.waitForURL(base + editIssueChapter);
+        await page.getByLabel('Текст главы').fill('PUBLIC B06 corrected');
+        await page.getByRole('button', { name: 'Сохранить изменения' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId);
+        const fixedReader = await reader.goto(base + '/read/' + chapterId);
+        assert(fixedReader && fixedReader.status() === 200
+          && await reader.getByText('PUBLIC B06 corrected').isVisible(),
+          viewport + ': E-12 new published version not visible to reader');
+
+        await page.goto(issueQueue);
+        await page.locator('.auth-card select[name="status"]').selectOption('fixed');
+        await page.locator('.auth-card textarea[name="resolution_note"]')
+          .fill('Исправлено в новой редакции');
+        await page.getByRole('button', { name: 'Сохранить состояние' }).click();
+        await page.waitForURL(issueQueue);
+        await page.goto(issueQueue + '?status=fixed');
+        assert(await page.locator('.auth-card blockquote').getByText('PUBLIC', { exact: true }).isVisible(),
+          viewport + ': E-12 old immutable quote lost after chapter update');
+        assert(await page.getByText(/Состояние: fixed/).isVisible(),
+          viewport + ': E-12 fixed status and author decision not durable');
+        const anonymousQueue = await guest.goto(issueQueue);
+        assert(anonymousQueue && new URL(guest.url()).pathname === '/login',
+          viewport + ': E-12 guest gained access to private author issues');
+        await inspect(page, viewport, 'text-issue-fixed');
       } finally {
         await guestContext.close();
         await readerContext.close();
