@@ -1,20 +1,22 @@
 //! Bounded D-06 swap options. Read-only metadata, never settlement authority.
+use super::refund_preflight::{DirectRefundGate, PgDirectRefundPreflight};
 use sqlx::{PgPool, Row};
-use super::refund_preflight::{DirectRefundGate,PgDirectRefundPreflight};
 
-#[derive(Clone,Debug,Eq,PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SwapOption {
-    pub source_id:i64,
-    pub target_id:i64,
-    pub source_book:String,
-    pub source_chapter:String,
-    pub target_book:String,
-    pub target_chapter:String,
-    pub delta_minor:i64,
+    pub source_id: i64,
+    pub target_id: i64,
+    pub source_book: String,
+    pub source_chapter: String,
+    pub target_book: String,
+    pub target_chapter: String,
+    pub delta_minor: i64,
 }
 
-pub async fn swap_options(pool:&PgPool, actor:i64)->Result<Vec<SwapOption>,sqlx::Error>{
-    if actor<=0{return Ok(Vec::new())}
+pub async fn swap_options(pool: &PgPool, actor: i64) -> Result<Vec<SwapOption>, sqlx::Error> {
+    if actor <= 0 {
+        return Ok(Vec::new());
+    }
     let rows=sqlx::query(
         "SELECT src.id AS source_id,target.id AS target_id,
                 source_book.title AS source_book,source_ch.title AS source_chapter,
@@ -40,22 +42,23 @@ pub async fn swap_options(pool:&PgPool, actor:i64)->Result<Vec<SwapOption>,sqlx:
                            WHERE l.user_id=$1 AND l.chapter_id=target.id)
          ORDER BY src.id DESC,target.id DESC LIMIT 60",
     ).bind(actor).fetch_all(pool).await?;
-    let preflight=PgDirectRefundPreflight::new(pool.clone());
-    let mut options=Vec::new();
-    for row in rows{
-        let source_id:i64=row.try_get("source_id")?;
-        let target_id:i64=row.try_get("target_id")?;
-        let quote=match preflight.swap_quote(actor,source_id,target_id).await{
-            Ok(q) if q.gate==DirectRefundGate::FirstGrantNotSeenInTrackedPurchase=>q,
-            _=>continue,
+    let preflight = PgDirectRefundPreflight::new(pool.clone());
+    let mut options = Vec::new();
+    for row in rows {
+        let source_id: i64 = row.try_get("source_id")?;
+        let target_id: i64 = row.try_get("target_id")?;
+        let quote = match preflight.swap_quote(actor, source_id, target_id).await {
+            Ok(q) if q.gate == DirectRefundGate::FirstGrantNotSeenInTrackedPurchase => q,
+            _ => continue,
         };
-        options.push(SwapOption{
-            source_id,target_id,
-            source_book:row.try_get("source_book")?,
-            source_chapter:row.try_get("source_chapter")?,
-            target_book:row.try_get("target_book")?,
-            target_chapter:row.try_get("target_chapter")?,
-            delta_minor:quote.delta_minor,
+        options.push(SwapOption {
+            source_id,
+            target_id,
+            source_book: row.try_get("source_book")?,
+            source_chapter: row.try_get("source_chapter")?,
+            target_book: row.try_get("target_book")?,
+            target_chapter: row.try_get("target_chapter")?,
+            delta_minor: quote.delta_minor,
         });
     }
     Ok(options)
