@@ -41,19 +41,29 @@ fn shell(body: &str) -> Html<String> {
     )
 }
 
-fn secure(response: &mut Response) {
-    response.headers_mut().insert(
-        "content-security-policy",
-        HeaderValue::from_static(
-            "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        ),
-    );
+fn secure(response: &mut Response, allow_mail_script: bool) {
+    let policy = if allow_mail_script {
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    } else {
+        "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", HeaderValue::from_static(policy));
 }
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct GroupsQuery {
     before: Option<i64>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MessagesQuery {
+    after_id: Option<i64>,
+    before_id: Option<i64>,
+    limit: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -155,8 +165,9 @@ fn render_detail(
     actor: i64,
 ) -> Html<String> {
     let id = group.id;
+    let last = messages.last().map_or(0, |message| message.id);
     let mut body = format!(
-        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a></p></header><section class="me-section" aria-label="Сообщения группы">"#,
+        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a></p></header><section class="me-section" id="group-messages" data-group-id="{id}" data-actor-id="{actor}" data-last-id="{last}" aria-label="Сообщения группы">"#,
         escape_html(&group.title)
     );
     write!(
@@ -194,7 +205,8 @@ fn render_detail(
         if let Some(first) = messages.first() {
             write!(
                 body,
-                r#"<a href="/mail/groups/{id}?before={}">Предыдущие сообщения</a>"#,
+                r#"<a id="group-load-older" data-before-id="{}" href="/mail/groups/{id}?before={}">Предыдущие сообщения</a>"#,
+                first.id,
                 first.id
             )
             .expect("group message cursor");
@@ -216,7 +228,7 @@ fn render_detail(
         )
         .expect("leave form");
     }
-    body.push_str("</section>");
+    body.push_str(r#"</section><p id="group-live-status" role="status"></p><script defer src="/assets/mail.js"></script>"#);
     shell(&body)
 }
 
@@ -248,7 +260,7 @@ pub(super) async fn index(
     }
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(render_index(&rows, &contacts, &csrf_token), &cookies);
-    secure(&mut response);
+    secure(&mut response, false);
     response
 }
 
@@ -322,8 +334,49 @@ pub(super) async fn detail(
         ),
         &cookies,
     );
-    secure(&mut response);
+    secure(&mut response, true);
     response
+}
+
+/// JSON group polling is denied to a departed member before any disclosure.
+pub(super) async fn poll(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Query(query): Query<MessagesQuery>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(id) => id,
+        Err(status) => return deny(status),
+    };
+    if query.after_id.is_some() && query.before_id.is_some() {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let limit = query.limit.unwrap_or(50);
+    let store = group_store(&state);
+    let result = match query.after_id {
+        Some(after) => store.messages_after(actor, id, after, limit).await,
+        None => store.messages(actor, id, query.before_id, limit).await,
+    };
+    let messages = match result {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::mail::status(error)),
+    };
+    let first = messages.first().map(|m| m.id.to_string()).unwrap_or_default();
+    let last = messages.last().map(|m| m.id.to_string()).unwrap_or_default();
+    let payload = serde_json::json!({
+        "ok": true,
+        "messages": messages.iter().map(|message| serde_json::json!({
+            "id": message.id.to_string(),
+            "sender_id": message.sender_id.to_string(),
+            "sender_name": &message.sender_name,
+            "text": &message.body,
+        })).collect::<Vec<_>>(),
+        "oldest_message_id": first,
+        "newest_message_id": last,
+        "has_more_older": query.after_id.is_none() && messages.len() == usize::from(limit),
+    });
+    private_response(axum::Json(payload), &[])
 }
 
 pub(super) async fn send(

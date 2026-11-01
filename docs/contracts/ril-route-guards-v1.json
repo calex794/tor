@@ -1093,6 +1093,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "mail::poll",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/mail/groups/{id}/messages",
+      "source": "crates/web/src/auth.rs",
+      "handler": "group_mail::poll",
+      "policy": "scoped"
     }
   ]
 }

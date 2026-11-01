@@ -266,6 +266,73 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         .await,
         "1"
     );
+    // GET polling is the same private membership boundary as HTML and POST.
+    let poll_path = format!("{path}/messages");
+    assert_eq!(
+        call(&app, "GET", &poll_path, "", "", &[]).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&app, "GET", &poll_path, &cookies[3], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let response = call(
+        &app,
+        "GET",
+        &format!("{poll_path}?after_id=0&limit=50"),
+        &cookies[1],
+        "",
+        &[],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let polled: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+    assert_eq!(polled["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(polled["messages"][0]["text"], "<img src=x onerror=alert(1)>");
+    assert_eq!(polled["messages"][0]["sender_name"], "Group reader 0");
+    let id = polled["messages"][0]["id"].as_str().unwrap();
+    assert!(id.parse::<i64>().unwrap() > 0);
+    let response = call(
+        &app,
+        "GET",
+        &format!("{poll_path}?after_id={id}"),
+        &cookies[1],
+        "",
+        &[],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let empty: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+    assert!(empty["messages"].as_array().unwrap().is_empty());
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("{poll_path}?before_id=1&after_id=0"),
+            &cookies[0],
+            "",
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("{poll_path}?actor_id={}", users[0]),
+            &cookies[1],
+            "",
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
     let peer_page = text(call(&app, "GET", &path, &cookies[1], "", &[]).await).await;
     assert!(peer_page.contains("&lt;img src=x onerror=alert(1)&gt;"));
     assert!(peer_page.contains("<strong>Group reader 0</strong>"));
@@ -286,6 +353,12 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
     assert_eq!(
         call(&app, "GET", &path, &cookies[1], "", &[])
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(&app, "GET", &format!("{path}/messages"), &cookies[1], "", &[])
             .await
             .status(),
         StatusCode::NOT_FOUND

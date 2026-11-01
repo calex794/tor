@@ -266,6 +266,8 @@ module.exports = async (browser, base, out) => {
       assert.equal((await d.context.request.get(base + groupPath)).status(), 404,
         'uninvited account cannot view group title or transcript');
 
+      await b.page.goto(base + groupPath);
+      assert.equal(await b.page.locator('#group-messages').getAttribute('data-last-id'), '0');
       const groupForm = a.page.locator('form[action="' + groupPath + '/messages"]');
       const groupKey = await groupForm.locator('[name="command_key"]').inputValue();
       const groupCsrf = await groupForm.locator('[name="csrf_token"]').inputValue();
@@ -287,9 +289,11 @@ module.exports = async (browser, base, out) => {
         headers: { Origin: 'https://attacker.invalid' }, maxRedirects: 0,
       });
       assert.equal(crossOriginGroup.status(), 403, 'group send rejects foreign origin');
-      await b.page.goto(base + groupPath);
+      await b.page.locator('.mail-message-body').filter({ hasText: 'GROUP-MESSAGE-' + name })
+        .waitFor({ timeout: 15000 });
       await c.page.goto(base + groupPath);
-      assert.equal(await b.page.locator('.mail-message-body').count(), 1);
+      assert.equal(await b.page.locator('.mail-message-body').count(), 1,
+        'recipient receives group mail without a page reload');
       assert.equal(await c.page.locator('.mail-message-body').count(), 1);
       assert.equal(await b.page.locator('.mail-message-body img').count(), 0,
         'HTML in group message never becomes an element');

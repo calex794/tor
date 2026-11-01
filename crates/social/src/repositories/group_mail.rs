@@ -275,6 +275,55 @@ impl PgGroupMail {
             .collect())
     }
 
+    /// Ascending after-cursor window so a slow poller cannot skip more
+    /// than 50 new messages. Shares the same row-lock ACL as history reads.
+    pub async fn messages_after(
+        &self,
+        actor: i64,
+        group_id: i64,
+        after: i64,
+        limit: u16,
+    ) -> Result<Vec<GroupMessage>, MailError> {
+        if actor <= 0 || group_id <= 0 || after < 0 || !(1..=50).contains(&limit) {
+            return Err(MailError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM social_group_members
+             WHERE group_id=$1 AND user_id=$2 FOR SHARE",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if status.as_deref() != Some("active") {
+            return Err(MailError::NotFound);
+        }
+        let rows = sqlx::query_as::<_, (i64, i64, String, String)>(
+            "SELECT msg.id,msg.sender_id,msg.body,u.display_name
+             FROM social_group_messages msg JOIN users u ON u.id=msg.sender_id
+             WHERE msg.group_id=$1 AND msg.id>$2
+             ORDER BY msg.id ASC LIMIT $3",
+        )
+        .bind(group_id)
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, sender_id, body, sender_name)| GroupMessage {
+                id,
+                sender_id,
+                body,
+                sender_name,
+            })
+            .collect())
+    }
+
     /// A send and a leave lock the same membership row. The command-key lock
     /// serializes retries from one sender across processes and groups.
     pub async fn send(

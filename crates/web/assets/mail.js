@@ -1,6 +1,106 @@
 // NEwBOO E-08: AJAX send, retry identity, older prepend and visible polling.
 (() => {
   'use strict';
+  // Group pages share the existing mail asset; private mail stays separate.
+  const group = document.getElementById('group-messages');
+  if (group) {
+    const older = document.getElementById('group-load-older');
+    const status = document.getElementById('group-live-status');
+    const valid = value => /^[1-9]\d*$/.test(value);
+    const newer = (a, b) => a.length > b.length || (a.length === b.length && a > b);
+    let last = group.dataset.lastId || '0';
+    if (!/^(0|[1-9]\d*)$/.test(last)) last = '0';
+    let timer, busy = false, stopped = false;
+    const known = () => new Set(Array.from(
+      group.querySelectorAll('[data-message-id]'), el => el.dataset.messageId
+    ));
+    function add(messages, prepend) {
+      const ids = known();
+      const fragment = document.createDocumentFragment();
+      for (const message of messages) {
+        const id = String(message.id);
+        if (!valid(id) || ids.has(id)) continue;
+        ids.add(id);
+        const card = document.createElement('article');
+        card.className = 'me-now-card';
+        card.dataset.messageId = id;
+        const sender = document.createElement('strong');
+        sender.textContent = String(message.sender_id) === group.dataset.actorId
+          ? 'Вы' : String(message.sender_name || '');
+        const body = document.createElement('p');
+        body.className = 'mail-message-body';
+        body.textContent = String(message.text || '');
+        card.append(sender, body);
+        fragment.append(card);
+        if (!prepend && newer(id, last)) last = id;
+      }
+      if (prepend) group.insertBefore(
+        fragment, group.querySelector('[data-message-id]') || older
+      );
+      else group.insertBefore(fragment, older);
+    }
+    async function request(params) {
+      const response = await fetch(
+        '/mail/groups/' + encodeURIComponent(group.dataset.groupId) +
+        '/messages?' + params, {
+          credentials: 'same-origin', cache: 'no-store',
+          headers: { Accept: 'application/json' }
+        }
+      );
+      if (response.status === 401 || response.status === 404) {
+        stopped = true;
+        status.textContent = 'Доступ к группе закрыт. Обновите страницу.';
+        throw new Error('group-access-revoked');
+      }
+      if (!response.ok) throw new Error('group-request');
+      return response.json();
+    }
+    function schedule(delay = 3000) {
+      clearTimeout(timer);
+      if (!stopped) timer = setTimeout(poll, delay);
+    }
+    async function poll() {
+      if (busy) { schedule(); return; }
+      if (document.hidden) { schedule(10000); return; }
+      busy = true;
+      try {
+        const data = await request(new URLSearchParams({
+          after_id: last, limit: '50'
+        }));
+        add(data.messages || [], false);
+        status.textContent = '';
+      } catch (_) {
+        if (!stopped) status.textContent = 'Не удалось получить новые сообщения.';
+      } finally {
+        busy = false;
+        schedule();
+      }
+    }
+    if (older) older.addEventListener('click', async event => {
+      event.preventDefault();
+      if (older.dataset.loading === 'true') return;
+      older.dataset.loading = 'true';
+      try {
+        const data = await request(new URLSearchParams({
+          before_id: older.dataset.beforeId, limit: '50'
+        }));
+        const messages = data.messages || [];
+        add(messages, true);
+        if (!data.has_more_older || messages.length === 0) older.remove();
+        else older.dataset.beforeId = data.oldest_message_id;
+      } catch (_) {
+        if (!stopped) status.textContent = 'Не удалось загрузить историю группы.';
+      } finally {
+        older.dataset.loading = 'false';
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) schedule(250);
+    });
+    schedule(250);
+    return;
+  }
+
   const list = document.getElementById('mail-messages');
   if (!list) return;
   const form = document.querySelector('[data-mail-compose]');
