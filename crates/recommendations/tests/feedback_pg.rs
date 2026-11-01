@@ -884,4 +884,5 @@ async fn organic_ticket_is_neither_a_cross_user_capability_nor_a_hidden_book_byp
     );
 }
 
+#[path = "feedback_pg/organic_flag.rs"]
 mod organic_flag;
