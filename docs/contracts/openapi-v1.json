@@ -1225,6 +1225,59 @@
         "description": "Paid response never contains body_markdown, DEK or signed URL."
       }
     },
+    "/api/v1/discovery/activate": {
+      "post": {
+        "operationId": "organic_discovery_activate",
+        "summary": "Consent-gated first-party organic result activation (no GET mutation)",
+        "responses": {
+          "204": {
+            "description": "Recorded idempotent, session-bound organic click; browser navigates to canonical book link"
+          },
+          "400": {
+            "$ref": "#/components/responses/Http400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Http401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Http403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Http404"
+          },
+          "503": {
+            "$ref": "#/components/responses/Http503"
+          }
+        },
+        "x-tor-owner": "F/I",
+        "x-tor-runtime-status": "implemented in Draft #387 atop REC-13; disabled by default",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ticket",
+                  "csrf_token"
+                ],
+                "properties": {
+                  "ticket": {
+                    "type": "string",
+                    "minLength": 43,
+                    "maxLength": 43
+                  },
+                  "csrf_token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reader/chapters/{chapter_id}/delivery-grants": {
       "post": {
         "operationId": "post_api_v1_reader_chapters_chapter_id_delivery_grants",
@@ -4453,7 +4506,33 @@
           }
         },
         "x-tor-owner": "F/I",
-        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance"
+        "x-tor-runtime-status": "implemented in PR328; requires exact-head PG/HTTP/browser acceptance",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "channel",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommendation",
+                "organic"
+              ],
+              "default": "recommendation"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 180,
+              "default": 7
+            }
+          }
+        ]
       }
     },
     "/api/v1/admin/recommendations/control": {

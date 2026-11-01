@@ -77,6 +77,34 @@ impl PgRecommendations {
             .bind(&subject)
             .execute(&mut *tx)
             .await?;
+        // Rotate the organic consent epoch in the same transaction. Rebuild
+        // any still-materialized daily buckets without the withdrawn reader.
+        sqlx::query(
+            "INSERT INTO organic_discovery_dirty(bucket_date,book_id)
+             SELECT DISTINCT cohort_day,book_id FROM organic_discovery_touches
+             WHERE subject_id=$1::uuid ON CONFLICT DO NOTHING",
+        )
+        .bind(&subject)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM organic_discovery_touches WHERE subject_id=$1::uuid")
+            .bind(&subject)
+            .execute(&mut *tx)
+            .await?;
+        // Erase the consented reader's first C facts too; both attribution
+        // channels and the unattributed denominator must honor opt-out.
+        sqlx::query(
+            "INSERT INTO organic_discovery_dirty(bucket_date,book_id)
+             SELECT DISTINCT bucket_date,book_id FROM organic_discovery_unattributed_reads
+             WHERE subject_id=$1::uuid ON CONFLICT DO NOTHING",
+        )
+        .bind(&subject)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM organic_discovery_unattributed_reads WHERE subject_id=$1::uuid")
+            .bind(&subject)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM rec_feedback_state WHERE subject_id=$1::uuid")
             .bind(&subject)
             .execute(&mut *tx)

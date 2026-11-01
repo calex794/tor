@@ -20,6 +20,7 @@ WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 PROTECTED = {"session", "scoped", "owner", "administrator"}
 SCOPE_CALLS = {
     "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
+    "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
     "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",

@@ -18,6 +18,7 @@ use tor_accounts::services::security::session_token_digest;
 #[serde(deny_unknown_fields)]
 pub(super) struct QualityQuery {
     days: Option<i32>,
+    channel: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,9 +76,16 @@ pub(super) async fn quality(
     if let Err(status) = actor(&state, &headers).await {
         return deny(status);
     }
-    match state.store.quality(query.days.unwrap_or(7)).await {
-        Ok(rows) => private_response(Json(rows), &[]),
-        Err(error) => api::error(error),
+    match query.channel.as_deref() {
+        None | Some("recommendation") => match state.store.quality(query.days.unwrap_or(7)).await {
+            Ok(rows) => private_response(Json(rows), &[]),
+            Err(error) => api::error(error),
+        },
+        Some("organic") => match state.store.organic_quality(query.days.unwrap_or(7)).await {
+            Ok(rows) => private_response(Json(rows), &[]),
+            Err(error) => api::error(error),
+        },
+        _ => deny(StatusCode::BAD_REQUEST),
     }
 }
 async fn apply(state: &Runtime, body: Control) -> Response {

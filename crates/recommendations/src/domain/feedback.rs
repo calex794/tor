@@ -137,6 +137,33 @@ pub struct QualityRow {
     pub starts: i64,
     pub completions: i64,
 }
+/// First-party organic discovery, not a recommendation or paid placement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OrganicSource {
+    Search,
+    Catalog,
+}
+impl OrganicSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Search => "search",
+            Self::Catalog => "catalog",
+        }
+    }
+}
+/// Server-issued result-card counts are not visibility-qualified impressions.
+#[derive(Debug, Serialize)]
+pub struct OrganicQualityRow {
+    pub day: String,
+    pub book_id: String,
+    pub source: String,
+    pub issued: i64,
+    pub clicks: i64,
+    pub book_opens: i64,
+    pub starts: i64,
+    pub completions: i64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Observation {
     Pending,

@@ -12,7 +12,7 @@ exec > >(tee "$root/browser.log") 2>&1
 cargo build -p tor-web
 npm install --prefix "$root/node" --no-save playwright@1.56.1
 "$root/node/node_modules/.bin/playwright" install --with-deps chromium
-TOR_AUTH_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 \
+TOR_AUTH_ENABLED=1 TOR_RECOMMENDATIONS_ENABLED=1 TOR_REC_ATTRIBUTION_ENABLED=1 TOR_ORGANIC_ATTRIBUTION_ENABLED=1 \
   TOR_PUBLIC_ORIGIN=http://127.0.0.1:3108 TOR_LISTEN_ADDR=127.0.0.1:3108 \
   DATABASE_URL="$TEST_DATABASE_URL" ./target/debug/tor-web >"$root/server.log" 2>&1 &
 pid=$!
