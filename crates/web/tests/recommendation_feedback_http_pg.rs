@@ -18,7 +18,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
-use tor_recommendations::repositories::PgRecommendations;
+use tor_recommendations::{domain::feedback::OrganicSource, repositories::PgRecommendations};
 use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 fn pg(url: &str, sql: &str) -> String {
@@ -113,6 +113,7 @@ async fn data(response: Response) -> Value {
 async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
     std::env::set_var("TOR_RECOMMENDATIONS_ENABLED", "1");
     std::env::set_var("TOR_REC_ATTRIBUTION_ENABLED", "1");
+    std::env::set_var("TOR_ORGANIC_ATTRIBUTION_ENABLED", "1");
     let url = std::env::var("TEST_DATABASE_URL").expect("test database");
     assert!(url.ends_with("/tor_ci"));
     let catalog = PgCatalog::connect(&url).await.unwrap();
@@ -373,6 +374,102 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .status(),
         StatusCode::SEE_OTHER
     );
+    // Explicit real HTTP guard: an issued organic ticket remains useless to a
+    // cross-site or different-session actor, even if its opaque value leaked.
+    let organic = store
+        .issue_organic_tickets(
+            user,
+            &session_token_digest(&session),
+            OrganicSource::Catalog,
+            &[next],
+        )
+        .await
+        .unwrap();
+    assert_eq!(organic.len(), 1);
+    let form = format!("ticket={}&csrf_token={csrf}", organic[0].1);
+    let invalid_csrf = format!("ticket={}&csrf_token=invalid", organic[0].1);
+    for (origin, payload) in [
+        ("https://evil.invalid", form.as_str()),
+        (ORIGIN, invalid_csrf.as_str()),
+    ] {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                "/api/v1/discovery/activate",
+                &cookie,
+                (origin, &csrf),
+                payload,
+                false
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    store
+        .set_consent(other, true, 0, &generate_session_token())
+        .await
+        .unwrap();
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/discovery/activate",
+            &other_cookie,
+            (ORIGIN, &csrf),
+            &form,
+            false
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let clicked = format!(
+        "SELECT count(*) FROM organic_discovery_touches
+         WHERE book_id={next} AND clicked_at IS NOT NULL"
+    );
+    assert_eq!(
+        pg(&url, &clicked),
+        "0",
+        "rejected activation must not record a click"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/v1/discovery/activate",
+            &cookie,
+            (ORIGIN, &csrf),
+            &form,
+            false
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("/books/{next}"),
+            &cookie,
+            (ORIGIN, &csrf),
+            "",
+            false
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(pg(&url, &clicked), "1");
+    let opened = format!(
+        "SELECT count(*) FROM organic_discovery_touches
+         WHERE book_id={next} AND book_opened_at IS NOT NULL"
+    );
+    assert_eq!(pg(&url, &opened), "1", "200 book required before open telemetry");
+    store.refresh_organic_quality().await.unwrap();
+
     let feed = data(
         call(
             &app,
@@ -624,6 +721,31 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .status(),
         StatusCode::OK
     );
+    let organic_report = data(
+        call(
+            &app,
+            "GET",
+            "/api/v1/admin/recommendations/quality?channel=organic",
+            &cookie,
+            (ORIGIN, &csrf),
+            "",
+            false,
+        )
+        .await,
+    )
+    .await;
+    let organic_book_id = next.to_string();
+    let row = organic_report
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["book_id"].as_str() == Some(organic_book_id.as_str()))
+        .expect("administrator can see bounded organic book summary");
+    assert_eq!(row["source"], "catalog");
+    assert_eq!(row["clicks"], 1);
+    assert_eq!(row["book_opens"], 1);
+    assert!(row.get("subject_id").is_none());
+    assert!(row.get("session_digest").is_none());
     pg(&url,&format!("UPDATE account_roles SET is_active=false WHERE user_id={user} AND role='administrator'"));
     assert_eq!(
         call(
@@ -638,6 +760,21 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
         .await
         .status(),
         StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            "/api/v1/admin/recommendations/quality?channel=organic",
+            &cookie,
+            (ORIGIN, &csrf),
+            "",
+            false
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "a former administrator cannot read organic analytics"
     );
     // An unchecked checkbox is omitted by HTML; it must still revoke consent.
     let revoke = format!(
