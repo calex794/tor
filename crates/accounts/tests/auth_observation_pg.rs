@@ -169,6 +169,39 @@ async fn a_09_observes_known_unknown_and_distinct_sources_without_raw_identity()
         .iter()
         .any(|signal| signal.category == "source_spray" && signal.successes >= 20));
 
+    // Many successes plus a few failures must not reach the minimum 15
+    // failed attempts, even if there are ten distinct mistyped targets.
+    let busy_source = secret.source("192.0.2.99".parse().unwrap()).0;
+    for index in 0..20 {
+        accounts
+            .record_auth_observation(&AuthAttemptObservation {
+                target_key: Some(secret.target(&format!("busy-good-{nonce}-{index}@example.invalid"))),
+                user_id: None,
+                source_key: Some(busy_source),
+                subnet_key: None,
+                agent: UserAgentFamily::Unknown,
+                outcome: AuthAttemptOutcome::Success,
+            })
+            .await
+            .unwrap();
+    }
+    for index in 0..10 {
+        accounts
+            .record_auth_observation(&AuthAttemptObservation {
+                target_key: Some(secret.target(&format!("busy-typo-{nonce}-{index}@example.invalid"))),
+                user_id: None,
+                source_key: Some(busy_source),
+                subnet_key: None,
+                agent: UserAgentFamily::Unknown,
+                outcome: AuthAttemptOutcome::BadPassword,
+            })
+            .await
+            .unwrap();
+    }
+    let signals = accounts.auth_risk_signals().await.unwrap();
+    assert!(!signals.iter().any(|signal| signal.category == "source_spray"
+        && signal.bad_passwords == 10 && signal.successes == 20));
+
     // A flood with no trusted source must not be grouped into one fake IP.
     for index in 0..16 {
         accounts
