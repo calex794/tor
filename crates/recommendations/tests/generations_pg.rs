@@ -14,7 +14,7 @@ async fn setup() -> (PgPool, PgRecommendations, i64, Vec<i64>) {
         .fetch_one(&pool).await.unwrap();
     let mut books = Vec::new();
     for index in 0..5 {
-        let book:i64=sqlx::query_scalar("INSERT INTO books(source_identity,target_language,title,visibility,genres,tags) VALUES($1,'ru',$2,'public',ARRAY['rec13-generation'],ARRAY['space']) ON CONFLICT(source_identity,target_language) DO UPDATE SET visibility='public',admin_hold=false,is_deleted=false RETURNING id")
+        let book:i64=sqlx::query_scalar("INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres,tags) VALUES($1,'ru',$2,'public','basic',ARRAY['rec13-generation'],ARRAY['space']) ON CONFLICT(source_identity,target_language) DO UPDATE SET visibility='public',access_level='basic',admin_hold=false,is_deleted=false RETURNING id")
             .bind(format!("ci:rec13:generation:{index}")).bind(format!("Generation book {index}")).fetch_one(&pool).await.unwrap();
         if index < 4 {
             sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general') ON CONFLICT(book_id) DO UPDATE SET audience='general'")
@@ -215,55 +215,110 @@ async fn rec13_content_edits_keep_eligibility_and_b_policy_changes_apply_live() 
         .await
         .unwrap();
 
-    // Legacy publicly readable basic books remain discoverable without a
-    // recommendation-specific audience row or moderator approval.
+    // Legacy NULL is deliberately not 'basic' (B-09 tier contract): no
+    // recommendation may infer eligibility from an unclassified old book.
+    assert_public_eligible(&pool, book, false).await;
+    sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Only explicitly classified basic books are discoverable without a
+    // recommendation-specific audience row or manual approval.
     assert_public_eligible(&pool, book, true).await;
     sqlx::query("UPDATE books SET title='Corrected title' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, true).await;
-    sqlx::query("UPDATE chapters SET title='Corrected chapter',edit_revision=edit_revision+1 WHERE id=$1")
-        .bind(chapter).execute(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE chapters SET title='Corrected chapter',edit_revision=edit_revision+1 WHERE id=$1",
+    )
+    .bind(chapter)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_public_eligible(&pool, book, true).await;
     let replacement: i64 = sqlx::query_scalar(
         "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
          VALUES($1,2,'Corrected published text') RETURNING id",
     )
-    .bind(chapter).fetch_one(&pool).await.unwrap();
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
-        .bind(chapter).bind(replacement).execute(&pool).await.unwrap();
+        .bind(chapter)
+        .bind(replacement)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, true).await;
     sqlx::query("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES($1,2,'Draft chapter','draft')")
         .bind(book).execute(&pool).await.unwrap();
     assert_public_eligible(&pool, book, true).await;
 
     // Explicit author exclusion and canonical B blocks still apply live.
-    sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'unreviewed')")
-        .bind(book).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'unreviewed')",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_public_eligible(&pool, book, false).await;
     sqlx::query("UPDATE book_recommendation_audiences SET audience='general' WHERE book_id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, true).await;
     sqlx::query("UPDATE book_recommendation_audiences SET audience='adult' WHERE book_id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, false).await;
     sqlx::query("UPDATE book_recommendation_audiences SET audience='general' WHERE book_id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, false).await;
     sqlx::query("UPDATE books SET access_level='basic' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, true).await;
     sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, false).await;
     sqlx::query("UPDATE books SET admin_hold=false,visibility='draft' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, false).await;
     sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, true).await;
     sqlx::query("UPDATE books SET is_deleted=true WHERE id=$1")
-        .bind(book).execute(&pool).await.unwrap();
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_public_eligible(&pool, book, false).await;
 }

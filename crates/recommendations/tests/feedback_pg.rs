@@ -19,7 +19,7 @@ async fn fixture(name: &str) -> (PgPool, PgRecommendations, i64, i64) {
         .unwrap();
     let actor: i64=sqlx::query_scalar("INSERT INTO users(email_normalized,display_name,password_hash) VALUES($1,'REC reader','$argon2id$test') RETURNING id")
         .bind(format!("rec13-{name}@tor-ci.example")).fetch_one(&pool).await.unwrap();
-    let book: i64=sqlx::query_scalar("INSERT INTO books(source_identity,target_language,title,visibility) VALUES($1,'ru','REC public book','public') ON CONFLICT(source_identity,target_language) DO UPDATE SET visibility='public',admin_hold=false,is_deleted=false RETURNING id")
+    let book: i64=sqlx::query_scalar("INSERT INTO books(source_identity,target_language,title,visibility,access_level) VALUES($1,'ru','REC public book','public','basic') ON CONFLICT(source_identity,target_language) DO UPDATE SET visibility='public',access_level='basic',admin_hold=false,is_deleted=false RETURNING id")
         .bind(format!("ci:rec13:{name}")).fetch_one(&pool).await.unwrap();
     // Published basic books need no recommendation-specific manual approval.
     sqlx::query("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES($1,1,'First','public') ON CONFLICT(book_id,chapter_no) DO NOTHING")

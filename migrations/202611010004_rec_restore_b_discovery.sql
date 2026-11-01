@@ -2,7 +2,8 @@
 -- This additive migration also upgrades databases that already ran 003; do
 -- not rewrite an applied SQLx migration or require editing chapter text.
 -- Only canonical B publication/access state and explicit author exclusions
--- determine public (anonymous/basic) recommendation eligibility.
+-- determine public (anonymous/basic) recommendation eligibility. Legacy
+-- NULL access_level is intentionally excluded: B-09 must attest it first.
 CREATE OR REPLACE VIEW rec_public_books WITH (security_barrier=true) AS
 SELECT b.id,b.title,b.target_language,b.author_name,b.genres,b.tags,b.created_at
 FROM books b

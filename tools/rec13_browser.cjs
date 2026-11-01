@@ -45,7 +45,7 @@ async function register(page, email) {
     // A deterministic fallback fixture; restore the exact prior policy afterward.
     sql('UPDATE rec_runtime_policy SET hold=true WHERE singleton');
     for (let n=0;n<3;n++) {
-      const book=scalar(`INSERT INTO books(source_identity,target_language,title,visibility) VALUES('ci:rec13:browser:${run}:${n}','ru','Browser recommendation ${n}','public') RETURNING id`);
+      const book=scalar(`INSERT INTO books(source_identity,target_language,title,visibility,access_level) VALUES('ci:rec13:browser:${run}:${n}','ru','Browser recommendation ${n}','public','basic') RETURNING id`);
       books.push(book);
       sql(`INSERT INTO book_recommendation_audiences(book_id,audience) VALUES(${book},'general')`);
     }
