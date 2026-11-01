@@ -904,6 +904,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "taxonomy_picker::script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/taxonomy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_taxonomy::edit",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/taxonomy",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_taxonomy::save",
+      "policy": "owner"
     }
   ]
 }

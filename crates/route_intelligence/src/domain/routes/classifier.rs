@@ -137,6 +137,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/books/{id}/like"), "POST") => Some(124),
         (Some("/api/v1/taxonomies/suggest"), "GET") => Some(125),
         (Some("/assets/taxonomy-picker.js"), "GET") => Some(126),
+        (Some("/me/books/{id}/taxonomy"), "GET") => Some(127),
+        (Some("/me/books/{id}/taxonomy"), "POST") => Some(128),
         _ => None,
     };
     index

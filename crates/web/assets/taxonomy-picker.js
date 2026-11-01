@@ -13,7 +13,14 @@
     const limit = Math.min(8, Number(root.dataset.limit) || 8);
     if (!input || !list || !chips || !hidden || !hint) continue;
 
-    let selected = [];
+    let selected = Array.from(chips.querySelectorAll("[data-taxonomy-id]"))
+      .map(node => ({
+        id: Number(node.dataset.taxonomyId),
+        label: node.dataset.taxonomyLabel || "",
+      }))
+      .filter(item => Number.isSafeInteger(item.id) && item.id > 0
+        && item.label && item.label.length <= 80)
+      .slice(0, limit);
     let options = [];
     let currentIndex = -1;
     let timer = null;
