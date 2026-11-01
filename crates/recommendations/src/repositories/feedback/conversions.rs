@@ -83,7 +83,7 @@ impl PgRecommendations {
                     // older REC click. If organic collection is now OFF,
                     // treat it as a veto without writing organic attribution.
                     let organic: Option<String> = sqlx::query_scalar(
-                            "SELECT t.id::text FROM organic_discovery_touches t
+                        "SELECT t.id::text FROM organic_discovery_touches t
                          JOIN rec_verified_read_events_v2 v ON v.event_id=$1::uuid
                          WHERE t.subject_id=$2::uuid AND t.book_id=v.book_id
                            AND t.clicked_at<=v.occurred_at

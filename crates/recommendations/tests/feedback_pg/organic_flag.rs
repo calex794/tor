@@ -135,7 +135,10 @@ async fn organic_flag_off_does_not_collect_even_with_rec_consent_on() {
             .fetch_one(&older_pool)
             .await
             .unwrap();
-        assert_eq!(count, 0, "newer suppressed organic click must not credit {table}");
+        assert_eq!(
+            count, 0,
+            "newer suppressed organic click must not credit {table}"
+        );
     }
 
     let (direct_pool, store, actor, book) = fixture("organic-off-direct").await;
