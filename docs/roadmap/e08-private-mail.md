@@ -440,3 +440,8 @@ role restoration, moderation hold and B-10's financial deactivation fence.
 This does not claim full source collaborator preview parity, which still
 needs a matching authorized view route and an explicit B access contract.
 Exact-head CI is pending. Draft only; main and production are untouched.
+
+
+## 01.11.2026 - exact 64-bit mail polling cursors (Draft)
+
+Browser polling no longer converts PostgreSQL BIGINT message IDs to JavaScript `Number` (which rounds IDs greater than `2^53-1`). Initial `data-last-id`, new message IDs and subsequent `after_id` cursors remain canonical positive decimal strings; monotonic comparison uses length then lexical order. Invalid/zero message IDs are ignored. The actual Chromium mail journey now intercepts one GET in a separate signed-in browser page, injects a synthetic `9007199254740993` message without modifying DB identity sequences, then asserts the very next GET carries **exactly** `after_id=9007199254740993`. This covers both desktop and mobile viewports. It changes no SQL, API, account security, or main branch. Exact-HEAD CI remains required.

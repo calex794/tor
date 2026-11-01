@@ -7,7 +7,13 @@
   const status = document.getElementById('mail-status');
   const error = document.getElementById('mail-send-error');
   const older = document.getElementById('mail-load-older');
-  let last = Number(list.dataset.lastId || 0);
+  // PostgreSQL BIGINT IDs are decimal strings. Number silently rounds valid
+  // values past 2^53 - 1, which can cause missed or duplicated poll results.
+  const validId = id => /^[1-9]\d*$/.test(id);
+  const newerId = (id, cursor) =>
+    id.length > cursor.length || (id.length === cursor.length && id > cursor);
+  let last = String(list.dataset.lastId || '0');
+  if (!/^(0|[1-9]\d*)$/.test(last)) last = '0';
   let busy = false, timer;
   const ids = () => new Set(Array.from(list.querySelectorAll('[data-message-id]'), el => el.dataset.messageId));
   const card = (message) => {
@@ -55,10 +61,10 @@
     const fragment = document.createDocumentFragment();
     for (const message of messages) {
       const id = String(message.id);
-      if (existing.has(id)) continue;
+      if (!validId(id) || existing.has(id)) continue;
       existing.add(id);
       fragment.append(card(message));
-      if (!prepend) last = Math.max(last, Number(message.id));
+      if (!prepend && newerId(id, last)) last = id;
     }
     if (prepend) {
       const height = list.scrollHeight;

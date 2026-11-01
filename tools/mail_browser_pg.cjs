@@ -117,6 +117,47 @@ module.exports = async (browser, base, out) => {
       assert.equal(await b.page.locator('#mail-messages a[href="/books/2"]').count(), 0, 'no hidden-book preview');
       assert.equal((await c.context.request.get(base + conversation)).status(), 404, 'third account denied');
       const conversationId = conversation.split('/').at(-1);
+      // CI simulates a real signed BIGINT ID beyond Number.MAX_SAFE_INTEGER.
+      // Never truncate the cursor in JS: first poll returns this synthetic ID,
+      // the next GET must carry exactly the same decimal digits. The fixture
+      // stays entirely within this browser page; no DB sequences are changed.
+      const largeId = '9007199254740993';
+      const probe = await b.context.newPage();
+      const seenCursors = [];
+      let firstProbe = true;
+      try {
+        await probe.route('**/mail/*/messages?*', async route => {
+          const url = new URL(route.request().url());
+          if (url.pathname !== conversation + '/messages' ||
+              route.request().method() !== 'GET') {
+            await route.continue();
+            return;
+          }
+          seenCursors.push(url.searchParams.get('after_id'));
+          const messages = firstProbe ? [{
+            id: largeId, sender_id: a.id, text: 'BIGINT cursor probe',
+            body_without_book_links: 'BIGINT cursor probe', book_previews: [],
+            created_at: '2026-11-01T00:00:00Z', created_at_display: '01.11.2026 03:00'
+          }] : [];
+          firstProbe = false;
+          await route.fulfill({
+            status: 200, contentType: 'application/json',
+            headers: { 'Cache-Control': 'no-store' },
+            body: JSON.stringify({ ok: true, messages, blocked: false, has_more_older: false })
+          });
+        });
+        const nextPoll = probe.waitForResponse(response => {
+          const url = new URL(response.url());
+          return url.pathname === conversation + '/messages' &&
+            url.searchParams.get('after_id') === largeId;
+        }, { timeout: 12000 });
+        await probe.goto(base + conversation);
+        await probe.locator('[data-message-id="' + largeId + '"]').waitFor({ timeout: 8000 });
+        await nextPoll;
+        assert(seenCursors.includes(largeId), 'BIGINT polling cursor was rounded');
+      } finally {
+        await probe.close();
+      }
       assert.equal((await c.context.request.get(base + '/api/v1/me/messages?conversation_id=' + conversationId)).status(), 404);
       assert.equal(await b.page.getByRole('button', { name: /прочитанными/ }).count(), 0,
         'NEwBOO mail has no manual read receipt action');
