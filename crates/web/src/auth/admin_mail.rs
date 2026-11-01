@@ -1,7 +1,10 @@
 //! Read-only audited administrator views of direct user mail (E-08/S057).
 //! Never accept a claimed administrator ID or read private data without audit.
 use super::{deny, session_user, AuthState};
-use crate::{auth_cookies::private_response, pages::{escape_html, layout}};
+use crate::{
+    auth_cookies::private_response,
+    pages::{escape_html, layout},
+};
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -31,14 +34,21 @@ async fn actor(state: &AuthState, headers: &HeaderMap) -> Result<[u8; 32], Statu
     session_user(state, headers)
         .await?
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let token = state.cookies.session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = state
+        .cookies
+        .session_token(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(session_token_digest(&token))
 }
 
 fn shell(title: &str, body: &str) -> Html<String> {
-    layout(title, "Административное чтение личной почты с аудитом.", &format!(
-        r#"<section class="me-page mail-page"><div class="container"><nav aria-label="Администрирование"><a href="/admin/mail">Почта пользователей</a></nav>{body}</div></section>"#
-    ))
+    layout(
+        title,
+        "Административное чтение личной почты с аудитом.",
+        &format!(
+            r#"<section class="me-page mail-page"><div class="container"><nav aria-label="Администрирование"><a href="/admin/mail">Почта пользователей</a></nav>{body}</div></section>"#
+        ),
+    )
 }
 
 fn encode_query(input: &str) -> String {
@@ -82,7 +92,13 @@ pub(super) async fn index(
     }
     if users.len() == 50 {
         if let Some(last) = users.last() {
-            write!(body, r#"<a href="/admin/mail?q={}&amp;before={}">Предыдущие пользователи</a>"#, encode_query(q), last.user_id).expect("pagination");
+            write!(
+                body,
+                r#"<a href="/admin/mail?q={}&amp;before={}">Предыдущие пользователи</a>"#,
+                encode_query(q),
+                last.user_id
+            )
+            .expect("pagination");
         }
     }
     body.push_str("</section>");
@@ -106,7 +122,8 @@ pub(super) async fn user(
         Ok(rows) => rows,
         Err(error) => return deny(super::mail::status(error)),
     };
-    let mut body = format!(r#"<h1>Диалоги пользователя #{user_id}</h1><section class="me-section">"#);
+    let mut body =
+        format!(r#"<h1>Диалоги пользователя #{user_id}</h1><section class="me-section">"#);
     if rows.is_empty() {
         body.push_str("<p>Переписок нет.</p>");
     }
@@ -115,7 +132,12 @@ pub(super) async fn user(
     }
     if rows.len() == 50 {
         if let Some(last) = rows.last() {
-            write!(body, r#"<a href="/admin/mail/users/{user_id}?before={}">Предыдущие диалоги</a>"#, last.id).expect("pagination");
+            write!(
+                body,
+                r#"<a href="/admin/mail/users/{user_id}?before={}">Предыдущие диалоги</a>"#,
+                last.id
+            )
+            .expect("pagination");
         }
     }
     body.push_str("</section>");
@@ -139,7 +161,8 @@ pub(super) async fn conversation(
         Ok(rows) => rows,
         Err(error) => return deny(super::mail::status(error)),
     };
-    let mut body = format!(r#"<h1>Переписка #{id}</h1><section class="me-section" aria-label="Сообщения">"#);
+    let mut body =
+        format!(r#"<h1>Переписка #{id}</h1><section class="me-section" aria-label="Сообщения">"#);
     if rows.is_empty() {
         body.push_str("<p>Сообщений нет.</p>");
     }
@@ -148,7 +171,12 @@ pub(super) async fn conversation(
     }
     if rows.len() == 50 {
         if let Some(first) = rows.first() {
-            write!(body, r#"<a href="/admin/mail/{id}?before={}">Предыдущие сообщения</a>"#, first.id).expect("pagination");
+            write!(
+                body,
+                r#"<a href="/admin/mail/{id}?before={}">Предыдущие сообщения</a>"#,
+                first.id
+            )
+            .expect("pagination");
         }
     }
     body.push_str("</section>");
