@@ -29,7 +29,8 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences,
+    PgReadingProgress, PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -158,6 +159,7 @@ fn router_inner(
     security_retention::start(accounts.clone());
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
+    let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
@@ -169,25 +171,19 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
-    let creator_follows =
-        tor_social::services::follow::PgCreatorFollows::new(accounts.pool().clone());
+    let creator_follows = tor_social::services::follow::PgCreatorFollows::new(pool.clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
-    let achievements =
-        tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
+    let achievements = tor_recommendations::repositories::PgAchievements::new(pool.clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    let cover_jobs = storage
-        .as_ref()
-        .map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
-        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
-            accounts.pool().clone(),
-        ),
+        notification_preferences: PgNotificationPreferences::new(pool.clone()),
         accounts,
         checkout,
         paid_checkout_enabled,
