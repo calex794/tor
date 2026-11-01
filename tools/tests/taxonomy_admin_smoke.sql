@@ -22,7 +22,7 @@ BEGIN
     v_term_id := admin_taxonomy_add_term('tag',label,'ci-smoke');
     IF v_term_id<=0 THEN RAISE EXCEPTION 'new term not created'; END IF;
     PERFORM admin_taxonomy_add_alias('tag',v_term_id,alias_name,'ci-smoke');
-    PERFORM admin_taxonomy_add_alias('tag',term_id,alias_name,'ci-smoke');
+    PERFORM admin_taxonomy_add_alias('tag',v_term_id,alias_name,'ci-smoke');
     -- Qualified term-ID check; an idempotent alias must have only one row.
     IF (SELECT count(*) FROM book_taxonomy_aliases
         WHERE kind='tag' AND search_key=admin_taxonomy_key(alias_name)
