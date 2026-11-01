@@ -167,3 +167,132 @@ async fn rec13_generation_visibility_cas_and_rollback() {
     .await
     .unwrap();
 }
+
+async fn approve_current_audience(pool: &PgPool, book: i64, reviewer: i64) {
+    sqlx::query(
+        "INSERT INTO rec_general_audience_approvals(book_id,reviewed_revision,reviewer_user_id)
+         SELECT book_id,revision,$2 FROM book_recommendation_audiences WHERE book_id=$1
+         ON CONFLICT(book_id) DO UPDATE SET reviewed_revision=EXCLUDED.reviewed_revision,
+           reviewer_user_id=EXCLUDED.reviewer_user_id,reviewed_at=now()",
+    )
+    .bind(book)
+    .bind(reviewer)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn assert_reviewed_book_eligible(pool: &PgPool, book: i64, expected: bool) {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM rec_public_books WHERE id=$1")
+        .bind(book)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let approvals: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM rec_general_audience_approvals WHERE book_id=$1")
+            .bind(book)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(count == 1, expected);
+    assert_eq!(approvals == 1, expected);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn rec13_public_content_changes_invalidate_general_review() {
+    let (pool, _store, reviewer, _books) = setup().await;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','Reviewed content','public',$2) RETURNING id",
+    )
+    .bind(format!("ci:rec13:review-change:{nonce}"))
+    .bind(reviewer)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility)
+         VALUES($1,1,'Published chapter','public') RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'Reviewed text') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES($1,$2)")
+        .bind(chapter)
+        .bind(version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general')")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    approve_current_audience(&pool, book, reviewer).await;
+    assert_reviewed_book_eligible(&pool, book, true).await;
+
+    // Public metadata changes must revoke the old moderator decision.
+    sqlx::query("UPDATE books SET title='New title' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_reviewed_book_eligible(&pool, book, false).await;
+    approve_current_audience(&pool, book, reviewer).await;
+
+    // Editing the title of an already-public chapter is a content change.
+    sqlx::query(
+        "UPDATE chapters SET title='Unreviewed title',edit_revision=edit_revision+1 WHERE id=$1",
+    )
+    .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_reviewed_book_eligible(&pool, book, false).await;
+    approve_current_audience(&pool, book, reviewer).await;
+
+    // Saving a private immutable version is inert; publishing it is not.
+    let replacement: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Changed published body') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_reviewed_book_eligible(&pool, book, true).await;
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter)
+        .bind(replacement)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_reviewed_book_eligible(&pool, book, false).await;
+    approve_current_audience(&pool, book, reviewer).await;
+
+    // A newly added chapter also invalidates a previously reviewed book.
+    sqlx::query(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility)
+         VALUES($1,2,'New chapter','draft')",
+    )
+    .bind(book)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_reviewed_book_eligible(&pool, book, false).await;
+}

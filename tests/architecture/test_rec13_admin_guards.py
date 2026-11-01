@@ -38,6 +38,11 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertIn("review.reviewer_user_id IS NOT NULL", migration)
         self.assertIn('if actor.administrator && audience == "general"', policy)
         self.assertIn("DELETE FROM rec_general_audience_approvals WHERE book_id=$1", policy)
+        self.assertIn("DELETE FROM rec_general_audience_approvals WHERE book_id=_book_id", migration)
+        self.assertIn("FROM books WHERE id=_book_id FOR UPDATE", migration)
+        for table in ("books", "chapters", "chapter_publications", "book_cover_slots"):
+            self.assertIn(f"ON {table}", migration)
+        self.assertIn("rec_invalidate_review_on_content_change", migration)
 
     def test_reader_control_does_not_accept_browser_actor(self):
         text=(ROOT/'crates/web/src/recommendation_http/api.rs').read_text()
