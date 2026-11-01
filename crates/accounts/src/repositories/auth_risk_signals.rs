@@ -30,7 +30,8 @@ pub const AUTH_RISK_SIGNALS_SQL: &str = "WITH recent AS (
                       count(*) FILTER (WHERE outcome='success') AS successes
                FROM recent WHERE source_key IS NOT NULL AND target_key IS NOT NULL
                GROUP BY source_key
-               HAVING count(*) >= 15 AND count(DISTINCT target_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) >= 10
+               HAVING count(*) FILTER (WHERE outcome IN ('bad_password','unknown_account')) >= 15
+                  AND count(DISTINCT target_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) >= 10
              ), by_target AS (
                SELECT 'distributed_target'::text AS category,
                       encode(target_key,'hex') AS key_hex,
@@ -42,14 +43,15 @@ pub const AUTH_RISK_SIGNALS_SQL: &str = "WITH recent AS (
                       count(*) FILTER (WHERE outcome='success') AS successes
                FROM recent WHERE target_key IS NOT NULL AND source_key IS NOT NULL
                GROUP BY target_key
-               HAVING count(*) >= 15 AND count(DISTINCT source_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) >= 10
+               HAVING count(*) FILTER (WHERE outcome IN ('bad_password','unknown_account')) >= 15
+                  AND count(DISTINCT source_key) FILTER (WHERE outcome IN ('bad_password','unknown_account')) >= 10
              )
              SELECT * FROM (
                SELECT * FROM by_source WHERE bad_passwords+unknown_accounts >= 10
                UNION ALL
                SELECT * FROM by_target WHERE bad_passwords+unknown_accounts >= 10
              ) signals
-             ORDER BY attempts DESC, category, key_hex LIMIT 50";
+             ORDER BY (bad_passwords+unknown_accounts) DESC, attempts DESC, category, key_hex LIMIT 50";
 
 impl PgAccounts {
     /// Diagnostic only. The DB enforces read-only, time and memory budgets;
