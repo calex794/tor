@@ -20,6 +20,8 @@ use tower::ServiceExt;
 
 #[path = "support/e08_admin_mail_http.rs"]
 mod admin_mail_http;
+#[path = "support/e08_admin_mail_rooms_http.rs"]
+mod admin_mail_rooms_http;
 #[path = "support/e08_book_room_http.rs"]
 mod book_room_http;
 #[path = "support/e08_group_mail_http.rs"]
