@@ -237,7 +237,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(own_page.contains(r#"<script defer src="/assets/mail.js"></script>"#));
     assert!(own_page.contains("Team &lt;script&gt;"));
     assert!(!own_page.contains("Team <script>"));
-    assert!(own_page.contains("Создатель группы пока не может выйти"));
+    assert!(own_page.contains("Создатель не может выйти."));
     assert!(own_page.contains("Участники (3)"));
     assert!(own_page.contains(&format!("action=\"{path}/transfer\"")));
     assert!(own_page.contains("Group reader 1"));
