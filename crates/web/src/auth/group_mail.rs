@@ -176,16 +176,16 @@ fn render_detail(
     }
     body.push_str("</ul></div>");
     for message in messages {
-        let sender = if message.sender_id == actor {
-            "Вы".to_owned()
+        let sender: &str = if message.sender_id == actor {
+            "Вы"
         } else {
-            format!("Участник {}", message.sender_id)
+            &message.sender_name
         };
         write!(
             body,
             r#"<article class="me-now-card" data-message-id="{}"><strong>{}</strong><p class="mail-message-body">{}</p></article>"#,
             message.id,
-            escape_html(&sender),
+            escape_html(sender),
             escape_html(&message.body)
         )
         .expect("group message");
@@ -382,6 +382,7 @@ mod tests {
             id: 7,
             sender_id: 2,
             body: "<img src=x onerror=alert(1)>".to_owned(),
+            sender_name: "<iframe src=evil>".to_owned(),
         }];
         let members = vec![(1, "<svg onload=alert(1)>".to_owned())];
         let html = render_detail(&group, &messages, &members, "<csrf>", &"x".repeat(43), 1).0;
@@ -390,6 +391,8 @@ mod tests {
         assert!(html.contains("&lt;svg onload=alert(1)&gt;"));
         assert!(!html.contains("<svg onload=alert(1)>"));
         assert!(html.contains("&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(html.contains("&lt;iframe src=evil&gt;"));
+        assert!(!html.contains("<iframe src=evil>"));
         assert!(!html.contains("<script>unsafe</script>"));
         assert!(!html.contains("<img src=x onerror=alert(1)>"));
         assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));

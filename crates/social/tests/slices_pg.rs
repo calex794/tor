@@ -124,6 +124,8 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].id, first.id);
     assert_eq!(messages[1].id, second.id);
+    assert_eq!(messages[0].sender_name, "Mail fixture");
+    assert_eq!(messages[1].sender_name, "Mail fixture");
     assert_eq!(
         groups.messages(b, id, Some(second.id), 1).await.unwrap()[0].id,
         first.id
@@ -176,7 +178,9 @@ async fn e_08_group_mail_membership_projection_replay_and_leave() {
     assert_eq!(groups.members(a, id).await.unwrap().len(), 1);
     assert_eq!(groups.get(a, id).await.unwrap().id, id);
     assert_eq!(groups.leave(b, id).await, Err(MailError::NotFound));
-    assert_eq!(groups.messages(a, id, None, 50).await.unwrap().len(), 2);
+    let remaining_messages = groups.messages(a, id, None, 50).await.unwrap();
+    assert_eq!(remaining_messages.len(), 2);
+    assert_eq!(remaining_messages[1].sender_name, "Mail fixture");
 
     // The existing direct mail pair remains a separate, unmodified ACL.
     let direct = MailService::new(PgMail::new(pool.clone()));

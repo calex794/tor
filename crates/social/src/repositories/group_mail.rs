@@ -21,6 +21,7 @@ pub struct GroupMessage {
     pub id: i64,
     pub sender_id: i64,
     pub body: String,
+    pub sender_name: String,
 }
 
 fn unavailable(_: sqlx::Error) -> MailError {
@@ -245,10 +246,15 @@ impl PgGroupMail {
         if status.as_deref() != Some("active") {
             return Err(MailError::NotFound);
         }
-        let mut rows = sqlx::query_as::<_, (i64, i64, String)>(
-            "SELECT id,sender_id,body FROM social_group_messages
-             WHERE group_id=$1 AND ($2::bigint IS NULL OR id<$2)
-             ORDER BY id DESC LIMIT $3",
+        // Resolve sender names only after the actor membership check;
+        // include messages by departed members without revealing a mailbox
+        // or exposing account metadata to an outsider.
+        let mut rows = sqlx::query_as::<_, (i64, i64, String, String)>(
+            "SELECT msg.id,msg.sender_id,msg.body,u.display_name
+             FROM social_group_messages msg
+             JOIN users u ON u.id=msg.sender_id
+             WHERE msg.group_id=$1 AND ($2::bigint IS NULL OR msg.id<$2)
+             ORDER BY msg.id DESC LIMIT $3",
         )
         .bind(group_id)
         .bind(before)
@@ -260,10 +266,11 @@ impl PgGroupMail {
         rows.reverse();
         Ok(rows
             .into_iter()
-            .map(|(id, sender_id, body)| GroupMessage {
+            .map(|(id, sender_id, body, sender_name)| GroupMessage {
                 id,
                 sender_id,
                 body,
+                sender_name,
             })
             .collect())
     }

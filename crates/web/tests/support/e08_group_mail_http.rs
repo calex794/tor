@@ -268,6 +268,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
     let peer_page = text(call(&app, "GET", &path, &cookies[1], "", &[]).await).await;
     assert!(peer_page.contains("&lt;img src=x onerror=alert(1)&gt;"));
+    assert!(peer_page.contains("<strong>Group reader 0</strong>"));
     assert!(!peer_page.contains("<img src=x onerror=alert(1)>"));
     assert!(peer_page.contains("Выйти из группы"));
     assert_eq!(
