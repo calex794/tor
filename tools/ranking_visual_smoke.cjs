@@ -180,45 +180,59 @@ async function screenshot(page, name) {
         viewport + ': S008 accepted fresh completion did not rank third book');
       await screenshot(page, viewport + '-defer-and-fresh-read');
 
+      // Achievement isolation: S008 already completed several real chapters.
+      // F12 must use its own reader, so it still proves zero-before/one-after.
+      const badgeContext = await browser.newContext({ viewport: { width, height } });
+      try {
+        const badgePage = await badgeContext.newPage();
+        const badgeEmail = 'f12.visual.' + viewport + '@example.test';
+        await badgePage.goto(base + '/register');
+        await badgePage.getByLabel('Отображаемое имя').fill('Читатель F12 ' + viewport);
+        await badgePage.getByLabel('Электронная почта').fill(badgeEmail);
+        await badgePage.getByLabel('Пароль (12–128 символов)').fill('F12BrowserSafePassword2026');
+        await badgePage.getByRole('button', { name: 'Создать учётную запись' }).click();
+        await badgePage.waitForURL('**/me');
+        const badgeUid = positive(pg("SELECT id FROM users WHERE email_normalized='" + badgeEmail + "'"));
+
       // F-12/S046: real Chromium -> C verified completion -> private badge.
       // An empty personal dashboard does not pretend that reading occurred.
-      const beforeBadge = await page.goto(base + '/me', { waitUntil: 'networkidle' });
+      const beforeBadge = await badgePage.goto(base + '/me', { waitUntil: 'networkidle' });
       assert(beforeBadge && beforeBadge.status() === 200,
         viewport + ': private achievement dashboard unavailable');
-      assert(await page.getByRole('heading', { name: 'Достижения' }).isVisible(),
+      assert(await badgePage.getByRole('heading', { name: 'Достижения' }).isVisible(),
         viewport + ': achievement section missing');
-      assert(await page.getByText('Пока не получено: 0/1 глав').isVisible(),
+      assert(await badgePage.getByText('Пока не получено: 0/1 глав').isVisible(),
         viewport + ': opening the dashboard must not grant a badge');
 
-      const chapter = await page.goto(base + '/read/101', { waitUntil: 'networkidle' });
+      const chapter = await badgePage.goto(base + '/read/101', { waitUntil: 'networkidle' });
       assert(chapter && chapter.status() === 200,
         viewport + ': trusted free chapter unavailable');
-      assert(await page.getByRole('button', { name: 'Глава прочитана' }).isVisible(),
+      assert(await badgePage.getByRole('button', { name: 'Глава прочитана' }).isVisible(),
         viewport + ': server-validated chapter completion button missing');
-      await page.getByRole('button', { name: 'Глава прочитана' }).click();
-      await page.waitForURL('**/read/101#continuation');
-      const rankings = page.getByRole('link', { name: 'Мои рейтинги' });
+      await badgePage.getByRole('button', { name: 'Глава прочитана' }).click();
+      await badgePage.waitForURL('**/read/101#continuation');
+      const rankings = badgePage.getByRole('link', { name: 'Мои рейтинги' });
       assert(await rankings.isVisible(),
         viewport + ': completed chapter must offer a voluntary rankings link');
       await rankings.click();
-      await page.waitForURL('**/me/rankings');
+      await badgePage.waitForURL('**/me/rankings');
 
-      const withBadge = await page.goto(base + '/me', { waitUntil: 'networkidle' });
+      const withBadge = await badgePage.goto(base + '/me', { waitUntil: 'networkidle' });
       assert(withBadge && withBadge.status() === 200,
         viewport + ': profile unavailable after completion');
-      assert(await page.getByText('Получено: 1/1 глав').isVisible(),
+      assert(await badgePage.getByText('Получено: 1/1 глав').isVisible(),
         viewport + ': verified chapter did not award the first badge');
-      assert(await page.getByText('Дата получения:', { exact: false }).count() === 1,
+      assert(await badgePage.getByText('Дата получения:', { exact: false }).count() === 1,
         viewport + ': first achievement timestamp missing or duplicated');
-      assert(pg('SELECT count(*) FROM user_achievement_grants WHERE user_id=' + uid) === '1',
+      assert(pg('SELECT count(*) FROM user_achievement_grants WHERE user_id=' + badgeUid) === '1',
         viewport + ': duplicate or absent immutable achievement grant');
-      await screenshot(page, viewport + '-achievement');
+      await screenshot(badgePage, viewport + '-achievement');
 
-      await page.goto(base + '/read/101');
-      assert(await page.getByText('Глава уже отмечена прочитанной.').isVisible(),
+      await badgePage.goto(base + '/read/101');
+      assert(await badgePage.getByText('Глава уже отмечена прочитанной.').isVisible(),
         viewport + ': completed chapter is still offered for completion');
-      await page.goto(base + '/me');
-      assert(await page.getByText('Получено: 1/1 глав').isVisible(),
+      await badgePage.goto(base + '/me');
+      assert(await badgePage.getByText('Получено: 1/1 глав').isVisible(),
         viewport + ': badge lost after returning to the profile');
 
       // A different browser identity must not receive these personal facts.
@@ -232,6 +246,10 @@ async function screenshot(page, name) {
           viewport + ': private badge leaked to a guest');
       } finally {
         await guestContext.close();
+      }
+
+      } finally {
+        await badgeContext.close();
       }
 
       await context.close();
