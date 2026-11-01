@@ -5,6 +5,7 @@ pub mod entitlements;
 pub mod layer_creation;
 pub(crate) mod layer_economics;
 pub mod layer_entitlements;
+pub mod layer_exposure;
 pub mod layer_metadata;
 pub mod layer_offers;
 pub mod layer_picker;

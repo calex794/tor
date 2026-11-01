@@ -30,6 +30,7 @@ use tor_commerce::repositories::{
     layer_entitlements::{
         PgLayerChapterEntitlements, PgReaderEntitlements, ReaderEntitlementSource,
     },
+    layer_exposure::{LayerGrantKind, PgLayerFirstExposure},
 };
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
@@ -75,6 +76,7 @@ struct GrantState {
     layer: PgLayerChapterEntitlements,
     direct: PgDirectEntitlements,
     first_direct_grant: PgDirectFirstExposure,
+    first_layer_grant: PgLayerFirstExposure,
     versions: PgPaidStorage,
     assets: PgPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -253,12 +255,17 @@ async fn grant(
             let Some(version) = positive(&grant.version_id) else {
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
-            // D-06's first-exposure fact exists ONLY for an owned direct
-            // chapter purchase. Layer terms confer independent D-05 rights;
-            // they must not be mistaken for, or require, a direct purchase.
-            // For direct grants, persist the exposure before releasing a
-            // bearer URL so a concurrent refund/revocation remains denied.
-            if !selected_layer {
+            // Both D-06 sources record immutable use only for the actual
+            // paid entitlement, after S3 signing and before bearer return.
+            if selected_layer {
+                if let Err(error) = state
+                    .first_layer_grant
+                    .record(actor_id, chapter_id, version, LayerGrantKind::Chapter)
+                    .await
+                {
+                    return deny(status(error));
+                }
+            } else {
                 if let Err(error) = state
                     .first_direct_grant
                     .record(
@@ -486,6 +493,7 @@ fn router_inner(
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         direct: PgDirectEntitlements::new(pool.clone()),
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
+        first_layer_grant: PgLayerFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         assets: PgPaidAssets::new(pool),
         storage,

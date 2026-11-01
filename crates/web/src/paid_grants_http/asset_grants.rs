@@ -92,10 +92,17 @@ pub(super) async fn grant_asset(
             let Some(version) = positive(&grant.version_id) else {
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
-            // Only a direct purchase creates the D-06 first exposure.
-            // A Layer-only illustration grant has a separate paid term
-            // and must never forge direct-purchase finance evidence.
-            if !selected_layer {
+            // Chapter images consume the same entitlement class as text.
+            // A Layer grant records its term, never a direct purchase.
+            if selected_layer {
+                if let Err(error) = state
+                    .first_layer_grant
+                    .record(actor_id, chapter_id, version, LayerGrantKind::Asset)
+                    .await
+                {
+                    return deny(status(error));
+                }
+            } else {
                 if let Err(error) = state
                     .first_direct_grant
                     .record(

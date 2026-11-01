@@ -1,5 +1,14 @@
 //! A real PostgreSQL Layer purchase through the already configured S3 grant.
 use super::*;
+
+fn count_layer_first_grants(url: &str, term_id: i64) -> i64 {
+    scalar(
+        url,
+        &format!(
+            "SELECT count(*) FROM commerce_layer_term_first_exposures WHERE term_id={term_id}"
+        ),
+    )
+}
 use tor_commerce::{
     domain::{
         layers::LayerCheckoutCommand,
@@ -106,6 +115,11 @@ pub(super) async fn assert_layer_s3_grants(
         .unwrap();
     assert!(!paid.replayed);
     assert_eq!(paid.balance_after_minor, 210);
+    assert_eq!(
+        count_layer_first_grants(url, paid.term_id),
+        0,
+        "checkout is not a protected Layer grant"
+    );
     let shell = private_get(app, &layer_page, Some(cookie)).await;
     assert_eq!(shell.status(), StatusCode::OK);
     assert_eq!(shell.headers()[header::CACHE_CONTROL], "no-store");
@@ -141,6 +155,11 @@ pub(super) async fn assert_layer_s3_grants(
     )
     .await;
     assert_eq!(granted.status(), StatusCode::OK);
+    assert_eq!(
+        count_layer_first_grants(url, paid.term_id),
+        1,
+        "first signed chapter grant records the paid Layer term"
+    );
     // Without an explicit source, D may select the same Layer term after
     // direct purchase lookup returns NotPurchased. Never force that fallback
     // through C-06's direct first-exposure journal.
@@ -187,6 +206,24 @@ pub(super) async fn assert_layer_s3_grants(
         ),
         0,
         "Layer paid illustration must not forge direct first-grant evidence"
+    );
+    assert_eq!(
+        count_layer_first_grants(url, paid.term_id),
+        1,
+        "repeat chapter/image grants never update the first Layer event"
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM commerce_layer_term_first_exposures
+                 WHERE term_id={} AND chapter_id={chapter}
+                   AND version_id={published} AND object_kind='chapter'",
+                paid.term_id
+            ),
+        ),
+        1,
+        "the earliest immutable exposure must remain chapter"
     );
     assert_eq!(
         granted.headers()[header::CACHE_CONTROL],
