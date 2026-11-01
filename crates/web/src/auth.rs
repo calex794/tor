@@ -49,6 +49,7 @@ pub(crate) fn auth_observation_dropped() -> u64 {
 }
 mod account_form_http;
 mod author_book_page;
+mod author_discounts;
 mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
@@ -84,6 +85,7 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
+mod single_chapter_checkout;
 mod sync_actions;
 mod types;
 use types::*;
@@ -176,6 +178,9 @@ fn router_inner(
         tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
+    let discounts = tor_commerce::repositories::discount_campaigns::PgAuthorDiscounts::new(
+        accounts.pool().clone(),
+    );
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage
         .as_ref()
@@ -189,6 +194,7 @@ fn router_inner(
         ),
         accounts,
         checkout,
+        discounts,
         paid_checkout_enabled,
         paid_reader_available,
         authoring,
@@ -275,6 +281,10 @@ fn router_inner(
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
+            "/me/books/{book_id}/buy-chapter/{chapter_id}",
+            get(single_chapter_checkout::page).post(single_chapter_checkout::submit),
+        )
+        .route(
             "/me/books/{id}/buy-chapters",
             get(batch_checkout_browser::page).post(batch_checkout_browser::submit),
         )
@@ -309,6 +319,10 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route(
+            "/me/books/{id}/discounts",
+            get(author_discounts::page).post(author_discounts::submit),
+        )
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(

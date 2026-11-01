@@ -191,7 +191,7 @@ impl PgCheckout {
         let mut one_book = None;
         for offer in command.offers() {
             let row = sqlx::query(
-                "SELECT p.version_id,c.price_amount,b.id AS book_id,
+                "SELECT p.version_id,c.price_amount,b.id AS book_id,b.owner_user_id,
                         st.current_revision AS share_revision
                  FROM chapters c
                  JOIN books b ON b.id=c.book_id
@@ -217,6 +217,20 @@ impl PgCheckout {
                 return Err(CheckoutError::StaleOffer.into());
             }
             let book: i64 = row.try_get("book_id").map_err(unavailable)?;
+            // D-07 initial scope is one chapter only. Do not silently
+            // overcharge an eligible subscriber in the batch checkout.
+            if super::discounts::eligible_discount(
+                &mut tx,
+                actor,
+                book,
+                row.try_get("owner_user_id").map_err(unavailable)?,
+                price,
+            )
+            .await?
+            .is_some()
+            {
+                return Err(CheckoutError::StaleOffer.into());
+            }
             let revision: i64 = row.try_get("share_revision").map_err(unavailable)?;
             if one_book.is_some_and(|first| first != book) {
                 return Err(BatchCheckoutError::MixedBooks);

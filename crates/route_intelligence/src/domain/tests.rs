@@ -21,7 +21,24 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 125);
+    assert_eq!(unique.len(), 129);
+}
+
+#[test]
+fn d_07_discount_billing_routes_have_distinct_guarded_methods() {
+    for template in [
+        "/me/books/{book_id}/buy-chapter/{chapter_id}",
+        "/me/books/{id}/discounts",
+    ] {
+        let get = classify(Some(template), "GET");
+        let post = classify(Some(template), "POST");
+        assert!(get.route_known && post.route_known);
+        assert_eq!(get.route_family, "/me/");
+        assert_eq!(get.product_area, ProductArea::Billing);
+        assert_eq!(post.product_area, ProductArea::Billing);
+        assert_eq!(get.cost_class, CostClass::CheapRead);
+        assert_eq!(post.cost_class, CostClass::Write);
+    }
 }
 
 #[test]

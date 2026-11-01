@@ -890,6 +890,34 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_likes::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{book_id}/buy-chapter/{chapter_id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "single_chapter_checkout::page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{book_id}/buy-chapter/{chapter_id}",
+      "source": "crates/web/src/auth.rs",
+      "handler": "single_chapter_checkout::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/discounts",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_discounts::page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/discounts",
+      "source": "crates/web/src/auth.rs",
+      "handler": "author_discounts::submit",
+      "policy": "owner"
     }
   ]
 }

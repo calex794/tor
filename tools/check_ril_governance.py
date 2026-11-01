@@ -29,7 +29,7 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
-    "active_role",
+    "active_role", "quote_single",
 }
 OWNER_CALLS = {
     "list_owned_books", "create_owned_book", "owned_book",

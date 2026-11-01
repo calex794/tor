@@ -44,7 +44,30 @@ async fn d_06_repurchase_after_approved_refund_keeps_full_old_money_history() {
             .unwrap();
     assert_eq!(before, 1000);
     let enabled = PgCheckout::new(f.pool.clone()).with_creator_posting(true);
+    let book: i64 = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
+        .bind(f.chapter)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        disabled.quote_single(f.buyer, book, f.chapter).await,
+        Err(CheckoutError::Unavailable),
+        "refunded chapter may not be offered while D-08 posting is off"
+    );
+    let quote = enabled
+        .quote_single(f.buyer, book, f.chapter)
+        .await
+        .unwrap();
+    assert_eq!(
+        quote.final_price_minor, 300,
+        "approved refund must permit a fresh, exact purchase quote"
+    );
     let repurchased = enabled.checkout_once(&retry_key).await.unwrap();
+    assert_eq!(
+        enabled.quote_single(f.buyer, book, f.chapter).await,
+        Err(CheckoutError::AlreadyOwned),
+        "after reacquisition the chapter is already owned again"
+    );
     assert_ne!(repurchased.purchase_id.get(), f.purchase);
     assert_eq!(repurchased.amount.get(), 300);
     assert_eq!(repurchased.balance_after.get(), 700);

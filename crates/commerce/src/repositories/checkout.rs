@@ -1,8 +1,11 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
 mod batch;
+mod discount_quote;
+mod discounts;
 pub(crate) mod revenue;
 pub use batch::SelectableBatchOffer;
+pub use discount_quote::SingleChapterQuote;
 
 use crate::domain::money::{
     CheckoutError, CheckoutRepository, MoneyMinor, PurchaseCommand, PurchaseId, PurchaseReceipt,
@@ -48,11 +51,14 @@ impl CheckoutRepository for PgCheckout {
         let chapter = command.edition.chapter_id.get();
         let version = command.edition.version_id.get();
         let price = command.expected_price.get();
+        let base_price_expected = command.expected_base_price.get();
+        let expected_discount = command.expected_discount_offer;
         if actor <= 0
             || command.wallet_id.get() != actor
             || chapter <= 0
             || version <= 0
             || price <= 0
+            || base_price_expected < price
         {
             return Err(CheckoutError::Inaccessible);
         }
@@ -63,8 +69,10 @@ impl CheckoutRepository for PgCheckout {
         // replica. A failed checkout rolls the claim back with the wallet.
         let claimed = sqlx::query_scalar::<_, i64>(
             "INSERT INTO chapter_purchase_commands
-              (user_id, command_key, chapter_id, expected_version_id, expected_price_minor)
-             VALUES ($1, $2, $3, $4, $5)
+              (user_id, command_key, chapter_id, expected_version_id, expected_price_minor,
+               expected_base_price_minor, expected_campaign_id, expected_campaign_revision,
+               expected_rule_version, expected_follow_period_id, expected_discount_percent, expected_min_follow_days)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
              ON CONFLICT (user_id, command_key) DO NOTHING RETURNING user_id",
         )
         .bind(actor)
@@ -72,12 +80,22 @@ impl CheckoutRepository for PgCheckout {
         .bind(chapter)
         .bind(version)
         .bind(price)
+        .bind(base_price_expected)
+        .bind(expected_discount.map(|offer| offer.campaign_id.get()))
+        .bind(expected_discount.map(|offer| offer.campaign_revision))
+        .bind(expected_discount.map(|offer| offer.rule_version))
+        .bind(expected_discount.map(|offer| offer.follow_period_id.get()))
+        .bind(expected_discount.map(|offer| offer.discount_percent))
+        .bind(expected_discount.map(|offer| offer.min_follow_days))
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
 
         let prior = sqlx::query(
-            "SELECT chapter_id, expected_version_id, expected_price_minor, purchase_id
+            "SELECT chapter_id, expected_version_id, expected_price_minor,
+                    expected_base_price_minor, expected_campaign_id,
+                    expected_campaign_revision, expected_rule_version, expected_follow_period_id,
+                    expected_discount_percent, expected_min_follow_days, purchase_id
              FROM chapter_purchase_commands
              WHERE user_id=$1 AND command_key=$2 FOR UPDATE",
         )
@@ -95,6 +113,34 @@ impl CheckoutRepository for PgCheckout {
                 .try_get::<i64, _>("expected_price_minor")
                 .map_err(unavailable)?
                 != price
+            || prior
+                .try_get::<i64, _>("expected_base_price_minor")
+                .map_err(unavailable)?
+                != base_price_expected
+            || prior
+                .try_get::<Option<i64>, _>("expected_campaign_id")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.campaign_id.get())
+            || prior
+                .try_get::<Option<i32>, _>("expected_campaign_revision")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.campaign_revision)
+            || prior
+                .try_get::<Option<i16>, _>("expected_rule_version")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.rule_version)
+            || prior
+                .try_get::<Option<i64>, _>("expected_follow_period_id")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.follow_period_id.get())
+            || prior
+                .try_get::<Option<i16>, _>("expected_discount_percent")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.discount_percent)
+            || prior
+                .try_get::<Option<i16>, _>("expected_min_follow_days")
+                .map_err(unavailable)?
+                != expected_discount.map(|offer| offer.min_follow_days)
         {
             return Err(CheckoutError::DuplicateKeyDifferentRequest);
         }
@@ -135,7 +181,7 @@ impl CheckoutRepository for PgCheckout {
         // moderation state while the money transaction is in progress.
         let offer = sqlx::query(
             "SELECT p.version_id, c.price_amount, b.id AS book_id,
-                    st.current_revision AS share_revision
+                    b.owner_user_id, st.current_revision AS share_revision
              FROM chapters c
              JOIN books b ON b.id=c.book_id
              JOIN revenue_share_states st ON st.book_id=b.id
@@ -154,11 +200,31 @@ impl CheckoutRepository for PgCheckout {
         .await
         .map_err(unavailable)?
         .ok_or(CheckoutError::Inaccessible)?;
-        if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version
-            || offer
-                .try_get::<i64, _>("price_amount")
-                .map_err(unavailable)?
-                != price
+        let base_price: i64 = offer.try_get("price_amount").map_err(unavailable)?;
+        let economic_book_id: i64 = offer.try_get("book_id").map_err(unavailable)?;
+        let discount = discounts::eligible_discount(
+            &mut tx,
+            actor,
+            economic_book_id,
+            offer.try_get("owner_user_id").map_err(unavailable)?,
+            base_price,
+        )
+        .await?;
+        let quote_matches = match (discount.as_ref(), expected_discount) {
+            (None, None) => base_price == base_price_expected && price == base_price,
+            (Some(actual), Some(expected)) => {
+                actual.base_price_minor == base_price_expected
+                    && actual.paid_minor == price
+                    && actual.campaign_id == expected.campaign_id.get()
+                    && actual.campaign_revision == expected.campaign_revision
+                    && actual.rule_version == expected.rule_version
+                    && actual.follow_period_id == expected.follow_period_id.get()
+                    && actual.discount_percent == expected.discount_percent
+                    && actual.min_follow_days == expected.min_follow_days
+            }
+            _ => false,
+        };
+        if offer.try_get::<i64, _>("version_id").map_err(unavailable)? != version || !quote_matches
         {
             return Err(CheckoutError::StaleOffer);
         }
@@ -166,7 +232,6 @@ impl CheckoutRepository for PgCheckout {
         // B-10 economics is authoritative ONLY through immutable revisions.
         // The FOR SHARE Book lock above fences B-owned schedule CAS until
         // purchase, snapshot and buyer debit commit atomically.
-        let economic_book_id: i64 = offer.try_get("book_id").map_err(unavailable)?;
         let share_revision: i64 = offer.try_get("share_revision").map_err(unavailable)?;
         let share_total: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(share_percent),0)::BIGINT
@@ -308,6 +373,28 @@ impl CheckoutRepository for PgCheckout {
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
+
+        if let Some(discount) = discount {
+            sqlx::query(
+                "INSERT INTO chapter_purchase_discount_snapshots
+                 (purchase_id,campaign_id,campaign_revision,rule_version,follow_period_id,base_price_minor,
+                  discount_minor,paid_minor,discount_percent,min_follow_days)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            )
+            .bind(purchase_id)
+            .bind(discount.campaign_id)
+            .bind(discount.campaign_revision)
+            .bind(discount.rule_version)
+            .bind(discount.follow_period_id)
+            .bind(discount.base_price_minor)
+            .bind(discount.discount_minor)
+            .bind(discount.paid_minor)
+            .bind(discount.discount_percent)
+            .bind(discount.min_follow_days)
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        }
 
         sqlx::query(
             "INSERT INTO reader_wallet_entries

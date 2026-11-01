@@ -11,7 +11,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tor_commerce::domain::money::{
-    CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand, WalletId,
+    CheckoutError, CheckoutRepository, IdempotencyKey, MoneyMinor, PurchaseCommand,
+    PurchaseDiscountOffer, WalletId,
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
@@ -21,6 +22,13 @@ pub(super) struct BuyChapter {
     chapter_id: String,
     expected_version_id: String,
     expected_price_minor: i64,
+    expected_base_price_minor: Option<i64>,
+    expected_campaign_id: Option<i64>,
+    expected_campaign_revision: Option<i32>,
+    expected_rule_version: Option<i16>,
+    expected_follow_period_id: Option<i64>,
+    expected_discount_percent: Option<i16>,
+    expected_min_follow_days: Option<i16>,
 }
 
 #[derive(Serialize)]
@@ -103,7 +111,7 @@ pub(super) async fn buy(
         Ok(wallet) => wallet,
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    let command = match PurchaseCommand::new(
+    let command = PurchaseCommand::new(
         actor,
         wallet,
         ChapterVersionRef {
@@ -112,9 +120,35 @@ pub(super) async fn buy(
         },
         price,
         key,
+    );
+    let command = match (
+        command,
+        input.expected_base_price_minor,
+        input.expected_campaign_id,
+        input.expected_campaign_revision,
+        input.expected_rule_version,
+        input.expected_follow_period_id,
+        input.expected_discount_percent,
+        input.expected_min_follow_days,
     ) {
-        Ok(command) => command,
-        Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+        (Ok(command), None, None, None, None, None, None, None) => command,
+        (
+            Ok(command),
+            Some(base),
+            Some(campaign),
+            Some(revision),
+            Some(rule_version),
+            Some(period),
+            Some(percent),
+            Some(days),
+        ) => match MoneyMinor::new(base).and_then(|base| {
+            PurchaseDiscountOffer::new(campaign, revision, rule_version, period, percent, days)
+                .and_then(|offer| command.with_discount_offer(base, offer))
+        }) {
+            Ok(command) => command,
+            Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
+        },
+        _ => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
     match state.checkout.checkout_once(&command).await {
         Ok(receipt) => private_response(

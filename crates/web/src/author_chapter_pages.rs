@@ -47,6 +47,7 @@ pub fn detail_with_covers_with_demand(
             uploads_enabled,
             latest_job,
             demand_count,
+            discounts_enabled: false,
             next: None,
             has_previous_page: false,
         },
@@ -58,6 +59,7 @@ pub struct OwnerChapterPageOptions<'a> {
     pub uploads_enabled: bool,
     pub latest_job: Option<&'a str>,
     pub demand_count: i64,
+    pub discounts_enabled: bool,
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
 }
@@ -74,6 +76,7 @@ pub fn detail_with_covers_with_demand_page(
         uploads_enabled,
         latest_job,
         demand_count,
+        discounts_enabled,
         next,
         has_previous_page,
     } = options;
@@ -187,6 +190,14 @@ pub fn detail_with_covers_with_demand_page(
     } else {
         String::new()
     };
+    let discounts_link = if published && discounts_enabled {
+        format!(
+            "<p><a href=\"/me/books/{}/discounts\">Скидки подписчикам</a></p>",
+            book.id
+        )
+    } else {
+        String::new()
+    };
     let demand_panel = if published {
         format!(
             "<section class=\"author-demand\" aria-label=\"Ожидание продолжения\"><h2>Читатели ждут продолжения</h2><p>Запросов после последней опубликованной главы: <strong>{demand_count}</strong></p><p class=\"account-profile__hint\">Только подтверждённые читатели текущей границы книги.</p></section>"
@@ -200,6 +211,7 @@ pub fn detail_with_covers_with_demand_page(
         <h1>{}</h1>
         <p class="account-profile__hint">{status}</p>
         {demand_panel}
+        {discounts_link}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <p><a href="/books/{id}/stats">Статистика книги</a></p>

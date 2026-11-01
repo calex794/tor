@@ -23,7 +23,8 @@ mod reader_private;
 pub use reader_private::private_reader;
 pub use reader_private::private_reader_with_demand;
 mod paywall;
-pub use paywall::paid_chapter_paywall;
+#[allow(unused_imports)] // Legacy explanatory paywall remains callable by existing tests.
+pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_with_checkout};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;

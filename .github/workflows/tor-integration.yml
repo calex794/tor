@@ -252,6 +252,7 @@ jobs:
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test discounts_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
@@ -465,6 +466,7 @@ jobs:
           TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
           TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
           TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
+          TOR_SUBSCRIBER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/subscriber_discount_browser_pg.cjs
           TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
           node --check tools/batch_checkout_chromium_pg.cjs
           node --check tools/referral_share_browser_smoke.cjs
