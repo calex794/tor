@@ -27,7 +27,9 @@ use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidSto
 use tor_commerce::repositories::{
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
-    layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements, ReaderEntitlementSource},
+    layer_entitlements::{
+        PgLayerChapterEntitlements, PgReaderEntitlements, ReaderEntitlementSource,
+    },
 };
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
