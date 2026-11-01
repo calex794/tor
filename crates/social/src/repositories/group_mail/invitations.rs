@@ -59,6 +59,33 @@ impl PgGroupMail {
         .map_err(unavailable)
     }
 
+
+    /// Former participants remain eligible for explicit re-invitation even if
+    /// they never had a separate one-to-one mail conversation with the creator.
+    pub async fn former_members(
+        &self,
+        actor: i64,
+        group_id: i64,
+    ) -> Result<Vec<(i64, String)>, MailError> {
+        if actor <= 0 || group_id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        sqlx::query_as(
+            "SELECT m.user_id,u.display_name FROM social_group_members m
+             JOIN social_group_members creator ON creator.group_id=m.group_id
+               AND creator.user_id=$1 AND creator.role='creator'
+               AND creator.status='active'
+             JOIN users u ON u.id=m.user_id AND u.account_state='active'
+             WHERE m.group_id=$2 AND m.status IN ('left','removed')
+             ORDER BY m.user_id LIMIT 32",
+        )
+        .bind(actor)
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(unavailable)
+    }
+
     /// Only a live group creator may invite. Former members stay out until
     /// they accept their own new invitation. Never silently restore membership.
     pub async fn invite(

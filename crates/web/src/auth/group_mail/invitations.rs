@@ -123,8 +123,28 @@ async fn invite_page(
         r#"<header class="ui-page-header"><h1>Пригласить в {}</h1><a href="/mail/groups/{id}">К переписке</a></header><p>Приглашение действует 7 дней. До подтверждения пользователь не получает доступ к сообщениям.</p><form method="post" action="/mail/groups/{id}/invite"><label for="group-invite-user">Получатель</label><select id="group-invite-user" name="invited_user_id" required><option value="">Выберите собеседника</option>"#,
         escape_html(&group.title),
     );
+    let former = match store.former_members(actor, id).await {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::super::mail::status(error)),
+    };
     let mut choices = 0;
+    let mut seen = std::collections::HashSet::new();
+    for (member_id, name) in former {
+        if seen.insert(member_id) {
+            write!(
+                body,
+                r#"<option value="{}">{}</option>"#,
+                member_id,
+                escape_html(&name),
+            )
+            .expect("former member option");
+            choices += 1;
+        }
+    }
     for conversation in conversations {
+        if !seen.insert(conversation.peer_id) {
+            continue;
+        }
         if members.iter().any(|(member_id, _)| *member_id == conversation.peer_id) {
             continue;
         }

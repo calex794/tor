@@ -613,6 +613,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
     let invite_html = text(call(&app, "GET", &invite_page, &cookies[2], "", &[]).await).await;
     assert!(invite_html.contains("Отправить приглашение"));
+    assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 1", users[1])));
     assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 3", users[3])));
     let invite_form = format!(
         "invited_user_id={}&csrf_token={}",
