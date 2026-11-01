@@ -1,6 +1,6 @@
 // F-05: actual Chromium + disposable PostgreSQL.
-// The ranking is seeded internally because a trusted C completion is not yet
-// implemented. No user-facing "mark as read" or "start ranking" route exists.
+// S008 browser acceptance: only actual C-owned chapter completion may make
+// a book eligible for ranking. Never seed private ranking tables from SQL.
 const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -59,10 +59,37 @@ async function screenshot(page, name) {
         "VALUES('ci:f05:visual:" + viewport + ":a','ru','Знакомая книга','public') RETURNING id"));
       const b = positive(pg("INSERT INTO books(source_identity,target_language,title,visibility) " +
         "VALUES('ci:f05:visual:" + viewport + ":b','ru','Любимая книга','public') RETURNING id"));
-      pg("INSERT INTO user_book_ranking_head(user_id,revision) VALUES(" + uid + ",2); " +
-        "INSERT INTO user_book_rank(user_id,book_id,tier) VALUES(" + uid + "," + a + ",0); " +
-        "INSERT INTO user_book_ranking_state(user_id,placing_book_id,low_position,high_position,state_version,placement_epoch) " +
-        "VALUES(" + uid + "," + b + ",0,0,1,2);");
+      // The public book records are fixtures, but chapter completion and
+      // ranking eligibility must travel through real browser + C + outbox + F.
+      const chapterA = positive(pg("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) " +
+        "VALUES(" + a + ",1,'Глава А','public','free',0) RETURNING id"));
+      const chapterB = positive(pg("INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount) " +
+        "VALUES(" + b + ",1,'Глава Б','public','free',0) RETURNING id"));
+      for (const chapterId of [chapterA, chapterB]) {
+        const versionId = positive(pg("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) " +
+          "VALUES(" + chapterId + ",1,'Проверенная глава рейтинга: **последний абзац**.') RETURNING id"));
+        pg("INSERT INTO chapter_publications(chapter_id,version_id) VALUES(" +
+          chapterId + "," + versionId + ")");
+      }
+      for (const [chapterId, expectedBookId] of [[chapterA, a], [chapterB, b]]) {
+        const opened = await page.goto(base + '/read/' + chapterId, { waitUntil: 'networkidle' });
+        assert(opened && opened.status() === 200,
+          viewport + ': S008 verified public chapter unavailable');
+        assert(await page.getByRole('button', { name: 'Глава прочитана' }).isVisible(),
+          viewport + ': S008 C-owned completion button missing');
+        assert(pg("SELECT count(*) FROM reader_chapter_completions WHERE user_id=" + uid +
+          " AND book_id=" + expectedBookId) === '0',
+          viewport + ': S008 GET falsely completed the chapter');
+        await page.getByRole('button', { name: 'Глава прочитана' }).click();
+        await page.waitForURL(base + '/read/' + chapterId + '#continuation');
+        assert(pg("SELECT count(*) FROM reader_chapter_completions WHERE user_id=" + uid +
+          " AND book_id=" + expectedBookId) === '1',
+          viewport + ': S008 completion fact not stored exactly once');
+      }
+      assert(pg("SELECT count(*) FROM user_book_rank WHERE user_id=" + uid) === '1',
+        viewport + ': S008 first trusted completion did not start a ranking');
+      assert(pg("SELECT count(*) FROM user_book_ranking_state WHERE user_id=" + uid) === '1',
+        viewport + ': S008 second trusted completion did not start a comparison');
 
       const active = await page.goto(base + '/me/rankings', { waitUntil: 'networkidle' });
       assert(active && active.status() === 200, viewport + ': ranked question HTTP failed');
