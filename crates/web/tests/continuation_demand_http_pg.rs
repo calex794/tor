@@ -344,9 +344,16 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let mark_read = format!("csrf_token={csrf}&state=read");
     let mark_unread = format!("csrf_token={csrf}&state=unread");
     assert_eq!(
-        call(&app, "POST", &read_state_path, &owner_cookie, ORIGIN, &mark_read)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &read_state_path,
+            &owner_cookie,
+            ORIGIN,
+            &mark_read
+        )
+        .await
+        .status(),
         StatusCode::NOT_FOUND,
         "the author cannot acknowledge another reader's update"
     );
@@ -365,9 +372,16 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     );
     for _ in 0..2 {
         assert_eq!(
-            call(&app, "POST", &read_state_path, &reader_cookie, ORIGIN, &mark_read)
-                .await
-                .status(),
+            call(
+                &app,
+                "POST",
+                &read_state_path,
+                &reader_cookie,
+                ORIGIN,
+                &mark_read
+            )
+            .await
+            .status(),
             StatusCode::SEE_OTHER,
             "acknowledging the same update is idempotent"
         );
@@ -387,13 +401,19 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(acknowledged.contains("Просмотрено"));
     assert!(acknowledged.contains("Отметить непрочитанной"));
     assert_eq!(
-        call(&app, "POST", &read_state_path, &reader_cookie, ORIGIN, &mark_unread)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &read_state_path,
+            &reader_cookie,
+            ORIGIN,
+            &mark_unread
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
-    let unread =
-        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    let unread = html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
     assert!(unread.contains("Отметить прочитанной"));
     assert_eq!(
         pg(
