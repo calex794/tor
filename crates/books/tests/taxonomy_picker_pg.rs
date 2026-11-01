@@ -6,11 +6,15 @@ use tor_books::{
 };
 
 #[tokio::test]
-#[ignore = "requires TEST_DATABASE_URL ending in /tor_ci"]
+#[ignore = "requires disposable tor_ci app and migrator database URLs"]
 async fn indexed_taxonomy_lookup_and_id_only_creation() {
     let url = std::env::var("TEST_DATABASE_URL").expect("test PostgreSQL URL");
+    let admin_url = std::env::var("TEST_TAXONOMY_MIGRATOR_URL")
+        .expect("disposable migration owner URL for curated fixture");
     assert!(url.ends_with("/tor_ci"), "Never mutate production");
+    assert!(admin_url.ends_with("/tor_ci"), "Never seed production taxonomy");
     let pool = PgPool::connect(&url).await.unwrap();
+    let admin_pool = PgPool::connect(&admin_url).await.unwrap();
     let author = PgAuthoring::new(pool.clone());
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -25,6 +29,15 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    // The runtime role must never be able to create arbitrary public tags.
+    assert!(
+        sqlx::query("INSERT INTO book_taxonomy_terms(kind,label,search_key)
+                     VALUES('tag','Unauthorized','unauthorized')")
+            .execute(&pool)
+            .await
+            .is_err(),
+        "runtime role may link approved terms, not create them"
+    );
     let genre_key = format!("fantasy{stamp}");
     let tag_key = format!("system{stamp}");
     let alias_key = format!("синоним{stamp}");
@@ -34,7 +47,7 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
     )
     .bind("Fantasy")
     .bind(&genre_key)
-    .fetch_one(&pool)
+    .fetch_one(&admin_pool)
     .await
     .unwrap();
     let tag: i64 = sqlx::query_scalar(
@@ -42,7 +55,7 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
          VALUES('tag','System',$1) RETURNING id",
     )
     .bind(&tag_key)
-    .fetch_one(&pool)
+    .fetch_one(&admin_pool)
     .await
     .unwrap();
     sqlx::query(
@@ -51,7 +64,7 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
     )
     .bind(&alias_key)
     .bind(tag)
-    .execute(&pool)
+    .execute(&admin_pool)
     .await
     .unwrap();
 
@@ -138,7 +151,7 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
 
     sqlx::query("UPDATE book_taxonomy_terms SET status='blocked' WHERE id=$1")
         .bind(tag)
-        .execute(&pool)
+        .execute(&admin_pool)
         .await
         .unwrap();
     assert_eq!(
@@ -154,4 +167,5 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         .unwrap()
         .is_empty());
     pool.close().await;
+    admin_pool.close().await;
 }
