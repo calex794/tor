@@ -352,15 +352,11 @@ pub(super) async fn check_consent(
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        call(app, "GET", path, &cookies[0], "", &[])
-            .await
-            .status(),
+        call(app, "GET", path, &cookies[0], "", &[]).await.status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        call(app, "GET", path, &cookies[2], "", &[])
-            .await
-            .status(),
+        call(app, "GET", path, &cookies[2], "", &[]).await.status(),
         StatusCode::OK
     );
     assert_eq!(
@@ -373,5 +369,4 @@ pub(super) async fn check_consent(
         .await,
         "1"
     );
-
 }

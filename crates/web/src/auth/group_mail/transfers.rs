@@ -17,10 +17,7 @@ pub(crate) fn router() -> Router<AuthState> {
         .route("/mail/group-transfers", get(inbox))
         .route("/mail/group-transfers/{id}/accept", post(accept))
         .route("/mail/group-transfers/{id}/decline", post(decline))
-        .route(
-            "/mail/groups/{id}/transfer/{offer_id}/revoke",
-            post(revoke),
-        )
+        .route("/mail/groups/{id}/transfer/{offer_id}/revoke", post(revoke))
 }
 
 #[derive(Deserialize)]

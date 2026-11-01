@@ -5,8 +5,8 @@ mod transfers;
 use super::notification_events::{self, NotificationEvent};
 use crate::domain::{clean_body, valid_key, MailError, SentMessage};
 pub use invitations::PendingGroupInvite;
-pub use transfers::PendingGroupTransfer;
 use sqlx::PgPool;
+pub use transfers::PendingGroupTransfer;
 
 #[derive(Clone)]
 pub struct PgGroupMail {
