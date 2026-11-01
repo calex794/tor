@@ -21,6 +21,10 @@ async fn fixture(name: &str) -> (PgPool, PgRecommendations, i64, i64) {
         .bind(format!("rec13-{name}@tor-ci.example")).fetch_one(&pool).await.unwrap();
     let book: i64=sqlx::query_scalar("INSERT INTO books(source_identity,target_language,title,visibility) VALUES($1,'ru','REC public book','public') ON CONFLICT(source_identity,target_language) DO UPDATE SET visibility='public',admin_hold=false,is_deleted=false RETURNING id")
         .bind(format!("ci:rec13:{name}")).fetch_one(&pool).await.unwrap();
+    // Build readable public content BEFORE moderator approval: creating a
+    // chapter after approval must revoke it, even in disposable test fixtures.
+    sqlx::query("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES($1,1,'First','public') ON CONFLICT(book_id,chapter_no) DO NOTHING")
+        .bind(book).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general') ON CONFLICT(book_id) DO UPDATE SET audience='general'")
         .bind(book).execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO rec_general_audience_approvals(book_id,reviewed_revision,reviewer_user_id) SELECT book_id,revision,$2 FROM book_recommendation_audiences WHERE book_id=$1 ON CONFLICT(book_id) DO UPDATE SET reviewed_revision=EXCLUDED.reviewed_revision,reviewer_user_id=EXCLUDED.reviewer_user_id,reviewed_at=now()")
@@ -73,7 +77,7 @@ fn impression(ticket: &str, visible: bool) -> ImpressionClaim {
     }
 }
 async fn canonical_start(pool: &PgPool, actor: i64, book: i64) -> String {
-    let chapter: i64=sqlx::query_scalar("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES($1,1,'First','public') ON CONFLICT(book_id,chapter_no) DO UPDATE SET visibility='public' RETURNING id")
+    let chapter: i64=sqlx::query_scalar("SELECT id FROM chapters WHERE book_id=$1 AND chapter_no=1 AND visibility='public'")
         .bind(book).fetch_one(pool).await.unwrap();
     let version: i64=sqlx::query_scalar("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES($1,1,'Readable text') ON CONFLICT(chapter_id,version_no) DO NOTHING RETURNING id")
         .bind(chapter).fetch_optional(pool).await.unwrap().unwrap_or(0);
