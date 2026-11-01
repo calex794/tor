@@ -8,16 +8,29 @@ use std::fmt::Write;
 mod account;
 mod creators;
 pub use creators::creator_follows;
+mod layer_storefront;
+mod library;
 mod referrals;
 mod session_security;
-#[allow(unused_imports)] // Old public renderer remains available for existing callers.
+#[allow(unused_imports)] // The previous account renderer remains available to callers.
 pub use account::{
     account_error_page, login_form, my_account, my_account_with_achievements,
     my_account_with_follow_updates, password_change_form, registration_form,
     registration_form_with_error,
 };
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
+#[allow(unused_imports)] // Legacy library APIs stay available for tests and other callers.
+pub use library::{
+    my_library, my_library_with_options, my_library_with_purchases, my_library_with_updates,
+    LibraryCapabilities,
+};
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
+mod reader_layer;
+pub use reader_layer::layer_reader_shell;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -433,9 +446,6 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
     )
 }
 
-mod library;
-pub use library::my_library_with_updates;
-
 pub async fn stylesheet() -> impl IntoResponse {
     (
         [
@@ -461,6 +471,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css
     });
     (
@@ -483,6 +495,20 @@ pub async fn paid_reader_script() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         include_str!("../assets/newboo-paid-reader.mjs"),
+    )
+}
+
+/// Browser-only Layer CURRENT reader. Imports the existing paid WebCrypto module.
+pub async fn layer_reader_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-layer-reader.mjs"),
     )
 }
 

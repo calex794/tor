@@ -2,6 +2,7 @@
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod asset_grants;
+mod layer_reader;
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
@@ -26,6 +27,7 @@ use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidSto
 use tor_commerce::repositories::{
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
+    layer_entitlements::{PgLayerChapterEntitlements, PgReaderEntitlements},
 };
 use tor_contracts::paid_delivery::{
     Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
@@ -67,7 +69,9 @@ impl RateLimits {
 #[derive(Clone)]
 struct GrantState {
     accounts: PgAccounts,
-    entitlement: PgDirectEntitlements,
+    entitlement: PgReaderEntitlements,
+    layer: PgLayerChapterEntitlements,
+    direct: PgDirectEntitlements,
     first_direct_grant: PgDirectFirstExposure,
     versions: PgPaidStorage,
     assets: PgPaidAssets,
@@ -115,10 +119,17 @@ pub(crate) fn valid_reader_s3_origin(origin: &str) -> bool {
         && uri.path_and_query().is_none_or(|path| path.as_str() == "/")
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum GrantSource {
+    Layer,
+}
+
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct GrantBody {
     purchase_id: Option<String>,
+    source: Option<GrantSource>,
 }
 
 fn positive(raw: &str) -> Option<PositiveId> {
@@ -197,10 +208,19 @@ async fn grant(
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
 
-    // C rechecks D after G signs, preventing newly refunded users from
-    // receiving fresh bearer credentials. Already issued S3 URLs last <=90s.
+    // The requested source selects a D authority; it is not proof of rights.
+    // An explicit purchase never falls through to a Layer term.
+    if body.source.is_some() && purchase_id.is_some() {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let authority: &dyn EntitlementPort = match body.source {
+        Some(GrantSource::Layer) => &state.layer,
+        None => &state.entitlement,
+    };
+    // C rechecks the same D source after G signs. Existing S3 bearer
+    // credentials remain usable only until their short expiry.
     let result = issue_paid_chapter_grant(
-        &state.entitlement,
+        authority,
         &state.versions,
         state.storage.as_ref(),
         Actor { user_id: actor_id },
@@ -277,7 +297,7 @@ async fn paid_reader(
         return deny(StatusCode::NOT_FOUND);
     };
     let pinned = match state
-        .entitlement
+        .direct
         .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, Some(purchase_id))
         .await
     {
@@ -295,7 +315,7 @@ async fn paid_reader(
     // Metadata is also scoped by D's canonical SQL policy. A concurrent
     // refund/hold between checks must not expose stale paid-page details.
     let details = match state
-        .entitlement
+        .direct
         .readable_purchase_detail(actor_id, chapter_id, purchase_id)
         .await
     {
@@ -305,7 +325,7 @@ async fn paid_reader(
         Err(error) => return deny(status(error)),
     };
     let toc = match state
-        .entitlement
+        .direct
         .mixed_book_toc(actor_id, chapter_id, purchase_id)
         .await
     {
@@ -384,7 +404,7 @@ async fn purchased_library(
         },
         None => None,
     };
-    let owned = match state.entitlement.readable_purchases(actor, after).await {
+    let owned = match state.direct.readable_purchases(actor, after).await {
         Ok(owned) => owned,
         Err(error) => return deny(status(error)),
     };
@@ -437,7 +457,9 @@ fn router_inner(
     let pool = accounts.pool().clone();
     let state = GrantState {
         accounts,
-        entitlement: PgDirectEntitlements::new(pool.clone()),
+        entitlement: PgReaderEntitlements::new(pool.clone()),
+        layer: PgLayerChapterEntitlements::new(pool.clone()),
+        direct: PgDirectEntitlements::new(pool.clone()),
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         assets: PgPaidAssets::new(pool),
@@ -458,6 +480,7 @@ fn router_inner(
         );
     if state.reader_s3_origin.is_some() {
         app = app
+            .route("/read/layer/{chapter_id}", get(layer_reader::layer_reader))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route("/me/purchases", get(purchased_library));
     }

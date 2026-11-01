@@ -17,6 +17,11 @@ pub(super) struct FollowBookControl {
     cookies: CookiePolicy,
 }
 
+/// Borrowed, authenticated router wiring; retain the original owned constructor elsewhere.
+pub(super) fn control(accounts: &PgAccounts, secure: bool, origin: &str) -> FollowBookControl {
+    FollowBookControl::new(accounts.clone(), secure, origin.to_owned())
+}
+
 impl FollowBookControl {
     pub(super) fn new(accounts: PgAccounts, secure: bool, origin: String) -> Self {
         let follows = PgBookFollows::new(accounts.pool().clone());

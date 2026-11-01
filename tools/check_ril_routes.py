@@ -15,6 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 CLASSIFIERS = (
     Path("crates/route_intelligence/src/domain/mod.rs"),
     Path("crates/route_intelligence/src/domain/routes.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_core.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_account.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_referrals.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_mentions.rs"),
+    Path("crates/route_intelligence/src/domain/routes/continuation.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_layer.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_follow.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_inbox.rs"),
+    Path("crates/route_intelligence/src/domain/routes/entries_reply.rs"),
     Path("crates/route_intelligence/src/domain/routes/classifier.rs"),
 )
 _METHODS = r"get|post|put|patch|delete|head|options|trace"

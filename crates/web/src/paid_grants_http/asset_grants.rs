@@ -46,6 +46,14 @@ pub(super) async fn grant_asset(
         },
         None => None,
     };
+    // Chapter images inherit the identical edition-specific D authority.
+    if body.source.is_some() && purchase_id.is_some() {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let authority: &dyn EntitlementPort = match body.source {
+        Some(GrantSource::Layer) => &state.layer,
+        None => &state.entitlement,
+    };
     if !state.rate_limits.lock().await.allow(actor, Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -53,7 +61,7 @@ pub(super) async fn grant_asset(
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
     let result = issue_paid_asset_grant(
-        &state.entitlement,
+        authority,
         &state.assets,
         state.storage.as_ref(),
         Actor { user_id: actor_id },
