@@ -1,6 +1,6 @@
 //! Browser workflow for explicit group invitations. No invitation is membership.
-use super::{group_store, secure, shell};
 use super::super::{deny, session_user, AuthState};
+use super::{group_store, secure, shell};
 use crate::{auth_cookies::private_response, pages::escape_html};
 use axum::{
     extract::{Form, Path, State},
@@ -145,7 +145,10 @@ async fn invite_page(
         if !seen.insert(conversation.peer_id) {
             continue;
         }
-        if members.iter().any(|(member_id, _)| *member_id == conversation.peer_id) {
+        if members
+            .iter()
+            .any(|(member_id, _)| *member_id == conversation.peer_id)
+        {
             continue;
         }
         let name = match state.accounts.user_display_name(conversation.peer_id).await {
@@ -168,7 +171,9 @@ async fn invite_page(
     )
     .expect("invite form");
     if choices == 0 {
-        body.push_str("<p>Нет доступных собеседников. Начните личную переписку с нужным пользователем.</p>");
+        body.push_str(
+            "<p>Нет доступных собеседников. Начните личную переписку с нужным пользователем.</p>",
+        );
     }
     if !sent.is_empty() {
         body.push_str("<h2>Ожидают ответа</h2>");
@@ -199,7 +204,10 @@ async fn invite(
     if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
         return deny(status);
     }
-    match group_store(&state).invite(actor, id, form.invited_user_id).await {
+    match group_store(&state)
+        .invite(actor, id, form.invited_user_id)
+        .await
+    {
         Ok(_) => private_response(Redirect::to(&format!("/mail/groups/{id}/invite")), &[]),
         Err(error) => deny(super::super::mail::status(error)),
     }

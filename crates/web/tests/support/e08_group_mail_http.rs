@@ -615,14 +615,11 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     assert!(invite_html.contains("Отправить приглашение"));
     assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 1", users[1])));
     assert!(invite_html.contains(&format!("option value=\"{}\">Group reader 3", users[3])));
-    let invite_form = format!(
-        "invited_user_id={}&csrf_token={}",
-        users[3], tokens[2],
-    );
+    let invite_form = format!("invited_user_id={}&csrf_token={}", users[3], tokens[2],);
     assert_eq!(
-        call(
-            &app, "POST", &invite_page, &cookies[0], &invite_form, &[]
-        ).await.status(),
+        call(&app, "POST", &invite_page, &cookies[0], &invite_form, &[])
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -666,10 +663,8 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
             .status(),
         StatusCode::NOT_FOUND
     );
-    let invitations = text(
-        call(&app, "GET", "/mail/group-invitations", &cookies[3], "", &[]).await,
-    )
-    .await;
+    let invitations =
+        text(call(&app, "GET", "/mail/group-invitations", &cookies[3], "", &[]).await).await;
     assert!(invitations.contains("Team &lt;script&gt;"));
     assert!(invitations.contains("Group reader 2"));
     assert!(!invitations.contains("<script>"));

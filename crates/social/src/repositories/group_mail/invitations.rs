@@ -30,7 +30,10 @@ impl PgGroupMail {
         Ok(rows
             .into_iter()
             .map(|(id, group_id, title, inviter_name)| PendingGroupInvite {
-                id, group_id, title, inviter_name,
+                id,
+                group_id,
+                title,
+                inviter_name,
             })
             .collect())
     }
@@ -98,13 +101,12 @@ impl PgGroupMail {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        let group: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE",
-        )
-        .bind(group_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let group: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if group.is_none() {
             return Err(MailError::NotFound);
         }
@@ -121,13 +123,12 @@ impl PgGroupMail {
         if creator.is_none() {
             return Err(MailError::NotFound);
         }
-        let account: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 AND account_state='active'",
-        )
-        .bind(recipient)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let account: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND account_state='active'")
+                .bind(recipient)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if account.is_none() {
             return Err(MailError::NotFound);
         }
@@ -225,13 +226,12 @@ impl PgGroupMail {
         .map_err(unavailable)?;
         let group_id = group_id.ok_or(MailError::NotFound)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        let group: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE",
-        )
-        .bind(group_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let group: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if group.is_none() {
             return Err(MailError::NotFound);
         }
@@ -250,13 +250,12 @@ impl PgGroupMail {
         if live_invitation.is_none() {
             return Err(MailError::NotFound);
         }
-        let account: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM users WHERE id=$1 AND account_state='active'",
-        )
-        .bind(actor)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let account: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND account_state='active'")
+                .bind(actor)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if account.is_none() {
             return Err(MailError::NotFound);
         }
@@ -361,13 +360,12 @@ impl PgGroupMail {
             return Err(MailError::Invalid);
         }
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        let group: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE",
-        )
-        .bind(group_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(unavailable)?;
+        let group: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
         if group.is_none() {
             return Err(MailError::NotFound);
         }

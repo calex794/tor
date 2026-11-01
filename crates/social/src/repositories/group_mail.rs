@@ -1,9 +1,9 @@
 //! E-08/S057 group-mail storage, isolated from immutable direct-mail pairs.
 //! All writes and membership checks are actor-scoped; public pages live in web.
 mod invitations;
-pub use invitations::PendingGroupInvite;
 use super::notification_events::{self, NotificationEvent};
 use crate::domain::{clean_body, valid_key, MailError, SentMessage};
+pub use invitations::PendingGroupInvite;
 use sqlx::PgPool;
 
 #[derive(Clone)]
