@@ -315,7 +315,6 @@ async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
 
-/// This is not an HTTP endpoint.
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
 }
@@ -421,11 +420,7 @@ pub fn router_with_postgres_reading_auth(
             Some(reader),
             true,
             None,
-            Some(book_follow_page::FollowBookControl::new(
-                accounts.clone(),
-                secure,
-                public_origin.clone(),
-            )),
+            Some(book_follow_page::control(&accounts, secure, &public_origin)),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -464,6 +459,10 @@ fn make_router(
         .route(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
+        )
+        .route(
+            "/assets/newboo-layer-reader.mjs",
+            get(pages::layer_reader_script),
         )
         .route(
             "/assets/newboo-cover-picker.js",

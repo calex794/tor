@@ -203,10 +203,16 @@ jobs:
           cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
+          cargo test -p tor-discussions --test public_book_comments_pg e_03_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
-          cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_08_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test layers_pg d_06_pg_ -- --ignored --test-threads=1
+          TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_checkout_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1

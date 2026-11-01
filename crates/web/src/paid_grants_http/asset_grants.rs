@@ -46,14 +46,39 @@ pub(super) async fn grant_asset(
         },
         None => None,
     };
+    // Chapter images inherit the identical edition-specific D authority.
+    if body.source.is_some() && purchase_id.is_some() {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     if !state.rate_limits.lock().await.allow(actor, Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
     let Ok(_permit) = state.concurrent.clone().try_acquire_owned() else {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
+    // Paid illustrations use exactly the same D-owned entitlement source
+    // as a chapter ciphertext grant. The default source can fall back from
+    // an unowned direct purchase to a valid Layer term.
+    let selected_layer = if body.source.is_some() {
+        true
+    } else {
+        match state
+            .entitlement
+            .resolve_with_source(Actor { user_id: actor_id }, chapter_id, purchase_id)
+            .await
+        {
+            Ok((_, ReaderEntitlementSource::Direct)) => false,
+            Ok((_, ReaderEntitlementSource::Layer)) => true,
+            Err(error) => return deny(status(error)),
+        }
+    };
+    let authority: &dyn EntitlementPort = if selected_layer {
+        &state.layer
+    } else {
+        &state.direct
+    };
     let result = issue_paid_asset_grant(
-        &state.entitlement,
+        authority,
         &state.assets,
         state.storage.as_ref(),
         Actor { user_id: actor_id },
@@ -67,18 +92,30 @@ pub(super) async fn grant_asset(
             let Some(version) = positive(&grant.version_id) else {
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
-            if let Err(error) = state
-                .first_direct_grant
-                .record(
-                    actor_id,
-                    chapter_id,
-                    version,
-                    purchase_id,
-                    DirectGrantKind::Asset,
-                )
-                .await
-            {
-                return deny(status(error));
+            // Chapter images consume the same entitlement class as text.
+            // A Layer grant records its term, never a direct purchase.
+            if selected_layer {
+                if let Err(error) = state
+                    .first_layer_grant
+                    .record(actor_id, chapter_id, version, LayerGrantKind::Asset)
+                    .await
+                {
+                    return deny(status(error));
+                }
+            } else {
+                if let Err(error) = state
+                    .first_direct_grant
+                    .record(
+                        actor_id,
+                        chapter_id,
+                        version,
+                        purchase_id,
+                        DirectGrantKind::Asset,
+                    )
+                    .await
+                {
+                    return deny(status(error));
+                }
             }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(

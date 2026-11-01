@@ -61,11 +61,21 @@ class RilCoverageTests(unittest.TestCase):
 
     def test_stale_registry_is_detected(self):
         self.mutate(
-            "crates/route_intelligence/src/domain/routes.rs",
+            "crates/route_intelligence/src/domain/routes/entries_core.rs",
             'RouteRegistration::new("/", "GET", "/", Exact',
             'RouteRegistration::new("/phantom", "GET", "/", Exact',
         )
         self.assertTrue(any("stale RIL taxonomy" in error
+                            for error in check(self.root)))
+
+    def test_split_layer_routes_remain_audited(self):
+        self.mutate(
+            "crates/route_intelligence/src/domain/routes/entries_layer.rs",
+            'RouteRegistration::new("/layers/{layer_id}", "GET", L, Prefix',
+            'RouteRegistration::new("/phantom-layer/{layer_id}", "GET", L, Prefix',
+        )
+        self.assertTrue(any("stale RIL taxonomy" in error
+                            and "/phantom-layer/" in error
                             for error in check(self.root)))
 
 

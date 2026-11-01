@@ -65,9 +65,16 @@ mod creator_follows;
 mod follow_read_state;
 mod followed_purchase_links;
 mod inbox;
+mod layer_books;
+mod layer_checkout;
+mod layer_checkout_api;
+mod layer_create;
+mod layer_offer_manage;
+mod layer_storefront;
 mod library_actions;
 mod library_page;
 mod login_limiter;
+mod logout;
 mod notification_settings;
 mod paid_completion;
 mod password_change;
@@ -190,6 +197,8 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled: paid_checkout_enabled && layer_checkout_api::configured(),
+        layer_pages_enabled: std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1"),
         paid_reader_available,
         authoring,
         progress,
@@ -220,6 +229,11 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/assets/mentions.js", get(book_comments::mention_script))
+        .route(
+            "/api/v1/social/mentions/discover",
+            get(book_comments::discover_mentions),
+        )
         .route("/me", get(me))
         .route("/me/creators", get(creator_follows::page))
         .route(
@@ -234,11 +248,6 @@ fn router_inner(
             "/me/settings/password",
             get(password_change::page).post(password_change::submit),
         )
-        .route("/assets/mentions.js", get(book_comments::mention_script))
-        .route(
-            "/api/v1/social/mentions/discover",
-            get(book_comments::discover_mentions),
-        )
         .route("/me/inbox", get(inbox::page))
         .route("/api/v1/me/inbox", get(inbox::api))
         .route(
@@ -249,6 +258,10 @@ fn router_inner(
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
+        )
+        .route(
+            "/layers/{layer_id}/purchase",
+            post(layer_storefront::buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route("/me/rankings", get(rankings::page))
         .route(
@@ -274,6 +287,10 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
+        .route(
+            "/api/v1/layers/{id}/purchase",
+            post(layer_checkout_api::buy),
+        )
         .route(
             "/me/books/{id}/buy-chapters",
             get(batch_checkout_browser::page).post(batch_checkout_browser::submit),
@@ -323,8 +340,13 @@ fn router_inner(
             "/read/{id}/want-continuation",
             post(continuation_demand::submit),
         )
-        .route("/logout", post(logout))
+        .route("/logout", post(logout::logout))
         .route("/me/behavior", post(behavior_consent::set_behavior_consent))
+        .merge(layer_books::routes())
+        .merge(layer_create::routes())
+        .merge(layer_checkout::routes())
+        .merge(layer_storefront::router())
+        .merge(layer_offer_manage::routes())
         .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
         .layer(middleware::from_fn_with_state(
@@ -338,7 +360,6 @@ fn router_inner(
         app
     }
 }
-
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
@@ -384,8 +405,22 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+    let books = match state.authoring.list_owned_books(actor).await {
+        Ok(books) => books,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if !layer_books::enabled() {
+        return private_response(author_pages::index(&books), &[]);
+    }
+    let actor = match tor_contracts::paid_delivery::PositiveId::new(actor) {
+        Ok(actor) => actor,
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let layers = tor_commerce::services::layers::LayerService::new(
+        tor_commerce::repositories::layers::PgLayers::new(state.accounts.pool().clone()),
+    );
+    match layers.owned_layers(actor, 100).await {
+        Ok(layers) => private_response(author_pages::index_with_layers(&books, &layers), &[]),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
@@ -555,25 +590,4 @@ async fn save_place(
         Err(ProgressError::StaleVersion) => deny(StatusCode::CONFLICT),
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn logout(
-    State(state): State<AuthState>,
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> Response {
-    if !state.cookies.same_origin(&headers)
-        || !state
-            .cookies
-            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    if let Some(token) = state.cookies.session_token(&headers) {
-        let digest = session_token_digest(&token);
-        if state.accounts.revoke_session(&digest).await.is_err() {
-            return deny(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    }
-    private_response(Redirect::to("/login"), &state.cookies.cleared_cookies())
 }

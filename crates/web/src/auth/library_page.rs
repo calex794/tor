@@ -56,8 +56,11 @@ pub(super) async fn my_library(
         &books,
         &saved,
         &csrf,
-        state.paid_reader_available,
-        state.paid_checkout_enabled,
+        pages::LibraryCapabilities {
+            purchased_available: state.paid_reader_available,
+            layers_available: state.layer_pages_enabled,
+            checkout_enabled: state.paid_checkout_enabled,
+        },
         &updates,
         &owned,
     );
