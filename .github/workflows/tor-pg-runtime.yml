@@ -151,6 +151,9 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
+          # B/TAX-03: only a disposable migrator role may curate canonical terms.
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tools/tests/taxonomy_admin_smoke.sql
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
