@@ -81,8 +81,8 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         TaxonomySelection::parse(Some(&genre.to_string()), Some(&tag.to_string()), None).unwrap();
     let names = author.resolve_taxonomy_selection(&selected).await.unwrap();
     // Compatibility arrays store normalized B labels, not display casing.
-    assert_eq!(names.genres, vec![genre_key]);
-    assert_eq!(names.tags, vec![tag_key]);
+    assert_eq!(names.genres, vec![genre_key.clone()]);
+    assert_eq!(names.tags, vec![tag_key.clone()]);
 
     let mut book = new_book(
         &format!("ci:taxonomy:{stamp}"),
