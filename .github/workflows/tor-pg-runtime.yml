@@ -165,6 +165,7 @@ jobs:
           cargo test -p tor-search --test seo_pg -- --ignored --test-threads=1
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
+          cargo test -p tor-books --test taxonomy_picker_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
