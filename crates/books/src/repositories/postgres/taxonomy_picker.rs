@@ -122,15 +122,29 @@ pub(super) async fn persist_links(
     book_id: i64,
     book: &NewBook,
 ) -> Result<(), AuthorError> {
-    for (kind, ids, names) in [
-        ("genre", &book.taxonomy_ids.genre_ids, &book.genres),
-        ("tag", &book.taxonomy_ids.tag_ids, &book.tags),
-        ("fandom", &book.taxonomy_ids.fandom_ids, &book.fandoms),
+    let names = TaxonomyNames {
+        genres: book.genres.clone(),
+        tags: book.tags.clone(),
+        fandoms: book.fandoms.clone(),
+    };
+    persist_selection_links(tx, book_id, &book.taxonomy_ids, &names).await
+}
+
+pub(super) async fn persist_selection_links(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    book_id: i64,
+    selection: &TaxonomySelection,
+    names: &TaxonomyNames,
+) -> Result<(), AuthorError> {
+    for (kind, ids, labels) in [
+        ("genre", &selection.genre_ids, &names.genres),
+        ("tag", &selection.tag_ids, &names.tags),
+        ("fandom", &selection.fandom_ids, &names.fandoms),
     ] {
-        if ids.len() != names.len() || ids.len() > 8 {
+        if ids.len() != labels.len() || ids.len() > 8 {
             return Err(AuthorError::Invalid);
         }
-        for (position, (id, name)) in ids.iter().zip(names).enumerate() {
+        for (position, (id, name)) in ids.iter().zip(labels).enumerate() {
             // Guard against a forged ID, type mismatch, merged/blocked term or
             // a vocabulary change between lookup and this transaction.
             let inserted = sqlx::query(

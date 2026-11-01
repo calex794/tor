@@ -1,6 +1,10 @@
 -- B/TAX-01. Persistent, administrator-owned canonical taxonomy; only public
 -- facets seed discoverable suggestions (never harvest private draft metadata).
 -- The existing TEXT[] columns remain the compatible F/REC read projection.
+-- Independent CAS token for owner edits; no page can overwrite newer picks.
+ALTER TABLE books ADD COLUMN taxonomy_revision BIGINT NOT NULL DEFAULT 1
+    CHECK (taxonomy_revision > 0);
+
 CREATE TABLE book_taxonomy_terms (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('genre','tag','fandom')),
@@ -97,7 +101,7 @@ BEGIN
         -- approved vocabulary and cannot alter another book's term links.
         REVOKE ALL ON book_taxonomy_terms,book_taxonomy_aliases,book_taxonomy_links FROM tor_app;
         GRANT SELECT ON book_taxonomy_terms,book_taxonomy_aliases TO tor_app;
-        GRANT SELECT,INSERT ON book_taxonomy_links TO tor_app;
+        GRANT SELECT,INSERT,DELETE ON book_taxonomy_links TO tor_app;
         REVOKE ALL ON SEQUENCE book_taxonomy_terms_id_seq FROM tor_app;
     END IF;
 END
