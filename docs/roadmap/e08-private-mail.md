@@ -388,3 +388,25 @@ results, define staff purpose/retention policy and add full HTTP/PG/
 browser abuse regressions before exposing private content. Existing
 source legacy alias import and independent review remain unclosed.
 No main, production, SSH, VPS or retained PostgreSQL operation.
+
+## 01.11.2026 — security hardening: off-site mail URLs are never local Book previews
+
+Found during S057 review: the pinned NEwBOO `mail_book_previews.py` accepts
+any absolute HTTP(S) hostname before `/book(s)/...`. TOR's earlier E-08
+parser inherited that behavior, resolved a valid local Book ID inside an
+attacker-controlled external URL and silently removed the original URL from
+`body_without_book_links`. This changes the meaning of a recipient's
+message and hides its real destination.
+
+The E-08 fix accepts only relative `/book(s)/...` references and absolute
+references whose prefix **exactly equals the configured server
+`TOR_PUBLIC_ORIGIN`** (from the `CookiePolicy`, never the incoming Host,
+Origin or forwarded headers). Other absolute URLs remain literal plaintext;
+they do not contribute to Book-card lookup or duplicate handling. B book ACL,
+private cover rules and bounded parser limits are unchanged.
+
+Rust unit and disposable HTTP/PG tests assert malicious external hostname,
+trusted-origin lookalike host and user-info spoofing cannot be projected,
+while same-origin and relative URLs still resolve through the original B
+public/owner checks. No new route, migration, external import, main change,
+or retained DB operation. Exact-head CI required.

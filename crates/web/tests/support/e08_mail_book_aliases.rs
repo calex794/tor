@@ -1,6 +1,6 @@
 //! E-08 legacy Book ref regression: only explicitly mapped aliases, bounded
 //! canonical public/owner title access, and no hidden/held leakage to peers.
-use super::{call, pg, text};
+use super::{call, pg, text, ORIGIN};
 use axum::{http::StatusCode, Router};
 
 pub(super) async fn verify(
@@ -166,4 +166,37 @@ pub(super) async fn verify(
         .as_str()
         .unwrap()
         .contains(&format!("/books/{unknown_alias}")));
+
+    // A foreign absolute URL must remain visible as sent, even if it ends
+    // with a known public Book ID. A configured-origin URL may be enriched.
+    let trusted_origin = ORIGIN.replace(':', "%3A").replace('/', "%2F");
+    let foreign = format!("https://evil.test/books/{public}?ref=mail");
+    let host_form = format!(
+        "body=Foreign%20https%3A%2F%2Fevil.test%2Fbooks%2F{public}%3Fref%3Dmail%20and%20trusted%20{trusted_origin}%2Fbooks%2F{public}&client_message_id=host-check-{nonce}&csrf_token={}",
+        csrf[0]
+    );
+    let host_response = call(
+        app,
+        "POST",
+        &format!("{path}/messages"),
+        &cookies[0],
+        &host_form,
+        &[
+            ("accept", "application/json"),
+            ("x-requested-with", "fetch"),
+        ],
+    )
+    .await;
+    assert_eq!(host_response.status(), StatusCode::OK);
+    let host_json: serde_json::Value =
+        serde_json::from_str(&text(host_response).await).unwrap();
+    let host_view = &host_json["message"];
+    assert_eq!(host_view["book_previews"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        host_view["book_previews"][0]["url"],
+        format!("/books/{public}")
+    );
+    let plain = host_view["body_without_book_links"].as_str().unwrap();
+    assert!(plain.contains(&foreign));
+    assert!(!plain.contains(&format!("{ORIGIN}/books/{public}")));
 }
