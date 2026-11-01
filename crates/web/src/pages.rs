@@ -14,7 +14,8 @@ mod session_security;
 pub use account::{
     account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
     my_account_with_follow_updates, password_change_form, registration_form,
-    registration_form_with_error, registration_form_with_error_and_next, registration_form_with_next,
+    registration_form_with_error, registration_form_with_error_and_next,
+    registration_form_with_next,
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;

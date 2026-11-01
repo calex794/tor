@@ -63,7 +63,10 @@ pub(super) async fn show_registration(
 ) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
     let next = reader_return_target(query.next.as_deref());
-    private_response(pages::registration_form_with_next(&token, next.as_deref()), &[cookie])
+    private_response(
+        pages::registration_form_with_next(&token, next.as_deref()),
+        &[cookie],
+    )
 }
 
 pub(super) async fn show_login(
@@ -72,7 +75,10 @@ pub(super) async fn show_login(
 ) -> Response {
     let (token, cookie) = state.cookies.csrf_token_cookie();
     let next = reader_return_target(query.next.as_deref());
-    private_response(pages::login_form_with_next(&token, next.as_deref()), &[cookie])
+    private_response(
+        pages::login_form_with_next(&token, next.as_deref()),
+        &[cookie],
+    )
 }
 
 fn auth_problem(status: StatusCode, title: &str, message: &str, registration: bool) -> Response {
