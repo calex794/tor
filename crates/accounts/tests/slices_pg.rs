@@ -83,6 +83,73 @@ async fn a_06_profile_revision_ownership_handle_uniqueness_and_adult_flag() {
     assert_eq!(grants, 0, "adult consent cannot create a pro/paid grant");
 }
 
+/// Source display-name keys ignore case; ambiguous legacy keys must never
+/// silently resolve to the first account or reveal any different account.
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn e_08_public_display_name_resolution_fails_closed_on_case_collision() {
+    let (accounts, alice, _) = fixture("e08-profile-alice").await;
+    let (_, bob, _) = fixture("e08-profile-bob").await;
+    let display_name = format!("Mail Reader {alice}");
+    let colliding_name = format!("mAiL rEaDeR {alice}");
+    accounts
+        .update_profile(
+            alice,
+            &ProfileUpdate {
+                display_name: Some(display_name.clone()),
+                handle: None,
+                adult_enabled: None,
+                expected_revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        accounts
+            .public_profile_by_display_name(&colliding_name)
+            .await
+            .unwrap(),
+        Some((alice, display_name.clone())),
+    );
+    assert_eq!(
+        accounts
+            .public_profile_by_display_name(&format!("  {colliding_name}  "))
+            .await
+            .unwrap(),
+        Some((alice, display_name.clone())),
+    );
+    assert_eq!(
+        accounts.public_profile_by_display_name("  ").await.unwrap(),
+        None
+    );
+    accounts
+        .update_profile(
+            bob,
+            &ProfileUpdate {
+                display_name: Some(colliding_name.clone()),
+                handle: None,
+                adult_enabled: None,
+                expected_revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    for key in [&display_name, &colliding_name] {
+        assert_eq!(
+            accounts.public_profile_by_display_name(key).await.unwrap(),
+            None
+        );
+    }
+    assert_eq!(
+        accounts.profile(alice).await.unwrap().unwrap().display_name,
+        display_name
+    );
+    assert_eq!(
+        accounts.profile(bob).await.unwrap().unwrap().display_name,
+        colliding_name
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires disposable tor_ci PostgreSQL"]
 async fn a_07_reset_expiry_replay_parallel_consumption_and_credential_binding() {
