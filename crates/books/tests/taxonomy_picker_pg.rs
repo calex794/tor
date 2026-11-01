@@ -12,7 +12,10 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
     let admin_url = std::env::var("TEST_TAXONOMY_MIGRATOR_URL")
         .expect("disposable migration owner URL for curated fixture");
     assert!(url.ends_with("/tor_ci"), "Never mutate production");
-    assert!(admin_url.ends_with("/tor_ci"), "Never seed production taxonomy");
+    assert!(
+        admin_url.ends_with("/tor_ci"),
+        "Never seed production taxonomy"
+    );
     let pool = PgPool::connect(&url).await.unwrap();
     let admin_pool = PgPool::connect(&admin_url).await.unwrap();
     let author = PgAuthoring::new(pool.clone());
@@ -31,11 +34,13 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
     .unwrap();
     // The runtime role must never be able to create arbitrary public tags.
     assert!(
-        sqlx::query("INSERT INTO book_taxonomy_terms(kind,label,search_key)
-                     VALUES('tag','Unauthorized','unauthorized')")
-            .execute(&pool)
-            .await
-            .is_err(),
+        sqlx::query(
+            "INSERT INTO book_taxonomy_terms(kind,label,search_key)
+                     VALUES('tag','Unauthorized','unauthorized')"
+        )
+        .execute(&pool)
+        .await
+        .is_err(),
         "runtime role may link approved terms, not create them"
     );
     let genre_key = format!("fantasy{stamp}");
