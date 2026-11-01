@@ -422,3 +422,21 @@ Three source GET pages /admin/mail, /admin/mail/users/{user_id}, /admin/mail/{id
 The pinned NEwBOO source implements authenticated `GET /mail/{conversation_id}/messages` with `after_id`/`before_id` cursors and the `ok/messages/has_more_older/oldest_message_id/newest_message_id` response. TOR previously registered the same route only for POST; its browser used the different `GET /api/v1/me/messages` API. This slice adds GET to the existing path and migrates the page's polling/older-prepend JS to it. Both POST send and the existing strict TOR JSON API remain unchanged.
 
 The new GET reuses the same actor-scoped `MailService::messages` and actor-authorized `mail_book_previews::enrich` as the existing HTML/JSON paths. It returns `no-store`; third-user access fails 404, guest fails 401, and unknown client claims or simultaneous before/after cursors fail 400. Isolated HTTP regressions check paging, privacy and output contract. No schema change or product behavior is invented. **Exact-head CI and independent review pending.**
+
+
+## 01.11.2026 — Private mail Book preview uses live B-09 owner ACL
+
+Canonical numeric Book links previously called PgAuthoring::owned_book,
+which checked owner_user_id but not the live owner membership. Legacy
+alias links already checked both, causing an inconsistent private-title
+projection after a stale/deactivated owner membership.
+
+Both canonical and legacy private links now require the active canonical
+owner row in book_members through the B-owned repository.
+Public Book previews and public cover rules are unchanged; collaborators
+and unrelated message participants gain no private metadata access.
+The disposable B-09 PostgreSQL test covers owner, outsider, disabled
+membership, restored membership, and moderation hold.
+This does not claim full source collaborator preview parity, which still
+needs a matching authorized view route and an explicit B access contract.
+Exact-head CI is pending. Draft only; main and production are untouched.

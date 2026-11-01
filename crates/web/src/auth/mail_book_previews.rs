@@ -297,20 +297,20 @@ pub(super) async fn enrich(
             }
         }
     }
-    // Only active owners may see unpublished metadata. All other actors
-    // retain literal links, including the other participant of the same mail.
-    // B's owned-book query rejects held/deleted books and checks owner_user_id.
+    // A private title is projected only for a current canonical owner with
+    // active B-09 membership. Legacy aliases use that same B-owned ACL.
+    // Other mail participants (including inactive former owners) retain text.
     let mut owned_titles = HashMap::new();
     for batch in missing_public.chunks(CONCURRENT_LOOKUPS) {
         let mut jobs = tokio::task::JoinSet::new();
         for id in batch {
             let id = *id;
-            let authoring = state.authoring.clone();
-            jobs.spawn(async move { (id, authoring.owned_book(actor, id as i64).await) });
+            let catalog = PgCatalog::new(pool.clone());
+            jobs.spawn(async move { (id, catalog.private_mail_title_for_owner(actor, id as i64).await) });
         }
         while let Some(result) = jobs.join_next().await {
-            if let Ok((id, Ok(Some(book)))) = result {
-                owned_titles.insert(id, book.title);
+            if let Ok((id, Ok(Some(title)))) = result {
+                owned_titles.insert(id, title);
             }
         }
     }

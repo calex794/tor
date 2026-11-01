@@ -45,4 +45,31 @@ impl PgCatalog {
             .filter_map(|(alias, id)| u64::try_from(id).ok().map(|id| (alias, id)))
             .collect())
     }
+
+    /// A numeric private Book preview must obey the same live owner-membership
+    /// fence as a legacy alias. An owner_user_id alone is not a capability:
+    /// after a role change/stale membership no draft title may be projected.
+    pub async fn private_mail_title_for_owner(
+        &self,
+        actor: i64,
+        book_id: i64,
+    ) -> Result<Option<String>, sqlx::Error> {
+        if actor <= 0 || book_id <= 0 {
+            return Ok(None);
+        }
+        sqlx::query_scalar(
+            "SELECT b.title FROM books b
+             WHERE b.id=$1 AND b.owner_user_id=$2
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND EXISTS (
+                 SELECT 1 FROM book_members m
+                 WHERE m.book_id=b.id AND m.user_id=$2
+                   AND m.role='owner' AND m.is_active
+               )",
+        )
+        .bind(book_id)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+    }
 }

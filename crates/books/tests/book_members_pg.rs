@@ -1,7 +1,7 @@
 //! B-09a / S030: real PostgreSQL creator roles, no Team/read entitlements.
 use sqlx::{PgPool, Row};
 use tor_books::{
-    repositories::{book_members::PgBookMembers, postgres::PgAuthoring},
+    repositories::{book_members::PgBookMembers, postgres::PgAuthoring, PgCatalog},
     services::authoring::{new_book, AuthorError},
 };
 use tor_contracts::access::BookRole;
@@ -203,5 +203,69 @@ async fn b_09_pg_creator_membership_owner_scoped_revocation_and_holds() {
         .unwrap()
         .get("role");
     assert_eq!(role, "translator", "hold must not silently revoke roles");
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL TEST_DATABASE_URL ending /tor_ci"]
+async fn b_09_e_08_private_mail_title_checks_live_owner_membership() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("PG CI URL");
+    assert!(url.ends_with("/tor_ci") && url.contains("127.0.0.1:5432"));
+    let pool = PgPool::connect(&url).await.unwrap();
+    let owner = user(&pool, "b09-private-mail-owner@tor-ci.example").await;
+    let outsider = user(&pool, "b09-private-mail-outsider@tor-ci.example").await;
+    let author = PgAuthoring::new(pool.clone());
+    let book = new_book(
+        &format!("ci:b09:private-mail:{owner}"),
+        "ru",
+        "Private mail title",
+        &"m".repeat(43),
+    )
+    .unwrap();
+    let book_id = author.create_owned_book(owner, &book).await.unwrap();
+    let catalog = PgCatalog::new(pool.clone());
+    assert_eq!(
+        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        Some("Private mail title".to_owned()),
+    );
+    assert_eq!(
+        catalog.private_mail_title_for_owner(outsider, book_id).await.unwrap(),
+        None,
+    );
+    assert_eq!(
+        catalog.private_mail_title_for_owner(0, book_id).await.unwrap(),
+        None,
+    );
+
+    // A stale owner_user_id is not enough to disclose unpublished metadata.
+    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
+        .bind(book_id)
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        None,
+    );
+    sqlx::query("UPDATE book_members SET is_active=TRUE WHERE book_id=$1 AND user_id=$2")
+        .bind(book_id)
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        Some("Private mail title".to_owned()),
+    );
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog.private_mail_title_for_owner(owner, book_id).await.unwrap(),
+        None,
+    );
     pool.close().await;
 }
