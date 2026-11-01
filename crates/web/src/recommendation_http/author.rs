@@ -88,19 +88,13 @@ pub(super) async fn page(
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let review_status = if settings.audience == "general" && settings.reviewed {
-        "Общая аудитория подтверждена администратором для текущей версии настроек."
-    } else if settings.audience == "general" {
-        "Общая аудитория заявлена, но ещё не подтверждена администратором; книга не участвует в рекомендациях."
-    } else {
-        "До подтверждения общей аудитории книга не участвует в рекомендациях."
+    let audience_note = match settings.audience.as_str() {
+        "general" => "Базовая аудитория: рекомендации доступны только для опубликованной и незаблокированной книги с доступом basic.",
+        "adult" => "Взрослая аудитория исключена до появления проверенной пользовательской политики доступа.",
+        _ => "Книга исключена из рекомендаций по выбранной категории.",
     };
-    let authorization_note = if actor.administrator {
-        "Вы вошли как администратор. Сохранение категории «Для общей аудитории» подтверждает её для текущей версии настроек."
-    } else {
-        "Авторская отметка «Для общей аудитории» — только заявление. Для рекомендаций требуется независимое подтверждение администратора."
-    };
-    let body=format!("<section class=\"section\"><div class=\"container\"><h1>Рекомендации книги «{}»</h1><p>{review_status}</p><p>{authorization_note}</p><p>Укажите действительную аудиторию. Видимость книги, блокировки и доступ к главам проверяются отдельно при каждой выдаче.</p><form method=\"post\" action=\"/me/books/{id}/recommendations\"><label>Аудитория <select name=\"audience\">{options}</select></label><label>Связанные публичные книги: не более 10 ID через запятую <input name=\"related\" value=\"{related}\" maxlength=\"220\"></label><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><button type=\"submit\">Сохранить</button></form><p><a href=\"/me/books/{id}\">Назад к книге</a></p></div></section>",html::escape_html(&settings.title),settings.revision,html::escape_html(&csrf));
+    let authorization_note = "Редактирование книги и глав не требует повторного допуска в рекомендации. Модерация, блокировки и права доступа действуют отдельно.";
+    let body=format!("<section class=\"section\"><div class=\"container\"><h1>Рекомендации книги «{}»</h1><p>{audience_note}</p><p>{authorization_note}</p><p>Укажите действительную аудиторию. Видимость книги, блокировки и доступ к главам проверяются отдельно при каждой выдаче.</p><form method=\"post\" action=\"/me/books/{id}/recommendations\"><label>Аудитория <select name=\"audience\">{options}</select></label><label>Связанные публичные книги: не более 10 ID через запятую <input name=\"related\" value=\"{related}\" maxlength=\"220\"></label><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><button type=\"submit\">Сохранить</button></form><p><a href=\"/me/books/{id}\">Назад к книге</a></p></div></section>",html::escape_html(&settings.title),settings.revision,html::escape_html(&csrf));
     pages::secure_page(
         html::layout("Рекомендации книги", "Аудитория и связанные книги", &body),
         &cookies,

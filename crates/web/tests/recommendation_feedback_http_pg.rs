@@ -149,7 +149,7 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
     let book:i64=pg(&url,&format!("INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) VALUES('ci:rec13:http:{nonce}','ru','Book <script>unsafe</script>','public',{user}) RETURNING id")).parse().unwrap();
     let expected_book_id = book.to_string();
     let next:i64=pg(&url,&format!("INSERT INTO books(source_identity,target_language,title,visibility) VALUES('ci:rec13:next:{nonce}','ru','Next book','public') RETURNING id")).parse().unwrap();
-    pg(&url,&format!("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES({book},'general'),({next},'general')"));
+    pg(&url,&format!("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES({book},'general')"));
     let chapter:i64=pg(&url,&format!("INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES({book},1,'First','public') RETURNING id")).parse().unwrap();
     let version:i64=pg(&url,&format!("INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES({chapter},1,'Readable text') RETURNING id")).parse().unwrap();
     pg(
@@ -168,154 +168,57 @@ async fn rec13_real_http_consent_click_c_reading_feedback_and_role_guards() {
     );
     let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
     let other_cookie = format!("tor-dev-session={other_session}; tor-dev-csrf={csrf}");
-    // An author's general label is not moderation evidence. The live B view
-    // must stay fail-closed until an A-verified administrator approves its
-    // exact CAS revision. A later author edit revokes that approval.
+    // Published basic books are eligible without a recommendation-specific
+    // manual review, including existing books without an audience row.
     assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})"),
-        ),
-        "0"
+        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")),
+        "2"
     );
     let owner_form = format!("audience=general&related=&expected_revision=1&csrf_token={csrf}");
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("/me/books/{book}/recommendations"),
-            &cookie,
-            (ORIGIN, &csrf),
-            &owner_form,
-            false
-        )
-        .await
-        .status(),
+        call(&app, "POST", &format!("/me/books/{book}/recommendations"), &cookie,
+            (ORIGIN, &csrf), &owner_form, false).await.status(),
         StatusCode::SEE_OTHER
     );
+    pg(&url, &format!("UPDATE books SET title='Book <script>unsafe</script> revised' WHERE id={book}"));
+    pg(&url, &format!("UPDATE chapters SET title='Edited chapter',edit_revision=edit_revision+1 WHERE id={chapter}"));
     assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")
-        ),
-        "0",
-        "Self-declared general must not make a book eligible"
+        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")),
+        "2", "Editing public content must not force an extra moderation step"
     );
-    let before_review = data(
-        call(
-            &app,
-            "GET",
-            "/api/v1/recommendations?surface=home",
-            &cookie,
-            (ORIGIN, &csrf),
-            "",
-            false,
-        )
-        .await,
-    )
-    .await;
-    assert!(before_review["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| item["book_id"].as_str() != Some(expected_book_id.as_str())));
-    pg(
-        &url,
-        &format!("INSERT INTO account_roles(user_id,role) VALUES({other},'administrator')"),
-    );
-    let approve_book = format!("audience=general&related=&expected_revision=2&csrf_token={csrf}");
+    let adult_form = format!("audience=adult&related=&expected_revision=2&csrf_token={csrf}");
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("/me/books/{book}/recommendations"),
-            &other_cookie,
-            (ORIGIN, &csrf),
-            &approve_book,
-            false
-        )
-        .await
-        .status(),
+        call(&app, "POST", &format!("/me/books/{book}/recommendations"), &cookie,
+            (ORIGIN, &csrf), &adult_form, false).await.status(),
         StatusCode::SEE_OTHER
     );
-    let approve_next = format!("audience=general&related=&expected_revision=1&csrf_token={csrf}");
+    assert_eq!(pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")), "0");
+    let general_form = format!("audience=general&related=&expected_revision=3&csrf_token={csrf}");
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("/me/books/{next}/recommendations"),
-            &other_cookie,
-            (ORIGIN, &csrf),
-            &approve_next,
-            false
-        )
-        .await
-        .status(),
+        call(&app, "POST", &format!("/me/books/{book}/recommendations"), &cookie,
+            (ORIGIN, &csrf), &general_form, false).await.status(),
         StatusCode::SEE_OTHER
     );
+    pg(&url, &format!("UPDATE books SET access_level='adult' WHERE id={book}"));
+    assert_eq!(pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")), "0");
+    pg(&url, &format!("UPDATE books SET access_level='basic' WHERE id={book}"));
     assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")
-        ),
+        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")),
         "2"
     );
-    let owner_reedit = format!("audience=general&related=&expected_revision=3&csrf_token={csrf}");
+    // The administrator role is checked independently for control endpoints.
+    pg(&url, &format!("INSERT INTO account_roles(user_id,role) VALUES({other},'administrator')"));
+    let admin_form = format!("audience=general&related=&expected_revision=4&csrf_token={csrf}");
     assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("/me/books/{book}/recommendations"),
-            &cookie,
-            (ORIGIN, &csrf),
-            &owner_reedit,
-            false
-        )
-        .await
-        .status(),
+        call(&app, "POST", &format!("/me/books/{book}/recommendations"), &other_cookie,
+            (ORIGIN, &csrf), &admin_form, false).await.status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT count(*) FROM rec_public_books WHERE id={book}")
-        ),
-        "0",
-        "Even a same-category owner edit must invalidate the prior review"
-    );
-    let reapprove = format!("audience=general&related=&expected_revision=4&csrf_token={csrf}");
-    assert_eq!(
-        call(
-            &app,
-            "POST",
-            &format!("/me/books/{book}/recommendations"),
-            &other_cookie,
-            (ORIGIN, &csrf),
-            &reapprove,
-            false
-        )
-        .await
-        .status(),
-        StatusCode::SEE_OTHER
-    );
-    assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT count(*) FROM rec_general_audience_approvals WHERE book_id={book} AND reviewer_user_id={other} AND reviewed_revision=5"),
-        ),
-        "1"
-    );
-    pg(
-        &url,
-        &format!("UPDATE account_roles SET is_active=false WHERE user_id={other} AND role='administrator'"),
-    );
-    assert_eq!(
-        pg(
-            &url,
-            &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")
-        ),
+        pg(&url, &format!("SELECT count(*) FROM rec_public_books WHERE id IN ({book},{next})")),
         "2"
     );
+    pg(&url, &format!("UPDATE account_roles SET is_active=false WHERE user_id={other} AND role='administrator'"));
     assert_eq!(
         call(
             &app,

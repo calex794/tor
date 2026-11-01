@@ -174,7 +174,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
         Ok(Some(role)) if role.administrator => role,
         _ => return deny(StatusCode::FORBIDDEN),
     };
-    let books = match state.publishing.reviewable_books(role, 0).await {
+    let books = match state.publishing.manageable_books(role, 0).await {
         Ok(value) => value,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
@@ -200,7 +200,7 @@ pub(super) async fn page(State(state): State<Runtime>, headers: HeaderMap) -> Re
         }
         body.push_str("</article>");
     }
-    body.push_str("<h2>Допуск книг</h2><p>Непроверенные и взрослые книги исключены из рекомендаций. Указание общей аудитории не отменяет модерацию и права чтения.</p><ul>");
+    body.push_str("<h2>Категории книг</h2><p>Опубликованные книги базового уровня не требуют отдельного одобрения рекомендаций. Явные категории adult и unreviewed исключаются; блокировки и доступ проверяются в момент выдачи.</p><ul>");
     for (id, title) in books {
         let _ = write!(
             body,

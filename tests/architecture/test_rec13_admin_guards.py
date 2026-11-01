@@ -30,19 +30,20 @@ class RecAdminGuardTests(unittest.TestCase):
         self.assertIn('recommendation administration policy downgraded',checker)
         self.assertIn('missing independent administrator role guard',checker)
 
-    def test_author_general_does_not_bypass_moderator_review(self):
-        migration = (ROOT / "migrations/202611010003_rec_general_review_gate.sql").read_text()
+    def test_rec13_uses_canonical_b_policy_not_parallel_approval(self):
+        migration = (ROOT / "migrations/202611010004_rec_restore_b_discovery.sql").read_text()
         policy = (ROOT / "crates/books/src/repositories/recommendation_policy.rs").read_text()
-        self.assertIn("JOIN rec_general_audience_approvals review", migration)
-        self.assertIn("review.reviewed_revision=a.revision", migration)
-        self.assertIn("review.reviewer_user_id IS NOT NULL", migration)
-        self.assertIn('if actor.administrator && audience == "general"', policy)
-        self.assertIn("DELETE FROM rec_general_audience_approvals WHERE book_id=$1", policy)
-        self.assertIn("DELETE FROM rec_general_audience_approvals WHERE book_id=_book_id", migration)
-        self.assertIn("FROM books WHERE id=_book_id FOR UPDATE", migration)
+        author = (ROOT / "crates/web/src/recommendation_http/author.rs").read_text()
+        self.assertIn("CREATE OR REPLACE VIEW rec_public_books", migration)
+        self.assertIn("b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted", migration)
+        self.assertIn("b.access_level='basic'", migration)
+        self.assertIn("COALESCE(a.audience,'general')='general'", migration)
+        self.assertIn("DROP TABLE rec_general_audience_approvals", migration)
         for table in ("books", "chapters", "chapter_publications", "book_cover_slots"):
             self.assertIn(f"ON {table}", migration)
-        self.assertIn("rec_invalidate_review_on_content_change", migration)
+        self.assertNotIn("rec_general_audience_approvals", policy)
+        self.assertNotIn("settings.reviewed", author)
+        self.assertIn("!verified.administrator", (ROOT / "crates/web/src/recommendation_http/admin.rs").read_text())
 
     def test_reader_control_does_not_accept_browser_actor(self):
         text=(ROOT/'crates/web/src/recommendation_http/api.rs').read_text()
