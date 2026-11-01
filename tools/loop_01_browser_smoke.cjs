@@ -86,10 +86,9 @@ async function screenshot(page, screen, step) {
         assert(await reader.getByRole('button', { name: 'Глава прочитана' }).isVisible(),
           screen + ': no real end-of-chapter completion control');
         await reader.getByRole('button', { name: 'Глава прочитана' }).click();
-        // The canonical completion handler redirects to /me/rankings. Only
-        // revisiting /read/:id reveals the now-eligible demand control.
-        await reader.waitForURL(base + '/me/rankings');
-        await reader.goto(base + '/read/' + firstChapter);
+        await reader.waitForURL(base + '/read/' + firstChapter + '#continuation');
+        assert(await reader.getByRole('link', { name: 'Мои рейтинги' }).isVisible(),
+          screen + ': completed chapter lost the optional ranking link');
         assert(await reader.getByRole('button', { name: 'Хочу продолжение' }).isVisible(),
           screen + ': demand action unavailable after completed chapter');
         await reader.getByRole('button', { name: 'Хочу продолжение' }).click();
@@ -133,8 +132,7 @@ async function screenshot(page, screen, step) {
           screen + ': following update cannot be completed as meaningful reading');
         await screenshot(reader, screen, 'returned-reader');
         await reader.getByRole('button', { name: 'Глава прочитана' }).click();
-        await reader.waitForURL(base + '/me/rankings');
-        await reader.goto(base + target);
+        await reader.waitForURL(base + target + '#continuation');
         assert(await reader.getByText('Глава уже отмечена прочитанной.').isVisible(),
           screen + ': returning reader completion not confirmed');
 
