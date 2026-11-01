@@ -19,6 +19,11 @@ async fn setup() -> (PgPool, PgRecommendations, i64, Vec<i64>) {
         if index < 4 {
             sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'general') ON CONFLICT(book_id) DO UPDATE SET audience='general'")
                 .bind(book).execute(&pool).await.unwrap();
+        } else {
+            // An explicit exclusion, not a missing audience row: the latter
+            // intentionally uses canonical B basic eligibility.
+            sqlx::query("INSERT INTO book_recommendation_audiences(book_id,audience) VALUES($1,'unreviewed') ON CONFLICT(book_id) DO UPDATE SET audience='unreviewed'")
+                .bind(book).execute(&pool).await.unwrap();
         }
         books.push(book);
     }
