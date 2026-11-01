@@ -14,6 +14,7 @@ mod admin;
 mod api;
 mod author;
 mod decorate;
+mod organic;
 mod pages;
 
 #[derive(Clone)]
@@ -24,6 +25,7 @@ pub(crate) struct Runtime {
     pub(super) publishing: PgRecommendationPolicy,
     pub(super) enabled: bool,
     pub(super) collection: bool,
+    pub(super) organic: bool,
 }
 impl Runtime {
     pub(crate) fn new(accounts: PgAccounts, cookies: CookiePolicy) -> Self {
@@ -34,6 +36,7 @@ impl Runtime {
             cookies,
             enabled: std::env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() == Ok("1"),
             collection: std::env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1"),
+            organic: std::env::var("TOR_ORGANIC_ATTRIBUTION_ENABLED").as_deref() == Ok("1"),
         }
     }
 }
@@ -50,6 +53,7 @@ pub(crate) fn routes(state: Runtime) -> Router {
             post(api::impressions),
         )
         .route("/api/v1/recommendations/activate", post(api::activate))
+        .route("/api/v1/discovery/activate", post(organic::activate))
         .route(
             "/api/v1/me/recommendation-feedback",
             get(api::feedback_list).post(api::feedback),
@@ -71,6 +75,7 @@ pub(crate) fn routes(state: Runtime) -> Router {
             get(author::page).post(author::save),
         )
         .route("/assets/recommendations.js", get(pages::script))
+        .route("/assets/organic_discovery.js", get(organic::script))
         .layer(DefaultBodyLimit::max(32 * 1024))
         .with_state(state)
 }

@@ -2,7 +2,7 @@
 use sqlx::PgPool;
 use tor_recommendations::{
     domain::feedback::{
-        Choice, Feed, FeedItem, FeedbackError, ImpressionClaim, Surface, ALGORITHM,
+        Choice, Feed, FeedItem, FeedbackError, ImpressionClaim, OrganicSource, Surface, ALGORITHM,
     },
     repositories::PgRecommendations,
     services::feedback::new_ticket,
@@ -565,4 +565,160 @@ async fn rec13_preference_epoch_survives_ttl_erasure() {
         .await
         .unwrap();
     assert_eq!(receipt.revision, current + 1);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn organic_search_tickets_need_consent_session_and_real_public_open() {
+    let (pool, store, actor, book) = fixture("organic-session").await;
+    assert_eq!(
+        store.issue_organic_tickets(actor, &[7; 32], OrganicSource::Search, &[book]).await,
+        Err(FeedbackError::Forbidden),
+    );
+    enable(&store, actor).await;
+    let issued = store
+        .issue_organic_tickets(actor, &[7; 32], OrganicSource::Search, &[book])
+        .await
+        .unwrap();
+    assert_eq!(issued.len(), 1);
+    let ticket = &issued[0].1;
+    assert_eq!(
+        store.activate_organic(actor, &[8; 32], ticket).await,
+        Err(FeedbackError::NotFound),
+    );
+    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    let opened_before: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organic_discovery_touches WHERE book_id=$1 AND book_opened_at IS NOT NULL",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(opened_before, 0, "plain GET cannot count as opened organic click");
+    store.activate_organic(actor, &[7; 32], ticket).await.unwrap();
+    store.activate_organic(actor, &[7; 32], ticket).await.unwrap();
+    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    let event = canonical_start(&pool, actor, book).await;
+    assert!(store.accept_read_event(&event).await.unwrap());
+    assert!(!store.accept_read_event(&event).await.unwrap());
+    let credited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organic_discovery_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(credited, 1);
+    let other: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(other, 0);
+    store.refresh_organic_quality().await.unwrap();
+    let rows = store.organic_quality(7).await.unwrap();
+    let quality = rows.iter().find(|r| r.book_id == book.to_string() && r.source == "search").unwrap();
+    assert_eq!((quality.issued, quality.clicks, quality.book_opens, quality.starts), (1, 1, 1, 1));
+    store.set_consent(actor, false, 1, &new_ticket().unwrap()).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM organic_discovery_touches WHERE book_id=$1",
+        )
+        .bind(book)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0,
+    );
+    assert_eq!(
+        store.activate_organic(actor, &[7; 32], ticket).await,
+        Err(FeedbackError::Forbidden),
+    );
+    store.refresh_organic_quality().await.unwrap();
+    let cleared = store.organic_quality(7).await.unwrap();
+    assert!(!cleared.iter().any(|r| r.book_id == book.to_string()));
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn organic_and_recommendation_compete_for_one_c_event() {
+    let (pool, store, actor, book) = fixture("organic-last-touch").await;
+    enable(&store, actor).await;
+    let rec = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &rec).await.unwrap();
+    sqlx::query(
+        "UPDATE rec_assignments SET created_at=now()-interval '20 seconds',clicked_at=now()-interval '10 seconds'
+         WHERE book_id=$1 AND subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=$2)",
+    )
+    .bind(book)
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let organic = store
+        .issue_organic_tickets(actor, &[7; 32], OrganicSource::Catalog, &[book])
+        .await
+        .unwrap();
+    store.activate_organic(actor, &[7; 32], &organic[0].1).await.unwrap();
+    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    let first = canonical_start(&pool, actor, book).await;
+    assert!(store.accept_read_event(&first).await.unwrap());
+    let organic_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organic_discovery_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let rec_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&first)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((organic_count, rec_count), (1, 0));
+}
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_later_recommendation_click_wins_over_organic() {
+    let (pool, store, actor, book) = fixture("organic-rec-wins").await;
+    enable(&store, actor).await;
+    let organic = store
+        .issue_organic_tickets(actor, &[7; 32], OrganicSource::Search, &[book])
+        .await
+        .unwrap();
+    store.activate_organic(actor, &[7; 32], &organic[0].1).await.unwrap();
+    store.record_organic_book_open(actor, &[7; 32], book).await.unwrap();
+    sqlx::query(
+        "UPDATE organic_discovery_touches SET created_at=now()-interval '20 seconds',clicked_at=now()-interval '10 seconds'
+         WHERE book_id=$1 AND subject_id=(SELECT subject_id FROM rec_subjects WHERE user_id=$2)",
+    )
+    .bind(book)
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let rec = assignment(&store, actor, book).await;
+    store.activate(actor, &[7; 32], &rec).await.unwrap();
+    let event = canonical_start(&pool, actor, book).await;
+    store.accept_read_event(&event).await.unwrap();
+    let a: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organic_discovery_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let b: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rec_first_conversions WHERE source_event_id=$1::uuid",
+    )
+    .bind(&event)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((a, b), (0, 1), "source channels may not double credit");
 }

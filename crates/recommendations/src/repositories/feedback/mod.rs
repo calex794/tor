@@ -8,6 +8,7 @@ mod conversions;
 mod generations;
 mod maintenance;
 mod observations;
+mod organic;
 mod preferences;
 mod serving;
 mod sources;

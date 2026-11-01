@@ -39,6 +39,7 @@ impl PgRecommendations {
             self.accept_read_event_with_policy(event, collect).await?;
         }
         self.refresh_quality().await?;
+        self.refresh_organic_quality().await?;
         if self.pending_read_events().await?.is_empty() {
             sqlx::query("INSERT INTO rec_worker_health(singleton,last_success) VALUES(true,now()) ON CONFLICT(singleton) DO UPDATE SET last_success=EXCLUDED.last_success")
                 .execute(&self.pool).await?;
@@ -53,9 +54,11 @@ impl PgRecommendations {
         let mut count = 0;
         for statement in [
             "DELETE FROM rec_assignments WHERE id IN(SELECT id FROM rec_assignments WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
+            "DELETE FROM organic_discovery_touches WHERE id IN(SELECT id FROM organic_discovery_touches WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM rec_reader_signals WHERE source_event_id IN(SELECT source_event_id FROM rec_reader_signals WHERE occurred_at<now()-interval '30 days' ORDER BY occurred_at LIMIT 1000)",
             "DELETE FROM rec_preference_commands WHERE (user_id,command_key) IN(SELECT user_id,command_key FROM rec_preference_commands WHERE created_at<now()-interval '30 days' ORDER BY created_at LIMIT 1000)",
             "DELETE FROM rec_quality_daily WHERE bucket_date<(now() AT TIME ZONE 'UTC')::date-180",
+            "DELETE FROM organic_discovery_quality_daily WHERE bucket_date<(now() AT TIME ZONE 'UTC')::date-180",
         ] {
             count+=sqlx::query(statement).execute(&mut *tx).await?.rows_affected();
         }

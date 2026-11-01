@@ -34,6 +34,20 @@ async function register(page, email) {
   await page.getByRole('button',{name:'Создать учётную запись'}).click();
   await page.waitForURL('**/me');
 }
+async function completeFreeChapter(page, chapter, version) {
+  const progress=await page.evaluate(async ({chapter,version})=>{
+    const csrf=document.querySelector('input[name="csrf_token"]')?.value || document.querySelector('[data-rec-panel]')?.dataset.recCsrf;
+    async function save(offset,revision) {
+      const response=await fetch('/api/v1/me/progress/free',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({chapter_id:String(chapter),version_id:String(version),block_id:1,char_offset:offset,expected_revision:revision})});
+      if (!response.ok) throw new Error('validated progress rejected: '+response.status);
+      return response.json();
+    }
+    const first=await save(3,0);
+    await save(13,first.revision);
+    return true;
+  },{chapter,version});
+  assert.equal(progress, true);
+}
 (async()=>{
   const run = Date.now().toString();
   const email = 'rec13-browser-'+run+'@tor-ci.example';
@@ -50,6 +64,12 @@ async function register(page, email) {
       sql(`INSERT INTO book_recommendation_audiences(book_id,audience) VALUES(${book},'general')`);
     }
     const book=books[2];
+    const organicChapters=books.slice(0,2).map((id,n)=>{
+      const ch=scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES(${id},1,'Органическое чтение ${n}','public') RETURNING id`);
+      const ver=scalar(`INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES(${ch},1,'Readable text') RETURNING id`);
+      sql(`INSERT INTO chapter_publications(chapter_id,version_id) VALUES(${ch},${ver})`);
+      return {chapter:ch,version:ver};
+    });
     const chapter=scalar(`INSERT INTO chapters(book_id,chapter_no,title,visibility) VALUES(${book},1,'Первое чтение','public') RETURNING id`);
     const version=scalar(`INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) VALUES(${chapter},1,'Readable text') RETURNING id`);
     sql(`INSERT INTO chapter_publications(chapter_id,version_id) VALUES(${chapter},${version})`);
@@ -71,6 +91,24 @@ async function register(page, email) {
     await page.getByRole('button',{name:'Сохранить выбор'}).click();
     await page.waitForURL('**/me/recommendations');
     assert.equal(sql(`SELECT enabled FROM rec_subjects WHERE user_id=${user}`),'t');
+    // Search and unfiltered catalogue are independently attributed to actual C reading.
+    const organicPaths=[
+      {book:books[0],url:'/catalog?q=Browser%20recommendation%200',source:'search',read:organicChapters[0]},
+      {book:books[1],url:'/catalog',source:'catalog',read:organicChapters[1]},
+    ];
+    for (const organic of organicPaths) {
+      const response=await page.goto(base+organic.url);
+      assert.equal(response.status(),200,'organic source page must be public');
+      const card=page.locator(`a.book-mini-card__link[href='/books/${organic.book}'][data-organic-ticket]`).first();
+      assert.ok(await card.isVisible(),`missing consent-gated ${organic.source} ticket`);
+      await card.click();
+      await page.waitForURL(base+`/books/${organic.book}`);
+      await waitFor(()=>scalar(`SELECT count(*) FROM organic_discovery_touches t JOIN rec_subjects s ON s.subject_id=t.subject_id WHERE s.user_id=${user} AND t.book_id=${organic.book} AND t.source='${organic.source}' AND t.clicked_at IS NOT NULL AND t.book_opened_at IS NOT NULL`)===1,`verified ${organic.source} click+open`);
+      await page.goto(base+`/read/${organic.read.chapter}`);
+      await completeFreeChapter(page, organic.read.chapter, organic.read.version);
+      await waitFor(()=>scalar(`SELECT count(*) FROM organic_discovery_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id=${user} AND c.book_id=${organic.book} AND c.kind='chapter_finished'`)===1,`G credits ${organic.source} reading, not REC`);
+      assert.equal(scalar(`SELECT count(*) FROM rec_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id=${user} AND c.book_id=${organic.book}`),0,'organic credit polluted recommendation statistics');
+    }
     // No-JS cards have canonical navigation but must not fabricate visible views.
     const disabledJS=await browser.newContext({javaScriptEnabled:false,viewport:{width:1440,height:900}});
     await disabledJS.addCookies(await desktop.cookies());
@@ -88,6 +126,12 @@ async function register(page, email) {
     assert.equal(scalar(`SELECT count(*) FROM rec_assignments WHERE ticket_digest IN(${assignmentFilter})`),hashes.length);
     await plain.waitForTimeout(1200);
     assert.equal(scalar(`SELECT count(*) FROM rec_assignments WHERE ticket_digest IN(${assignmentFilter}) AND viewed_at IS NOT NULL`),0,'no-JS assignments must not create view telemetry');
+    await plain.goto(base+'/catalog');
+    const organicPlain=plain.locator('a.book-mini-card__link[data-organic-ticket]').first();
+    assert.ok(await organicPlain.count(),'no-JS catalog still issues opaque tickets');
+    const plainTicket=await organicPlain.getAttribute('data-organic-ticket');
+    const plainHash=createHash('sha256').update(plainTicket).digest('hex');
+    assert.equal(scalar(`SELECT count(*) FROM organic_discovery_touches WHERE ticket_digest=decode('${plainHash}','hex') AND clicked_at IS NOT NULL`),0,'no-JS page load fabricated organic click');
     await disabledJS.close();
     // Five real SSR surfaces carry permitted cards, never paid rights.
     for (const target of ['/', '/catalog', `/books/${book}`, '/me/library', `/read/${chapter}`]) {
@@ -105,18 +149,7 @@ async function register(page, email) {
     await waitFor(()=>scalar(`SELECT count(*) FROM rec_assignments a JOIN rec_subjects s ON s.subject_id=a.subject_id WHERE s.user_id=${user} AND a.book_id=${book} AND a.clicked_at IS NOT NULL AND a.book_opened_at IS NOT NULL`)>0,'server click and successful book open');
     // Actual browser invokes the validated HTTP progress route, not F telemetry.
     await page.goto(base+`/read/${chapter}`);
-    const progress=await page.evaluate(async ({chapter,version})=>{
-      const csrf=document.querySelector('input[name="csrf_token"]')?.value || document.querySelector('[data-rec-panel]')?.dataset.recCsrf;
-      async function save(offset,revision) {
-        const response=await fetch('/api/v1/me/progress/free',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({chapter_id:String(chapter),version_id:String(version),block_id:1,char_offset:offset,expected_revision:revision})});
-        if (!response.ok) throw new Error('validated progress rejected: '+response.status);
-        return response.json();
-      }
-      const first=await save(3,0);
-      await save(13,first.revision);
-      return true;
-    },{chapter,version});
-    assert.equal(progress,true);
+    await completeFreeChapter(page, chapter, version);
     await waitFor(()=>scalar(`SELECT count(*) FROM rec_first_conversions c JOIN rec_subjects s ON s.subject_id=c.subject_id WHERE s.user_id=${user} AND c.book_id=${book} AND c.kind='chapter_finished'`)===1,'G delivers actual C completion once');
     // Own explicit preference hides this book; it must not alter another reader.
     await page.goto(base+'/');
@@ -148,9 +181,10 @@ async function register(page, email) {
     await page.waitForURL('**/me/recommendations');
     assert.equal(sql(`SELECT enabled FROM rec_subjects WHERE user_id=${user}`),'f');
     assert.equal(scalar(`SELECT count(*) FROM rec_assignments a JOIN rec_subjects s ON s.subject_id=a.subject_id WHERE s.user_id=${user}`),0);
+    assert.equal(scalar(`SELECT count(*) FROM organic_discovery_touches t JOIN rec_subjects s ON s.subject_id=t.subject_id WHERE s.user_id=${user}`),0,'opt-out must erase organic attribution');
     assert.equal(scalar(`SELECT count(*) FROM reader_chapter_completions WHERE user_id=${user} AND book_id=${book}`),1);
     assert.deepEqual(errors,[]);
-    console.log('REC13 browser PASS: five surfaces, actual view/click/C start/completion, own hide/clear, mobile, no-JS, opt-out');
+    console.log('REC13 browser PASS: five surfaces, REC and separate search/catalog C conversions, mobile, no-JS, opt-out');
   } finally {
     if (browser) await browser.close();
     const uuid=value=>value===null?'NULL':`'${value}'::uuid`;

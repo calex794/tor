@@ -193,6 +193,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/organic_discovery.js",
+      "handler": "organic::script",
+      "policy": "public",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "GET",
       "template": "/assets/recommendations.js",
       "handler": "pages::script",
       "policy": "public",
@@ -581,6 +588,13 @@
       "template": "/api/v1/admin/recommendations/control",
       "handler": "admin::control",
       "policy": "administrator",
+      "source": "crates/web/src/recommendation_http/mod.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/discovery/activate",
+      "handler": "organic::activate",
+      "policy": "scoped",
       "source": "crates/web/src/recommendation_http/mod.rs"
     },
     {
