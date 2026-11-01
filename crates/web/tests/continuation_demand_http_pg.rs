@@ -376,7 +376,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         pg(
             &url,
             &format!(
-                "SELECT count(*) FROM reader_follow_notification_reads \\
+                "SELECT count(*) FROM reader_follow_notification_reads \
                  WHERE user_id={reader} AND chapter_id={released}"
             )
         ),
@@ -399,7 +399,7 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         pg(
             &url,
             &format!(
-                "SELECT count(*) FROM reader_follow_notification_reads \\
+                "SELECT count(*) FROM reader_follow_notification_reads \
                  WHERE user_id={reader} AND chapter_id={released}"
             )
         ),
