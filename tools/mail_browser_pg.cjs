@@ -387,7 +387,9 @@ module.exports = async (browser, base, out) => {
         'successor becomes creator only after accepting');
       assert.equal(await c.page.locator('form[action="' + groupPath + '/leave"]').count(), 0,
         'new creator cannot leave without another transfer');
-      await a.page.reload();
+      // Earlier ACL checks navigate the old creator to /notifications.
+      // Return to the group before asserting the post-transfer member UI.
+      await a.page.goto(base + groupPath);
       assert.equal(await a.page.locator('#group-new-creator').count(), 0,
         'previous creator relinquishes ownership after acceptance');
       await a.page.locator('form[action="' + groupPath + '/leave"]')
