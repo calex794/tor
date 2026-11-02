@@ -58,7 +58,7 @@ jobs:
             tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log"
             exit 1
           fi
-      - name: Test private PUT-if-absent, signed GET, anonymous deny, and actual hash
+      - name: Test private storage and S023 staging against disposable loopback MinIO
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
@@ -66,7 +66,10 @@ jobs:
         run: |
           cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
           cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
+          cargo test -p tor-imports --features s3 repositories::s3::tests::s023_private_source_put_get_conflict_and_delete -- --ignored --test-threads=1
+          cargo fmt -p tor-imports -- --check
           cargo clippy -p tor-storage --features s3 --all-targets -- -D warnings
+          cargo clippy -p tor-imports --features s3 --all-targets -- -D warnings
       - name: MinIO diagnostics without signed URL on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log" || true
