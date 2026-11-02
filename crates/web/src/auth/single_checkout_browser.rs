@@ -73,6 +73,13 @@ fn failure(chapter_id: i64, status: StatusCode, message: &str) -> Response {
     noindex(private_response((status, layout("Покупка не выполнена", &format!("<h1>Покупка не выполнена</h1><p role=\"alert\">{}</p><p><a href=\"/me/chapters/{chapter_id}/buy\">Открыть предложение заново</a></p><p><a href=\"/me/purchases\">Мои покупки</a></p>", pages::escape_html(message)))), &[]))
 }
 
+/// Reject oversized forms before decoding their fields or reaching the wallet.
+pub(super) fn router() -> axum::routing::MethodRouter<AuthState> {
+    axum::routing::get(page)
+        .post(submit)
+        .layer(axum::extract::DefaultBodyLimit::max(2048))
+}
+
 pub(super) async fn page(
     State(state): State<AuthState>,
     Path(chapter_id): Path<i64>,
