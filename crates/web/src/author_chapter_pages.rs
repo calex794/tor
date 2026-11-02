@@ -1,10 +1,10 @@
 //! Actual author book/chapter pages: no placeholder books or fabricated chapters.
 use axum::response::Html;
 use std::fmt::Write;
+use tor_books::repositories::postgres::ScheduledChapter;
 use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
-use tor_books::repositories::postgres::ScheduledChapter;
 
 use crate::pages::{escape_html, layout};
 
@@ -455,18 +455,22 @@ pub fn release_chapter(
     let schedule_status = match schedule {
         Some(s) => format!(
             "<p>Расписание: {} UTC · статус: {}</p>",
-            escape_html(&s.scheduled_utc),escape_html(&s.status)
+            escape_html(&s.scheduled_utc),
+            escape_html(&s.status)
         ),
         None => String::new(),
     };
-    let cancel_form = if schedule.is_some_and(|s| s.status=="pending" || s.status=="stale") {
+    let cancel_form = if schedule.is_some_and(|s| s.status == "pending" || s.status == "stale") {
         format!(
             r#"<form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/cancel-schedule">
                <input type="hidden" name="csrf_token" value="{}">
                <button class="button" type="submit">Отменить отложенный выпуск</button>
-               </form>"#,escape_html(csrf)
+               </form>"#,
+            escape_html(csrf)
         )
-    } else { String::new() };
+    } else {
+        String::new()
+    };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
         <div class="auth-card author-chapter-card">

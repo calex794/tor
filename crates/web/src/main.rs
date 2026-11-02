@@ -176,10 +176,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Err(env::VarError::NotPresent) => false,
         _ => return Err("TOR_SCHEDULED_RELEASE_WORKER_ENABLED must be 0 or 1".into()),
     };
-    if schedule_worker_enabled && (
-        demo || env::var_os("DATABASE_URL").is_none()
-        || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1")
-    ) {
+    if schedule_worker_enabled
+        && (demo
+            || env::var_os("DATABASE_URL").is_none()
+            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1"))
+    {
         return Err("S058 worker requires authenticated PostgreSQL runtime".into());
     }
     let mut pending_scheduled_release_worker = None;
@@ -243,10 +244,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
                 if schedule_worker_enabled {
-                    let author = tor_books::repositories::postgres::PgAuthoring::new(
-                        pool.clone()
-                    );
-                    author.probe_scheduled_releases().await
+                    let author = tor_books::repositories::postgres::PgAuthoring::new(pool.clone());
+                    author
+                        .probe_scheduled_releases()
+                        .await
                         .map_err(|_| "S058 scheduled release migration is not applied")?;
                     pending_scheduled_release_worker = Some(author);
                 }
