@@ -12,6 +12,7 @@ pub mod layer_provenance;
 pub mod layer_storefront;
 pub mod layers;
 pub mod refund_approvals;
+pub mod refund_buyer_view;
 pub mod refund_decisions;
 pub mod refund_preflight;
 pub mod refund_requests;
