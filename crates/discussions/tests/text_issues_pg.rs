@@ -245,6 +245,29 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
         .try_get("body_markdown")
         .unwrap();
     assert_eq!(unmodified, "Слово слово😀 слово");
+    // Clear pinned issue references before deleting the version/chapter tree.
+    // B-09 seeds the owner row with a RESTRICT foreign key on the Book.
+    sqlx::query("DELETE FROM text_issues WHERE book_id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapter_publications WHERE chapter_id=$1 OR chapter_id=$2")
+        .bind(free)
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM chapters WHERE book_id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM book_members WHERE book_id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM books WHERE id=$1")
         .bind(book)
         .execute(&pool)
