@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 202] = [
+const ROUTES: [RouteRegistration; 215] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -212,6 +212,19 @@ const ROUTES: [RouteRegistration; 202] = [
     RouteRegistration::new("/read/{id}/text-issues", "POST", "/read/", Prefix, Page, Reading, Write), // 199
     RouteRegistration::new("/me/refunds/swap", "GET", "/me/refunds/", Exact, Page, ProductArea::Billing, Read), // 200
     RouteRegistration::new("/me/refunds/swap", "POST", "/me/refunds/", Exact, Page, ProductArea::Billing, Write), // 201
+    RouteRegistration::new("/support", "GET", "/support/", Exact, Page, Dashboard, Read), // 202
+    RouteRegistration::new("/support/widget", "GET", "/support/", Exact, Api, Dashboard, Read), // 203
+    RouteRegistration::new("/support/messages", "GET", "/support/", Exact, Api, Dashboard, Read), // 204
+    RouteRegistration::new("/support/messages", "POST", "/support/", Exact, Api, Dashboard, Write), // 205
+    RouteRegistration::new("/admin/support", "GET", "/support/", Exact, TrafficSurface::Admin, Dashboard, Read), // 206
+    RouteRegistration::new("/admin/support/{id}", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 207
+    RouteRegistration::new("/admin/support/{id}/messages", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 208
+    RouteRegistration::new("/admin/support/{id}/messages", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 209
+    RouteRegistration::new("/api/v1/support/tickets", "GET", "/support/", Exact, Api, Dashboard, Read), // 210
+    RouteRegistration::new("/api/v1/support/tickets", "POST", "/support/", Exact, Api, Dashboard, Write), // 211
+    RouteRegistration::new("/admin/support/{id}/read", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 212
+    RouteRegistration::new("/assets/newboo-support-widget.js", "GET", "/assets/", Exact, Static, System, Free), // 213
+    RouteRegistration::new("/assets/newboo-admin-support.js", "GET", "/assets/", Exact, Static, System, Free), // 214
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
