@@ -4,7 +4,7 @@ use tor_books::{
     repositories::postgres::PgAuthoring,
     services::authoring::{new_book,save_chapter,AuthorError,SaveChapterRequest},
 };
-use tor_books::repositories::postgres::chapter_schedule::DueReleaseOutcome;
+use tor_books::repositories::postgres::DueReleaseOutcome;
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
