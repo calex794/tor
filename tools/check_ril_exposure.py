@@ -30,6 +30,9 @@ AUDITED_ADMIN_MAIL = {
     ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms", "admin_mail"),
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room", "admin_mail"),
 }
+AUDITED_ADMIN_READER = {
+    ("GET", "/admin/reader/chapters/{chapter_id}", "admin_reader::read", "admin_reader"),
+}
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),
     ("GET", "/admin/support/{id}", "page", "support_admin"),
@@ -95,7 +98,9 @@ def check_repository(root: Path = ROOT) -> list[str]:
                           and key in AUDITED_ADMIN_MAIL)
             allow_support = (row["source"] == "crates/web/src/auth/support_admin.rs"
                              and key in AUDITED_SUPPORT_ADMIN)
-            if not (allow_mail or allow_support):
+            allow_reader = (row["source"] == "crates/web/src/paid_grants_http.rs"
+                            and key in AUDITED_ADMIN_READER)
+            if not (allow_mail or allow_support or allow_reader):
                 problems.append(f"internal/admin route is not denied: {row['method']} {template}")
         if template == "/api/v1/chapters/{id}/read" and policy != "deny":
             problems.append("unconnected reader API must remain disabled")
