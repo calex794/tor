@@ -173,8 +173,8 @@ async function inspect(page, name, where) {
       await page.close();
     }
     // H-web-07: real source dark tokens and original dark logo, no JavaScript.
-    // Non-reader site pages still follow OS preference; only published free
-    // chapters offer the explicitly reviewed script-enabled theme controls.
+    // The old NEwBOO manual theme control is intentionally not advertised
+    // until the strict script-src 'none' policy has a reviewed server alternative.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const page = await browser.newPage({
         viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark'
@@ -431,6 +431,7 @@ async function inspect(page, name, where) {
     }
     await require('./comment_spoilers_browser.cjs')(browser, base, out);
     await require('./mail_browser_pg.cjs')(browser, base, out);
+    await require('./support_browser_pg.cjs')(browser, base, out);
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
     await browser.close();

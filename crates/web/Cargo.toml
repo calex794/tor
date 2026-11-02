@@ -14,6 +14,7 @@ axum = { workspace = true, features = ["multipart"] }
 tokio = { workspace = true, features = ["time", "io-util"] }
 tor-books = { path = "../books" }
 tor-social = { path = "../social" }
+tor-support = { path = "../support" }
 tor-discussions = { path = "../discussions" }
 tor-commerce = { path = "../commerce" }
 tor-contracts = { path = "../contracts" }
