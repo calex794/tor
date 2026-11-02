@@ -52,6 +52,7 @@ mod book_description;
 mod book_follow_actions;
 mod book_likes;
 mod book_registration_http;
+mod book_title_suggestions;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
