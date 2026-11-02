@@ -22,7 +22,7 @@ pub use session_security::active_sessions;
 mod reader_free;
 mod reader_free_issues;
 pub use reader_free::{
-    reader_with_login_link, reader_with_optional_progress, reader_with_public_features,
+    reader_with_login_link, reader_with_public_features,
 };
 mod reader_private;
 #[allow(unused_imports)]
