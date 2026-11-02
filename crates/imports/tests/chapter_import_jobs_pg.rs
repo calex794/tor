@@ -123,12 +123,11 @@ async fn s023_queue_claim_fencing_retry_and_owner_privacy() {
         .await,
         Err(ImportJobsError::Missing)
     );
-    assert!(
-        jobs.status_for_owner(stranger, book, job)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(jobs
+        .status_for_owner(stranger, book, job)
+        .await
+        .unwrap()
+        .is_none());
 
     // A different idempotency key cannot create a second active job for the book.
     let second_command = "e".repeat(43);

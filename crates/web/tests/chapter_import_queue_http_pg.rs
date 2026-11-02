@@ -220,15 +220,19 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     assert_eq!(cancelled_job, first_job);
     assert_eq!(queued_json["status"], "queued");
 
-    // A second command for the same book conflicts after its S3 PUT. Its
-    // deterministic key must not be deleted: a concurrent identical request
-    // may already have committed a job that references that object.
+    // A busy-book enqueue is rejected before its S3 PUT. A deterministic
+    // object staged by another concurrent request must still be preserved:
+    // rejecting this request cannot prove that object is unreferenced.
     let conflict_text = "Глава 2: Конфликт\nТекст конфликта";
     let conflict_chapters = parse_text("conflict.txt", conflict_text).unwrap();
     let conflict_fp = fingerprint(book_id, &conflict_chapters);
     let conflict_command = generate_session_token();
-    let conflict_key =
-        format!("staging/chapters/{owner}/{book_id}/{conflict_command}");
+    let conflict_key = format!("staging/chapters/{owner}/{book_id}/{conflict_command}");
+    let conflict_hash: [u8; 32] = Sha256::digest(conflict_text.as_bytes()).into();
+    store
+        .put_verified(&conflict_key, conflict_text.as_bytes(), &conflict_hash)
+        .await
+        .unwrap();
     let conflict_response = call(
         &app,
         &queue_path,
@@ -303,21 +307,15 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     );
     assert_eq!(
         serde_json::from_str::<Value>(
-            &call(&app, &status_path, "GET", &owner_cookie, None)
-                .await
-                .1
+            &call(&app, &status_path, "GET", &owner_cookie, None).await.1
         )
         .unwrap()["status"],
         "cancelled"
     );
     assert!(
-        !store
-            .0
-            .lock()
-            .await
-            .contains_key(&format!(
-                "staging/chapters/{owner}/{book_id}/{cancelled_key}"
-            )),
+        !store.0.lock().await.contains_key(&format!(
+            "staging/chapters/{owner}/{book_id}/{cancelled_key}"
+        )),
         "cancelling a known job deletes only its own source"
     );
     assert!(

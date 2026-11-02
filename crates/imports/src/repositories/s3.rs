@@ -73,8 +73,7 @@ impl ChapterImportObjectStore for S3ChapterImportStore {
         sha256: &[u8; 32],
     ) -> Result<(), StoreError> {
         let actual: [u8; 32] = Sha256::digest(bytes).into();
-        if !Self::valid_key(key) || bytes.is_empty() || bytes.len() > 700_000 || actual != *sha256
-        {
+        if !Self::valid_key(key) || bytes.is_empty() || bytes.len() > 700_000 || actual != *sha256 {
             return Err(StoreError::Invalid);
         }
         let digest = Self::hex(sha256);

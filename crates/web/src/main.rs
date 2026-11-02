@@ -80,17 +80,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "s3-chapter-import")]
     let chapter_import_store: Option<Arc<dyn tor_imports::services::ChapterImportObjectStore>> =
         match env::var("TOR_CHAPTER_IMPORT_S3_BUCKET") {
-        Ok(bucket) => {
-            let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-            let client = aws_sdk_s3::Client::new(&config);
-            let store =
+            Ok(bucket) => {
+                let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+                let client = aws_sdk_s3::Client::new(&config);
+                let store =
                     tor_imports::repositories::s3::S3ChapterImportStore::new(client, bucket)
                         .map_err(|_| "Invalid TOR_CHAPTER_IMPORT_S3_BUCKET")?;
-            Some(Arc::new(store))
-        }
-        Err(env::VarError::NotPresent) => None,
-        Err(error) => return Err(error.into()),
-    };
+                Some(Arc::new(store))
+            }
+            Err(env::VarError::NotPresent) => None,
+            Err(error) => return Err(error.into()),
+        };
     #[cfg(not(feature = "s3-chapter-import"))]
     let chapter_import_store: Option<Arc<dyn tor_imports::services::ChapterImportObjectStore>> = {
         if env::var_os("TOR_CHAPTER_IMPORT_S3_BUCKET").is_some() {

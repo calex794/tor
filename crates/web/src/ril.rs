@@ -260,10 +260,9 @@ mod tests {
 
     #[tokio::test]
     async fn additional_router_keeps_ril_observation_when_merged_later() {
-        let app = instrument_additional(Router::new().route(
-            "/me/books/{book_id}/chapters/import-queue",
-            post(family),
-        ));
+        let app = instrument_additional(
+            Router::new().route("/me/books/{book_id}/chapters/import-queue", post(family)),
+        );
         let response = app
             .oneshot(
                 Request::builder()

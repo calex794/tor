@@ -182,7 +182,11 @@ impl PgAuthoring {
         if job_id <= 0 || epoch <= 0 {
             return Err(AuthorError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let row = sqlx::query(
             "SELECT status,lease_epoch,actor_user_id,book_id,command_key,
                     approved_fingerprint,expected_chapter_count,
