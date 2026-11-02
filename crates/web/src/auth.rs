@@ -304,10 +304,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
-        .route(
-            "/me/chapters/{id}/buy",
-            get(single_checkout_browser::page).post(single_checkout_browser::submit),
-        )
+        .route("/me/chapters/{id}/buy", single_checkout_browser::router())
         .route(
             "/me/books/{id}/buy-chapters",
             get(batch_checkout_browser::page).post(batch_checkout_browser::submit),
