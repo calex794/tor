@@ -43,6 +43,8 @@ pub(super) async fn reader_page(
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
         return auth_cookies::private_response(StatusCode::PAYLOAD_TOO_LARGE, &[]);
     }
+    let mut progress_csrf = None;
+    let mut progress_cookies = Vec::new();
     if method == Method::GET {
         if let Some(catalog) = state.postgres.as_ref() {
             // If verification is unavailable, omit optional analytics. Never
@@ -59,6 +61,16 @@ pub(super) async fn reader_page(
                 },
                 None => None,
             };
+            // Only verified sessions may receive a CSRF pair for the existing
+            // actor-bound PUT /api/v1/me/progress/free endpoint.
+            if actor.is_some() {
+                if let Some(control) = state.follow_control.as_ref() {
+                    let (_, policy) = control.browser_context();
+                    let (csrf, cookies) = policy.csrf_for_page(&headers);
+                    progress_csrf = Some(csrf);
+                    progress_cookies = cookies;
+                }
+            }
             if let Ok(chapter_id) = i64::try_from(id) {
                 if let Err(error) =
                     tor_reading::repositories::book_stats::PgBookStats::new(catalog.pool())
@@ -70,8 +82,10 @@ pub(super) async fn reader_page(
             }
         }
     }
-    let mut response =
-        auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[]);
+    let mut response = auth_cookies::private_response(
+        pages::reader_with_optional_progress(&chapter, Some(id), progress_csrf.as_deref()),
+        &progress_cookies,
+    );
     // Never enable scripts for paid, hidden or denied content.
     response.headers_mut().insert(
         "content-security-policy",
