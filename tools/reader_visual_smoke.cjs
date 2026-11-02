@@ -173,8 +173,8 @@ async function inspect(page, name, where) {
       await page.close();
     }
     // H-web-07: real source dark tokens and original dark logo, no JavaScript.
-    // The old NEwBOO manual theme control is intentionally not advertised
-    // until the strict script-src 'none' policy has a reviewed server alternative.
+    // Non-reader site pages still follow OS preference; only published free
+    // chapters offer the explicitly reviewed script-enabled theme controls.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
       const page = await browser.newPage({
         viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark'
