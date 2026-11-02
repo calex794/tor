@@ -56,6 +56,7 @@ mod book_rooms;
 mod book_sources;
 mod book_stars;
 mod book_stats_http;
+mod book_title_suggestions;
 mod chapter_comments;
 mod chapter_thanks;
 mod checkout;
@@ -375,6 +376,14 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
+        .route(
+            "/me/books/title-suggestions",
+            get(book_title_suggestions::find),
+        )
+        .route(
+            "/assets/book-title-suggestions.js",
+            get(book_title_suggestions::script),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
@@ -442,7 +451,14 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let command_key = generate_session_token();
-    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
+    let mut response = private_response(author_pages::new_book(&csrf, &command_key), &cookies);
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
 async fn create_book(
     State(state): State<AuthState>,
