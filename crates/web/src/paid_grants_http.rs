@@ -537,7 +537,10 @@ mod tests {
 
     #[test]
     fn layer_reader_requires_explicit_opt_in_and_private_s3_origin() {
-        assert!(!layer_reader_feature_enabled(Some("https://objects.example.test"), None));
+        assert!(!layer_reader_feature_enabled(
+            Some("https://objects.example.test"),
+            None
+        ));
         assert!(!layer_reader_feature_enabled(
             Some("https://objects.example.test"),
             Some("0"),
