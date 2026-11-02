@@ -1,6 +1,6 @@
 //! C-12 / S065: the live site-administrator role grants a PRIVATE reader,
 //! not a fabricated purchase or a finance capability. Disposable tor_ci only.
-use super::{account, pg, read_page, route, send, scalar, FakeG, ASSET_UUID, BODY, ORIGIN};
+use super::{account, pg, read_page, route, scalar, send, FakeG, ASSET_UUID, BODY, ORIGIN};
 use axum::{
     body::to_bytes,
     http::{header, StatusCode},
@@ -105,7 +105,11 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             StatusCode::FORBIDDEN,
         ),
     ] {
-        assert_eq!(read_page(reader, &page, session).await.status(), denial, "{label}");
+        assert_eq!(
+            read_page(reader, &page, session).await.status(),
+            denial,
+            "{label}"
+        );
         for target in [&path, &asset_path] {
             let r = send(
                 grants,
@@ -132,8 +136,13 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert_eq!(shell.headers()[header::CACHE_CONTROL], "no-store");
     assert_eq!(shell.headers()[header::REFERRER_POLICY], "no-referrer");
     assert_eq!(shell.headers()["x-robots-tag"], "noindex");
-    let html = String::from_utf8(to_bytes(shell.into_body(), 128 * 1024).await.unwrap().to_vec())
-        .unwrap();
+    let html = String::from_utf8(
+        to_bytes(shell.into_body(), 128 * 1024)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
     assert!(html.contains("data-admin-chapter-reader"));
     assert!(html.contains("newboo-admin-reader.mjs"));
     assert!(!html.contains(BODY));
