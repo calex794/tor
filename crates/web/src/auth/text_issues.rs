@@ -140,7 +140,12 @@ pub(super) async fn author_page(
         let resolution = issue.resolved_version_id.map_or_else(String::new, |id| {
             format!("<p>Исправлено в опубликованной редакции №{id}</p>")
         });
-        let edit_action = if can_edit_chapter {
+        let edit_action = if issue.is_paid {
+            format!(
+                "<p>Обращение к купленной редакции. Изменить её может только владелец; \
+                 <a href=\"/me/books/{book_id}\">управление книгой</a>.</p>"
+            )
+        } else if can_edit_chapter {
             format!(
                 "<p><a href=\"/me/books/{book_id}/chapters/{}/edit\">Открыть редактор</a></p>",
                 issue.chapter_id

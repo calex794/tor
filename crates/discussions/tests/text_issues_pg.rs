@@ -341,6 +341,141 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
         .try_get("body_markdown")
         .unwrap();
     assert_eq!(unmodified, "Слово слово😀 слово");
+    // D must authorize the purchased, immutable edition: knowing a paid
+    // chapter/version cannot create an issue or reveal private text.
+    let paid_report = || NewTextIssue {
+        chapter_id: paid,
+        version_id: paid_version,
+        block_index: 1,
+        selection_start: 0,
+        selection_end: 7,
+        quote: "PRIVATE",
+        suggestion: "CORRECT",
+        issue_type: "typo",
+    };
+    assert_eq!(
+        store.create_paid(reader, 999_999, paid_report()).await,
+        Err(IssueError::NotVisible)
+    );
+    let purchase_id: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,100,'RUB') RETURNING id",
+    )
+    .bind(reader)
+    .bind(paid)
+    .bind(paid_version)
+    .bind(format!("e12-paid-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid_result = store
+        .create_paid(reader, purchase_id, paid_report())
+        .await
+        .unwrap();
+    let paid_issue_id = match paid_result {
+        CreatedIssue::Added(id) => id,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        store
+            .create_paid(reader, purchase_id, paid_report())
+            .await
+            .unwrap(),
+        CreatedIssue::Replayed(paid_issue_id)
+    );
+    let stored_purchase: Option<i64> =
+        sqlx::query_scalar("SELECT purchase_id FROM text_issues WHERE id=$1")
+            .bind(paid_issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_purchase, Some(purchase_id));
+    assert_eq!(
+        store
+            .create_paid(
+                reader,
+                purchase_id,
+                NewTextIssue {
+                    quote: "WRONG",
+                    ..paid_report()
+                },
+            )
+            .await,
+        Err(IssueError::Invalid)
+    );
+    let owner_issues = store
+        .author_page(author, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(owner_issues
+        .issues
+        .iter()
+        .any(|item| item.id == paid_issue_id && item.is_paid));
+    let team_issues = store
+        .author_page(moderator, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(team_issues.issues.iter().all(|item| !item.is_paid));
+    assert_eq!(
+        store
+            .update_status(moderator, book, paid_issue_id, "rejected", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    // Paid issue provenance is immutable. If the public pricing mode changes,
+    // the old quote MUST NOT become readable or actionable to a translator.
+    sqlx::query("UPDATE chapters SET access_level='free',price_amount=0 WHERE id=$1")
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let after_reclassification = store
+        .author_page(moderator, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(after_reclassification
+        .issues
+        .iter()
+        .all(|item| item.id != paid_issue_id));
+    assert_eq!(
+        store
+            .update_status(moderator, book, paid_issue_id, "rejected", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    let paid_owner_queue = store
+        .author_page(author, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(paid_owner_queue
+        .issues
+        .iter()
+        .any(|item| item.id == paid_issue_id && item.is_paid));
+    sqlx::query("UPDATE chapters SET access_level='paid',price_amount=100 WHERE id=$1")
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(purchase_id)
+    .bind(format!("e12-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store.create_paid(reader, purchase_id, paid_report()).await,
+        Err(IssueError::NotVisible)
+    );
     // CI uses a disposable tor_ci database. Keep its fixture until the entire
     // database is dropped: B-10 intentionally prohibits deleting immutable
     // revenue-share history, even when its owner/book was test-created.

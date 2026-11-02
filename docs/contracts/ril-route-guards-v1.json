@@ -1520,6 +1520,13 @@
       "source": "crates/web/src/auth/support.rs",
       "handler": "admin_script",
       "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/text-issues",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "text_issues::submit",
+      "policy": "scoped"
     }
   ]
 }
