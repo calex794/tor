@@ -26,6 +26,7 @@ use tor_contracts::paid_delivery::{
     PrivateObjectDeliveryPort, SecretValue,
 };
 use tor_reading::repositories::PgReader;
+use tor_discussions::repositories::text_issues::{CreatedIssue, NewTextIssue, PgTextIssues};
 use tor_storage::{
     domain::provider::StorageError,
     repositories::{paid_delivery::PgPrivateDelivery, s3::S3PrivateStore},
@@ -873,5 +874,93 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     assert_eq!(status, StatusCode::OK);
     assert!(refreshed.contains("Owner correction V3"));
     assert!(refreshed.contains("name=\"expected_revision\" value=\"3\""));
+
+    // Close the complete S047 → S048 loop against a real purchased V1:
+    // buyer's exact historical quote, owner publication of V3, then manual
+    // owner-only HTTP fixed transition with an audited resolved_version_id.
+    let purchase_id: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_purchase_facts
+             (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+             VALUES ({other_id},{chapter_id},{version_id},'s048-loop-{chapter_id}',100,'RUB')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let issues = PgTextIssues::new(pool.clone());
+    let submitted = issues
+        .create_paid(
+            other_id,
+            purchase_id,
+            NewTextIssue {
+                chapter_id,
+                version_id,
+                block_index: 1,
+                selection_start: 0,
+                selection_end: 4,
+                quote: "Paid",
+                suggestion: "Проверить написание в купленной V1",
+                issue_type: "typo",
+            },
+        )
+        .await
+        .unwrap();
+    let issue_id = match submitted {
+        CreatedIssue::Added(id) => id,
+        other => panic!("{other:?}"),
+    };
+    let queue = format!("/me/books/{book}/issues");
+    let (status, visible_issues) = browse(&app, &queue, &owner_session, &csrf).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(visible_issues.contains("Проверить написание в купленной V1"));
+    let transition = format!("/me/books/{book}/issues/{issue_id}/status");
+    let form = format!("status=fixed&resolution_note=V3%20published&csrf_token={csrf}");
+    for (session, origin, expected) in [
+        (other_session.as_str(), ORIGIN, StatusCode::NOT_FOUND),
+        (
+            owner_session.as_str(),
+            "https://evil.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (owner_session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+        (owner_session.as_str(), ORIGIN, StatusCode::SEE_OTHER),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&transition)
+                    .method("POST")
+                    .header(header::ORIGIN, origin)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(header::COOKIE, cookie(session, &csrf))
+                    .body(Body::from(form.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT resolved_version_id FROM text_issues WHERE id={issue_id}"),
+        ),
+        paid_v3.to_string(),
+        "paid issue must resolve to verified published S3 V3, not original V1"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM text_issue_status_events
+                 WHERE issue_id={issue_id} AND new_status='fixed'"
+            ),
+        ),
+        "1",
+        "duplicate status POST must never create a second audit event"
+    );
     pool.close().await;
 }
