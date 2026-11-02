@@ -132,6 +132,14 @@ pub(super) async fn checkout_and_verify(
             .status(),
         StatusCode::FORBIDDEN
     );
+    // The form body is bounded independently of field validation or wallet logic.
+    let oversized = format!("{form}&ignored={}", "X".repeat(2050));
+    assert_eq!(
+        post_checkout(app, chapter, session, &csrf, ORIGIN, &oversized)
+            .await
+            .status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
     assert_eq!(
         scalar(
             url,
