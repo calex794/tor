@@ -159,8 +159,10 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         }
         if path == "/reader/101" {
             assert!(policy.contains("script-src 'self'"));
+            assert!(policy.contains("connect-src 'self'"));
         } else {
             assert!(policy.contains("script-src 'none'"));
+            assert!(!policy.contains("connect-src 'self'"));
         }
         assert!(policy.contains("frame-ancestors 'none'"));
         let body = to_bytes(reply.into_body(), 256 * 1024).await.unwrap();
