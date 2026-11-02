@@ -14,7 +14,7 @@ CREATE TABLE book_taxonomy_terms (
     ),
     search_key TEXT NOT NULL CHECK (char_length(search_key) BETWEEN 1 AND 80),
     status TEXT NOT NULL DEFAULT 'active'
-        CHECK (status IN ('active','merged','blocked')),
+        CHECK (status IN ('candidate','active','merged','blocked')),
     merged_into_id BIGINT REFERENCES book_taxonomy_terms(id),
     UNIQUE(kind,id),
     UNIQUE(kind,search_key),
@@ -64,10 +64,13 @@ BEGIN
 END
 $$;
 
--- Only visible, approved facet strings are eligible to be suggested.
+-- Public catalogue labels are AUTHOR-SUPPLIED, not approved vocabulary.
+-- Stage them as non-discoverable review candidates. A migration-owner action
+-- in B/TAX-03 explicitly approves one reviewed label without changing its ID.
+-- Existing TEXT[] remain intact; no unreviewed term is linked automatically.
 -- Normalize Unicode NFKC before lowercase/space/ё folding.
-INSERT INTO book_taxonomy_terms(kind,label,search_key)
-SELECT DISTINCT ON(kind,search_key) kind,name,search_key
+INSERT INTO book_taxonomy_terms(kind,label,search_key,status)
+SELECT DISTINCT ON(kind,search_key) kind,name,search_key,'candidate'
 FROM (
     SELECT kind,name,book_taxonomy_key(name) AS search_key
     FROM public_catalog_facets
