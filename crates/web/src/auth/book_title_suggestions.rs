@@ -78,5 +78,6 @@ pub(super) async fn script() -> Response {
             ("x-content-type-options", "nosniff"),
         ],
         include_str!("../../assets/book_title_suggestions.js"),
-    ).into_response()
+    )
+        .into_response()
 }
