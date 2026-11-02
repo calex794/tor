@@ -379,7 +379,16 @@ fn router_inner(
 }
 
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    account_home::page(state, headers).await
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return private_response(Redirect::to("/login"), &[]);
+    };
+    let digest = session_token_digest(&token);
+    let user_id = match state.accounts.active_session_user(&digest).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    account_home::page(state, headers, user_id).await
 }
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {

@@ -1,16 +1,7 @@
 //! Authenticated account home. Routing and RIL registration stay in auth.rs.
 use super::*;
 
-pub(super) async fn page(state: AuthState, headers: HeaderMap) -> Response {
-    let Some(token) = state.cookies.session_token(&headers) else {
-        return private_response(Redirect::to("/login"), &[]);
-    };
-    let digest = session_token_digest(&token);
-    let user_id = match state.accounts.active_session_user(&digest).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
+pub(super) async fn page(state: AuthState, headers: HeaderMap, user_id: i64) -> Response {
     let name = match state.accounts.user_display_name(user_id).await {
         Ok(Some(value)) => value,
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
