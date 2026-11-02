@@ -340,7 +340,45 @@ module.exports = async (browser, base, out) => {
       await c.page.goto(base + groupPath);
       assert.equal(await c.page.locator('form[action="' + groupPath + '/leave"]').count(), 1,
         'proposed successor can still leave before accepting');
-      await c.page.goto(base + '/mail/group-transfers');
+      // E-08: the actual recipient must discover and open the proposal through
+      // the in-app notification, rather than knowing the transfer URL already.
+      // The group title and private transcript must not enter the bell payload.
+      await c.page.locator('a[href="/notifications"]').first().click();
+      await c.page.waitForURL('**/notifications');
+      const transferAlert = c.page.locator('[data-notification-kind="mail"]')
+        .filter({ hasText: 'Предложение управлять группой' });
+      let transferNoticeReady = false;
+      for (let attempt = 0; attempt < 18; attempt++) {
+        await c.page.reload();
+        const count = await transferAlert.count();
+        assert(count <= 1, 'one transfer proposal must not generate duplicate notifications');
+        if (count === 1) {
+          transferNoticeReady = true;
+          break;
+        }
+        await c.page.waitForTimeout(650);
+      }
+      assert(transferNoticeReady, 'transfer offer notification must reach its recipient');
+      const alertText = await transferAlert.innerText();
+      assert(alertText.includes('Почта ' + name + ' a'), 'transfer notification identifies the proposer');
+      assert(!alertText.includes('Группа <встреча> ' + name),
+        'notification cannot expose the private group title');
+      assert(!alertText.includes('GROUP-MESSAGE-' + name),
+        'notification cannot expose the private transcript');
+      const transferAlertId = await transferAlert.getAttribute('data-notification-id');
+      assert.match(transferAlertId, /^[1-9][0-9]*$/, 'transfer notification has a stable ID');
+      await c.page.screenshot({ path: path.join(out, 'mail-transfer-notification-' + name + '.png'),
+        fullPage: true });
+      await a.page.goto(base + '/notifications');
+      assert.equal(await a.page.locator('[data-notification-kind="mail"]')
+        .filter({ hasText: 'Предложение управлять группой' }).count(), 0,
+        'creator must not receive the recipient-only transfer notification');
+      await d.page.goto(base + '/notifications');
+      assert.equal(await d.page.locator('[data-notification-kind="mail"]')
+        .filter({ hasText: 'Предложение управлять группой' }).count(), 0,
+        'unrelated account must not receive a transfer notification');
+      await transferAlert.getByRole('button', { name: 'Открыть', exact: true }).click();
+      await c.page.waitForURL('**/mail/group-transfers');
       assert((await c.page.locator('body').innerText()).includes('Группа <встреча> ' + name));
       await c.page.getByRole('button', { name: 'Принять управление' }).click();
       await c.page.waitForURL('**/mail/groups/*');
