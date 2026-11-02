@@ -374,18 +374,29 @@ async fn e_11_close_reopen_serializes_admin_actions_and_requester_messages() {
     let (pool, users) = fixture().await;
     let service = SupportService::new(PgSupport::new(pool.clone()));
     let requester = Requester::Guest(guest(users[0]));
-    let first = service.send(&requester, "Initial question", Some("initial")).await.unwrap();
-    let chat = service.messages(&requester, None, None, 100).await.unwrap().chat;
+    let first = service
+        .send(&requester, "Initial question", Some("initial"))
+        .await
+        .unwrap();
+    let chat = service
+        .messages(&requester, None, None, 100)
+        .await
+        .unwrap()
+        .chat;
     assert!(!chat.is_closed);
     assert_eq!(chat.status_revision, 0);
     let admin_actor = admin(users[2], true);
 
     assert_eq!(
-        service.admin_set_closed(admin(users[2], false), chat.id, true, 0, "denied").await,
+        service
+            .admin_set_closed(admin(users[2], false), chat.id, true, 0, "denied")
+            .await,
         Err(SupportError::Denied)
     );
     assert_eq!(
-        service.admin_set_closed(admin_actor, chat.id, true, -1, "invalid").await,
+        service
+            .admin_set_closed(admin_actor, chat.id, true, -1, "invalid")
+            .await,
         Err(SupportError::Invalid)
     );
     // Two simultaneous closes on the same revision produce exactly one transition.
@@ -395,44 +406,93 @@ async fn e_11_close_reopen_serializes_admin_actions_and_requester_messages() {
     );
     assert_eq!(a, Ok(()));
     assert_eq!(b, Ok(()));
-    let closed = service.messages(&requester, None, None, 100).await.unwrap().chat;
+    let closed = service
+        .messages(&requester, None, None, 100)
+        .await
+        .unwrap()
+        .chat;
     assert!(closed.is_closed);
     assert_eq!(closed.status_revision, 1);
     assert_eq!(
-        service.admin_send(admin_actor, chat.id, "too late", Some("late"), "late").await,
+        service
+            .admin_send(admin_actor, chat.id, "too late", Some("late"), "late")
+            .await,
         Err(SupportError::Conflict)
     );
     assert_eq!(
-        service.admin_set_closed(admin_actor, chat.id, false, 0, "stale-reopen").await,
+        service
+            .admin_set_closed(admin_actor, chat.id, false, 0, "stale-reopen")
+            .await,
         Err(SupportError::Conflict)
     );
-    service.admin_set_closed(admin_actor, chat.id, false, 1, "reopen").await.unwrap();
-    service.admin_set_closed(admin_actor, chat.id, false, 1, "replay-reopen").await.unwrap();
-    assert_eq!(service.messages(&requester, None, None, 100).await.unwrap().chat.status_revision, 2);
-    service.admin_set_closed(admin_actor, chat.id, true, 2, "second-close").await.unwrap();
+    service
+        .admin_set_closed(admin_actor, chat.id, false, 1, "reopen")
+        .await
+        .unwrap();
+    service
+        .admin_set_closed(admin_actor, chat.id, false, 1, "replay-reopen")
+        .await
+        .unwrap();
+    assert_eq!(
+        service
+            .messages(&requester, None, None, 100)
+            .await
+            .unwrap()
+            .chat
+            .status_revision,
+        2
+    );
+    service
+        .admin_set_closed(admin_actor, chat.id, true, 2, "second-close")
+        .await
+        .unwrap();
     // Re-sending an old command key cannot reopen an already closed ticket.
-    let old = service.send(&requester, "Initial question", Some("initial")).await.unwrap();
+    let old = service
+        .send(&requester, "Initial question", Some("initial"))
+        .await
+        .unwrap();
     assert_eq!(old.id, first.id);
-    let still_closed = service.messages(&requester, None, None, 100).await.unwrap().chat;
+    let still_closed = service
+        .messages(&requester, None, None, 100)
+        .await
+        .unwrap()
+        .chat;
     assert!(still_closed.is_closed);
     assert_eq!(still_closed.status_revision, 3);
-    let fresh = service.send(&requester, "New question", Some("fresh")).await.unwrap();
+    let fresh = service
+        .send(&requester, "New question", Some("fresh"))
+        .await
+        .unwrap();
     assert_ne!(first.id, fresh.id);
-    let reopened = service.messages(&requester, None, None, 100).await.unwrap().chat;
+    let reopened = service
+        .messages(&requester, None, None, 100)
+        .await
+        .unwrap()
+        .chat;
     assert!(!reopened.is_closed);
     assert_eq!(reopened.status_revision, 4);
     assert_eq!(
-        service.admin_set_closed(admin_actor, chat.id, true, 3, "stale-close").await,
+        service
+            .admin_set_closed(admin_actor, chat.id, true, 3, "stale-close")
+            .await,
         Err(SupportError::Conflict)
     );
-    let audits: Vec<(String,i64,i64)> = sqlx::query_as(
+    let audits: Vec<(String, i64, i64)> = sqlx::query_as(
         "SELECT action,before_revision,after_revision FROM admin_action_audit
          WHERE actor_id=$1 AND resource_type='support_conversation' AND resource_id=$2
-         ORDER BY audit_id"
-    ).bind(users[2]).bind(chat.id).fetch_all(&pool).await.unwrap();
-    assert_eq!(audits, vec![
-        ("support.close".into(),0,1),
-        ("support.reopen".into(),1,2),
-        ("support.close".into(),2,3),
-    ]);
+         ORDER BY audit_id",
+    )
+    .bind(users[2])
+    .bind(chat.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audits,
+        vec![
+            ("support.close".into(), 0, 1),
+            ("support.reopen".into(), 1, 2),
+            ("support.close".into(), 2, 3),
+        ]
+    );
 }

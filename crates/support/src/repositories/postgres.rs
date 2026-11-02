@@ -105,8 +105,13 @@ pub(super) async fn send(
     // An explicit administrator close prevents further replies until re-opened.
     // A replayed idempotency key above remains readable without a new state change.
     if kind == "admin" {
-        let closed: bool = sqlx::query_scalar("SELECT status='closed' FROM support_conversations WHERE id=$1 FOR UPDATE")
-            .bind(chat).fetch_one(&mut **tx).await.map_err(unavailable)?;
+        let closed: bool = sqlx::query_scalar(
+            "SELECT status='closed' FROM support_conversations WHERE id=$1 FOR UPDATE",
+        )
+        .bind(chat)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(unavailable)?;
         if closed {
             return Err(SupportError::Conflict);
         }
@@ -274,7 +279,11 @@ impl SupportRepository for PgSupport {
              VALUES($1,$2,'support_conversation',$3,$4,$5,$6,'success')",
         )
         .bind(admin)
-        .bind(if closed { "support.close" } else { "support.reopen" })
+        .bind(if closed {
+            "support.close"
+        } else {
+            "support.reopen"
+        })
         .bind(chat)
         .bind(request_id)
         .bind(revision)

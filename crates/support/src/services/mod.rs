@@ -189,7 +189,13 @@ impl<R: SupportRepository> SupportService<R> {
             return Err(SupportError::Invalid);
         }
         self.repo
-            .change_status(Self::admin(actor)?, chat, closed, expected_revision, request_id)
+            .change_status(
+                Self::admin(actor)?,
+                chat,
+                closed,
+                expected_revision,
+                request_id,
+            )
             .await
     }
     pub async fn admin_mark_read(

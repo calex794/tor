@@ -100,7 +100,11 @@ pub(super) fn index(chats: &[(Chat, String)]) -> Html<String> {
         } else {
             "Прочитано"
         };
-        let lifecycle = if chat.is_closed { "Закрыто" } else { "Открыто" };
+        let lifecycle = if chat.is_closed {
+            "Закрыто"
+        } else {
+            "Открыто"
+        };
         write!(body,"<article class=\"me-now-card\"><h2><a href=\"/admin/support/{}\">{}</a></h2><p>{}</p><p>{unread}</p><p>{lifecycle}</p></article>",chat.id,escape_html(name),escape_html(&chat.last_message_preview)).expect("support list");
     }
     if chats.len() == 100 {
