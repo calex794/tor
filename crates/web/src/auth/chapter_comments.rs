@@ -126,15 +126,18 @@ pub(super) async fn submit(
     );
     let store = PgPublicChapterComments::new(state.accounts.pool().clone());
     let result = store
-        .create_free(actor, NewChapterComment {
-            chapter_id,
-            version_id: form.version_id,
-            body: body.as_str(),
-            command_key: key.as_str(),
-            payload_hash: &hash,
-            parent_id: form.parent_id,
-            anchor,
-        })
+        .create_free(
+            actor,
+            NewChapterComment {
+                chapter_id,
+                version_id: form.version_id,
+                body: body.as_str(),
+                command_key: key.as_str(),
+                payload_hash: &hash,
+                parent_id: form.parent_id,
+                anchor,
+            },
+        )
         .await;
     match result {
         CreateResult::Created(_) => private_response(
