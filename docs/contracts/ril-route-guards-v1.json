@@ -1602,14 +1602,14 @@
       "method": "GET",
       "template": "/layers/{layer_id}",
       "source": "crates/web/src/auth/layer_checkout.rs",
-      "handler": "layer_checkout::page",
+      "handler": "page",
       "policy": "public"
     },
     {
       "method": "POST",
       "template": "/layers/{layer_id}/buy",
       "source": "crates/web/src/auth/layer_checkout.rs",
-      "handler": "layer_checkout::buy",
+      "handler": "buy",
       "policy": "session"
     },
     {
@@ -1630,7 +1630,7 @@
       "method": "GET",
       "template": "/me/library/layers",
       "source": "crates/web/src/auth/layer_storefront.rs",
-      "handler": "layer_storefront::my_terms",
+      "handler": "my_terms",
       "policy": "scoped"
     }
   ]
