@@ -59,6 +59,7 @@ mod book_likes;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
+mod chapter_comments;
 mod chapter_thanks;
 mod checkout;
 mod checkout_browser;
@@ -306,6 +307,7 @@ fn router_inner(
             "/me/books/{id}/issues/{issue_id}/status",
             post(text_issues::change_status),
         )
+        .route("/reader/{id}/comments", post(chapter_comments::submit))
         .route(
             "/reader/{id}/thanks",
             get(chapter_thanks::page).post(chapter_thanks::submit),
