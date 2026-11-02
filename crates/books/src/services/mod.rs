@@ -142,3 +142,4 @@ pub mod docx_import;
 pub mod zip_import;
 
 pub mod book_registration;
+pub mod title_suggestions;
