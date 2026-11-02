@@ -674,6 +674,42 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         "1",
         "recovery must publish once, even when the response is retried"
     );
+    // Purchase V1 while it is actually the published edition. Reader may
+    // report a precise paid quote before owner creates any later V2/V3.
+    let purchase_id: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_purchase_facts
+             (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+             VALUES ({other_id},{chapter_id},{version_id},'s048-loop-{chapter_id}',100,'RUB')
+             RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    let issues = PgTextIssues::new(pool.clone());
+    let submitted = issues
+        .create_paid(
+            other_id,
+            purchase_id,
+            NewTextIssue {
+                chapter_id,
+                version_id,
+                block_index: 1,
+                selection_start: 0,
+                selection_end: 4,
+                quote: "Paid",
+                suggestion: "Проверить написание в купленной V1",
+                issue_type: "typo",
+            },
+        )
+        .await
+        .unwrap();
+    let issue_id = match submitted {
+        CreatedIssue::Added(id) => id,
+        other => panic!("{other:?}"),
+    };
+
     // Paid edition editing is a separate B/G capability. The original
     // purchased version remains attached and readable until S3 verified V2.
     let edit_key = generate_session_token();
@@ -878,39 +914,6 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
     // Close the complete S047 → S048 loop against a real purchased V1:
     // buyer's exact historical quote, owner publication of V3, then manual
     // owner-only HTTP fixed transition with an audited resolved_version_id.
-    let purchase_id: i64 = pg(
-        &url,
-        &format!(
-            "INSERT INTO chapter_purchase_facts
-             (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
-             VALUES ({other_id},{chapter_id},{version_id},'s048-loop-{chapter_id}',100,'RUB')
-             RETURNING id"
-        ),
-    )
-    .parse()
-    .unwrap();
-    let issues = PgTextIssues::new(pool.clone());
-    let submitted = issues
-        .create_paid(
-            other_id,
-            purchase_id,
-            NewTextIssue {
-                chapter_id,
-                version_id,
-                block_index: 1,
-                selection_start: 0,
-                selection_end: 4,
-                quote: "Paid",
-                suggestion: "Проверить написание в купленной V1",
-                issue_type: "typo",
-            },
-        )
-        .await
-        .unwrap();
-    let issue_id = match submitted {
-        CreatedIssue::Added(id) => id,
-        other => panic!("{other:?}"),
-    };
     let queue = format!("/me/books/{book}/issues");
     let (status, visible_issues) = browse(&app, &queue, &owner_session, &csrf).await;
     assert_eq!(status, StatusCode::OK);
