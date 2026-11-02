@@ -147,6 +147,30 @@ async function readyCover(page, bookId, viewport, scheme) {
           'S019: different Rulate link and title must not create a duplicate');
         assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
           'S019: Rulate alias conflict must preserve actionable error page');
+        // S019: an actual original and a mirror may be from arbitrary hosts.
+        // Registration must claim both in one transaction without fetching them.
+        const workNum = providerId + 500000;
+        const chineseOriginal = 'https://fiction.example.cn/novel/' + workNum;
+        const mirrorLink = 'https://mirror.example.org/work/' + workNum;
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги')
+          .fill('Перевод китайского оригинала ' + workNum);
+        await page.getByLabel('Ссылка на первоисточник').fill(chineseOriginal);
+        await page.getByLabel('Дополнительная ссылка на это произведение').fill(mirrorLink);
+        await page.getByRole('button', { name: 'Создать книгу' }).click();
+        await page.waitForURL(/\/me\/books\/\d+$/);
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill('Другое название зеркала ' + workNum);
+        await page.getByLabel('Ссылка на первоисточник').fill(mirrorLink);
+        const [mirrorDuplicate] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books' &&
+            r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Создать книгу' }).click(),
+        ]);
+        assert(mirrorDuplicate.status() === 409,
+          'S019: a supplied mirror URL must prevent duplicate registration');
+        assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
+          'S019: conflict must not reveal private book details');
         await page.goto(base + '/me/books/' + bookId);
 
         await page.getByRole('link', { name: 'Добавить главу' }).click();

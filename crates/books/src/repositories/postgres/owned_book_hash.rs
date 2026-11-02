@@ -55,6 +55,13 @@ pub(super) fn payload_hash(book: &NewBook) -> [u8; 32] {
             hasher.update(part.as_bytes());
         }
     }
+    if !book.extra_source_urls.is_empty() {
+        hasher.update(b"book-registration-extra-links-v1");
+        for url in &book.extra_source_urls {
+            hasher.update((url.len() as u64).to_be_bytes());
+            hasher.update(url.as_bytes());
+        }
+    }
     let digest: [u8; 32] = hasher.finalize().into();
 
     digest
