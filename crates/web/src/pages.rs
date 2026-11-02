@@ -24,6 +24,7 @@ mod reader_private;
 pub use reader_private::private_reader;
 pub use reader_private::private_reader_with_demand;
 mod paywall;
+#[allow(unused_imports)] // Legacy rendering is still exercised by page tests.
 pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
