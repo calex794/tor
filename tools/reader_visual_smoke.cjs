@@ -326,6 +326,25 @@ async function inspect(page, name, where) {
       assert(!(await page.content()).includes('<h2>Приватность</h2>'),
         name + ': obsolete privacy panel still rendered');
       await inspect(page, name, 'me');
+      await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
+      await inspect(page, name, 'library');
+      // S007: a book can be saved before any progress or purchase is recorded.
+      await page.goto(base + '/books/1');
+      await page.getByRole('link', { name: 'Добавить в библиотеку' }).click();
+      await page.waitForURL('**/me/library/add/1');
+      assert(await page.getByRole('button', { name: 'Сохранить книгу' }).isVisible(),
+        name + ': bookmark confirmation missing');
+      await page.getByRole('button', { name: 'Сохранить книгу' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
+        name + ': personal bookmark missing');
+      await inspect(page, name, 'bookmarked');
+      await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
+      await page.waitForURL('**/me/library');
+      assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
+        name + ': bookmark removal failed');
       // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
       // cursor through the public, themed chapter view. A guest has no token.
       await page.goto(base + '/reader/101', { waitUntil: 'networkidle' });
@@ -359,32 +378,19 @@ async function inspect(page, name, where) {
         cursor.char_offset === sent.char_offset && cursor.revision > 0,
         name + ': PostgreSQL cursor does not match auto-save');
       await page.reload({ waitUntil: 'networkidle' });
-      await page.waitForFunction(() =>
-        document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressRestored === '1',
-        { timeout: 10000 });
-      assert(await page.evaluate(() => window.scrollY > 0),
-        name + ': saved place not restored after reload');
+      await page.waitForFunction(() => {
+        const article = document.querySelector('[data-free-progress-chapter]');
+        return article && (article.dataset.freeProgressRestored === '1' ||
+          window.scrollY > 0);
+      });
+      const secondTab = await page.context().newPage();
+      await secondTab.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await secondTab.waitForFunction(() =>
+        document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressRestored === '1');
+      assert(await secondTab.evaluate(() => window.scrollY > 0),
+        name + ': second browser tab did not restore PostgreSQL cursor');
+      await secondTab.close();
       await inspect(page, name, 'free-resume');
-      await page.goto(base + '/me');
-      await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
-      await page.waitForURL('**/me/library');
-      assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
-      await inspect(page, name, 'library');
-      // S007: a book can be saved before any progress or purchase is recorded.
-      await page.goto(base + '/books/1');
-      await page.getByRole('link', { name: 'Добавить в библиотеку' }).click();
-      await page.waitForURL('**/me/library/add/1');
-      assert(await page.getByRole('button', { name: 'Сохранить книгу' }).isVisible(),
-        name + ': bookmark confirmation missing');
-      await page.getByRole('button', { name: 'Сохранить книгу' }).click();
-      await page.waitForURL('**/me/library');
-      assert(await page.getByRole('link', { name: 'Книга для браузерной приёмки' }).isVisible(),
-        name + ': personal bookmark missing');
-      await inspect(page, name, 'bookmarked');
-      await page.getByRole('button', { name: 'Убрать из библиотеки' }).click();
-      await page.waitForURL('**/me/library');
-      assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
-        name + ': bookmark removal failed');
       // Real browser: server-rendered chapter, CSRF POST, private library resume.
       await page.goto(base + '/read/101');
       assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');
