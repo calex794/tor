@@ -44,6 +44,8 @@ use tower::ServiceExt;
 
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
+#[path = "paid_grants_s3_pg/asset_fixture.rs"]
+mod asset_fixture;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
@@ -57,7 +59,7 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
 const OBJECT_ID_SECOND: &str = "f0c0e034-2026-4034-8034-000000000035";
 const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <script>опасно</script>";
-const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n第二章 — только купленная редакция";
+const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
 
@@ -338,13 +340,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
              VALUES({chapter},1,'{sql_body}') RETURNING id"
         ),
     );
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO chapter_publications(chapter_id,version_id) \
-             VALUES({chapter},{v1})"
-        ),
-    );
     let pinned = ChapterVersionRef {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
@@ -361,6 +356,15 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
     registry.mark_ready(&receipt).await.unwrap();
+    assert!(MARKDOWN.contains(asset_fixture::ASSET_OBJECT_ID));
+    asset_fixture::upload_exact_v1_image(&pool, &s3, kek.clone(), author, pinned).await;
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) \
+             VALUES({chapter},{v1})"
+        ),
+    );
     PgPaidStorage::new(pool.clone())
         .attach_verified_and_publish(
             author,
