@@ -39,7 +39,7 @@ pub fn layer_reader_shell(chapter_id: i64, csrf: &str, s3_origin: &str) -> Html<
         s3_origin = escape_html(s3_origin),
     );
     Html(
-        include_str!("../../templates/reader_layout.html")
+        include_str!("../templates/reader_layout.html")
             .replace("<!--PAGE_TITLE-->", &format!("Глава {chapter_id} — Layer"))
             .replace(
                 "<!--PAGE_DESCRIPTION-->",
