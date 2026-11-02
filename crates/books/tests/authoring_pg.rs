@@ -867,3 +867,7 @@ async fn b_02_legacy_book_titles_block_new_registration_without_rewriting_old_ro
     );
     pool.close().await;
 }
+
+// S019 aliases are part of the existing mandatory authoring PostgreSQL suite.
+#[path = "registration_source_alias_pg.rs"]
+mod registration_source_alias_pg;
