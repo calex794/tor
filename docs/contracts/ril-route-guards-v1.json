@@ -1660,6 +1660,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "chapter_comments::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/reader/chapters/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_reader::read",
+      "policy": "admin_reader"
     }
   ]
 }

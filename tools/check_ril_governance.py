@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -26,6 +26,9 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
     ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
+ADMIN_READER_HANDLERS = {
+    ("GET", "/admin/reader/chapters/{chapter_id}", "admin_reader::read"),
 }
 SUPPORT_ADMIN_HANDLERS = {
     ("GET", "/admin/support", "index"),
@@ -225,8 +228,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         and entry["source"] == "crates/web/src/auth/support_admin.rs"
         and admin_key in SUPPORT_ADMIN_HANDLERS
     )
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support):
+    audited_reader = (policy == "admin_reader"
+                      and entry["source"] == "crates/web/src/paid_grants_http.rs"
+                      and admin_key in ADMIN_READER_HANDLERS)
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_reader):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_reader":
+        if not audited_reader or not (
+            "session_actor(" in evidence
+            and "if actor.administrator" in evidence
+            and "StatusCode::FORBIDDEN" in evidence
+            and "PgAdministratorReading::new" in evidence
+            and "repository.read(" in evidence
+        ):
+            errors.append(f"{label}: missing reviewed live admin-reader role and B guard")
     if policy == "admin_mail":
         method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
         if not method:
