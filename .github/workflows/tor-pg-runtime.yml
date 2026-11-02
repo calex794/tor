@@ -168,6 +168,13 @@ jobs:
           SQL
       - name: Database and HTTP integration
         run: |
+          # B/TAX-03: only a disposable migrator role may curate canonical terms.
+          PGPASSWORD=tor-ci-migrate PGUSER=tor_migrator PGDATABASE=tor_ci \
+            psql -X -v ON_ERROR_STOP=1 -f tools/tests/taxonomy_admin_smoke.sql
+          python3 tests/architecture/test_taxonomy_import_csv.py
+          python3 tests/architecture/test_taxonomy_review_export.py
+          python3 tests/architecture/test_taxonomy_review_compile.py
+          python3 tools/tests/taxonomy_csv_import_pg.py
           cargo test -p tor-traffic_behavior --test ril_rollups_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_costs_pg -- --ignored --test-threads=1
           cargo test -p tor-traffic_behavior --test ril_sql_costs_pg -- --ignored --test-threads=1
@@ -187,6 +194,7 @@ jobs:
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
           TEST_TAXONOMY_MIGRATOR_URL=postgresql://tor_migrator:tor-ci-migrate@127.0.0.1:5432/tor_ci cargo test -p tor-books --test taxonomy_picker_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test taxonomy_starter_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
           cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1

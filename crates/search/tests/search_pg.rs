@@ -887,7 +887,7 @@ async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
              (source_identity,target_language,title,genres,tags,fandoms,visibility)
          VALUES ('ci:perf233:live-taxonomy','ru','PERF 233 Facet Test',
                  ARRAY['aaa-perf233-genre','aaa-perf233-genre'],
-                 ARRAY['aaa-perf233-tag'],
+                 ARRAY['aaa-perf233-tag','ZZZ-perf233-case'],
                  ARRAY['aaa-perf233-fandom'],'public')
          ON CONFLICT (source_identity,target_language)
          DO UPDATE SET visibility='public',admin_hold=FALSE,is_deleted=FALSE,
@@ -910,13 +910,30 @@ async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
         "duplicates must not affect the taxonomy selector"
     );
     assert!(initial.tags.contains(&"aaa-perf233-tag".to_owned()));
+    assert!(initial.tags.contains(&"ZZZ-perf233-case".to_owned()));
+    // The selector follows the PostgreSQL collation, not Rust's UTF-8 byte
+    // order. Compare against an independent per-kind SQL oracle so mixed
+    // case and Unicode names cannot cause a false ordering failure.
     assert!(initial.fandoms.contains(&"aaa-perf233-fandom".to_owned()));
     assert!(initial.genres.len() <= 100);
     assert!(initial.tags.len() <= 100);
     assert!(initial.fandoms.len() <= 100);
-    assert!(initial.genres.windows(2).all(|pair| pair[0] <= pair[1]));
-    assert!(initial.tags.windows(2).all(|pair| pair[0] <= pair[1]));
-    assert!(initial.fandoms.windows(2).all(|pair| pair[0] <= pair[1]));
+    for (kind, actual) in [
+        ("genre", &initial.genres),
+        ("tag", &initial.tags),
+        ("fandom", &initial.fandoms),
+    ] {
+        let expected: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM public_catalog_facets
+             WHERE kind=$1 AND reference_count>0
+             ORDER BY name LIMIT 100",
+        )
+        .bind(kind)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(actual, &expected, "{kind} options must follow DB collation");
+    }
 
     for statement in [
         "UPDATE books SET admin_hold=TRUE WHERE id=$1",

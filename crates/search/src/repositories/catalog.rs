@@ -300,6 +300,8 @@ pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, S
     // The migration maintains exact distinct-public-book references in the
     // SAME transaction as every publication, hold, deletion and facet change.
     // No stale TTL, pg_class estimates, or per-request scans of all books.
+    // Keep PostgreSQL locale ordering for the public catalog (rather than
+    // Rust byte ordering); each per-kind LIMIT and the final output agree.
     const SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
             SELECT name FROM public_catalog_facets
@@ -317,7 +319,8 @@ pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, S
             SELECT name FROM public_catalog_facets
             WHERE kind='fandom' AND reference_count>0
             ORDER BY name LIMIT 100
-        ) f";
+        ) f
+        ORDER BY kind, name";
 
     let rows = sqlx::query(SQL)
         .fetch_all(pool)
