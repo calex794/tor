@@ -46,16 +46,27 @@ pub(super) async fn grant_asset(
         },
         None => None,
     };
-    if body.source.is_some() && !state.layer_reader_enabled {
+    if matches!(body.source, Some(GrantSource::Layer)) && !state.layer_reader_enabled {
         return deny(StatusCode::NOT_FOUND);
     }
     if body.source.is_some() && purchase_id.is_some() {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let admin = PgAdministratorReaderEntitlements::new(
+        state.accounts.pool().clone(),
+        session_token_digest(&session),
+    );
     let authority: &dyn EntitlementPort = match body.source {
         Some(GrantSource::Layer) => &state.layer,
+        Some(GrantSource::Administrator) => &admin,
         None => &state.entitlement,
     };
+    let assets: &dyn tor_contracts::paid_delivery::ChapterAssetPort =
+        if matches!(body.source, Some(GrantSource::Administrator)) {
+            &state.admin_assets
+        } else {
+            &state.assets
+        };
     if !state.rate_limits.lock().await.allow(actor, Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -64,7 +75,7 @@ pub(super) async fn grant_asset(
     };
     let result = issue_paid_asset_grant(
         authority,
-        &state.assets,
+        assets,
         state.storage.as_ref(),
         Actor { user_id: actor_id },
         chapter_id,

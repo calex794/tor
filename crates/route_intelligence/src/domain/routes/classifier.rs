@@ -247,8 +247,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/newboo-layer-reader.mjs"), "GET") => Some(234),
         (Some("/me/books/{id}/settings/sources"), "GET") => Some(235),
         (Some("/me/books/{id}/settings/sources"), "POST") => Some(236),
-        (Some("/me/refunds"), "GET") => Some(237),
-        (Some("/me/refunds"), "POST") => Some(238),
+        (Some("/read/admin/{chapter_id}"), "GET") => Some(237),
+        (Some("/assets/newboo-admin-reader.mjs"), "GET") => Some(238),
+        (Some("/me/refunds"), "GET") => Some(239),
+        (Some("/me/refunds"), "POST") => Some(240),
         _ => None,
     };
     index
