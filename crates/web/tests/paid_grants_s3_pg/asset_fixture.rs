@@ -21,8 +21,7 @@ pub(super) async fn upload_exact_v1_image(
     let png = hex::decode(PNG_HEX).expect("fixed one-pixel CI PNG");
     let ring = Arc::new(ContentKeyring::v1_only(kek));
     let id = ObjectId::parse(ASSET_OBJECT_ID).unwrap();
-    let sealed =
-        seal_asset_with_keyring(pinned, id.clone(), &png, "image/png", &ring).unwrap();
+    let sealed = seal_asset_with_keyring(pinned, id.clone(), &png, "image/png", &ring).unwrap();
     let registry = PgStorageRegistry::new(pool.clone());
     let reference = registry
         .reserve_pending_asset(&sealed, &ring, BUCKET)
