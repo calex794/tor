@@ -8,6 +8,30 @@ use tor_commerce::{
     repositories::layers::PgLayers,
 };
 
+async fn layer_asset_grant(
+    app: &Router,
+    chapter: i64,
+    cookie: &str,
+    csrf: &str,
+    json: &str,
+) -> Response {
+    let request = Request::builder()
+        .uri(format!(
+            "/api/v1/reader/chapters/{chapter}/assets/{OBJECT_ID}/delivery-grants"
+        ))
+        .method("POST")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ORIGIN, ORIGIN)
+        .header("x-csrf-token", csrf)
+        .header(
+            header::COOKIE,
+            format!("tor-dev-session={cookie}; tor-dev-csrf={csrf}"),
+        )
+        .body(Body::from(json.to_owned()))
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap()
+}
+
 pub(super) async fn assert_layer_s3_grants(
     repo: PgLayers,
     app: &Router,
@@ -135,6 +159,36 @@ pub(super) async fn assert_layer_s3_grants(
     );
     assert!(!payload.to_string().contains(MARKDOWN));
 
+    // This object's UUID belongs to encrypted chapter TEXT, not B's immutable
+    // image membership. A valid Layer subscription cannot turn it into a
+    // signed image bearer URL. Neither may a direct purchase ID be mixed in.
+    let unknown_image = layer_asset_grant(
+        app,
+        chapter,
+        cookie,
+        csrf,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(unknown_image.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        to_bytes(unknown_image.into_body(), 8192).await.unwrap().len(),
+        0,
+        "missing B image membership must not expose S3 URLs"
+    );
+    assert_eq!(
+        layer_asset_grant(
+            app,
+            chapter,
+            cookie,
+            csrf,
+            r#"{"source":"layer","purchase_id":"999"}"#,
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+
     // A blocked storefront disallows new sales without confiscating
     // existing rights. The term, not the storefront, is the entitlement.
     pg(
@@ -180,6 +234,20 @@ pub(super) async fn assert_layer_s3_grants(
         private_get(app, &layer_page, Some(cookie)).await.status(),
         StatusCode::FORBIDDEN,
         "revoked Layer must never receive a fresh browser reader shell"
+    );
+    let revoked_image = layer_asset_grant(
+        app,
+        chapter,
+        cookie,
+        csrf,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(revoked_image.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        to_bytes(revoked_image.into_body(), 8192).await.unwrap().len(),
+        0,
+        "revoked Layer must not expose object credentials"
     );
     (body, payload, csp)
 }
