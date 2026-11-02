@@ -2,7 +2,7 @@
 use super::*;
 
 #[derive(Deserialize)]
-struct ScheduleChapterForm {
+pub(super) struct ScheduleChapterForm {
     expected_revision: i64,
     version_id: i64,
     scheduled_utc: String,
@@ -85,4 +85,3 @@ pub(super) async fn cancel_schedule(
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
