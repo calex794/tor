@@ -245,6 +245,8 @@ const ROUTES: [RouteRegistration; 235] = [
     RouteRegistration::new("/me/library/layers", "GET", "/me/library/", Exact, Page, Reading, Read), // 232
     RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 233
     RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 234
+    RouteRegistration::new("/assets/book-title-suggestions.js", "GET", "/assets/", Exact, Static, System, Free), // 235
+    RouteRegistration::new("/me/books/title-suggestions", "GET", "/me/", Prefix, Api, Dashboard, Read), // 236
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {
