@@ -263,6 +263,20 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
         .execute(&pool)
         .await
         .unwrap();
+    // B-10 automatically seeds a share schedule for every owned Book; its
+    // restrictive FKs must be cleared before removing the seeded member.
+    for table in [
+        "revenue_share_assignments",
+        "revenue_share_states",
+        "revenue_share_versions",
+    ] {
+        let statement = format!("DELETE FROM {table} WHERE book_id=$1");
+        sqlx::query(&statement)
+            .bind(book)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
     sqlx::query("DELETE FROM book_members WHERE book_id=$1")
         .bind(book)
         .execute(&pool)
