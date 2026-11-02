@@ -610,7 +610,6 @@ async fn e_03_private_mention_participant_is_canonical_and_replay_safe() {
     }
 }
 
-
 /// S011: PostgreSQL checks exact free version, UTF-16 anchor, replay,
 /// same-version parent, paywall and withdraw/republication without new schema.
 #[tokio::test]
@@ -708,13 +707,17 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         ChapterCreate::Created(id) => id,
         other => panic!("expected created, got {other:?}"),
     };
-    assert_eq!(store.create_free(actor, message).await, ChapterCreate::Replayed(id));
     assert_eq!(
-        store.create_free(actor, NewChapterComment {
-            body: "Другая запись",
-            ..message
-        })
-        .await,
+        store.create_free(actor, message).await,
+        ChapterCreate::Replayed(id)
+    );
+    assert_eq!(
+        store
+            .create_free(actor, NewChapterComment {
+                body: "Другая запись",
+                ..message
+            })
+            .await,
         ChapterCreate::Conflict
     );
     let part: (String, i32, i32) = sqlx::query_as(
@@ -725,7 +728,11 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     .await
     .unwrap();
     assert_eq!(part, ("b:1".to_owned(), 1, 3));
-    let page = store.list_free(chapter, version, None, 25).await.unwrap().unwrap();
+    let page = store
+        .list_free(chapter, version, None, 25)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].id, id);
     assert_eq!(page.items[0].anchor.as_ref().unwrap().block_index, 1);
@@ -743,10 +750,7 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
             .await,
         ChapterCreate::Invalid
     );
-    assert_eq!(
-        store.create_free(0, message).await,
-        ChapterCreate::Invalid
-    );
+    assert_eq!(store.create_free(0, message).await, ChapterCreate::Invalid);
     assert_eq!(
         store
             .create_free(actor, NewChapterComment {
@@ -770,7 +774,10 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         ChapterCreate::Created(id) => id,
         other => panic!("expected reply, got {other:?}"),
     };
-    assert_eq!(store.create_free(actor, reply).await, ChapterCreate::Replayed(reply_id));
+    assert_eq!(
+        store.create_free(actor, reply).await,
+        ChapterCreate::Replayed(reply_id)
+    );
     assert_eq!(
         store
             .create_free(actor, NewChapterComment {
@@ -781,7 +788,11 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
             .await,
         ChapterCreate::NotFound
     );
-    let first_page = store.list_free(chapter, version, None, 1).await.unwrap().unwrap();
+    let first_page = store
+        .list_free(chapter, version, None, 1)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(first_page.items[0].id, reply_id);
     assert_eq!(first_page.next_cursor, Some(reply_id));
     let second_page = store
@@ -797,15 +808,13 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(
-        store
-            .list_free(chapter, version, None, 25)
-            .await
-            .unwrap()
-            .unwrap()
-            .items
-            .is_empty()
-    );
+    assert!(store
+        .list_free(chapter, version, None, 25)
+        .await
+        .unwrap()
+        .unwrap()
+        .items
+        .is_empty());
     assert_eq!(
         store
             .create_free(actor, NewChapterComment {
@@ -820,7 +829,10 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(store.list_free(chapter, version, None, 25).await.unwrap(), None);
+    assert_eq!(
+        store.list_free(chapter, version, None, 25).await.unwrap(),
+        None
+    );
     assert_eq!(
         store
             .create_free(actor, NewChapterComment {
@@ -849,16 +861,17 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(store.list_free(chapter, version, None, 25).await.unwrap(), None);
-    assert!(
-        store
-            .list_free(chapter, next_version, None, 25)
-            .await
-            .unwrap()
-            .unwrap()
-            .items
-            .is_empty()
+    assert_eq!(
+        store.list_free(chapter, version, None, 25).await.unwrap(),
+        None
     );
+    assert!(store
+        .list_free(chapter, next_version, None, 25)
+        .await
+        .unwrap()
+        .unwrap()
+        .items
+        .is_empty());
     assert_eq!(
         store
             .create_free(actor, NewChapterComment {
@@ -868,7 +881,10 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
             .await,
         ChapterCreate::NotFound
     );
-    assert_eq!(store.list_free(paid, paid_version, None, 25).await.unwrap(), None);
+    assert_eq!(
+        store.list_free(paid, paid_version, None, 25).await.unwrap(),
+        None
+    );
     assert_eq!(
         store.list_free(chapter, version, Some(-1), 25).await,
         Err(tor_discussions::repositories::public_chapter_comments::ListError::Invalid)
