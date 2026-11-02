@@ -110,9 +110,18 @@ async function inspect(page, name, where) {
       await settings.locator('summary').click();
       await page.locator('[data-public-theme]').selectOption('sepia');
       await page.locator('[data-public-font]').selectOption('sans');
-      await page.locator('[data-public-scale]').fill('125');
-      await page.locator('[data-public-spacing]').fill('200');
-      await page.locator('[data-public-width]').fill('780');
+      await page.locator('[data-public-scale]').evaluate((input) => {
+        input.value = '125';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.locator('[data-public-spacing]').evaluate((input) => {
+        input.value = '200';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await page.locator('[data-public-width]').evaluate((input) => {
+        input.value = '780';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
       assert(await page.locator('[data-public-reader][data-public-theme="sepia"]').count() === 1,
         name + ': selected free-reader theme not applied');
       const stored = await page.evaluate(() =>
