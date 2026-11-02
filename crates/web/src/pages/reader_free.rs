@@ -142,6 +142,7 @@ pub fn reader_with_public_discussions(
         csrf,
         comments,
         comment_feedback,
+        &chapter.body_markdown,
     );
     let html = include_str!("../../templates/reader.html")
         .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
