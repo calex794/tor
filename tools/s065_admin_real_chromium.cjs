@@ -176,8 +176,20 @@ async function main() {
 
     stage = "desktop real admin WebCrypto";
     await positive(browser, { width: 1440, height: 900 }, "desktop");
-    stage = "mobile real admin WebCrypto";
-    await positive(browser, { width: 390, height: 844 }, "mobile");
+    // C-12: an active site administrator can inspect a B/G-attached
+    // edition even when both the book is hidden and moderation-held.
+    // This is NOT a bypass for ordinary buyers or unsealed drafts.
+    stage = "mobile hidden and held admin WebCrypto";
+    const bookId = count("SELECT book_id FROM chapters WHERE id=" + chapter_id);
+    assert(Number.isSafeInteger(bookId) && bookId > 0);
+    pg("UPDATE books SET visibility='draft',admin_hold=TRUE WHERE id=" + bookId);
+    try {
+      await positive(browser, { width: 390, height: 844 }, "mobile");
+    } finally {
+      // This is a disposable, test-owned book and must not pollute the
+      // remaining S034 buyer and Layer policy tests on this same tor_ci.
+      pg("UPDATE books SET visibility='public',admin_hold=FALSE WHERE id=" + bookId);
+    }
 
     stage = "revoked admin denial";
     pg("UPDATE account_roles SET is_active=FALSE WHERE user_id=" +
