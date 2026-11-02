@@ -1615,15 +1615,15 @@
     {
       "method": "POST",
       "template": "/layers/{layer_id}/purchase",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_storefront::buy_form",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "buy_form",
       "policy": "session"
     },
     {
       "method": "POST",
       "template": "/api/v1/layers/{id}/purchase",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_checkout_api::buy",
+      "source": "crates/web/src/auth/layer_checkout_api.rs",
+      "handler": "buy",
       "policy": "session"
     },
     {
@@ -1644,7 +1644,7 @@
       "method": "GET",
       "template": "/assets/newboo-layer-reader.mjs",
       "source": "crates/web/src/lib.rs",
-      "handler": "pages::layer_reader_script",
+      "handler": "layer_reader_assets::script",
       "policy": "public"
     }
   ]

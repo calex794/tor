@@ -5,7 +5,8 @@ use axum::{
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::Response,
-    Json,
+    routing::post,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tor_commerce::{
@@ -16,6 +17,10 @@ use tor_commerce::{
     repositories::layers::PgLayers,
 };
 use tor_contracts::paid_delivery::PositiveId;
+
+pub(super) fn routes() -> Router<AuthState> {
+    Router::new().route("/api/v1/layers/{id}/purchase", post(buy))
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

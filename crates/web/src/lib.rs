@@ -25,6 +25,7 @@ mod book_error_pages;
 mod book_follow_page;
 mod catalog_http;
 mod chapter_import_assets;
+mod layer_reader_assets;
 pub mod chapter_import_queue_http;
 pub mod chapter_import_worker;
 pub mod cover_delivery;
@@ -514,7 +515,7 @@ fn make_router_with_paid_checkout(
         )
         .route(
             "/assets/newboo-layer-reader.mjs",
-            get(pages::layer_reader_script),
+            get(layer_reader_assets::script),
         )
         .route(
             "/assets/newboo-cover-picker.js",
