@@ -23,11 +23,13 @@ pub(super) async fn reader_page(
             Ok(Some(preview)) => {
                 // Publicly visible paid metadata has a paywall, never plaintext.
                 // Hidden, held, deleted and unreleased chapters still yield 404.
-                let mut response =
-                    auth_cookies::private_response(pages::paid_chapter_paywall_checkout(
+                let mut response = auth_cookies::private_response(
+                    pages::paid_chapter_paywall_checkout(
                         &preview,
                         state.paid_single_browser_enabled.then_some(id),
-                    ), &[]);
+                    ),
+                    &[],
+                );
                 response.headers_mut().insert(
                     "x-robots-tag",
                     axum::http::HeaderValue::from_static("noindex, nofollow"),
