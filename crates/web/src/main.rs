@@ -140,6 +140,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
+    // These are scoped across the runtime branches and only populated after
+    // PostgreSQL, authenticated HTTP and the import-object store are available.
+    let mut pending_chapter_import_worker: Option<(
+        PgCatalog,
+        Arc<dyn tor_imports::services::ChapterImportObjectStore>,
+    )> = None;
+    let mut pending_chapter_import_routes: Option<axum::Router> = None;
     let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
