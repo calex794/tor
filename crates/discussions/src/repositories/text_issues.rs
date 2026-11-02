@@ -433,6 +433,22 @@ impl PgTextIssues {
                      WHERE issue.id=$1 AND issue.book_id=$2
                        AND published.version_no>reported.version_no
                        AND published.body_markdown<>reported.body_markdown
+                       AND (
+                         issue.purchase_id IS NULL
+                         OR EXISTS (
+                           SELECT 1
+                           FROM chapter_encrypted_release_events e
+                           JOIN storage_objects s
+                             ON s.id=e.storage_object_id
+                           JOIN chapters paid
+                             ON paid.id=e.chapter_id
+                           WHERE e.chapter_id=issue.chapter_id
+                             AND e.version_id=published.id
+                             AND published.storage_object_id=e.storage_object_id
+                             AND paid.access_level='paid' AND paid.price_amount>0
+                             AND s.object_kind='chapter' AND s.state='attached'
+                         )
+                       )
                      FOR SHARE OF p",
                 )
                 .bind(issue_id)
