@@ -300,26 +300,27 @@ pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, S
     // The migration maintains exact distinct-public-book references in the
     // SAME transaction as every publication, hold, deletion and facet change.
     // No stale TTL, pg_class estimates, or per-request scans of all books.
-    // Use bytewise C ordering: matches Rust's String/UTF-8 order regardless
-    // of the database's locale (notably mixed-case and Cyrillic labels).
+    // Keep PostgreSQL locale ordering for the public catalog (rather than
+    // Rust byte ordering); each per-kind LIMIT and the final output agree.
     const SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
             SELECT name FROM public_catalog_facets
             WHERE kind='genre' AND reference_count>0
-            ORDER BY name COLLATE "C" LIMIT 100
+            ORDER BY name LIMIT 100
         ) g
         UNION ALL
         SELECT 'tag' AS kind, name FROM (
             SELECT name FROM public_catalog_facets
             WHERE kind='tag' AND reference_count>0
-            ORDER BY name COLLATE "C" LIMIT 100
+            ORDER BY name LIMIT 100
         ) t
         UNION ALL
         SELECT 'fandom' AS kind, name FROM (
             SELECT name FROM public_catalog_facets
             WHERE kind='fandom' AND reference_count>0
-            ORDER BY name COLLATE "C" LIMIT 100
-        ) f";
+            ORDER BY name LIMIT 100
+        ) f
+        ORDER BY kind, name";
 
     let rows = sqlx::query(SQL)
         .fetch_all(pool)
