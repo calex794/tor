@@ -72,6 +72,8 @@ pub(super) struct NewBookForm {
     pub(super) title: String,
     pub(super) target_language: String,
     pub(super) source_url: Option<String>,
+    pub(super) extra_source_1: Option<String>,
+    pub(super) extra_source_2: Option<String>,
     pub(super) original_title: Option<String>,
     pub(super) original_language: Option<String>,
     pub(super) release_year: Option<String>,
