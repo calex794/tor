@@ -180,6 +180,30 @@ async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response 
         .unwrap()
 }
 
+// C-12: compare complete UTF-8 byte markers. A fixed 15-byte window
+// silently misses the 14-byte X-Amz-Signature prefix on an otherwise live 404.
+fn has_private_reader_material(body: &[u8]) -> bool {
+    let markers: [&[u8]; 5] = [
+        BODY.as_bytes(),
+        b"X-Amz-Signature",
+        b"ciphertext_url",
+        b"dek_b64u",
+        b"asset:",
+    ];
+    markers
+        .iter()
+        .any(|needle| body.windows(needle.len()).any(|part| part == *needle))
+}
+
+#[test]
+fn c12_denied_reader_scan_detects_exact_s3_signature_bytes() {
+    assert_eq!(b"X-Amz-Signature".len(), 14);
+    assert!(has_private_reader_material(b"X-Amz-Signature"));
+    assert!(has_private_reader_material(b"?X-Amz-Signature=masked"));
+    assert!(has_private_reader_material(b"ciphertext_url"));
+    assert!(!has_private_reader_material(b"public-only response"));
+}
+
 /// S065 / C-12: the historical NEwBOO reader aliases must not become an
 /// alternative entitlement. Only the D-checked paid grant may sign G objects.
 /// Legacy endpoints are *not* implemented in TOR; a 404 proves absence on
@@ -218,16 +242,8 @@ async fn s065_alternate_reader_access_matrix(
             }
             let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
             assert!(
-                !bytes
-                    .windows(BODY.len())
-                    .any(|part| part == BODY.as_bytes()),
-                "paid plaintext leaked on {path}"
-            );
-            assert!(
-                !bytes
-                    .windows(b"X-Amz-Signature".len())
-                    .any(|part| part == b"X-Amz-Signature"),
-                "S3 signing data leaked on {path}"
+                !has_private_reader_material(&bytes),
+                "paid text, private asset or signed S3 credential leaked on {path}"
             );
             if is_paywall {
                 let html = String::from_utf8(bytes.to_vec()).unwrap();
@@ -256,19 +272,15 @@ async fn s065_alternate_reader_access_matrix(
         format!("/cdn/chapters/{chapter}/{version}.html"),
         format!("/media/chapters/{chapter}/{version}"),
     ] {
-        for session in [buyer, outsider] {
-            let response = read_page(browser, &path, Some(session)).await;
+        // Buyer, book creator without a purchase, and anonymous visitor:
+        // missing compatibility routes must never expose signed credentials.
+        for session in [Some(buyer), Some(outsider), None] {
+            let response = read_page(browser, &path, session).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
             let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
             assert!(
-                !bytes
-                    .windows(BODY.len())
-                    .any(|part| part == BODY.as_bytes()),
-                "paid plaintext in disabled compatibility route {path}"
-            );
-            assert!(
-                !bytes.windows(15).any(|part| part == b"X-Amz-Signature"),
-                "signed S3 credential in disabled compatibility route {path}"
+                !has_private_reader_material(&bytes),
+                "paid text, private asset or signed S3 credential on {path}"
             );
         }
     }
