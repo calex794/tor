@@ -24,6 +24,19 @@ pub(super) fn payload_hash(book: &NewBook) -> [u8; 32] {
             hasher.update(part.as_bytes());
         }
     }
+    if !book.taxonomy_ids.is_empty() {
+        hasher.update(b"canonical-taxonomy-id-selection-v1");
+        for group in [
+            &book.taxonomy_ids.genre_ids,
+            &book.taxonomy_ids.tag_ids,
+            &book.taxonomy_ids.fandom_ids,
+        ] {
+            hasher.update((group.len() as u64).to_be_bytes());
+            for id in group {
+                hasher.update(id.to_be_bytes());
+            }
+        }
+    }
     // Empty descriptions preserve legacy idempotency hashes.
     if !book.description.is_empty() {
         hasher.update(b"book-description-v1");

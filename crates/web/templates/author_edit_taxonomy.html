@@ -1,0 +1,47 @@
+<section class="section auth-section">
+ <div class="container">
+  <div class="auth-card author-card">
+   <p class="eyebrow">Кабинет автора</p>
+   <h1>Жанры и теги: <!--BOOK_TITLE--></h1>
+   <p>Выбирайте из справочника. Изменения применяются после сохранения; новые названия добавляются редакторами справочника.</p>
+   <form class="auth-form" method="post" action="/me/books/<!--BOOK_ID-->/taxonomy" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+    <input type="hidden" name="taxonomy_revision" value="<!--REVISION-->">
+    <div class="taxonomy-picker" data-taxonomy-picker data-kind="genre" data-limit="8">
+     <label for="book-genre-query">Жанры <small>(до 8)</small></label>
+     <div class="taxonomy-picker__chips" data-selected aria-live="polite"><!--GENRE_CHIPS--></div>
+     <input type="hidden" name="genre_ids" data-selected-ids value="<!--GENRE_IDS-->">
+     <input id="book-genre-query" data-query type="search" role="combobox" aria-autocomplete="list"
+            aria-expanded="false" aria-controls="book-genre-results" autocomplete="off"
+            placeholder="Найдите жанр" maxlength="60">
+     <ul id="book-genre-results" class="taxonomy-picker__results" data-results role="listbox" hidden></ul>
+     <p class="taxonomy-picker__hint" data-hint aria-live="polite">Введите минимум два символа.</p>
+    </div>
+    <div class="taxonomy-picker" data-taxonomy-picker data-kind="tag" data-limit="8">
+     <label for="book-tag-query">Сюжетные теги <small>(до 8)</small></label>
+     <div class="taxonomy-picker__chips" data-selected aria-live="polite"><!--TAG_CHIPS--></div>
+     <input type="hidden" name="tag_ids" data-selected-ids value="<!--TAG_IDS-->">
+     <input id="book-tag-query" data-query type="search" role="combobox" aria-autocomplete="list"
+            aria-expanded="false" aria-controls="book-tag-results" autocomplete="off"
+            placeholder="Найдите тег" maxlength="60">
+     <ul id="book-tag-results" class="taxonomy-picker__results" data-results role="listbox" hidden></ul>
+     <p class="taxonomy-picker__hint" data-hint aria-live="polite">Введите минимум два символа.</p>
+    </div>
+    <div class="taxonomy-picker" data-taxonomy-picker data-kind="fandom" data-limit="8">
+     <label for="book-fandom-query">Фэндомы <small>(до 8)</small></label>
+     <div class="taxonomy-picker__chips" data-selected aria-live="polite"><!--FANDOM_CHIPS--></div>
+     <input type="hidden" name="fandom_ids" data-selected-ids value="<!--FANDOM_IDS-->">
+     <input id="book-fandom-query" data-query type="search" role="combobox" aria-autocomplete="list"
+            aria-expanded="false" aria-controls="book-fandom-results" autocomplete="off"
+            placeholder="Найдите фэндом" maxlength="60">
+     <ul id="book-fandom-results" class="taxonomy-picker__results" data-results role="listbox" hidden></ul>
+     <p class="taxonomy-picker__hint" data-hint aria-live="polite">Введите минимум два символа.</p>
+    </div>
+    <noscript><p>Для редактирования тегов требуется JavaScript.</p></noscript>
+    <button class="button" type="submit">Сохранить теги</button>
+   </form>
+   <p><a href="/me/books/<!--BOOK_ID-->">Вернуться к книге</a></p>
+  </div>
+ </div>
+ <script src="/assets/taxonomy-picker.js" defer></script>
+</section>

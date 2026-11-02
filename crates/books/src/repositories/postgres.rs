@@ -8,6 +8,8 @@ mod chapter_release;
 mod mail_aliases;
 mod owned_book_hash;
 mod owned_chapter_pages;
+pub mod taxonomy_edit;
+mod taxonomy_picker;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::{
@@ -237,6 +239,7 @@ impl PgAuthoring {
         .execute(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
+        taxonomy_picker::persist_links(&mut tx, book_id, book).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
         Ok(book_id)
     }
