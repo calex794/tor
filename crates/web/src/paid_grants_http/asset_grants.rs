@@ -46,6 +46,9 @@ pub(super) async fn grant_asset(
         },
         None => None,
     };
+    if body.source.is_some() && !state.layer_reader_enabled {
+        return deny(StatusCode::NOT_FOUND);
+    }
     if body.source.is_some() && purchase_id.is_some() {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }

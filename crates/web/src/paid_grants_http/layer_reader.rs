@@ -7,6 +7,9 @@ pub(super) async fn layer_reader(
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
 ) -> Response {
+    if !state.layer_reader_enabled {
+        return deny(StatusCode::NOT_FOUND);
+    }
     let Some(s3_origin) = state.reader_s3_origin.as_deref() else {
         return deny(StatusCode::NOT_FOUND);
     };

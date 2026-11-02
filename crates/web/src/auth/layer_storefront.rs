@@ -103,10 +103,11 @@ async fn my_terms(State(state): State<AuthState>, headers: HeaderMap) -> Respons
     match layer_storefront::purchased_terms(actor, state.accounts.pool()).await {
         // A Layer term gets a read link only while the existing private S3
         // reader has been explicitly configured; no public content fallback.
-        Ok(terms) => private_response(
-            pages::purchased_layers_page(&terms, state.paid_reader_available),
-            &[],
-        ),
+        Ok(terms) => {
+            let reader_enabled = state.paid_reader_available
+                && std::env::var("TOR_LAYER_READER_ENABLED").as_deref() == Ok("1");
+            private_response(pages::purchased_layers_page(&terms, reader_enabled), &[])
+        }
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }

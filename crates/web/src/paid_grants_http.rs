@@ -80,6 +80,7 @@ struct GrantState {
     rate_limits: Arc<Mutex<RateLimits>>,
     concurrent: Arc<Semaphore>,
     reader_s3_origin: Option<String>,
+    layer_reader_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -130,6 +131,10 @@ enum GrantSource {
 struct GrantBody {
     purchase_id: Option<String>,
     source: Option<GrantSource>,
+}
+
+fn layer_reader_feature_enabled(origin: Option<&str>, flag: Option<&str>) -> bool {
+    origin.is_some() && flag == Some("1")
 }
 
 fn positive(raw: &str) -> Option<PositiveId> {
@@ -208,6 +213,11 @@ async fn grant(
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
 
+    // The paid S3 reader must not silently activate Layer subscriptions.
+    // Direct V1 buyers retain their original grant path when Layer is off.
+    if body.source.is_some() && !state.layer_reader_enabled {
+        return deny(StatusCode::NOT_FOUND);
+    }
     // A Layer term uses a distinct D authority. Explicit direct purchase IDs
     // cannot be combined with Layer rights, preventing provenance confusion.
     if body.source.is_some() && purchase_id.is_some() {
@@ -457,6 +467,10 @@ fn router_inner(
     reader_s3_origin: Option<String>,
 ) -> Router {
     let pool = accounts.pool().clone();
+    let layer_reader_enabled = layer_reader_feature_enabled(
+        reader_s3_origin.as_deref(),
+        std::env::var("TOR_LAYER_READER_ENABLED").ok().as_deref(),
+    );
     let state = GrantState {
         accounts,
         entitlement: PgDirectEntitlements::new(pool.clone()),
@@ -469,6 +483,7 @@ fn router_inner(
         rate_limits: Arc::new(Mutex::new(RateLimits::default())),
         concurrent: Arc::new(Semaphore::new(MAX_CONCURRENT_SIGNINGS)),
         reader_s3_origin,
+        layer_reader_enabled,
     };
     let mut app = Router::new()
         .route(
@@ -479,9 +494,11 @@ fn router_inner(
             "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
             post(asset_grants::grant_asset),
         );
+    if state.layer_reader_enabled {
+        app = app.route("/read/layer/{chapter_id}", get(layer_reader::layer_reader));
+    }
     if state.reader_s3_origin.is_some() {
         app = app
-            .route("/read/layer/{chapter_id}", get(layer_reader::layer_reader))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route(
                 "/api/v1/reader/chapters/{chapter_id}/text-issues",
@@ -516,6 +533,20 @@ mod tests {
         ] {
             assert!(!valid_reader_s3_origin(denied), "{denied}");
         }
+    }
+
+    #[test]
+    fn layer_reader_requires_explicit_opt_in_and_private_s3_origin() {
+        assert!(!layer_reader_feature_enabled(Some("https://objects.example.test"), None));
+        assert!(!layer_reader_feature_enabled(
+            Some("https://objects.example.test"),
+            Some("0"),
+        ));
+        assert!(!layer_reader_feature_enabled(None, Some("1")));
+        assert!(layer_reader_feature_enabled(
+            Some("https://objects.example.test"),
+            Some("1"),
+        ));
     }
 
     #[test]
