@@ -58,5 +58,9 @@ pub fn create_conflict() -> Html<String> {
         <a href="/me/books/new">Попробовать с другим названием</a></p>
       </div></div>
     </section>"#;
-    layout("Книга не создана", "Обнаружено возможное совпадение книги.", content)
+    layout(
+        "Книга не создана",
+        "Обнаружено возможное совпадение книги.",
+        content,
+    )
 }
