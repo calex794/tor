@@ -18,16 +18,24 @@ use tor_reading::repositories::PgReader;
 use tor_social::repositories::notifications::PgNotifications;
 use tower::ServiceExt;
 
+#[path = "support/e08_admin_mail_http.rs"]
+mod admin_mail_http;
+#[path = "support/e08_admin_mail_rooms_http.rs"]
+mod admin_mail_rooms_http;
 #[path = "support/e08_book_room_http.rs"]
 mod book_room_http;
 #[path = "support/e08_group_mail_http.rs"]
 mod group_mail_http;
+#[path = "support/e08_group_transfer_http.rs"]
+mod group_transfer_http;
 #[path = "support/e08_mail_book_aliases.rs"]
 mod mail_book_aliases;
 #[path = "support/e08_notification_open.rs"]
 mod notification_open;
 #[path = "support/e08_notification_preferences.rs"]
 mod notification_preferences;
+#[path = "support/e08_mail_source_poll.rs"]
+mod source_poll;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 async fn call(
@@ -321,6 +329,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
             StatusCode::SEE_OTHER
         );
     }
+    source_poll::verify(&app, id, &cookies).await;
     // Real recipient-only notification projection, not an AJAX mail read receipt.
     let notifications = PgNotifications::new(pool.clone());
     for _ in 0..12 {
@@ -858,7 +867,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     );
     assert_eq!(
         message["book_previews"][1]["url"],
-        format!("/me/books/{hidden}")
+        format!("/me/books/{hidden}/preview")
     );
     assert_eq!(message["book_previews"][1]["cover_url"], "");
     let remaining = message["body_without_book_links"].as_str().unwrap();
@@ -866,7 +875,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     assert!(!remaining.contains(&format!("/books/{hidden}")));
     assert!(remaining.contains(&format!("/books/{held}")));
     let owner_html = text(call(&reopened, "GET", &path, &cookies[0], "", &[]).await).await;
-    assert!(owner_html.contains(&format!("href=\"/me/books/{hidden}\"")));
+    assert!(owner_html.contains(&format!("href=\"/me/books/{hidden}/preview\"")));
     assert!(owner_html.contains(&format!("HIDDEN-NEVER-DISCLOSE-{nonce}")));
     assert!(!owner_html.contains("HELD-NEVER-DISCLOSE"));
     let html = text(call(&reopened, "GET", &path, &cookies[1], "", &[]).await).await;
@@ -912,7 +921,7 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
         &url,
         &path,
         nonce,
-        [public, hidden, held],
+        ([public, hidden, held], &users),
         &cookies,
         &csrf,
     )

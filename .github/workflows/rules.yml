@@ -34,6 +34,8 @@ jobs:
           python3 tools/check_one_click_release_ci.py \
             --repo ${{ github.repository }} \
             --sha "${{ github.sha }}" --policy-only
+      - name: Block duplicate SQLx migration versions in merged checkout
+        run: python3 tools/check_sqlx_checkout_tree.py migrations
       - name: Enforce TOR feature-first boundaries
         run: python3 tools/check_feature_layout.py
       - name: Enforce executable TOR roadmap coverage

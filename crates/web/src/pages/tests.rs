@@ -122,6 +122,29 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
 }
 
 #[test]
+fn auth_forms_preserve_explicit_private_reader_return() {
+    let login = login_form_with_next("csrf", Some("/read/42")).0;
+    assert!(login.contains("name=\"next\" value=\"/read/42\""));
+    assert!(login.contains("href=\"/register?next=/read/42\""));
+    let register = registration_form_with_next("csrf", Some("/read/42")).0;
+    assert!(register.contains("name=\"next\" value=\"/read/42\""));
+    assert!(register.contains("href=\"/login?next=/read/42\""));
+    let error = registration_form_with_error_and_next(
+        "csrf",
+        "Reader",
+        "reader@example.test",
+        Some("Повторите отправку"),
+        Some("/read/42"),
+    )
+    .0;
+    assert!(error.contains("name=\"next\" value=\"/read/42\""));
+    assert!(!login_form("csrf").0.contains("name=\"next\""));
+    assert!(!registration_form("csrf").0.contains("name=\"next\""));
+    assert!(!login.contains("<!--AUTH_RETURN_FIELD-->"));
+    assert!(!register.contains("<!--AUTH_LOGIN_NEXT-->"));
+}
+
+#[test]
 fn account_failure_is_complete_branded_page_without_credentials() {
     let html = account_error_page(
         "Не удалось завершить регистрацию",
@@ -241,6 +264,47 @@ fn s005_paywall_escapes_public_metadata_and_never_fakes_checkout() {
     assert!(page.contains("href=\"/books/99#chapters\""));
     assert!(!page.contains("api/v1/purchases"));
     assert!(!page.contains("content_access"));
+}
+
+#[test]
+fn s034_checkout_link_requires_explicit_paid_browser_feature() {
+    let preview = tor_reading::services::PublicPaidChapterPreview {
+        book_id: 99,
+        book_title: "Книга".to_owned(),
+        chapter_no: 2,
+        chapter_title: "Название".to_owned(),
+        price_minor: 175,
+    };
+    let disabled = paid_chapter_paywall(&preview).0;
+    assert!(!disabled.contains("/me/chapters/"));
+    let enabled = paid_chapter_paywall_checkout(&preview, Some(103)).0;
+    assert!(enabled.contains("href=\"/me/chapters/103/buy\""));
+    assert!(enabled.contains("Купить главу"));
+    assert!(!enabled.contains("PRIVATE-PAID-MARKER"));
+}
+
+#[test]
+fn s034_purchase_form_escapes_metadata_and_has_exact_terms() {
+    let offer = tor_commerce::repositories::checkout::PublishedChapterOffer {
+        book_id: 1,
+        book_title: "<script>Книга</script>".to_owned(),
+        chapter_id: 103,
+        chapter_no: 3,
+        chapter_title: "<script>Глава</script>".to_owned(),
+        version_id: 602,
+        price_minor: 175,
+    };
+    let html = chapter_purchase_form(&offer, "csrf-abc", "command-key").0;
+    assert!(html.contains("&lt;script&gt;Книга&lt;/script&gt;"));
+    assert!(html.contains("&lt;script&gt;Глава&lt;/script&gt;"));
+    assert!(!html.contains("<script>"));
+    assert!(html.contains("action=\"/me/chapters/103/buy\""));
+    assert!(html.contains("name=\"expected_version_id\" value=\"602\""));
+    assert!(html.contains("name=\"expected_price_minor\" value=\"175\""));
+    assert!(html.contains("name=\"csrf_token\" value=\"csrf-abc\""));
+    assert!(html.contains("name=\"command_key\" value=\"command-key\""));
+    assert!(html.contains("1,75 ₽"));
+    assert!(!html.contains("external-payment"));
 }
 
 #[test]

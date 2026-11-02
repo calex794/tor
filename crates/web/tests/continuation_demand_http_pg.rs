@@ -171,17 +171,57 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
         "opened chapter is not a trusted completion"
     );
 
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO reader_chapter_completions
-             (user_id,book_id,chapter_id,first_version_id,source_event_id)
-             VALUES({reader},{book},{chapter},{version},gen_random_uuid())"
+    // First meaningful read must be created by the same real HTTP completion
+    // path as a returning reader; direct fixture SQL would hide a broken entry.
+    let first_finish = format!(
+        "csrf_token={csrf}&version_id={version}&block_index=1&char_offset={}&expected_revision=0",
+        "Первая глава".encode_utf16().count()
+    );
+    let first_completion = call(
+        &app,
+        "POST",
+        &format!("/read/{chapter}/complete"),
+        &reader_cookie,
+        ORIGIN,
+        &first_finish,
+    )
+    .await;
+    assert_eq!(first_completion.status(), StatusCode::SEE_OTHER);
+    let first_return = format!("/read/{chapter}#continuation");
+    assert_eq!(
+        first_completion
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(first_return.as_str()),
+        "completion must return reader to the continuation action, not rankings"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions \
+                 WHERE user_id={reader} AND chapter_id={chapter}"
+            )
         ),
+        "1",
+        "initial completion must be persisted before demand is enabled"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events \
+                 WHERE event_type='ChapterCompletedV1' \
+                   AND dedupe_key='chapter-completed:{reader}:{chapter}'"
+            )
+        ),
+        "1"
     );
 
     let ready = html(call(&app, "GET", &read_path, &reader_cookie, ORIGIN, "").await).await;
     assert!(ready.contains("Хочу продолжение"));
+    assert!(ready.contains("Мои рейтинги"));
     assert!(!ready.contains("user_id"));
     assert_eq!(
         call(
@@ -247,11 +287,289 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     assert!(author.contains("Запросов после последней опубликованной главы: <strong>1</strong>"));
     assert!(!author.contains(&format!("c15-reader-{nonce}@tor-ci.example")));
 
+    // C-15/B-06: close the minimal on-site loop via the actual author Save,
+    // rather than only fixture SQL. External email/push is out of scope.
+    let follow_path = format!("/me/books/{book}/follow");
+    assert_eq!(
+        call(&app, "POST", &follow_path, &reader_cookie, ORIGIN, &form)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let save_path = format!("/me/books/{book}/chapters");
+    let save_body = format!(
+        "number=2&title=Demand+fulfilled&body=C15%20reader%20return&access=free&price_amount=0&command_key={}&csrf_token={csrf}",
+        generate_session_token()
+    );
+    let denied = call(&app, "POST", &save_path, &reader_cookie, ORIGIN, &save_body)
+        .await
+        .status();
+    assert!(
+        matches!(denied, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
+        "a reader must not publish the requested continuation: {denied}"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM chapters WHERE book_id={book} AND chapter_no=2")
+        ),
+        "0"
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(&app, "POST", &save_path, &owner_cookie, ORIGIN, &save_body)
+                .await
+                .status(),
+            StatusCode::SEE_OTHER,
+            "author Save must publish once and replay idempotently"
+        );
+    }
+    let released: i64 = pg(
+        &url,
+        &format!("SELECT id FROM chapters WHERE book_id={book} AND chapter_no=2"),
+    )
+    .parse()
+    .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={released}"
+            )
+        ),
+        "1",
+        "one author Save must create exactly one reader-visible first release"
+    );
+    let follower_updates =
+        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    assert!(follower_updates.contains("Demand fulfilled"));
+    assert!(follower_updates.contains(&format!("href=\"/read/{released}\"")));
+    assert!(!follower_updates.contains(&format!("href=\"/reader/{released}\"")));
+    assert!(follower_updates.contains(&format!("/me/updates/{released}/read-state")));
+    assert!(follower_updates.contains("Отметить прочитанной"));
+    // A delivered on-site release must support an actor-scoped read receipt.
+    // A page view or successful chapter read does not silently acknowledge it.
+    let read_state_path = format!("/me/updates/{released}/read-state");
+    let mark_read = format!("csrf_token={csrf}&state=read");
+    let mark_unread = format!("csrf_token={csrf}&state=unread");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_state_path,
+            &owner_cookie,
+            ORIGIN,
+            &mark_read
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "the author cannot acknowledge another reader's update"
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_state_path,
+            &reader_cookie,
+            "https://evil.invalid",
+            &mark_read,
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &read_state_path,
+                &reader_cookie,
+                ORIGIN,
+                &mark_read
+            )
+            .await
+            .status(),
+            StatusCode::SEE_OTHER,
+            "acknowledging the same update is idempotent"
+        );
+    }
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads \
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "1"
+    );
+    let acknowledged =
+        html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    assert!(acknowledged.contains("Просмотрено"));
+    assert!(acknowledged.contains("Отметить непрочитанной"));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &read_state_path,
+            &reader_cookie,
+            ORIGIN,
+            &mark_unread
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let unread = html(call(&app, "GET", "/me/library", &reader_cookie, ORIGIN, "").await).await;
+    assert!(unread.contains("Отметить прочитанной"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_follow_notification_reads \
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "manual unread state cannot create a second release"
+    );
+    let returned_response = call(
+        &app,
+        "GET",
+        &format!("/read/{released}"),
+        &reader_cookie,
+        ORIGIN,
+        "",
+    )
+    .await;
+    assert_eq!(returned_response.status(), StatusCode::OK);
+    let returned = html(returned_response).await;
+    assert!(returned.contains("C15 reader return"));
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions \
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "0",
+        "opening a new chapter is not itself a meaningful completion"
+    );
+    // The return is only meaningful after a version-validated end-of-text
+    // completion. A page view cannot create a ChapterCompletedV1 fact.
+    let released_version: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={released}"),
+    )
+    .parse()
+    .unwrap();
+    let final_offset = "C15 reader return".encode_utf16().count();
+    let finish_path = format!("/read/{released}/complete");
+    let finish_form = format!(
+        "csrf_token={csrf}&version_id={released_version}&block_index=1&char_offset={final_offset}&expected_revision=1"
+    );
+    assert_eq!(
+        call(&app, "POST", &finish_path, "", ORIGIN, &finish_form)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            "https://evil.invalid",
+            &finish_form
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let unfinished = finish_form.replace(&format!("char_offset={final_offset}"), "char_offset=1");
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            ORIGIN,
+            &unfinished
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST,
+        "middle-of-chapter progress must not count as completion"
+    );
+    let returned_completion = call(
+        &app,
+        "POST",
+        &finish_path,
+        &reader_cookie,
+        ORIGIN,
+        &finish_form,
+    )
+    .await;
+    assert_eq!(returned_completion.status(), StatusCode::SEE_OTHER);
+    let returned_location = format!("/read/{released}#continuation");
+    assert_eq!(
+        returned_completion
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(returned_location.as_str())
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &finish_path,
+            &reader_cookie,
+            ORIGIN,
+            &finish_form
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "replaying a stale completion revision cannot add another event"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM reader_chapter_completions \
+                 WHERE user_id={reader} AND chapter_id={released}"
+            )
+        ),
+        "1"
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM outbox_events \
+                 WHERE event_type='ChapterCompletedV1' \
+                   AND dedupe_key='chapter-completed:{reader}:{released}'"
+            )
+        ),
+        "1",
+        "the returned reader's completion and outbox fact must be durable and unique"
+    );
+    let owner_fulfilled =
+        html(call(&app, "GET", &owner_path, &owner_cookie, ORIGIN, "").await).await;
+    assert!(owner_fulfilled
+        .contains("Запросов после последней опубликованной главы: <strong>0</strong>"));
+    // A separate synthetic paid release remains as the old non-leak regression.
+
     let next: i64 = pg(
         &url,
         &format!(
             "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
-             VALUES({book},2,'Продолжение','public','paid',150) RETURNING id"
+             VALUES({book},3,'Продолжение','public','paid',150) RETURNING id"
         ),
     )
     .parse()

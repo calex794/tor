@@ -15,10 +15,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail"}
+ADMIN_MAIL_HANDLERS = {
+    ("GET", "/admin/mail", "admin_mail::index"): "users",
+    ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
+    ("GET", "/admin/mail/{id}", "admin_mail::conversation"): "messages",
+    ("GET", "/admin/mail/groups", "admin_mail::groups"): "groups",
+    ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
+    ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
+    ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
 SCOPE_CALLS = {
+    "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
+    "activate_organic",
     "list_books", "continue_reading", "free_state", "save_free",
     "purchased_state", "purchased_body_for_validation", "save_purchased",
     "own_ratings", "set_rating", "visible_free_summary", "thank_visible_free",
@@ -34,11 +45,13 @@ SCOPE_CALLS = {
     "send_unkeyed", "set_block", "request", "remove",
 }
 OWNER_CALLS = {
+    "recommendation_settings", "update_recommendation_settings",
     "list_owned_books", "create_owned_book", "owned_book",
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
+    "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -128,6 +141,10 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/admin_mail_routes.rs":
+        return (source.parent / "admin_mail.rs"
+                if module == "admin_mail"
+                else root / "__unsupported_admin_mail_handler__")
     if source == root / "crates/web/src/auth/referral_routes.rs":
         # Only these three sibling handlers may be bound through the F-09 router.
         allowed = {"referral_alias", "referral_capture", "referral_dashboard"}
@@ -152,7 +169,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
 
 def _contains_scoped_call(body: str, names: set[str]) -> bool:
     for name in names:
-        if re.search(rf"\b{name}\s*\(\s*(?:actor|user_id)\b", body):
+        if re.search(rf"\b{name}\s*\(\s*(?:actor_id|actor|user_id)\b", body):
             return True
     return False
 
@@ -174,15 +191,44 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and policy in {"public", "entry", "csrf_only"}
             and entry["template"] != "/logout"):
         errors.append(f"{label}: protected route downgraded to public/entry")
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny":
+    admin_key = (entry["method"], entry["template"], entry["handler"])
+    audited_admin = (policy == "admin_mail"
+                     and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
+                     and admin_key in ADMIN_MAIL_HANDLERS)
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not audited_admin:
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_mail":
+        method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
+        if not method:
+            errors.append(f"{label}: unreviewed admin mail action")
+        elif not (
+            re.search(r"\bactor\s*\(\s*&state\s*,\s*&headers\s*\)", body)
+            and re.search(rf"\.{method}\s*\(\s*&digest\b", body)
+            and "PgAdminMail::new" in evidence
+            and "session_token_digest" in evidence
+        ):
+            errors.append(f"{label}: missing session-bound audited admin mail repository call")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
     if policy in PROTECTED:
         if not re.search(r"\b(?:session_user|session_actor|active_session_user)\s*\(", evidence):
             errors.append(f"{label}: missing verified PG session guard")
-        if not ("StatusCode::UNAUTHORIZED" in evidence or "Redirect::to(\"/login\")" in evidence):
+        # Only the typed private reader may redirect to a specific local chapter.
+        # Never allow an arbitrary dynamic redirect to satisfy a session guard.
+        fixed_reader_return = (
+            entry["template"] == "/read/{id}"
+            and entry["handler"] == "private_reader::page"
+            and "Path(id): Path<u64>" in evidence
+            and "Ok(None) =>" in evidence
+            and 'format!("/login?next=/read/{id}")' in evidence
+            and "return private_response(Redirect::to(&destination), &[])" in evidence
+        )
+        if not (
+            "StatusCode::UNAUTHORIZED" in evidence
+            or 'Redirect::to("/login")' in evidence
+            or fixed_reader_return
+        ):
             errors.append(f"{label}: session failure does not explicitly deny/redirect")
     if policy in {"scoped", "owner"}:
         proof = SCOPE_CALLS if policy == "scoped" else OWNER_CALLS
@@ -193,7 +239,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             proof = {"unfollow"}
         mail_calls = {
             "mail::index": {"mailbox"}, "mail::start": {"start"},
-            "mail::conversation": {"messages"}, "mail::send": {"send"},
+            "mail::conversation": {"messages"}, "mail::poll": {"messages"}, "mail::send": {"send"},
             "mail::block": {"set_block"},
             "mail_api::get": {"messages", "mailbox"}, "mail_api::post": {"send_to_peer"},
             "friendship::request": {"request"}, "friendship::remove": {"remove"},
@@ -201,14 +247,30 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "group_mail::index": {"list"},
             "group_mail::create": {"create"},
             "group_mail::detail": {"get", "messages"},
+            "group_mail::poll": {"messages", "messages_after"},
             "group_mail::send": {"send"},
             "group_mail::leave": {"leave"},
+            "group_mail::transfer": {"propose_transfer"},
+            "group_mail::disband": {"disband"},
+            "mail_book_previews::page": {"private_mail_title_for_member"},
             "book_rooms::page": {"overview"},
             "book_rooms::join": {"join"},
             "book_rooms::send": {"send"},
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
+            proof = {
+                "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
+                "accept": {"accept_transfer"}, "decline": {"decline_transfer"},
+                "revoke": {"revoke_transfer"},
+            }.get(entry["handler"], proof)
+        if entry["source"] == "crates/web/src/auth/group_mail/invitations.rs":
+            proof = {
+                "inbox": {"pending_for"}, "invite_page": {"pending_sent"},
+                "invite": {"invite"}, "accept": {"accept_invite"},
+                "decline": {"decline_invite"}, "revoke": {"revoke_invite"},
+            }.get(entry["handler"], proof)
         if entry["source"] == "crates/web/src/auth/notifications.rs":
             proof = {
                 "page": {"list_section"}, "mark_one": {"mark_read"},
@@ -225,6 +287,21 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "StatusCode::FORBIDDEN" in evidence
         ):
             errors.append(f"{label}: missing Origin+CSRF rejection")
+    rec_admin = {
+        ("GET", "/api/v1/admin/recommendations/quality", "admin::quality"),
+        ("POST", "/api/v1/admin/recommendations/control", "admin::control"),
+        ("GET", "/me/recommendations/manage", "admin::page"),
+        ("POST", "/me/recommendations/manage", "admin::form_control"),
+    }
+    route_key = (entry["method"], entry["template"], entry["handler"])
+    if route_key in rec_admin and policy != "administrator":
+        errors.append(f"{label}: recommendation administration policy downgraded")
+    if policy == "administrator":
+        if route_key not in rec_admin or entry["source"] != "crates/web/src/recommendation_http/mod.rs":
+            errors.append(f"{label}: administrator exception is not allowed here")
+        if not ("session_actor(" in evidence and "!verified.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence):
+            errors.append(f"{label}: missing independent administrator role guard")
     if policy == "recovery":
         allowed = {("POST", "/forgot-password", "password_reset::request"),
                    ("POST", "/reset-password", "password_reset::confirm")}

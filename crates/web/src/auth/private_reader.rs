@@ -17,7 +17,10 @@ pub(super) async fn page(
 ) -> Response {
     let actor = match session_user(&state, &headers).await {
         Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Ok(None) => {
+            let destination = format!("/login?next=/read/{id}");
+            return private_response(Redirect::to(&destination), &[]);
+        }
         Err(status) => return deny(status),
     };
     let chapter = match state.reader.public_chapter(id).await {

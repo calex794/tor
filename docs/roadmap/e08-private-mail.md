@@ -348,19 +348,264 @@ data, no main merge, no VPS/production actions.
 
 Подготовлены четыре новых защищённых маршрута: GET `/books/{id}/room`, POST `/books/{id}/room/join`, POST `/books/{id}/room/messages`, POST `/books/{id}/room/leave`. На публичной карточке книги добавлена ссылка «Книжный чат». Анонимный пользователь направляется на вход; вошедший до вступления видит только название публичной книги и кнопку вступления, но не историю. После вступления доступны 50 сообщений на странице, отправка с одноразовым ключом, выход. Любая запись требует Origin/CSRF и серверной проверки членства. Скрытые, удалённые, заблокированные книги возвращают 404; повторное вступление не создаёт новую комнату. Добавлены 4 учётных записи RIL с политикой scoped и подготовлен HTTP/PostgreSQL сценарий. **Только Draft PR, новый CI обязателен.**
 
-## 01.11.2026 — порядок фиксации групповых сообщений
+## 01.11.2026 — S057: audited administrator direct-mail read backend (Draft)
 
-E-08/S057: разные участники группы больше не могут завершить запись сообщений
-в порядке, обратном их ID. PgGroupMail::send блокирует строку группы через
-FOR NO KEY UPDATE до выделения ID и сохраняет блокировку до commit вместе
-с сообщением и outbox. Проверки членства и повторной команды остаются в той
-же транзакции. Это устраняет пропуск поздно зафиксированного меньшего ID
-при переходе к предыдущей странице. Миграции и публичный HTTP-контракт не меняются.
+Pinned NEwBOO `app/web/routes/mail_admin_routes.py` exposes
+`/admin/mail`, `/admin/mail/users/{user_id}` and
+`/admin/mail/{conversation_id}` only after `require_admin(request)`.
+TOR already has active `account_roles.administrator` and server-side
+`sessions`, but no corresponding E-08 admin mail route. Public user
+identifiers must never be accepted as proof of administrator authority.
 
-Регрессия e_08_group_mail_commit_order_preserves_pagination задерживает
-реальную первую отправку на INSERT в outbox, проверяет через pg_blocking_pids
-блокировку второго отправителя первым, затем проверяет порядок страниц,
-повтор команды и ровно два уведомления на каждое сообщение. Тест включён
-в существующий фильтр e_08_ PostgreSQL CI. Локально 247 архитектурных тестов
-прошли; PostgreSQL/Rust CI требует подтверждения на опубликованном SHA.
-Это исправление одной ошибки E-08, не завершение линии E и не снятие #235.
+This isolated slice introduces an E-owned read-only `PgAdminMail`
+repository and append-only SQLx migration
+`202611010060_e08_admin_mail_audit.sql`. Each query accepts **only a
+verified 32-byte session digest**, joins the current non-revoked session,
+active account and active administrator role in one transaction with
+`FOR SHARE` locks, and writes an immutable audit record in that
+transaction **before** returning mail data. Audit stores numeric IDs,
+action, row count and timestamp, never message text, password or email.
+Admin display-name search, per-user direct conversation list, and
+conversation message history are capped at 50 rows and cursor-scoped.
+Non-admin, revoked session, revoked role, invalid cursor and nonexistent
+resource fail closed. No role claim from URL, form, or request header
+is trusted; no direct/group/book-room ACL is widened.
+
+Negative PostgreSQL regression runs only in disposable `/tor_ci`:
+unprivileged sessions cannot read any content, live admin session may
+read only through audited methods, immutability trigger denies edits,
+role/session revocation immediately denies subsequent reads and does
+not create successful audit records. The installed-ledger regression
+now expects **eight** E-08 Draft migrations atop the current main
+baseline, retaining all historical main migrations byte-identically.
+
+**Safety boundary:** no HTTP route, admin HTML page, staff workflow,
+group/public-room mail access, export endpoint or background scrape is
+enabled by this slice. Source admin UI parity is **not** claimed.
+A later integration must use an actual cookie-derived digest, enforce
+server-side administrator role each request, display bounded escaped
+results, define staff purpose/retention policy and add full HTTP/PG/
+browser abuse regressions before exposing private content. Existing
+source legacy alias import and independent review remain unclosed.
+No main, production, SSH, VPS or retained PostgreSQL operation.
+
+## 01.11.2026 — security hardening: off-site mail URLs are never local Book previews
+
+Found during S057 review: the pinned NEwBOO `mail_book_previews.py` accepts
+any absolute HTTP(S) hostname before `/book(s)/...`. TOR's earlier E-08
+parser inherited that behavior, resolved a valid local Book ID inside an
+attacker-controlled external URL and silently removed the original URL from
+`body_without_book_links`. This changes the meaning of a recipient's
+message and hides its real destination.
+
+The E-08 fix accepts only relative `/book(s)/...` references and absolute
+references whose prefix **exactly equals the configured server
+`TOR_PUBLIC_ORIGIN`** (from the `CookiePolicy`, never the incoming Host,
+Origin or forwarded headers). Other absolute URLs remain literal plaintext;
+they do not contribute to Book-card lookup or duplicate handling. B book ACL,
+private cover rules and bounded parser limits are unchanged.
+
+Rust unit and disposable HTTP/PG tests assert malicious external hostname,
+trusted-origin lookalike host and user-info spoofing cannot be projected,
+while same-origin and relative URLs still resolve through the original B
+public/owner checks. No new route, migration, external import, main change,
+or retained DB operation. Exact-head CI required.
+
+
+## 01.11.2026 - audited administrator mail HTML (Draft)
+
+Three source GET pages /admin/mail, /admin/mail/users/{user_id}, /admin/mail/{id} now project only the existing read-only audited PgAdminMail repository. Browser cookie digest, live administrator role and session, committed audit before response; no impersonation or direct SQL in web. Names and direct-message text escaped, no account emails, max 50 rows, CSP scripts disabled and no-store. RIL exceptions are limited to these three precise bindings; all other admin/internal routes remain blocked. A disposable HTTP/PG test checks normal-user denial, role/session revocation, audit and XSS. Pending exact-HEAD CI, independent review and retained DB ledger check. Per-access reason and retention policy are not implemented. No production/deploy/retained DB/main changes.
+
+
+## 01.11.2026 — Source-compatible mail polling endpoint (Draft, pending exact-head CI)
+
+The pinned NEwBOO source implements authenticated `GET /mail/{conversation_id}/messages` with `after_id`/`before_id` cursors and the `ok/messages/has_more_older/oldest_message_id/newest_message_id` response. TOR previously registered the same route only for POST; its browser used the different `GET /api/v1/me/messages` API. This slice adds GET to the existing path and migrates the page's polling/older-prepend JS to it. Both POST send and the existing strict TOR JSON API remain unchanged.
+
+The new GET reuses the same actor-scoped `MailService::messages` and actor-authorized `mail_book_previews::enrich` as the existing HTML/JSON paths. It returns `no-store`; third-user access fails 404, guest fails 401, and unknown client claims or simultaneous before/after cursors fail 400. Isolated HTTP regressions check paging, privacy and output contract. No schema change or product behavior is invented. **Exact-head CI and independent review pending.**
+
+
+## 01.11.2026 — Private mail Book preview uses live B-09 owner ACL
+
+Canonical numeric Book links previously called PgAuthoring::owned_book,
+which checked owner_user_id but not the live owner membership. Legacy
+alias links already checked both, causing an inconsistent private-title
+projection after a stale/deactivated owner membership.
+
+Both canonical and legacy private links now require the active canonical
+owner row in book_members through the B-owned repository.
+Public Book previews and public cover rules are unchanged; collaborators
+and unrelated message participants gain no private metadata access.
+The disposable B-09 PostgreSQL test covers owner, outsider, role drift,
+role restoration, moderation hold and B-10's financial deactivation fence.
+This does not claim full source collaborator preview parity, which still
+needs a matching authorized view route and an explicit B access contract.
+Exact-head CI is pending. Draft only; main and production are untouched.
+
+
+## 01.11.2026 - exact 64-bit mail polling cursors (Draft)
+
+Browser polling no longer converts PostgreSQL BIGINT message IDs to JavaScript `Number` (which rounds IDs greater than `2^53-1`). Initial `data-last-id`, new message IDs and subsequent `after_id` cursors remain canonical positive decimal strings; monotonic comparison uses length then lexical order. Invalid/zero message IDs are ignored. The actual Chromium mail journey now intercepts one GET in a separate signed-in browser page, injects a synthetic `9007199254740993` message without modifying DB identity sequences, then asserts the very next GET carries **exactly** `after_id=9007199254740993`. This covers both desktop and mobile viewports. It changes no SQL, API, account security, or main branch. Exact-HEAD CI remains required.
+
+
+## 01.11.2026 — Reviewed legacy Book alias import preparation (Draft)
+
+The original NEwBOO mail preview reads source `book_id`, `public_id`
+and `slug`, while TOR uses a different canonical Book ID.
+There is no verified source→TOR mapping in this repository: no real
+legacy records have been imported, and no synthetic mapping is described
+as a genuine NEwBOO identity.
+
+A deterministic **offline-only** validator is now at
+`tools/e08_prepare_alias_import.py` with six synthetic-data unit tests at
+`tests/architecture/test_e08_alias_import.py`. It accepts two separately
+reviewed CSV inputs (not stored in GitHub):
+
+- Source export: columns `book_id,public_id,slug`, copied from NEwBOO.
+- Explicit review map: columns
+  `newboo_book_id,tor_book_id,tor_source_identity,tor_target_language,reviewed`.
+  Every mapped row requires `reviewed=yes`. The target Book ID and
+  source/language identity are verified against `books` by the generated SQL.
+
+Validation rejects duplicate source identities, reuse of an alias by
+unmapped source Books, duplicate target Books and missing review.
+Numeric/Unicode/ambiguous aliases cannot be mapped safely and are reported;
+a mapped source Book with no supported nonnumeric alias is rejected.
+No lookup by title, fuzzy source_identity, global hidden catalog or
+network calls are performed.
+
+```sh
+python3 tools/e08_prepare_alias_import.py --source-export SOURCE.csv --reviewed-map REVIEWED.csv --check-only
+python3 tools/e08_prepare_alias_import.py --source-export SOURCE.csv --reviewed-map REVIEWED.csv --output-sql reviewed-e08-aliases.sql
+python3 -m unittest discover -s tests/architecture -p 'test_e08_alias_import.py' -v
+```
+
+The output is **SQL for later manual review**, never automatically run.
+It locks the alias table in a transaction, verifies every target
+`(id,source_identity,target_language)` in the Book table, aborts on an
+alias assigned to another Book, then inserts only absent aliases and commits
+atomically. Replaying identical mappings is idempotent. Normal mail preview
+ACL, public/owner Book routes and existing SQLx migrations are unchanged.
+Do not run on retained databases during this Draft work. Real parity
+remains blocked on actual export and reviewed mapping input.
+
+## 01.11.2026 — NEwBOO string and UUID Book IDs in reviewed alias imports
+
+Pinned NEwBOO `core/models/ids.py` defines BookReference as BookId, PublicBookId or UUID; the prior offline importer incorrectly required a numeric source `book_id`. The tool now normalizes source numeric/UUID IDs according to the pinned reference semantics, permits exact string source Book identities and includes a valid nonnumeric `book_id` itself among possible aliases (as the source `mail_book_previews.py` does). Only the TOR **target** `tor_book_id` remains a canonical positive int64.
+
+Alias extraction refuses Unicode-to-ASCII case-folding tricks (such as Kelvin sign), unsupported numerics, trailing periods and duplicates across source `book_id`, `public_id` and `slug`. No fuzzy match, untrusted source→TOR mapping, DB connection, SQLx migration, or new HTTP path is introduced. Offline tests: 13/13 PASS. These tests are about the validator, not evidence that real NEwBOO aliases were imported; the full source CSV and explicitly reviewed crosswalk are still required.
+
+
+## 01.11.2026 - live group mail polling (Draft)
+
+Added authenticated GET /mail/groups/{id}/messages with ascending after_id and bounded before_id windows. Membership row locks deny departed and nonmember users before returning text/sender names; GET does not send or notify. IDs remain decimal strings to preserve PostgreSQL BIGINT precision. Group detail (not group index) permits only same-origin /assets/mail.js in CSP; native HTML send and history remain usable without JavaScript. The shared mail asset now updates group messages without navigation and prepends older messages using textContent (never HTML injection). Disposable HTTP tests cover guest/nonmember/revoked access and cursors; Chromium opens the recipient group page before send and checks the message arrives without reload. No migrations, no main or production changes. Exact-head CI pending.
+
+## 01.11.2026 — Group polling CSP regression
+
+The new E-08 group-page polling script uses same-origin `fetch()` to
+`/mail/groups/{id}/messages`. The initial detail CSP allowed
+`script-src 'self'` but omitted `connect-src`, so its
+`default-src 'none'` blocked every browser fetch (real Chromium smoke
+failed on a recipient with no incoming group message). Only active group
+detail pages now permit `connect-src 'self'`; the group index retains
+`script-src 'none'`. A disposable HTTP regression checks both the
+CSP and the actual script link. This is an actual browser transport bug,
+not a schema, payment, or membership ACL change. Exact SHA PostgreSQL
+and Chromium CI must still pass before considering this fixed.
+
+## 01.11.2026 — E-08: безопасная передача роли создателя группы (Draft)
+
+TOR adds a member-managed role-transfer workflow (not claimed as NEwBOO source parity): current active creator may transfer the role only to a distinct, currently active participant whose user account is active. `PgGroupMail::transfer_creator` holds a group-row transaction lock before checking and locking both members, rejects third users, former creators, departed users and malformed targets, and atomically changes both roles. Exactly one active creator must exist before transfer; group `created_by` remains historical provenance. The previous creator may then leave, while the new creator cannot leave until transferring again. A native CSRF/Origin-protected POST `/mail/groups/{id}/transfer` with a member dropdown works without JavaScript and is hidden from other participants. Disposable PostgreSQL/HTTP and desktop/mobile Chromium regressions cover negative and positive paths. No schema change, main merge, live database or deployment. Exact-HEAD CI remains required.
+
+## 01.11.2026 — E-08 pending group invitations (Draft)
+
+Separate append-only migration `202611014287_e08_group_invitations.sql` tracks explicit, seven-day invitations. A creator may invite only an active account, bounded by the combined member/pending seat cap and the live pair-block check. An invitation does not create group membership or disclose message history. The recipient may explicitly accept or decline; acceptance locks the group, checks invitation expiry, membership status, size and bilateral blocks again, then atomically reactivates a left/removed member or inserts a new member. A declined/revoked/accepted invitation cannot be replayed. Transfer of creator role revokes pending invitations, and the current creator may revoke pending invitations. No scripts required for accept/decline/invite. Forms use session-bound Origin and CSRF verification, capped actor-scope reads and no-store. Source NEwBOO's initial group creation still adds its original participants directly; this new invitation flow applies to later additions and rejoining.
+All changes are Draft-only; exact-HEAD CI/PG/browser acceptance required; main, VPS, production and retained databases untouched.
+
+
+## 01.11.2026 — Manual admin-mail audit retention, no policy duration
+
+Draft migration \`202611019237_e08_admin_mail_audit_retention.sql\` provides a
+**privileged manual purge**, not an automatic retention period. A database
+operator must first approve a cutoff under the future privacy policy.
+Only the login \`tor_migrator\` can invoke
+\`SELECT public.social_mail_admin_audit_purge_before($1::timestamptz)\`.
+The function rejects NULL/future cutoffs, uses invoker rights, and deletes
+only earlier admin-access audit rows. It appends a metadata-only receipt
+(cutoff, removed count and timestamp) atomically with the deletion.
+
+Normal \`tor_app\` SELECT/INSERT on the original audit remains unchanged;
+UPDATE/DELETE remain denied. \`tor_app\` has neither function execution nor
+receipt-table access; an owner cannot directly DELETE audit history outside
+the explicit operation. Receipt rows are immutable even to the migrator.
+No web API, scheduler, cron job, automatic purge, message-content storage,
+production migration or duration such as 30/90 days is introduced.
+
+The isolated PostgreSQL regression checks runtime denial, invalid cutoffs,
+migrator-only cleanup, preservation of recent entries, immutable receipts,
+and idempotent repeat. The installed SQLx-ledger upgrade expects ten Draft
+E-08 migrations. **Unresolved governance:** actual retention duration and
+case-purpose policy before operational admin reading is approved.
+
+## 01.11.2026 — Group creator provenance is not a lifecycle owner
+
+Migration `202611014931_e08_group_creator_provenance.sql` changes the historical `social_group_conversations.created_by` foreign key from `ON DELETE CASCADE` to nullable `ON DELETE SET NULL`. This preserves the group after explicit creator-role transfer when the founding account is deleted. Current administration is determined only by the active member with `role='creator'`; `created_by` remains optional historical provenance. Previously applied migration blobs are unchanged.
+
+The disposable PostgreSQL regression creates a group, transfers ownership, removes its founder account, verifies that the new creator, participants and group survive, and sends a new group message. A separate issue remains for deletion of the *current* creator without prior transfer; no automatic assignment of ownership is introduced here.
+
+## 02.11.2026 — Guard against orphaning a group on current creator deletion
+
+Migration `202611020527_e08_group_creator_account_guard.sql` adds a BEFORE DELETE / account_state=closed guard to users. An active group creator must explicitly transfer management before physical account deletion or closure. Rejection is SQLSTATE 23514; the transaction rolls back, leaving the group and its creator intact. An inactive account cannot be selected as a new group creator; `transfer_creator` additionally locks the proposed successor's users row FOR SHARE, serializing transfer with concurrent deletion and account-state updates. Original-founder deletion remains permitted after transfer. Disposable PostgreSQL tests cover both original and new creators, closure, hard deletion and a closed successor. No automatic owner election, no change to existing migrations, and no production deployment.
+
+Known limitation: account suspension is deliberately not blocked so moderators can suspend an account; resolving a group with a suspended current creator requires a separate administrative recovery policy. Closing an account that still owns its only-member group requires a future owner-approved group-disband operation.
+
+## 02.11.2026 — Group owner disband when alone
+
+An active creator who is the sole remaining active participant can explicitly disband the group through `POST /mail/groups/{id}/disband`. A no-JavaScript form requires the text `DELETE` plus session-bound same-origin CSRF. The repository locks the group, rechecks creator status and member count, then deletes the group in one transaction. Group messages, memberships and pending invitations are removed through the existing foreign-key cascades. A noncreator receives 404; a creator with any other active member receives 409. This enables an isolated creator to close their account without assigning an unwilling successor. It does not permit deletion of a group with other active participants. Disposable PostgreSQL, HTTP and desktop/mobile Chromium regressions cover the destructive path.
+
+## 02.11.2026 — Consent-gated group creator handoff
+
+Group creator transfer is now a two-party protocol, not an immediate assignment. Migration `202611027613_e08_consent_creator_transfer.sql` stores single outstanding 7-day proposal per group, with pending / accepted / declined / revoked / expired transitions. The active creator can propose a transfer only to another active group member; this leaves ownership and exit restrictions unchanged. The named recipient can accept or decline using a same-origin CSRF-protected native form at `/mail/group-transfers`, and the creator can revoke it. Acceptance holds the group row lock, verifies the proposal is still pending and both accounts and memberships are active, atomically changes both roles and revokes unreviewed old creator invitations. Race losers, nonrecipients, inactive/left members and stale/replayed proposals are rejected. Direct creator-role assignment through the old public repository method is removed. A proposed successor can still leave freely before acceptance. The original creator may leave or close only after actual acceptance. Code and migrations live solely in Draft #276; main and production are untouched.
+
+
+## 02.11.2026 — Administrator group and Book-room read-only coverage (Draft)
+
+Product decision: an active site administrator may read any user messages
+without requiring an individual case identifier or conversation membership.
+Implementing the two missing stores requires **separate** bounded pages for
+\`social_group_messages\` and \`social_book_room_messages\`. Both must reuse
+the existing session-digest live \`account_roles.administrator\` lock and
+commit an immutable audit record before returning any data.
+
+Migration \`202611029083_e08_admin_mail_group_book_audit.sql\` expands the
+existing admin access audit table with distinct \`group_id\` and \`book_id\`
+columns and four scope-checked actions. Historical direct-mail records and
+existing immutable audit trigger remain valid. The already-tested manual
+migrator-only purge applies to all message types automatically. Only
+non-content metadata is written to audit.
+
+Repository \`PgAdminMail\` provides group/book-room index and message
+pagination (50 rows), returning no messages to missing/expired/non-admin
+sessions. Group membership and public Book visibility are NOT required of
+a site administrator, but this does not confer group membership or enable
+message posting, impersonation or moderation changes. Book titles and
+messages must be HTML-escaped and responses no-store. Real-PG/HTTP, RIL
+and browser acceptance must pass before merge. No main/production change.
+
+## 02.11.2026 — Ownership offers appear in on-site mail notifications
+
+A committed group-creator proposal now writes exactly one `social.group_creator_transfer.proposed` source event in the same PostgreSQL transaction. The existing five-second notification consumer shows a `mail` notification only to the proposed active recipient, linking to `/mail/group-transfers`. Before delivery it checks the original outbox aggregate and the live, unexpired offer, active creator/recipient accounts and memberships, as well as existing bilateral blocks and the recipient's mail notification preference. Revoked, declined, expired and departed-member offers are acknowledged but never projected as fresh notifications; no message body, group title or private history is copied into the notification. No migration, background service or new HTTP route is needed. Disposable PostgreSQL tests cover exact-once event recording, suppression and delivery. Draft only; main and production unchanged.
+
+## 02.11.2026 — E-08 ordering of concurrently committed group messages (PR #379)
+
+`PgGroupMail::send` now obtains a group-row `FOR NO KEY UPDATE` lock before
+allocating a message ID, retaining that lock through message and outbox commit.
+This serializes sends by different participants in the same group and prevents
+keyset pagination from skipping a lower ID committed after a higher one.
+Idempotent command-key and membership checks remain in the same transaction.
+
+A disposable PostgreSQL test `e_08_group_mail_commit_order_preserves_pagination`
+uses a held outbox lock and `pg_blocking_pids` to establish concurrent sends,
+then checks commit order, both history windows, replay, and notification count.
+No migration or HTTP contract change. The old PR branch has been integrated
+onto current `main` without carrying unrelated old test formatting changes;
+exact-HEAD CI and independent review are required before merging.

@@ -4,17 +4,44 @@ use axum::response::Html;
 use tor_discussions::repositories::public_book_comments::ReceivedReply;
 use tor_recommendations::repositories::ReaderAchievements;
 
+fn auth_next_markup(next: Option<&str>) -> (String, String) {
+    let Some(next) = next else {
+        return (String::new(), String::new());
+    };
+    let escaped = escape_html(next);
+    (
+        format!(r#"<input type="hidden" name="next" value="{escaped}">"#),
+        format!("?next={escaped}"),
+    )
+}
+
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form(csrf: &str) -> Html<String> {
-    registration_form_with_error(csrf, "", "", None)
+    registration_form_with_next(csrf, None)
+}
+
+pub fn registration_form_with_next(csrf: &str, next: Option<&str>) -> Html<String> {
+    registration_form_with_error_and_next(csrf, "", "", None, next)
 }
 
 /// Use server-side validation instead of the browser's locale-dependent
 /// English popups. Keep the email/name, but never replay the password.
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn registration_form_with_error(
     csrf: &str,
     display_name: &str,
     email: &str,
     error: Option<&str>,
+) -> Html<String> {
+    registration_form_with_error_and_next(csrf, display_name, email, error, None)
+}
+
+pub fn registration_form_with_error_and_next(
+    csrf: &str,
+    display_name: &str,
+    email: &str,
+    error: Option<&str>,
+    next: Option<&str>,
 ) -> Html<String> {
     let banner = error
         .map(|message| {
@@ -24,11 +51,14 @@ pub fn registration_form_with_error(
             )
         })
         .unwrap_or_default();
+    let (return_field, login_next) = auth_next_markup(next);
     let content = include_str!("../../templates/register_active.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--DISPLAY_NAME-->", &escape_html(display_name))
         .replace("<!--EMAIL-->", &escape_html(email))
         .replace("<!--FORM_ERROR-->", &banner)
+        .replace("<!--AUTH_RETURN_FIELD-->", &return_field)
+        .replace("<!--AUTH_LOGIN_NEXT-->", &login_next)
         .replace(
             "<!--AUTH_PANDA-->",
             include_str!("../../templates/auth_panda.html"),
@@ -36,9 +66,17 @@ pub fn registration_form_with_error(
     layout("Регистрация", "Создать личный кабинет читателя.", &content)
 }
 
+#[allow(dead_code)] // Legacy no-return form remains part of the internal page API.
 pub fn login_form(csrf: &str) -> Html<String> {
+    login_form_with_next(csrf, None)
+}
+
+pub fn login_form_with_next(csrf: &str, next: Option<&str>) -> Html<String> {
+    let (return_field, register_next) = auth_next_markup(next);
     let content = include_str!("../../templates/login_active.html")
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
+        .replace("<!--AUTH_RETURN_FIELD-->", &return_field)
+        .replace("<!--AUTH_REGISTER_NEXT-->", &register_next)
         .replace(
             "<!--AUTH_PANDA-->",
             include_str!("../../templates/auth_panda.html"),

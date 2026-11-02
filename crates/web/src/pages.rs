@@ -12,9 +12,10 @@ mod referrals;
 mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
-    account_error_page, login_form, my_account, my_account_with_achievements,
+    account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
     my_account_with_follow_updates, password_change_form, registration_form,
-    registration_form_with_error,
+    registration_form_with_error, registration_form_with_error_and_next,
+    registration_form_with_next,
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
@@ -23,7 +24,9 @@ mod reader_private;
 pub use reader_private::private_reader;
 pub use reader_private::private_reader_with_demand;
 mod paywall;
-pub use paywall::paid_chapter_paywall;
+pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
+mod checkout_page;
+pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;

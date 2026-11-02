@@ -1,4 +1,6 @@
 //! E-08/S057 group mail browser pages, separate from direct mail and support.
+pub(super) mod invitations;
+pub(super) mod transfers;
 use super::{deny, session_user, AuthState};
 use crate::{
     auth_cookies::private_response,
@@ -41,19 +43,29 @@ fn shell(body: &str) -> Html<String> {
     )
 }
 
-fn secure(response: &mut Response) {
-    response.headers_mut().insert(
-        "content-security-policy",
-        HeaderValue::from_static(
-            "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-        ),
-    );
+fn secure(response: &mut Response, allow_mail_script: bool) {
+    let policy = if allow_mail_script {
+        "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    } else {
+        "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    };
+    response
+        .headers_mut()
+        .insert("content-security-policy", HeaderValue::from_static(policy));
 }
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct GroupsQuery {
     before: Option<i64>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MessagesQuery {
+    after_id: Option<i64>,
+    before_id: Option<i64>,
+    limit: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -79,13 +91,27 @@ pub(super) struct LeaveForm {
     csrf_token: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct TransferForm {
+    new_creator_id: i64,
+    csrf_token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DisbandForm {
+    confirmation: String,
+    csrf_token: String,
+}
+
 fn render_index(
     rows: &[GroupConversation],
     contacts: &[(i64, String)],
     csrf: &str,
 ) -> Html<String> {
     let mut body = String::from(
-        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1></header><section class="me-section" aria-label="Групповые переписки">"#,
+        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">Группы</h1><p><a href="/mail/group-invitations">Приглашения</a> · <a href="/mail/group-transfers">Передача управления</a></p></header><section class="me-section" aria-label="Групповые переписки">"#,
     );
     if rows.is_empty() {
         body.push_str("<p>Групповых переписок пока нет.</p>");
@@ -155,8 +181,9 @@ fn render_detail(
     actor: i64,
 ) -> Html<String> {
     let id = group.id;
+    let last = messages.last().map_or(0, |message| message.id);
     let mut body = format!(
-        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a></p></header><section class="me-section" aria-label="Сообщения группы">"#,
+        r#"<header class="ui-page-header"><h1 class="ui-page-header__title">{}</h1><p><a href="/mail/groups">Все группы</a> · <a href="/mail/group-transfers">Предложения управления</a></p></header><section class="me-section" id="group-messages" data-group-id="{id}" data-actor-id="{actor}" data-last-id="{last}" aria-label="Сообщения группы">"#,
         escape_html(&group.title)
     );
     write!(
@@ -194,7 +221,8 @@ fn render_detail(
         if let Some(first) = messages.first() {
             write!(
                 body,
-                r#"<a href="/mail/groups/{id}?before={}">Предыдущие сообщения</a>"#,
+                r#"<a id="group-load-older" data-before-id="{}" href="/mail/groups/{id}?before={}">Предыдущие сообщения</a>"#,
+                first.id,
                 first.id
             )
             .expect("group message cursor");
@@ -208,7 +236,43 @@ fn render_detail(
     )
     .expect("group send form");
     if group.is_creator {
-        body.push_str("<p>Создатель группы пока не может выйти из неё.</p>");
+        write!(
+            body,
+            r#"<p><a href="/mail/groups/{id}/invite">Пригласить участника</a></p>"#
+        )
+        .expect("invite link");
+        if members.len() > 1 {
+            write!(
+                body,
+                r#"<form method="post" action="/mail/groups/{id}/transfer"><label for="group-new-creator">Новый создатель группы</label><select id="group-new-creator" name="new_creator_id" required><option value="">Выберите участника</option>"#
+            )
+            .expect("creator transfer form");
+            for (member_id, name) in members {
+                if *member_id != actor {
+                    write!(
+                        body,
+                        r#"<option value="{member_id}">{}</option>"#,
+                        escape_html(name)
+                    )
+                    .expect("creator transfer option");
+                }
+            }
+            write!(
+                body,
+                r#"</select><input type="hidden" name="csrf_token" value="{csrf}"><button class="ui-button ui-button--ghost" type="submit">Предложить управление</button></form>"#
+            )
+            .expect("creator transfer action");
+            body.push_str("<p>Роль перейдёт участнику только после его явного согласия. До принятия управление остаётся у вас.</p>");
+        }
+        if members.len() == 1 {
+            write!(
+                body,
+                r#"<section aria-label="Удаление группы"><p>Вы остались единственным участником. Удаление группы безвозвратно удалит переписку и приглашения. Введите DELETE для подтверждения.</p><form method="post" action="/mail/groups/{id}/disband"><label for="group-disband-confirm">Подтверждение удаления</label><input id="group-disband-confirm" name="confirmation" type="text" required autocomplete="off"><input type="hidden" name="csrf_token" value="{csrf}"><button class="ui-button ui-button--ghost" type="submit">Удалить группу и историю</button></form></section>"#
+            )
+            .expect("group disband form");
+        } else {
+            body.push_str("<p>Создатель не может выйти. Предложите управление другому участнику и получите его согласие либо дождитесь выхода остальных для удаления группы.</p>");
+        }
     } else {
         write!(
             body,
@@ -216,7 +280,7 @@ fn render_detail(
         )
         .expect("leave form");
     }
-    body.push_str("</section>");
+    body.push_str(r#"</section><p id="group-live-status" role="status"></p><script defer src="/assets/mail.js"></script>"#);
     shell(&body)
 }
 
@@ -248,7 +312,7 @@ pub(super) async fn index(
     }
     let (csrf_token, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(render_index(&rows, &contacts, &csrf_token), &cookies);
-    secure(&mut response);
+    secure(&mut response, false);
     response
 }
 
@@ -322,8 +386,55 @@ pub(super) async fn detail(
         ),
         &cookies,
     );
-    secure(&mut response);
+    secure(&mut response, true);
     response
+}
+
+/// JSON group polling is denied to a departed member before any disclosure.
+pub(super) async fn poll(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Query(query): Query<MessagesQuery>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(id) => id,
+        Err(status) => return deny(status),
+    };
+    if query.after_id.is_some() && query.before_id.is_some() {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let limit = query.limit.unwrap_or(50);
+    let store = group_store(&state);
+    let result = match query.after_id {
+        Some(after) => store.messages_after(actor, id, after, limit).await,
+        None => store.messages(actor, id, query.before_id, limit).await,
+    };
+    let messages = match result {
+        Ok(rows) => rows,
+        Err(error) => return deny(super::mail::status(error)),
+    };
+    let first = messages
+        .first()
+        .map(|m| m.id.to_string())
+        .unwrap_or_default();
+    let last = messages
+        .last()
+        .map(|m| m.id.to_string())
+        .unwrap_or_default();
+    let payload = serde_json::json!({
+        "ok": true,
+        "messages": messages.iter().map(|message| serde_json::json!({
+            "id": message.id.to_string(),
+            "sender_id": message.sender_id.to_string(),
+            "sender_name": &message.sender_name,
+            "text": &message.body,
+        })).collect::<Vec<_>>(),
+        "oldest_message_id": first,
+        "newest_message_id": last,
+        "has_more_older": query.after_id.is_none() && messages.len() == usize::from(limit),
+    });
+    private_response(axum::Json(payload), &[])
 }
 
 pub(super) async fn send(
@@ -344,6 +455,50 @@ pub(super) async fn send(
         .await
     {
         Ok(_) => private_response(Redirect::to(&format!("/mail/groups/{id}")), &[]),
+        Err(error) => deny(super::mail::status(error)),
+    }
+}
+
+pub(super) async fn transfer(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<TransferForm>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(id) => id,
+        Err(status) => return deny(status),
+    };
+    if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
+        return deny(status);
+    }
+    match group_store(&state)
+        .propose_transfer(actor, id, form.new_creator_id)
+        .await
+    {
+        Ok(_) => private_response(Redirect::to("/mail/group-transfers"), &[]),
+        Err(error) => deny(super::mail::status(error)),
+    }
+}
+
+pub(super) async fn disband(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Form(form): Form<DisbandForm>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(id) => id,
+        Err(status) => return deny(status),
+    };
+    if let Err(status) = csrf(&state, &headers, &form.csrf_token) {
+        return deny(status);
+    }
+    if form.confirmation != "DELETE" {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    match group_store(&state).disband(actor, id).await {
+        Ok(()) => private_response(Redirect::to("/mail/groups"), &[]),
         Err(error) => deny(super::mail::status(error)),
     }
 }

@@ -1,0 +1,120 @@
+name: REC feedback acceptance
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rec-feedback-acceptance.yml'
+      - 'crates/**'
+      - 'migrations/**'
+      - 'tools/rec13_*'
+  push:
+    branches: ['feat/f/rec-feedback-system-20261031']
+permissions:
+  contents: read
+concurrency:
+  group: rec-feedback-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  source-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve exact source for offline review
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/rec-source-sha.txt"
+          git bundle create "$RUNNER_TEMP/rec-source.bundle" --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rec-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/rec-source.bundle
+            ${{ runner.temp }}/rec-source-sha.txt
+          retention-days: 3
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-ci-only
+      TEST_DATABASE_URL: postgresql://tor_app:isolated-app@127.0.0.1:5432/tor_ci
+      MIGRATOR_URL: postgresql://tor_migrator:isolated-migrate@127.0.0.1:5432/tor_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check committed source without rewriting it
+        run: |
+          cargo fmt --all -- --check
+          python3 tools/check_feature_layout.py
+          python3 tools/check_ril_governance.py
+          python3 tools/check_contracts.py
+      - name: Prepare isolated database
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql -X -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE tor_migrator LOGIN PASSWORD 'isolated-migrate';
+          CREATE ROLE tor_app LOGIN PASSWORD 'isolated-app';
+          CREATE DATABASE tor_ci OWNER tor_migrator;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d tor_ci <<'SQL'
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO tor_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE tor_migrator IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO tor_app;
+          SQL
+      - name: Apply real SQLx migrations twice
+        run: |
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+          DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
+      - name: Unit and PostgreSQL acceptance
+        run: |
+          mkdir -p "$RUNNER_TEMP/rec13-browser"
+          exec > >(tee "$RUNNER_TEMP/rec13-browser/acceptance.log") 2>&1
+          cargo test -p tor-recommendations --all-targets
+          cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+      - name: Browser acceptance
+        run: bash tools/rec13_browser_acceptance.sh
+      - name: Workspace regression
+        run: |
+          exec > >(tee "$RUNNER_TEMP/rec13-browser/regression.log") 2>&1
+          status=0
+          cargo test --workspace --all-targets || status=1
+          cargo clippy --workspace --all-targets -- -D warnings || status=1
+          python3 -m unittest discover -s tests/architecture -v || status=1
+          exit "$status"
+      - name: Confirm tested source is the committed source
+        if: always()
+        run: git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rec-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/rec13-browser/*.log
+            ${{ runner.temp }}/rec13-browser/shots/*.png
+          retention-days: 3

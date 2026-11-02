@@ -158,3 +158,45 @@ positive approval transitions. The issuance and decision share the exact
 scope, request ID, revision and reason digest. The `202610310292` migration
 uses `statement_timestamp()` for both issue and expiry to avoid microsecond
 constraint drift.
+
+
+## D-06 atomic swap implementation gate (2026-11-01)
+
+**Status: design gate, NOT an executable swap.** The existing `swap_quote` is a
+read-only snapshot and must never be accepted as authorization. The swap writer
+must reuse the existing immutable chapter purchase, wallet ledger, creator
+posting, platform credit, revocation and first-grant facts; do not create a
+parallel balance or rights system.
+
+1. Lock buyer wallet before the source purchase, matching checkout and refund
+   approval lock order. Lock the exact source purchase before checking first
+   protected exposure, revocation, policy and expiry in the same transaction.
+   Historic purchases without `c06-first-issue-v1` remain ineligible.
+2. Re-read target publication, active version, paid price, book owner and
+   availability under transaction-time locks. Require **a different book of the
+   same owner**, and reject a target already purchased by the reader. Recompute
+   the difference in integer minor units; never trust the earlier quote.
+3. Check the source buyer debit and full frozen platform/creator postings before
+   reversing. Require verified, immutable target split and an approved refund
+   policy for the newly acquired purchase. The policy catalog remains empty by
+   default: **do not infer a seven-day refund window from NEwBOO**.
+4. In a single PostgreSQL transaction, reverse source platform and creator
+   earnings, credit/debit the buyer by the exact price difference (no overdraft),
+   revoke source access, create one new immutable purchase and target access,
+   and post target platform and creator shares. Preserve the source purchase
+   for audit. Never implement swap as two separately committed refund/checkout
+   calls.
+5. Bind a durable idempotency key to buyer, source purchase, target chapter,
+   exact target version and prices; exact retries return the original receipt.
+   Conflicting retries fail closed. Serialize competing swap, refund, first
+   protected read and ordinary checkout; verify no double grant or double
+   ledger posting in PostgreSQL tests.
+6. Until those tests and all GitHub Actions pass, do not mount public swap
+   routes, enable a feature switch or deploy to any server.
+
+**Acceptance tests:** equal/positive/negative delta; insufficient balance;
+changed target price/version/owner; already owned or hidden target; source
+opened/expired/refunded; missing source/target split; duplicate and conflicting
+idempotency keys; concurrent refund/swap/grant/checkout; transaction rollback
+on an injected posting failure; invariant that buyer, platform and creator
+movements balance exactly. No HTTP execution is authorized by this document.

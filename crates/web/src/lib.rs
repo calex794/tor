@@ -25,8 +25,12 @@ mod book_error_pages;
 mod book_follow_page;
 mod catalog_http;
 mod chapter_import_assets;
+pub mod chapter_import_queue_http;
+pub mod chapter_import_worker;
 pub mod cover_delivery;
 mod cover_http;
+mod recommendation_http;
+pub mod recommendation_worker;
 mod referral_book_http;
 pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
@@ -66,6 +70,7 @@ struct AppState {
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
     paid_batch_browser_enabled: bool,
+    paid_checkout_browser: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
@@ -382,6 +387,12 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ));
 }
 
+/// Instrument late-bound S023 routes without adding another fallback or
+/// duplicating observations from the already-instrumented base router.
+pub fn instrument_additional_routes(router: Router) -> Router {
+    ril::instrument_additional(router)
+}
+
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
     ril::instrument(make_router(repo, None, None, false, None, None))
 }
@@ -438,6 +449,26 @@ fn make_router(
     active_auth: bool,
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
     follow_control: Option<book_follow_page::FollowBookControl>,
+) -> Router {
+    make_router_with_paid_checkout(
+        repo,
+        postgres,
+        reader,
+        active_auth,
+        objects,
+        follow_control,
+        false,
+    )
+}
+
+fn make_router_with_paid_checkout(
+    repo: Arc<dyn PublicBookRepository>,
+    postgres: Option<PgCatalog>,
+    reader: Option<PgReader>,
+    active_auth: bool,
+    objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    follow_control: Option<book_follow_page::FollowBookControl>,
+    paid_browser_enabled: bool,
 ) -> Router {
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
@@ -504,18 +535,27 @@ fn make_router(
             store,
         )
     });
-    app.with_state(AppState {
-        books: repo,
-        postgres,
-        reader,
-        search,
-        paid_batch_browser_enabled: active_auth
-            && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
-        covers,
-        follow_control,
-    })
-    .merge(api)
-    .merge(search_api)
+    let rec_runtime = follow_control.as_ref().map(|control| {
+        let (accounts, cookies) = control.browser_context();
+        recommendation_http::Runtime::new(accounts.clone(), cookies.clone())
+    });
+    let app = app
+        .with_state(AppState {
+            books: repo,
+            postgres,
+            reader,
+            search,
+            paid_checkout_browser: active_auth
+                && paid_browser_enabled
+                && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
+            paid_batch_browser_enabled: active_auth
+                && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
+            covers,
+            follow_control,
+        })
+        .merge(api)
+        .merge(search_api);
+    recommendation_http::instrument(app, rec_runtime)
 }
 
 #[cfg(test)]

@@ -1,4 +1,3 @@
-//! Real browser account flows, backed by PostgreSQL and revocable sessions.
 #![forbid(unsafe_code)]
 
 use crate::{
@@ -30,7 +29,8 @@ use tor_books::{
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
-    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgReadingProgress, PgReadingSync,
+    PgContinuationDemand, PgFollowUpdates, PgLibrary, PgNotificationPreferences, PgReadingProgress,
+    PgReadingSync,
 };
 use tor_reading::{
     repositories::PgReader,
@@ -40,6 +40,8 @@ use tor_reading::{
     },
 };
 mod access_audit;
+mod admin_mail;
+mod admin_mail_routes;
 mod auth_observation;
 pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
@@ -57,6 +59,7 @@ mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
 mod checkout;
+mod checkout_browser;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
@@ -157,6 +160,8 @@ fn router_inner(
     security_retention::start(accounts.clone());
     let reset_delivery = reset_delivery::ResetDelivery::from_env(&origin);
     let cookies = CookiePolicy { secure, origin };
+    let pool = accounts.pool().clone();
+    let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
@@ -167,25 +172,19 @@ fn router_inner(
     let bookmarks = PgLibrary::new(accounts.pool().clone());
     let demand = PgContinuationDemand::new(accounts.pool().clone());
     let book_follows = tor_reading::repositories::PgBookFollows::new(accounts.pool().clone());
-    let creator_follows =
-        tor_social::services::follow::PgCreatorFollows::new(accounts.pool().clone());
+    let creator_follows = tor_social::services::follow::PgCreatorFollows::new(pool.clone());
     let follow_updates = PgFollowUpdates::new(accounts.pool().clone());
     let rankings = tor_recommendations::repositories::PgRanking::new(accounts.pool().clone());
-    let achievements =
-        tor_recommendations::repositories::PgAchievements::new(accounts.pool().clone());
+    let achievements = tor_recommendations::repositories::PgAchievements::new(pool.clone());
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    let cover_jobs = storage
-        .as_ref()
-        .map(|_| PgCoverJobs::new(accounts.pool().clone()));
+    let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
         referrals: tor_referrals::repositories::PgReferrals::new(accounts.pool().clone()),
         reset_delivery,
-        notification_preferences: tor_reading::repositories::PgNotificationPreferences::new(
-            accounts.pool().clone(),
-        ),
+        notification_preferences: PgNotificationPreferences::new(pool.clone()),
         accounts,
         checkout,
         paid_checkout_enabled,
@@ -211,7 +210,7 @@ fn router_inner(
     let app = Router::new()
         .merge(settings_routes::router())
         .merge(referral_routes::router())
-        .merge(notifications::router())
+        .merge(notifications::router().merge(group_mail::invitations::router()))
         .route(
             "/register",
             get(account_form_http::show_registration).post(account_form_http::register),
@@ -234,18 +233,24 @@ fn router_inner(
         .route("/users/{target_user_id}/friend", post(friendship::request))
         .route("/users/{target_user_id}/unfriend", post(friendship::remove))
         .route("/users/{target_user_id}/block", post(friendship::block))
+        .merge(admin_mail_routes::router())
         .route("/mail", get(mail::index))
         .route("/mail/start/{recipient_user_id}", post(mail::start))
         .route("/mail/{id}", get(mail::conversation))
-        .route("/mail/{id}/messages", post(mail::send))
+        .route("/mail/{id}/messages", get(mail::poll).post(mail::send))
         .route("/mail/{id}/block", post(mail::block))
         .route(
             "/mail/groups",
             get(group_mail::index).post(group_mail::create),
         )
         .route("/mail/groups/{id}", get(group_mail::detail))
-        .route("/mail/groups/{id}/messages", post(group_mail::send))
+        .route(
+            "/mail/groups/{id}/messages",
+            get(group_mail::poll).post(group_mail::send),
+        )
         .route("/mail/groups/{id}/leave", post(group_mail::leave))
+        .route("/mail/groups/{id}/transfer", post(group_mail::transfer))
+        .route("/mail/groups/{id}/disband", post(group_mail::disband))
         .route("/books/{id}/room", get(book_rooms::page))
         .route("/books/{id}/room/join", post(book_rooms::join))
         .route("/books/{id}/room/messages", post(book_rooms::send))
@@ -298,6 +303,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .merge(checkout_browser::router())
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
             "/me/books/{id}/buy-chapters",
@@ -334,6 +340,7 @@ fn router_inner(
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
+        .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
         .route("/books/{id}/stats/export.csv", get(book_stats_http::export))
         .route(
@@ -357,12 +364,13 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    if let Some(cover_routes) = cover_routes {
-        app.merge(cover_routes)
-    } else {
-        app
-    }
+    let app = cover_routes
+        .into_iter()
+        .fold(app, |app, cover| app.merge(cover));
+    let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
+    crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
+
 async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let Some(token) = state.cookies.session_token(&headers) else {
         return private_response(Redirect::to("/login"), &[]);
@@ -515,7 +523,6 @@ async fn cover_settings(
     );
     response
 }
-
 async fn save_place(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
@@ -570,7 +577,6 @@ async fn save_place(
         Err(ProgressError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 async fn logout(
     State(state): State<AuthState>,
     headers: HeaderMap,

@@ -1,6 +1,13 @@
 //! E-08 mail presentation: public B catalog or exact owner-authorized private view.
 //! Never copy the source's unscoped include_hidden catalog fallback.
-use super::AuthState;
+use super::{deny, session_user, AuthState};
+use crate::auth_cookies::private_response;
+use crate::pages::{escape_html, layout};
+use axum::{
+    extract::{Path, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::{Redirect, Response},
+};
 use std::collections::{HashMap, HashSet};
 use tor_books::{
     repositories::{cover_slots::PgCoverSlots, PgCatalog},
@@ -81,7 +88,7 @@ fn url_end(bytes: &[u8], after_id: usize) -> Option<usize> {
     }
 }
 
-fn extract_links(body: &str) -> Vec<BookLink> {
+fn extract_links(body: &str, trusted_origin: &str) -> Vec<BookLink> {
     let bytes = body.as_bytes();
     let mut links = Vec::new();
     let mut cursor = 0;
@@ -108,15 +115,12 @@ fn extract_links(body: &str) -> Vec<BookLink> {
             token_start = index;
         }
         let prefix = &body[token_start..at];
-        let absolute_host = prefix
-            .strip_prefix("https://")
-            .or_else(|| prefix.strip_prefix("http://"))
-            .is_some_and(|host| {
-                !host.is_empty()
-                    && !host
-                        .chars()
-                        .any(|c| matches!(c, '/' | '?' | '#' | '@') || c.is_whitespace())
-            });
+        // The source accepted any absolute hostname. That let an external
+        // URL be silently replaced with a trusted local preview, hiding the
+        // original destination from the recipient. Never treat an off-site
+        // link as TOR content. The origin is the configured canonical origin,
+        // not an untrusted Host or forwarded header.
+        let absolute_host = prefix == trusted_origin;
         let Some(start) = (if prefix.is_empty() {
             Some(at)
         } else if absolute_host {
@@ -207,7 +211,7 @@ fn project(
                 url: if public_title.is_some() {
                     format!("/books/{}", link.id)
                 } else {
-                    format!("/me/books/{}", link.id)
+                    format!("/me/books/{}/preview", link.id)
                 },
                 cover_url: if public_title.is_some() && covers.contains(&link.id) {
                     format!("/covers/{}/card.webp", link.id)
@@ -230,13 +234,52 @@ fn project(
     }
 }
 
+/// Private Book mail destination: title only, no owner tools or chapters.
+/// Actor membership is checked together with the title to avoid ACL races.
+pub(super) async fn page(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let catalog = PgCatalog::new(state.accounts.pool().clone());
+    let title = match catalog.private_mail_title_for_member(actor, id).await {
+        Ok(Some(title)) => title,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    let html = layout(
+        "Превью книги",
+        "Доступно участникам книжного проекта.",
+        &format!(
+            r#"<section class="me-page"><div class="container"><header class="ui-page-header"><h1>{}</h1></header><p>Просмотр доступен участнику книжного проекта.</p><a href="/mail">Вернуться к переписке</a></div></section>"#,
+            escape_html(&title),
+        ),
+    );
+    let mut response = private_response(html, &[]);
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
+}
+
 /// Called only after actor authentication and conversation membership checks.
 pub(super) async fn enrich(
     state: &AuthState,
     actor: i64,
     messages: &[Message],
 ) -> Vec<PreviewedText> {
-    let mut links: Vec<_> = messages.iter().map(|m| extract_links(&m.body)).collect();
+    let mut links: Vec<_> = messages
+        .iter()
+        .map(|m| extract_links(&m.body, &state.cookies.origin))
+        .collect();
     let mut ids = Vec::new();
     let mut alias_keys = Vec::new();
     let mut seen_ids = HashSet::new();
@@ -297,20 +340,27 @@ pub(super) async fn enrich(
             }
         }
     }
-    // Only active owners may see unpublished metadata. All other actors
-    // retain literal links, including the other participant of the same mail.
-    // B's owned-book query rejects held/deleted books and checks owner_user_id.
+    // Actor-specific B-09 owner, translator or moderator membership is
+    // required for private titles and legacy aliases on every read.
+    // Revoked members retain the original source link as plain text.
     let mut owned_titles = HashMap::new();
     for batch in missing_public.chunks(CONCURRENT_LOOKUPS) {
         let mut jobs = tokio::task::JoinSet::new();
         for id in batch {
             let id = *id;
-            let authoring = state.authoring.clone();
-            jobs.spawn(async move { (id, authoring.owned_book(actor, id as i64).await) });
+            let catalog = PgCatalog::new(pool.clone());
+            jobs.spawn(async move {
+                (
+                    id,
+                    catalog
+                        .private_mail_title_for_member(actor, id as i64)
+                        .await,
+                )
+            });
         }
         while let Some(result) = jobs.join_next().await {
-            if let Ok((id, Ok(Some(book)))) = result {
-                owned_titles.insert(id, book.title);
+            if let Ok((id, Ok(Some(title)))) = result {
+                owned_titles.insert(id, title);
             }
         }
     }
@@ -330,11 +380,15 @@ pub(super) async fn enrich(
 mod tests {
     use super::*;
 
+    fn test_links(body: &str) -> Vec<BookLink> {
+        extract_links(body, "https://tor.test")
+    }
+
     #[test]
     fn e08_only_canonical_numeric_links_and_bounded_public_refs() {
         let body = "See /book/12, https://tor.test/books/34?from=mail. \
                     /books/99/chapters /books/003 https://tor.test/else/books/55 /books/77";
-        let refs = extract_links(body);
+        let refs = test_links(body);
         assert_eq!(
             refs.iter().map(|x| x.id).collect::<Vec<_>>(),
             vec![12, 34, 77]
@@ -343,17 +397,17 @@ mod tests {
             &body[refs[1].start..refs[1].end],
             "https://tor.test/books/34?from=mail"
         );
-        assert!(extract_links("bad/books/3 /books/0 /books/-4 /books/1xyz").is_empty());
+        assert!(test_links("bad/books/3 /books/0 /books/-4 /books/1xyz").is_empty());
     }
 
     #[test]
     fn e08_repeated_links_and_long_untrusted_prefix_are_bounded() {
         let body = "/books/12 ".repeat(10_000);
-        let refs = extract_links(&body);
+        let refs = test_links(&body);
         assert_eq!(refs.len(), PER_MESSAGE);
         assert!(refs.iter().all(|link| link.id == 12));
         let hostile = format!("{}{}", "x".repeat(300_000), "/books/12");
-        assert!(extract_links(&hostile).is_empty());
+        assert!(test_links(&hostile).is_empty());
     }
 
     #[test]
@@ -363,7 +417,7 @@ mod tests {
         titles.insert(12, "Public".to_owned());
         let projected = project(
             body,
-            &extract_links(body),
+            &test_links(body),
             &titles,
             &HashSet::new(),
             &HashMap::new(),
@@ -375,18 +429,18 @@ mod tests {
     fn e08_legacy_alias_links_are_bounded_and_never_guess_numeric_keys() {
         let body = "/book/Legacy-Book https://tor.test/books/ALIAS.v2?from=mail. \
                     /books/42 /books/003 /books/1abc /books/../../etc";
-        let refs = extract_links(body);
+        let refs = test_links(body);
         assert_eq!(refs.len(), PER_MESSAGE);
         assert_eq!(refs[0].alias_key.as_deref(), Some("legacy-book"));
         assert_eq!(refs[1].alias_key.as_deref(), Some("alias.v2"));
         assert_eq!(refs[2].id, 42);
-        assert!(extract_links("/books/003 /books/1abc /books/.hidden").is_empty());
-        assert!(extract_links(&format!("/books/{}", "a".repeat(129))).is_empty());
+        assert!(test_links("/books/003 /books/1abc /books/.hidden").is_empty());
+        assert!(test_links(&format!("/books/{}", "a".repeat(129))).is_empty());
     }
 
     #[test]
     fn e08_legacy_alias_card_only_uses_a_resolved_canonical_book() {
-        let mut refs = extract_links("/books/legacy-ref and /books/42 and /books/missing");
+        let mut refs = test_links("/books/legacy-ref and /books/42 and /books/missing");
         assert_eq!(refs.len(), PER_MESSAGE);
         // The only metadata supplied here has already passed actor-bound B
         // lookup; unresolved alias IDs remain zero and their text is retained.
@@ -407,19 +461,48 @@ mod tests {
         assert!(projected.body_without_book_links.contains("/books/missing"));
     }
     #[test]
+    fn e08_foreign_absolute_links_are_never_rewritten_as_local_books() {
+        let body = "external https://evil.test/books/12?ref=mail and \
+                    spoof https://tor.test.evil.test/books/12 and \
+                    userinfo https://tor.test@evil.test/books/12; \
+                    genuine https://tor.test/books/12 and relative /books/13";
+        let refs = test_links(body);
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].id, 12);
+        assert_eq!(refs[1].id, 13);
+        let titles = HashMap::from([(12, "Public 12".to_owned()), (13, "Public 13".to_owned())]);
+        let output = project(body, &refs, &titles, &HashSet::new(), &HashMap::new());
+        assert!(output
+            .body_without_book_links
+            .contains("https://evil.test/books/12?ref=mail"));
+        assert!(output
+            .body_without_book_links
+            .contains("https://tor.test.evil.test/books/12"));
+        assert!(output
+            .body_without_book_links
+            .contains("https://tor.test@evil.test/books/12"));
+        assert_eq!(output.book_previews.len(), 2);
+        assert_eq!(output.book_previews[0].url, "/books/12");
+        assert_eq!(output.book_previews[1].url, "/books/13");
+        assert!(!output
+            .body_without_book_links
+            .contains("genuine https://tor.test/books/12"));
+    }
+
+    #[test]
     fn e08_owned_draft_preview_never_gets_a_public_cover() {
         let body = "/books/13";
         let owned = HashMap::from([(13, "Owner-only draft".to_owned())]);
         let covers = HashSet::from([13]);
-        let projected = project(body, &extract_links(body), &HashMap::new(), &covers, &owned);
+        let projected = project(body, &test_links(body), &HashMap::new(), &covers, &owned);
         assert_eq!(projected.body_without_book_links, "");
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].title, "Owner-only draft");
-        assert_eq!(projected.book_previews[0].url, "/me/books/13");
+        assert_eq!(projected.book_previews[0].url, "/me/books/13/preview");
         assert_eq!(projected.book_previews[0].cover_url, "");
         let denied = project(
             body,
-            &extract_links(body),
+            &test_links(body),
             &HashMap::new(),
             &covers,
             &HashMap::new(),
@@ -434,13 +517,7 @@ mod tests {
         let mut titles = HashMap::new();
         titles.insert(12, "<img onerror=alert(1)>".into());
         let covers = HashSet::from([12]);
-        let projected = project(
-            body,
-            &extract_links(body),
-            &titles,
-            &covers,
-            &HashMap::new(),
-        );
+        let projected = project(body, &test_links(body), &titles, &covers, &HashMap::new());
         assert_eq!(projected.book_previews.len(), 1);
         assert_eq!(projected.book_previews[0].url, "/books/12");
         assert_eq!(projected.book_previews[0].cover_url, "/covers/12/card.webp");

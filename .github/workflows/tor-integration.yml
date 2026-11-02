@@ -33,6 +33,17 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Rust unit and HTTP integration
         run: cargo test --workspace --all-targets
+      - name: Repeat trace writer crash recovery with CPU contention
+        run: |
+          python3 -c 'while True: pass' &
+          load_pid=$!
+          trap 'kill "$load_pid" 2>/dev/null || true; wait "$load_pid" 2>/dev/null || true' EXIT
+          for attempt in 1 2 3; do
+            echo "Trace crash recovery under CPU contention: attempt $attempt/3"
+            cargo test -p tor-observability --test trace_store_daemon \
+              writer_crash_does_not_block_publisher_and_restart_recovers_old_traces \
+              -- --exact --test-threads=1
+          done
       - name: Rust lints
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Build release outside VPS
@@ -124,7 +135,7 @@ jobs:
           cargo test --workspace --all-targets
           cargo clippy --workspace --all-targets -- -D warnings
       - name: Combined S3 feature Clippy
-        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid' -- -D warnings
+        run: cargo clippy -p tor-web --all-targets --features 's3-covers,s3-paid,s3-chapter-import' -- -D warnings
       - name: Apply SQLx migrations twice
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
@@ -219,6 +230,9 @@ jobs:
           cargo test -p tor-search --test f03_unicode_pg -- --ignored
           cargo test -p tor-books --test authoring_pg -- --ignored
           cargo test -p tor-books --test chapter_file_import_pg -- --ignored --test-threads=1
+          cargo test -p tor-imports --test chapter_import_jobs_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test chapter_import_job_finalize_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test chapter_import_queue_http_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test book_members_pg b_09_ -- --ignored --test-threads=1
           cargo test -p tor-books --test revenue_shares_pg b_10_ -- --ignored --test-threads=1
           cargo test -p tor-books --lib b_09_pg_owner_swap -- --ignored --test-threads=1
@@ -250,6 +264,10 @@ jobs:
           cargo test -p tor-accounts --test referral_signup_decision_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres f_09_http_ -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test slices_pg f_05_ -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test feedback_pg -- --ignored --test-threads=1
+          cargo test -p tor-recommendations --test generations_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --test recommendation_feedback_http_pg -- --ignored --test-threads=1
+          bash tools/rec13_browser_acceptance.sh
           cargo test -p tor-recommendations --test book_stars_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test completion_consumer_pg -- --ignored --test-threads=1
           cargo test -p tor-recommendations --test achievements_pg -- --ignored --test-threads=1
@@ -262,6 +280,7 @@ jobs:
           cargo test -p tor-commerce --test reader_follow_links_pg -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
+          cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
@@ -467,6 +486,7 @@ jobs:
           curl -fsS http://127.0.0.1:3098/readyz
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/loop_01_browser_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/chapter_file_import_browser.cjs
           TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
           TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
@@ -782,7 +802,7 @@ jobs:
             tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log"
             exit 1
           fi
-      - name: Test private PUT-if-absent, signed GET, anonymous deny, and actual hash
+      - name: Test private storage and S023 staging against disposable loopback MinIO
         env:
           TOR_TEST_S3_ENDPOINT: http://127.0.0.1:9000
           TOR_TEST_S3_ACCESS_KEY: tor-chapter-ci-user
@@ -790,7 +810,10 @@ jobs:
         run: |
           cargo test -p tor-storage --features s3 --test s3_private_provider -- --ignored --test-threads=1
           cargo test -p tor-storage --features s3 --lib g_s3_12_delete_claimed_private_object_and_repeat_safely -- --ignored --test-threads=1
+          cargo test -p tor-imports --features s3 repositories::s3::tests::s023_private_source_put_get_conflict_and_delete -- --ignored --test-threads=1
+          cargo fmt -p tor-imports -- --check
           cargo clippy -p tor-storage --features s3 --all-targets -- -D warnings
+          cargo clippy -p tor-imports --features s3 --all-targets -- -D warnings
       - name: MinIO diagnostics without signed URL on failure
         if: failure()
         run: tail -n 80 "$RUNNER_TEMP/tor-chapter-minio.log" || true
@@ -866,6 +889,9 @@ jobs:
           cargo fmt --all -- --check
           cargo test -p tor-ingest --features s3 --test s3_provider -- --ignored --test-threads=1
           cargo clippy -p tor-ingest --features s3 --test s3_provider -- -D warnings
+          cargo test -p tor-imports --features s3 \
+            repositories::s3::tests::s023_private_source_put_get_conflict_and_delete \
+            -- --ignored --test-threads=1
       - name: Prepare isolated PostgreSQL schema and owner 950 for OBS-09
         run: |
           set -euo pipefail

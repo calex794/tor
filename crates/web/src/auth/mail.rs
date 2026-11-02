@@ -176,6 +176,57 @@ pub(super) async fn conversation(
     response
 }
 
+/// Source-compatible NEwBOO GET poll/older endpoint. The JSON facade under
+/// /api/v1/me/messages remains unchanged for existing TOR consumers.
+pub(super) async fn poll(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Query(query): Query<MailQuery>,
+) -> Response {
+    let actor = match actor(&state, &headers).await {
+        Ok(a) => a,
+        Err(s) => return deny(s),
+    };
+    if query.after_id.is_some() && query.before_id.is_some() {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let page = match service(&state)
+        .messages(
+            actor,
+            id,
+            query.after_id,
+            query.before_id,
+            query.limit.unwrap_or(50),
+        )
+        .await
+    {
+        Ok(p) => p,
+        Err(e) => return deny(status(e)),
+    };
+    // Actor-scoped and privacy-filtered previews match SSR, AJAX send and JSON.
+    let enriched = super::mail_book_previews::enrich(&state, actor, &page.items).await;
+    let payload = serde_json::json!({
+        "ok": true,
+        "messages": page.items.iter().zip(enriched.iter()).map(|(message, view)| {
+            serde_json::json!({
+                "id": message.id.to_string(),
+                "sender_id": message.sender_id.to_string(),
+                "text": &message.body,
+                "created_at": &message.created_at,
+                "created_at_display": &message.created_at_display,
+                "body_without_book_links": &view.body_without_book_links,
+                "book_previews": &view.book_previews,
+            })
+        }).collect::<Vec<_>>(),
+        "has_more_older": page.has_more,
+        "oldest_message_id": page.items.first().map(|m| m.id.to_string()).unwrap_or_default(),
+        "newest_message_id": page.items.last().map(|m| m.id.to_string()).unwrap_or_default(),
+        "blocked": page.blocked,
+    });
+    private_response(axum::Json(payload), &[])
+}
+
 pub(super) async fn send(
     State(state): State<AuthState>,
     Path(id): Path<i64>,

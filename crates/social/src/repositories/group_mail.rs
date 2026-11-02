@@ -1,8 +1,12 @@
 //! E-08/S057 group-mail storage, isolated from immutable direct-mail pairs.
 //! All writes and membership checks are actor-scoped; public pages live in web.
+mod invitations;
+mod transfers;
 use super::notification_events::{self, NotificationEvent};
 use crate::domain::{clean_body, valid_key, MailError, SentMessage};
+pub use invitations::PendingGroupInvite;
 use sqlx::PgPool;
+pub use transfers::PendingGroupTransfer;
 
 #[derive(Clone)]
 pub struct PgGroupMail {
@@ -275,6 +279,55 @@ impl PgGroupMail {
             .collect())
     }
 
+    /// Ascending after-cursor window so a slow poller cannot skip more
+    /// than 50 new messages. Shares the same row-lock ACL as history reads.
+    pub async fn messages_after(
+        &self,
+        actor: i64,
+        group_id: i64,
+        after: i64,
+        limit: u16,
+    ) -> Result<Vec<GroupMessage>, MailError> {
+        if actor <= 0 || group_id <= 0 || after < 0 || !(1..=50).contains(&limit) {
+            return Err(MailError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM social_group_members
+             WHERE group_id=$1 AND user_id=$2 FOR SHARE",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if status.as_deref() != Some("active") {
+            return Err(MailError::NotFound);
+        }
+        let rows = sqlx::query_as::<_, (i64, i64, String, String)>(
+            "SELECT msg.id,msg.sender_id,msg.body,u.display_name
+             FROM social_group_messages msg JOIN users u ON u.id=msg.sender_id
+             WHERE msg.group_id=$1 AND msg.id>$2
+             ORDER BY msg.id ASC LIMIT $3",
+        )
+        .bind(group_id)
+        .bind(after)
+        .bind(i64::from(limit))
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, sender_id, body, sender_name)| GroupMessage {
+                id,
+                sender_id,
+                body,
+                sender_name,
+            })
+            .collect())
+    }
+
     /// A send and a leave lock the same membership row. The command-key lock
     /// serializes retries from one sender across processes and groups.
     pub async fn send(
@@ -289,9 +342,9 @@ impl PgGroupMail {
         }
         let body = clean_body(body)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        // Serialize every sender before allocating a message ID. A per-member
-        // lock alone lets a later ID commit first and escape keyset pagination.
-        // NO KEY UPDATE remains compatible with the message's FK key-share lock.
+        // Serialize different senders before allocating message IDs, so a
+        // lower keyset cursor cannot hide a late-committing earlier message.
+        // NO KEY UPDATE remains compatible with message FK key-share locks.
         let group: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM social_group_conversations WHERE id=$1 FOR NO KEY UPDATE",
         )
@@ -386,8 +439,57 @@ impl PgGroupMail {
         })
     }
 
-    /// A group member may depart. No rejoin or creator ownership transfer
-    /// contract exists yet; creator exit is refused rather than orphaning it.
+    /// Dissolve only a group whose creator is its sole active member.
+    /// The explicit UI form warns that history and invites are deleted.
+    pub async fn disband(&self, actor: i64, group_id: i64) -> Result<(), MailError> {
+        if actor <= 0 || group_id <= 0 {
+            return Err(MailError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        let group: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+                .bind(group_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        if group.is_none() {
+            return Err(MailError::NotFound);
+        }
+        let role: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM social_group_members
+             WHERE group_id=$1 AND user_id=$2 AND status='active' FOR UPDATE",
+        )
+        .bind(group_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if role.as_deref() != Some("creator") {
+            return Err(MailError::NotFound);
+        }
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM social_group_members
+             WHERE group_id=$1 AND status='active'",
+        )
+        .bind(group_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if active_count != 1 {
+            return Err(MailError::Conflict);
+        }
+        let result = sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+            .bind(group_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        if result.rows_affected() != 1 {
+            return Err(MailError::Conflict);
+        }
+        tx.commit().await.map_err(unavailable)
+    }
+
+    /// A creator must transfer ownership before exiting the group.
     pub async fn leave(&self, actor: i64, group_id: i64) -> Result<(), MailError> {
         if actor <= 0 || group_id <= 0 {
             return Err(MailError::Invalid);
