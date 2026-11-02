@@ -70,15 +70,7 @@ fn offer_form(offer: &PublishedChapterOffer, csrf: &str, key: &str) -> Html<Stri
 }
 
 fn failure(chapter_id: i64, status: StatusCode, message: &str) -> Response {
-    noindex(private_response(
-        (status, layout("Покупка не выполнена", &format!(
-            "<h1>Покупка не выполнена</h1><p role=\"alert\">{}</p>
-             <p><a href=\"/me/chapters/{chapter_id}/buy\">Открыть предложение заново</a></p>
-             <p><a href=\"/me/purchases\">Мои покупки</a></p>",
-            pages::escape_html(message),
-        ))),
-        &[],
-    ))
+    noindex(private_response((status, layout("Покупка не выполнена", &format!("<h1>Покупка не выполнена</h1><p role=\"alert\">{}</p><p><a href=\"/me/chapters/{chapter_id}/buy\">Открыть предложение заново</a></p><p><a href=\"/me/purchases\">Мои покупки</a></p>", pages::escape_html(message)))), &[]))
 }
 
 pub(super) async fn page(
@@ -129,9 +121,9 @@ pub(super) async fn submit(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    let (Ok(chapter), Ok(version), Ok(actor_id), Ok(wallet), Ok(price), Ok(key)) = (
+    let (Ok(chapter), Some(version), Ok(actor_id), Ok(wallet), Ok(price), Ok(key)) = (
         PositiveId::new(chapter_id),
-        form.expected_version_id.parse::<i64>().ok().and_then(|v| PositiveId::new(v).ok()).ok_or(()),
+        form.expected_version_id.parse::<i64>().ok().and_then(|v| PositiveId::new(v).ok()),
         PositiveId::new(actor),
         WalletId::new(actor),
         MoneyMinor::new(form.expected_price_minor),
@@ -155,8 +147,11 @@ pub(super) async fn submit(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     if !ready {
-        return failure(chapter_id, StatusCode::CONFLICT,
-            "Цена или редакция изменилась либо защищённый файл не готов. Обновите предложение.");
+        return failure(
+            chapter_id,
+            StatusCode::CONFLICT,
+            "Цена или редакция изменилась либо защищённый файл не готов. Обновите предложение.",
+        );
     }
     let command = match PurchaseCommand::new(
         actor_id,
@@ -182,7 +177,9 @@ pub(super) async fn submit(
                 CheckoutError::InsufficientBalance => "Недостаточно средств. Списания не было.",
                 CheckoutError::StaleOffer => "Цена или редакция изменилась. Обновите предложение.",
                 CheckoutError::AlreadyOwned => "Глава уже куплена. Посмотрите свои покупки.",
-                CheckoutError::DuplicateKeyDifferentRequest => "Подтверждение относится к другой покупке.",
+                CheckoutError::DuplicateKeyDifferentRequest => {
+                    "Подтверждение относится к другой покупке."
+                }
                 CheckoutError::Inaccessible => "Сейчас глава недоступна для покупки.",
                 CheckoutError::Unavailable => "Покупка временно недоступна. Повторите попытку.",
             };
