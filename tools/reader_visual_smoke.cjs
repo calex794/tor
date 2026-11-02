@@ -104,6 +104,25 @@ async function inspect(page, name, where) {
         name + ': published free chapter label missing');
       assert(await page.locator('[data-free-settings-open]').isVisible(),
         name + ': free settings missing');
+      // H/S047: TOC is loaded from the real bounded, free+paid metadata API.
+      assert(await page.locator('[data-free-toc-list] li').count() === 0,
+        name + ': free TOC loaded before opening');
+      await page.locator('[data-free-toc] > summary').click();
+      await page.waitForFunction(() =>
+        document.querySelectorAll('[data-free-toc-list] li').length >= 2);
+      assert(await page.locator('[data-free-toc-list] [aria-current="page"]').count() === 1,
+        name + ': free reader TOC lacks active chapter');
+      assert(await page.locator('[data-free-toc-list] a[href="/reader/103"]').isVisible(),
+        name + ': published paid chapter metadata missing from free TOC');
+      assert(await page.locator('[data-free-toc-list]').getByText('Платная · нужен доступ').isVisible(),
+        name + ': free reader TOC missing paid access warning');
+      assert(!(await page.locator('[data-free-toc-list]').innerText()).includes('PRIVATE-PAID-MARKER'),
+        name + ': paid content leaked into public TOC');
+      await page.locator('[data-free-toc] > summary').click();
+      assert(await page.locator('[data-free-issue-form]').count() === 0,
+        name + ': guest must not receive issue submission form');
+      assert(await page.getByRole('link', { name: 'Войти, чтобы сообщить автору' }).isVisible(),
+        name + ': guest lacks account-only report entrypoint');
       assert(await page.locator('[data-free-progress-chapter]').count() === 0,
         name + ': guest received authenticated progress metadata');
       const freeResponse = await page.request.get(base + '/reader/101');
@@ -407,6 +426,50 @@ async function inspect(page, name, where) {
         name + ': second browser tab did not restore PostgreSQL cursor');
       await secondTab.close();
       await inspect(page, name, 'free-resume');
+      // S047: a selected excerpt on the public themed page must bind to the
+      // exact current ChapterVersion and canonical UTF-16 block, not free text.
+      const selectIssueQuote = async () => page.evaluate(() => {
+        const span = [...document.querySelectorAll(
+          '[data-free-progress-chapter] span[data-md-start]'
+        )].find(node => node.firstChild?.nodeType === Node.TEXT_NODE &&
+          node.firstChild.textContent.includes('Первая строка'));
+        if (!span) throw new Error('S047 public selected source span unavailable');
+        const node = span.firstChild;
+        const offset = node.textContent.indexOf('Первая');
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + 6);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new Event('selectionchange'));
+        return selection.toString();
+      });
+      const selectedQuote = await selectIssueQuote();
+      await page.locator('[data-free-issues] > summary').click();
+      assert(await page.locator('[data-free-issue-quote]').inputValue() === selectedQuote,
+        name + ': S047 selected quotation does not match browser text');
+      assert(await page.locator('[data-free-issue-block]').inputValue() === '1',
+        name + ': S047 incorrect canonical source block');
+      const publicIssuePost = page.waitForResponse(response =>
+        response.url().endsWith('/read/101/text-issues') &&
+        response.request().method() === 'POST');
+      await page.locator('[data-free-issue-suggestion]').fill('Верная строка');
+      await page.locator('[data-free-issue-submit]').click();
+      assert((await publicIssuePost).status() === 303,
+        name + ': public reader report rejected by trusted E-12 handler');
+      await page.waitForURL(/\/reader\/101\?issue=sent#text-issues$/);
+      assert(await page.locator('[data-free-issues] .reader-issues__feedback')
+        .getByText('Сообщение об ошибке отправлено автору.').isVisible(),
+        name + ': report confirmation failed to return to modern public reader');
+      // A replay from the same author+quote+suggestion must not create a second issue.
+      await selectIssueQuote();
+      await page.locator('[data-free-issue-suggestion]').fill('Верная строка');
+      await page.locator('[data-free-issue-submit]').click();
+      await page.waitForURL(/\/reader\/101\?issue=repeat#text-issues$/);
+      assert(await page.locator('[data-free-issues] .reader-issues__feedback')
+        .getByText('Такое сообщение уже было отправлено автору.').isVisible(),
+        name + ': repeated report was not deduplicated');
       // Real browser: server-rendered chapter, CSRF POST, private library resume.
       await page.goto(base + '/read/101');
       assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');
