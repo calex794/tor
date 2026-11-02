@@ -152,6 +152,7 @@ pub fn my_account_with_achievements(
     render_my_account(name, csrf, replies, unread, Some(achievements))
 }
 
+#[allow(dead_code)] // Retained for the established swap-only renderer and its snapshot tests.
 pub fn my_account_with_achievements_and_swap(
     name: &str,
     csrf: &str,
