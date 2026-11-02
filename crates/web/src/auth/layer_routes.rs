@@ -17,11 +17,7 @@ pub(super) fn routes() -> Router<AuthState> {
         .merge(layer_offer_manage::routes())
 }
 
-pub(super) async fn author_index(
-    state: &AuthState,
-    actor: i64,
-    books: &[OwnedBook],
-) -> Response {
+pub(super) async fn author_index(state: &AuthState, actor: i64, books: &[OwnedBook]) -> Response {
     if !layer_books::enabled() {
         return private_response(author_pages::index(books), &[]);
     }
