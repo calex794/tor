@@ -46,6 +46,8 @@ use tower::ServiceExt;
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
@@ -224,6 +226,7 @@ fn save_ephemeral_fixture(
     version: i64,
     purchase: i64,
     reader_html: String,
+    layer_reader_html: String,
     reader_csp: String,
     expiry_probe_url: Value,
     toc_target: (i64, i64, i64, i64, i64),
@@ -244,6 +247,7 @@ fn save_ephemeral_fixture(
         "purchased_version_id": version.to_string(),
         "purchase_id": purchase.to_string(),
         "reader_html": reader_html,
+        "layer_reader_html": layer_reader_html,
         "reader_csp": reader_csp,
         "expiry_probe_url": expiry_probe_url,
         "expected_markdown": MARKDOWN,
@@ -292,7 +296,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let accounts = PgAccounts::from_pool(pool.clone());
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
-    let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
     let (live_desktop, live_desktop_session) =
         user(&accounts, "s035-private-desktop@tor-ci.example").await;
     let (live_mobile, live_mobile_session) =
@@ -419,6 +423,15 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         StatusCode::UNAUTHORIZED
     );
 
+    let layer_reader_html = layer_fixtures::assert_layer_s3_grants(
+        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
+        &app,
+        &url,
+        (author, stranger),
+        (book, chapter, v1),
+        (&stranger_cookie, &csrf),
+    )
+    .await;
     // A second fully verified paid edition proves that the TOC contains
     // live links, not synthetic chapter IDs or a public TOC.
     let chapter_two = scalar(
@@ -893,6 +906,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         v1,
         purchase_id,
         visible_html,
+        layer_reader_html,
         reader_csp,
         expiry_probe_url,
         (

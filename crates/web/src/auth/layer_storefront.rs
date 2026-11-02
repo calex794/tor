@@ -101,7 +101,13 @@ async fn my_terms(State(state): State<AuthState>, headers: HeaderMap) -> Respons
         Err(status) => return deny(status),
     };
     match layer_storefront::purchased_terms(actor, state.accounts.pool()).await {
-        Ok(terms) => private_response(pages::purchased_layers_page(&terms, false), &[]),
+        Ok(terms) => {
+            // The private link is shown only when both paid S3 delivery and
+            // the independent Layer reader operator flag are available.
+            let reader_enabled = state.paid_reader_available
+                && std::env::var("TOR_LAYER_READER_ENABLED").as_deref() == Ok("1");
+            private_response(pages::purchased_layers_page(&terms, reader_enabled), &[])
+        },
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }

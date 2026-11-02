@@ -32,6 +32,11 @@ pub(super) async fn grant_asset(
     {
         return deny(StatusCode::FORBIDDEN);
     }
+    // Layer text grants do not implicitly authorize image assets. Their
+    // independent D/B/G asset path must be implemented before accepting it.
+    if body.source.is_some() {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
     let (Some(chapter_id), Ok(object_id), Ok(actor_id)) = (
         positive(&raw_chapter),
         ObjectId::parse(&raw_object),

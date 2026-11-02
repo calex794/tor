@@ -33,6 +33,8 @@ pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod checkout_page;
 pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem};
 mod reader_paid;
+mod reader_layer;
+pub use reader_layer::layer_reader_shell;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 mod seo_head;
