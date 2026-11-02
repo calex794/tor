@@ -141,6 +141,7 @@ pub fn my_account_with_follow_updates(
     render_my_account(name, csrf, replies, unread, None)
 }
 
+#[allow(dead_code)] // Kept for legacy callers and inline tests.
 pub fn my_account_with_achievements(
     name: &str,
     csrf: &str,
@@ -149,6 +150,23 @@ pub fn my_account_with_achievements(
     achievements: &ReaderAchievements,
 ) -> Html<String> {
     render_my_account(name, csrf, replies, unread, Some(achievements))
+}
+
+pub fn my_account_with_achievements_and_swap(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+    swap_enabled: bool,
+) -> Html<String> {
+    let html = render_my_account(name, csrf, replies, unread, Some(achievements));
+    let link = if swap_enabled {
+        "<a class=\"dashboard-nav__item\" href=\"/me/refunds/swap\">Обмен глав</a>"
+    } else {
+        ""
+    };
+    Html(html.0.replace("<!--SWAP_NAV_LINK-->", link))
 }
 
 fn render_my_account(
@@ -395,5 +413,18 @@ mod tests {
         assert!(!html.contains("href=\"/me/settings\""));
         assert!(!html.contains("href=\"/me/purchases\""));
         assert!(!html.contains("href=\"/me/finance\""));
+    }
+    #[test]
+    fn d_06_swap_link_requires_explicit_browser_opt_in() {
+        let achievements = ReaderAchievements {
+            completed_chapters: 0,
+            badges: Vec::new(),
+        };
+        let hidden =
+            my_account_with_achievements_and_swap("Reader", "csrf", &[], 0, &achievements, false).0;
+        assert!(!hidden.contains("href=\"/me/refunds/swap\""));
+        let enabled =
+            my_account_with_achievements_and_swap("Reader", "csrf", &[], 0, &achievements, true).0;
+        assert!(enabled.contains("href=\"/me/refunds/swap\""));
     }
 }

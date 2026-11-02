@@ -222,6 +222,8 @@ async fn d_06_swap_two_concurrent_keys_cannot_reverse_source_twice() {
     let swaps = PgDirectSwaps::new(pool.clone());
     let (left, right) = tokio::join!(swaps.swap_once(intent, &a), swaps.swap_once(intent, &b));
     assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+    let rejected = if left.is_err() { left } else { right };
+    assert_eq!(rejected, Err(SwapError::Ineligible));
     let (balance, postings, credits, target_debits): (i64, i64, i64, i64) = sqlx::query_as(
         "SELECT a.balance_minor,
            (SELECT count(*) FROM finance_direct_swap_postings

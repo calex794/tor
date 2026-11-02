@@ -24,6 +24,7 @@ pub(super) struct AuthState {
     pub(super) notification_preferences: tor_reading::repositories::PgNotificationPreferences,
     pub(super) checkout: tor_commerce::repositories::checkout::PgCheckout,
     pub(super) paid_checkout_enabled: bool,
+    pub(super) swap_browser_enabled: bool,
     pub(super) paid_reader_available: bool,
     pub(super) authoring: PgAuthoring,
     pub(super) progress: PgReadingProgress,
