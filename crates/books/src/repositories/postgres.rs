@@ -11,9 +11,10 @@ mod legacy_title_guard;
 mod mail_aliases;
 mod owned_book_hash;
 mod owned_chapter_pages;
+mod source_alias_guard;
 use crate::{
     domain::{Book, BookKey, Visibility},
-    services::book_registration::registration_titles,
+    services::book_registration::{registration_titles, rulate_work_id},
     services::{
         authoring::{
             valid_command_key, AuthorError, ChapterAccess, NewBook, OwnedBook, SaveChapter,
@@ -212,6 +213,13 @@ impl PgAuthoring {
             return previous_id.ok_or(AuthorError::Unavailable);
         }
 
+        if let Some(work_id) = rulate_work_id(&book.source_url) {
+            if source_alias_guard::rulate_work_exists(&mut tx, &book.target_language, &work_id)
+                .await?
+            {
+                return Err(AuthorError::Conflict);
+            }
+        }
         if legacy_title_guard::exists(&mut tx, &book.target_language, &title_claims).await? {
             return Err(AuthorError::Conflict);
         }
