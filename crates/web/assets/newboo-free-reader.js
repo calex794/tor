@@ -40,6 +40,9 @@
     fontScale: bounded(raw.fontScale, 80, 140, 5, DEFAULTS.fontScale),
     lineHeight: bounded(raw.lineHeight, 150, 220, 5, DEFAULTS.lineHeight),
     readerWidth: bounded(raw.readerWidth, 620, 980, 20, DEFAULTS.readerWidth),
+    // The source reader supports pagination; retain its preference without
+    // enabling an unported reader engine in TOR.
+    renderMode: raw.renderMode === "paginated" ? "paginated" : "scroll",
   });
   const readStored = () => {
     try {
@@ -52,6 +55,7 @@
         fontScale: Number(saved.fontScale) * 100,
         lineHeight: Number(saved.lineHeight) * 100,
         readerWidth: saved.readerWidth,
+        renderMode: saved.renderMode,
       });
     } catch {
       return DEFAULTS;
@@ -98,6 +102,7 @@
           fontScale: settings.fontScale / 100,
           lineHeight: settings.lineHeight / 100,
           readerWidth: settings.readerWidth,
+          renderMode: settings.renderMode === "paginated" ? "paginated" : "scroll",
         }));
       } catch {
         // Preferences are optional; reading works when storage is unavailable.

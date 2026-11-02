@@ -110,6 +110,14 @@ async function inspect(page, name, where) {
       const lockedResponse = await page.request.get(base + '/reader/103');
       assert((lockedResponse.headers()['content-security-policy'] || '').includes("script-src 'none'"),
         name + ': paid reader CSP relaxed');
+      // NEwBOO's original reader keeps a scroll/paginated setting in the
+      // same storage key. TOR must not erase an unsupported setting.
+      await page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem('readerSettings') || '{}');
+        localStorage.setItem('readerSettings',
+          JSON.stringify({ ...saved, renderMode: 'paginated' }));
+      });
+      await page.reload({ waitUntil: 'networkidle' });
       await page.locator('[data-free-settings-open]').click();
       await page.locator('[data-free-theme="sepia"]').click();
       await page.locator('[data-free-font-family="sans"]').click();
@@ -125,7 +133,8 @@ async function inspect(page, name, where) {
         stored: JSON.parse(localStorage.getItem('readerSettings') || '{}')
       }));
       assert(preferences.theme === 'sepia' && preferences.width === '980px' &&
-        preferences.font.includes('Arial') && preferences.stored.fontScale === 1.2,
+        preferences.font.includes('Arial') && preferences.stored.fontScale === 1.2 &&
+        preferences.stored.renderMode === 'paginated',
         name + ': saved preferences failed ' + JSON.stringify(preferences));
       await inspect(page, name + '-preferences', 'reader');
       await page.locator('[data-free-settings-open]').click();
@@ -134,6 +143,10 @@ async function inspect(page, name, where) {
       await page.reload({ waitUntil: 'networkidle' });
       assert(await page.locator('[data-free-font-output]').textContent() === '100%',
         name + ': reset not persisted');
+      const afterReset = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem('readerSettings') || '{}'));
+      assert(afterReset.renderMode === 'paginated',
+        name + ': reset erased NEwBOO render mode');
       assert(await page.getByText('Первая строка').count() > 0, name + ': no actual text');
       const html = await page.content();
       assert(!html.includes('<script>alert(1)</script>'), name + ': unsafe author HTML');
