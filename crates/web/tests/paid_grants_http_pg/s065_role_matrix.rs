@@ -23,7 +23,7 @@ impl Drop for AdminRoleCleanup<'_> {
         pg(
             self.url,
             &format!(
-                "UPDATE account_roles SET is_active=FALSE \\
+                "UPDATE account_roles SET is_active=FALSE \
                  WHERE user_id={} AND role='administrator'",
                 self.user_id
             ),
@@ -42,7 +42,7 @@ impl Drop for ChapterStateCleanup<'_> {
         pg(
             self.url,
             &format!(
-                "UPDATE books SET visibility='public',admin_hold=FALSE WHERE id={}; \\
+                "UPDATE books SET visibility='public',admin_hold=FALSE WHERE id={}; \
                  UPDATE chapters SET visibility='public',admin_hold=FALSE WHERE id={}",
                 self.book, self.chapter
             ),
@@ -64,8 +64,8 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     pg(
         url,
         &format!(
-            "INSERT INTO account_roles(user_id,role,is_active) \\
-             VALUES({admin_id},'administrator',TRUE) \\
+            "INSERT INTO account_roles(user_id,role,is_active) \
+             VALUES({admin_id},'administrator',TRUE) \
              ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE"
         ),
     );
@@ -196,7 +196,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     pg(
         url,
         &format!(
-            "UPDATE books SET visibility='draft',admin_hold=TRUE WHERE id={book}; \\
+            "UPDATE books SET visibility='draft',admin_hold=TRUE WHERE id={book}; \
              UPDATE chapters SET visibility='draft',admin_hold=TRUE WHERE id={chapter}"
         ),
     );
@@ -220,7 +220,7 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     pg(
         url,
         &format!(
-            "UPDATE account_roles SET is_active=FALSE \\
+            "UPDATE account_roles SET is_active=FALSE \
              WHERE user_id={admin_id} AND role='administrator'"
         ),
     );
