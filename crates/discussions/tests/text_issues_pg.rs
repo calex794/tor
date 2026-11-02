@@ -215,9 +215,16 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
             .execute(&pool)
             .await
             .unwrap();
-        let team_page = store.author_page(actor, book, None, None).await.unwrap().unwrap();
+        let team_page = store
+            .author_page(actor, book, None, None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(team_page.issues.len(), 1);
-        assert!(!team_page.can_edit_chapter, "{role} must not get the editor link");
+        assert!(
+            !team_page.can_edit_chapter,
+            "{role} must not get the editor link"
+        );
     }
     sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
         .bind(book)
@@ -225,9 +232,16 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(store.author_page(translator, book, None, None).await.unwrap().is_none());
+    assert!(store
+        .author_page(translator, book, None, None)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
-        store.update_status(translator, book, issue_id, "fixed", None).await.unwrap(),
+        store
+            .update_status(translator, book, issue_id, "fixed", None)
+            .await
+            .unwrap(),
         StatusMutation::NotFound
     );
     assert_eq!(
