@@ -1429,6 +1429,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "direct_swap_browser::submit",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/text-issues",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "text_issues::submit",
+      "policy": "scoped"
     }
   ]
 }
