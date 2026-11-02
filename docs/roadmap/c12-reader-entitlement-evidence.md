@@ -1,6 +1,6 @@
 # C-12: матрица доступа к читалке — S005 / S006 / S007 / S065
 
-**Доказательная база:** TOR `main@f403b3b3` (03.11.2026), [PR #426](https://github.com/calex794/tor/pull/426), [post-merge Integration CI 16/16](https://github.com/calex794/tor/actions/runs/41510027811), [Repository rules](https://github.com/calex794/tor/actions/runs/41510027954). Оригинал NEwBOO — [reader_page.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/reader_page.py), [chapter_access_service.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/services/chapter_access_service.py).
+**Базовый снимок:** TOR `main@f403b3b3` (03.11.2026), [PR #426](https://github.com/calex794/tor/pull/426), [post-merge Integration CI 16/16](https://github.com/calex794/tor/actions/runs/41510027811), [Repository rules](https://github.com/calex794/tor/actions/runs/41510027954). Оригинал NEwBOO — [reader_page.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/reader_page.py), [chapter_access_service.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/services/chapter_access_service.py).
 
 Здесь перечислены подтверждённые пути и **открытые расхождения**, а не заявление о полном функциональном паритете. Отсутствующий маршрут, возвращающий 404, подтверждает только отсутствие обхода через него; он не доказывает воспроизведение соответствующей функции NEwBOO.
 
