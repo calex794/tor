@@ -79,7 +79,11 @@ pub(super) fn chat(data: &MessagePage, csrf: &str, admin: bool) -> Html<String> 
     if !admin || !data.chat.is_closed {
         write!(body,"<form method=\"post\" action=\"{base}/messages\" class=\"auth-form\" data-admin-support-form><label for=\"support-body\">Ваше сообщение</label><textarea class=\"ui-textarea\" id=\"support-body\" name=\"body\" data-admin-support-input rows=\"4\" required></textarea><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"client_message_id\" data-admin-support-client-id value=\"{}\"><input type=\"hidden\" name=\"website\" value=\"\"><button class=\"ui-button ui-button--primary\" data-admin-support-submit>Отправить сообщение</button></form><p><a href=\"{base}\">Обновить переписку</a></p></div></section>",escape_html(csrf),tor_accounts::services::security::generate_session_token()).expect("support form");
     } else {
-        write!(body, "<p><a href=\"{base}\">Обновить переписку</a></p></div></section>").expect("closed support admin page");
+        write!(
+            body,
+            "<p><a href=\"{base}\">Обновить переписку</a></p></div></section>"
+        )
+        .expect("closed support admin page");
     }
     if admin {
         body.push_str("<p data-admin-support-error role=\"alert\" hidden></p><script src=\"/assets/newboo-admin-support.js\" defer></script>");

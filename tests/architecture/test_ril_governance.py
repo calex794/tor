@@ -66,6 +66,24 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing verified PG session guard")
 
+    def test_support_close_requires_current_administrator_session(self):
+        self.mutate(
+            "crates/web/src/auth/support_admin.rs",
+            "administrator(&state, &headers).await",
+            "unverified_support(&state, &headers).await",
+            start="pub(super) async fn close(",
+        )
+        self.assert_detected("missing live support administrator role guard")
+
+    def test_support_reopen_cannot_skip_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/support_admin.rs",
+            "state.cookies.valid_csrf(&headers, &form.csrf_token)",
+            "state.cookies.bypass_csrf(&headers, &form.csrf_token)",
+            start="pub(super) async fn reopen(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",
