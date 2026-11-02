@@ -83,6 +83,12 @@ async function verify(browser, buyer, viewport) {
     assert.equal(purchases(), 1);
     const purchase = number("SELECT id FROM chapter_purchase_facts WHERE user_id=" + buyer.id);
     assert.equal(new URL(page.url()).searchParams.get("purchase_id"), String(purchase));
+    // The owner must see the exact pinned paid edition in the real library.
+    const purchasedHref = "/read/paid/" + chapter.id + "?purchase_id=" + purchase;
+    const ownLibrary = await context.request.get(SITE + "/me/purchases");
+    assert.equal(ownLibrary.status(), 200);
+    assert.equal(ownLibrary.headers()["cache-control"], "no-store");
+    assert((await ownLibrary.text()).includes('href="' + purchasedHref + '"'));
     assert.equal(number("SELECT count(*) FROM reader_wallet_entries WHERE user_id=" + buyer.id +
       " AND kind='chapter_purchase'"), 1);
     assert.equal((await post(form)).status(), 303);
@@ -114,6 +120,16 @@ async function verify(browser, buyer, viewport) {
       assert.equal(deniedGrant.status(), 403);
       assert.equal(deniedGrant.headers()["cache-control"], "no-store");
       assert.equal((await deniedGrant.body()).length, 0);
+      // /me/purchases is a real entitlement-backed route. Neither an outsider
+      // nor a guessed keyset cursor may reveal the buyer's pinned edition.
+      for (const path of ["/me/purchases", "/me/purchases?after=" + purchase]) {
+        const foreignLibrary = await outsider.request.get(SITE + path);
+        assert.equal(foreignLibrary.status(), 200);
+        assert.equal(foreignLibrary.headers()["cache-control"], "no-store");
+        const html = await foreignLibrary.text();
+        assert(html.includes("Доступных покупок пока нет"));
+        assert(!html.includes('href="' + purchasedHref + '"'));
+      }
       const progress = SITE + "/api/v1/me/progress/purchased?purchase_id=" +
         purchase + "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
       assert.equal((await context.request.get(progress)).status(), 200);
@@ -147,6 +163,14 @@ async function verify(browser, buyer, viewport) {
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
       { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
     assert.equal(grant.status(), 403);
+    // A revoked entitlement must leave the purchased library immediately;
+    // keeping a historical purchase fact must not create a navigable link.
+    const revokedLibrary = await context.request.get(SITE + "/me/purchases");
+    assert.equal(revokedLibrary.status(), 200);
+    assert.equal(revokedLibrary.headers()["cache-control"], "no-store");
+    const revokedHtml = await revokedLibrary.text();
+    assert(revokedHtml.includes("Доступных покупок пока нет"));
+    assert(!revokedHtml.includes('href="' + purchasedHref + '"'));
     assert.equal(balance(), 600 - price, "revocation alone must never pretend to refund money");
     assert.equal(purchases(), 1);
     const width = viewport.width === 1440 ? "desktop" : "mobile";
