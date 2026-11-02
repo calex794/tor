@@ -214,12 +214,8 @@ impl PgAuthoring {
         }
 
         if let Some(work_id) = rulate_work_id(&book.source_url) {
-            if source_alias_guard::rulate_work_exists(
-                &mut tx,
-                &book.target_language,
-                &work_id,
-            )
-            .await?
+            if source_alias_guard::rulate_work_exists(&mut tx, &book.target_language, &work_id)
+                .await?
             {
                 return Err(AuthorError::Conflict);
             }
