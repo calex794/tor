@@ -283,7 +283,10 @@ async fn create_chapter(
         return deny(StatusCode::BAD_REQUEST);
     }
     let outcome = if save_as_draft {
-        state.authoring.create_pending_free_chapter(actor, &request).await
+        state
+            .authoring
+            .create_pending_free_chapter(actor, &request)
+            .await
     } else if is_public {
         state
             .authoring
@@ -294,7 +297,10 @@ async fn create_chapter(
     };
     match outcome {
         Ok(saved) if save_as_draft => private_response(
-            Redirect::to(&format!("/me/books/{id}/chapters/{}/release", saved.chapter_id)),
+            Redirect::to(&format!(
+                "/me/books/{id}/chapters/{}/release",
+                saved.chapter_id
+            )),
             &[],
         ),
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),

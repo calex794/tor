@@ -151,15 +151,17 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         .expect("private revision");
     let release_url = format!("/me/books/{book_id}/chapters/{}/release", chapter.id);
     let schedule_url = format!("/me/books/{book_id}/chapters/{}/schedule", chapter.id);
-    let cancel_url = format!("/me/books/{book_id}/chapters/{}/cancel-schedule", chapter.id);
+    let cancel_url = format!(
+        "/me/books/{book_id}/chapters/{}/cancel-schedule",
+        chapter.id
+    );
     assert_eq!(
         send(&app, "GET", &release_url, "", &other_cookie, ORIGIN)
             .await
             .0,
         StatusCode::NOT_FOUND
     );
-    let (status, confirmation) =
-        send(&app, "GET", &release_url, "", &cookie, ORIGIN).await;
+    let (status, confirmation) = send(&app, "GET", &release_url, "", &cookie, ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(confirmation.contains("name=\"scheduled_utc\""));
     assert!(confirmation.contains("PRIVATE S058 before due"));
@@ -178,9 +180,16 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         utc.replace(':', "%3A")
     );
     assert_eq!(
-        send(&app, "POST", &schedule_url, &scheduled, &other_cookie, ORIGIN)
-            .await
-            .0,
+        send(
+            &app,
+            "POST",
+            &schedule_url,
+            &scheduled,
+            &other_cookie,
+            ORIGIN
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -218,15 +227,7 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         StatusCode::NOT_FOUND,
         "scheduled text must remain private before the deadline"
     );
-    let (_, public_book) = send(
-        &app,
-        "GET",
-        &format!("/books/{book_id}"),
-        "",
-        "",
-        ORIGIN,
-    )
-    .await;
+    let (_, public_book) = send(&app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN).await;
     assert!(!public_book.contains("Scheduled chapter"));
 
     let utc2: String = sqlx::query_scalar(
@@ -260,7 +261,10 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     );
     let (_, cancelled_page) = send(&app, "GET", &release_url, "", &cookie, ORIGIN).await;
     assert!(cancelled_page.contains("cancelled"));
-    assert_eq!(author.process_one_due_scheduled_release().await.unwrap(), None);
+    assert_eq!(
+        author.process_one_due_scheduled_release().await.unwrap(),
+        None
+    );
     assert_eq!(
         send(&app, "POST", &schedule_url, &scheduled, &cookie, ORIGIN)
             .await
@@ -282,15 +286,13 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     let (status, visible) = send(&app, "GET", &reader_path, "", "", ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(visible.contains("PRIVATE S058 before due"));
-    let events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(chapter.id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(chapter.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(events, 1, "one reader-visible first-release event");
-
 
     // A held book cannot be published by a previously valid schedule.
     let third = save_chapter(SaveChapterRequest {

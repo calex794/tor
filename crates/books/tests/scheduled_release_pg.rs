@@ -379,7 +379,10 @@ async fn scheduled_free_release_is_owner_only_cancelable_and_exactly_once() {
             .await,
         Err(AuthorError::Conflict)
     );
-    assert_eq!(author.process_one_due_scheduled_release().await.unwrap(), None);
+    assert_eq!(
+        author.process_one_due_scheduled_release().await.unwrap(),
+        None
+    );
     sqlx::query(
         "UPDATE chapter_scheduled_releases
          SET lease_until=now()-interval '1 second' WHERE chapter_id=$1",
