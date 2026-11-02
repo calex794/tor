@@ -56,73 +56,6 @@ fn progress_view(
     }
 }
 
-#[cfg(test)]
-mod progress_tests {
-    use super::progress_view;
-
-    #[test]
-    fn h_05_manifest_offsets_match_unicode_and_canonical_blocks() {
-        let source = "т😀a\r\n\r\n**Новая** глава\r\n\r\nКонец";
-        let rendered = progress_view(source, Some(101), 607, Some("safe"));
-        assert!(rendered.html.contains("data-md-start=\""));
-        assert!(rendered.html.contains("т😀a"));
-        assert!(rendered
-            .attributes
-            .contains("data-free-progress-chapter=\"101\""));
-        assert!(rendered
-            .attributes
-            .contains("data-free-progress-version=\"607\""));
-        assert!(
-            rendered
-                .attributes
-                .contains("data-free-progress-blocks=\"0:4,6:15,23:5\""),
-            "reader_blocks must use the same UTF-16 boundaries as the renderer: {}",
-            rendered.attributes
-        );
-    }
-
-    #[test]
-    fn h_05_guest_never_gets_csrf_or_user_position_metadata() {
-        let guest = progress_view("Привет", Some(101), 607, None);
-        assert!(guest.attributes.is_empty());
-        assert!(guest.subtitle.contains("войдите"));
-        assert!(guest.html.contains("Привет"));
-        let no_id = progress_view("Привет", None, 607, Some("test"));
-        assert!(no_id.attributes.is_empty());
-        let malicious = progress_view("Глава", Some(101), 607, Some("a\" onload=\"evil"));
-        assert!(malicious.attributes.contains("a&quot; onload=&quot;evil"));
-        assert!(!malicious.attributes.contains("a\" onload=\"evil"));
-    }
-
-    #[test]
-    fn h_05_offsets_remain_bounded_for_more_than_200_paragraphs() {
-        let source = (0..205)
-            .map(|i| format!("абзац {i}"))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let view = progress_view(&source, Some(2), 9, Some("token"));
-        let raw = view
-            .attributes
-            .split("data-free-progress-blocks=\"")
-            .nth(1)
-            .unwrap()
-            .split('"')
-            .next()
-            .unwrap();
-        let blocks: Vec<_> = raw.split(',').collect();
-        assert!(blocks.len() <= 200 && blocks.len() > 1);
-        let mut next = 0;
-        for (i, block) in blocks.iter().enumerate() {
-            let (start, length) = block.split_once(':').unwrap();
-            let start: usize = start.parse().unwrap();
-            let length: usize = length.parse().unwrap();
-            assert_eq!(start, next + if i == 0 { 0 } else { 2 });
-            next = start + length;
-        }
-        assert_eq!(next, source.encode_utf16().count());
-    }
-}
-
 /// The public reader can link to the existing authenticated completion route.
 /// A link never creates demand, grants access, or assumes that an open was read.
 pub fn reader_with_login_link(
@@ -196,4 +129,71 @@ pub fn reader_with_optional_progress(
         "Опубликованная бесплатная глава.",
         &html,
     )
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::progress_view;
+
+    #[test]
+    fn h_05_manifest_offsets_match_unicode_and_canonical_blocks() {
+        let source = "т😀a\r\n\r\n**Новая** глава\r\n\r\nКонец";
+        let rendered = progress_view(source, Some(101), 607, Some("safe"));
+        assert!(rendered.html.contains("data-md-start=\""));
+        assert!(rendered.html.contains("т😀a"));
+        assert!(rendered
+            .attributes
+            .contains("data-free-progress-chapter=\"101\""));
+        assert!(rendered
+            .attributes
+            .contains("data-free-progress-version=\"607\""));
+        assert!(
+            rendered
+                .attributes
+                .contains("data-free-progress-blocks=\"0:4,6:15,23:5\""),
+            "reader_blocks must use the same UTF-16 boundaries as the renderer: {}",
+            rendered.attributes
+        );
+    }
+
+    #[test]
+    fn h_05_guest_never_gets_csrf_or_user_position_metadata() {
+        let guest = progress_view("Привет", Some(101), 607, None);
+        assert!(guest.attributes.is_empty());
+        assert!(guest.subtitle.contains("войдите"));
+        assert!(guest.html.contains("Привет"));
+        let no_id = progress_view("Привет", None, 607, Some("test"));
+        assert!(no_id.attributes.is_empty());
+        let malicious = progress_view("Глава", Some(101), 607, Some("a\" onload=\"evil"));
+        assert!(malicious.attributes.contains("a&quot; onload=&quot;evil"));
+        assert!(!malicious.attributes.contains("a\" onload=\"evil"));
+    }
+
+    #[test]
+    fn h_05_offsets_remain_bounded_for_more_than_200_paragraphs() {
+        let source = (0..205)
+            .map(|i| format!("абзац {i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let view = progress_view(&source, Some(2), 9, Some("token"));
+        let raw = view
+            .attributes
+            .split("data-free-progress-blocks=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        let blocks: Vec<_> = raw.split(',').collect();
+        assert!(blocks.len() <= 200 && blocks.len() > 1);
+        let mut next = 0;
+        for (i, block) in blocks.iter().enumerate() {
+            let (start, length) = block.split_once(':').unwrap();
+            let start: usize = start.parse().unwrap();
+            let length: usize = length.parse().unwrap();
+            assert_eq!(start, next + if i == 0 { 0 } else { 2 });
+            next = start + length;
+        }
+        assert_eq!(next, source.encode_utf16().count());
+    }
 }
