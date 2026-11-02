@@ -102,8 +102,51 @@ async function inspect(page, name, where) {
         name + ': original chapter heading missing');
       assert(await page.locator('.reader-public .reader-page__meta').getByText('Бесплатная глава', { exact: false }).isVisible(),
         name + ': published free chapter label missing');
-      assert(!(await page.content()).includes('data-reader-theme-cycle'),
-        name + ': unimplemented reader settings displayed');
+      assert(await page.locator('[data-free-settings-open]').isVisible(),
+        name + ': free settings missing');
+      const freeResponse = await page.request.get(base + '/reader/101');
+      assert((freeResponse.headers()['content-security-policy'] || '').includes("script-src 'self'"),
+        name + ': free reader script blocked');
+      const lockedResponse = await page.request.get(base + '/reader/103');
+      assert((lockedResponse.headers()['content-security-policy'] || '').includes("script-src 'none'"),
+        name + ': paid reader CSP relaxed');
+      // NEwBOO's original reader keeps a scroll/paginated setting in the
+      // same storage key. TOR must not erase an unsupported setting.
+      await page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem('readerSettings') || '{}');
+        localStorage.setItem('readerSettings',
+          JSON.stringify({ ...saved, renderMode: 'paginated' }));
+      });
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.locator('[data-free-settings-open]').click();
+      await page.locator('[data-free-theme="sepia"]').click();
+      await page.locator('[data-free-font-family="sans"]').click();
+      await page.locator('[data-free-font-scale]').fill('120');
+      await page.locator('[data-free-line-height]').fill('200');
+      await page.locator('[data-free-reader-width]').fill('980');
+      await page.keyboard.press('Escape');
+      await page.reload({ waitUntil: 'networkidle' });
+      const preferences = await page.evaluate(() => ({
+        theme: document.documentElement.dataset.freeReaderTheme,
+        width: document.querySelector('[data-free-reader]').style.getPropertyValue('--free-reader-width'),
+        font: document.querySelector('[data-free-reader]').style.getPropertyValue('--free-font-family'),
+        stored: JSON.parse(localStorage.getItem('readerSettings') || '{}')
+      }));
+      assert(preferences.theme === 'sepia' && preferences.width === '980px' &&
+        preferences.font.includes('Arial') && preferences.stored.fontScale === 1.2 &&
+        preferences.stored.renderMode === 'paginated',
+        name + ': saved preferences failed ' + JSON.stringify(preferences));
+      await inspect(page, name + '-preferences', 'reader');
+      await page.locator('[data-free-settings-open]').click();
+      await page.locator('[data-free-settings-reset]').click();
+      await page.keyboard.press('Escape');
+      await page.reload({ waitUntil: 'networkidle' });
+      assert(await page.locator('[data-free-font-output]').textContent() === '100%',
+        name + ': reset not persisted');
+      const afterReset = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem('readerSettings') || '{}'));
+      assert(afterReset.renderMode === 'paginated',
+        name + ': reset erased NEwBOO render mode');
       assert(await page.getByText('Первая строка').count() > 0, name + ': no actual text');
       const html = await page.content();
       assert(!html.includes('<script>alert(1)</script>'), name + ': unsafe author HTML');

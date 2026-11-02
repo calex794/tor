@@ -1541,6 +1541,13 @@
       "source": "crates/web/src/auth/support_admin.rs",
       "handler": "reopen",
       "policy": "support_admin"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-free-reader.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::free_reader_script",
+      "policy": "public"
     }
   ]
 }

@@ -308,13 +308,15 @@ fn s034_purchase_form_escapes_metadata_and_has_exact_terms() {
 }
 
 #[test]
-fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
+fn ne_wboo_reader_shell_uses_live_chapter_data_and_free_preferences() {
     let template = include_str!("../../templates/reader.html");
     assert!(template.contains("reader-topbar"));
     assert!(template.contains("reader-page__title"));
     assert!(template.contains("<!--CHAPTER_CONTENT-->"));
     assert!(template.contains("href=\"/books/<!--BOOK_ID-->\""));
-    assert!(!template.contains("data-reader-theme-cycle"));
+    assert!(template.contains("data-free-theme-cycle"));
+    assert!(template.contains("data-free-settings-open"));
+    assert!(template.contains("/assets/newboo-free-reader.js"));
     assert!(!template.contains("Сохранение прогресса появится"));
     assert!(include_str!("../../assets/newboo-reader.css").contains(".reader-topbar__back"));
 }

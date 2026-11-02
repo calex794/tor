@@ -191,6 +191,54 @@ async function verify(browser, buyer, viewport) {
     assert.equal(existing.status(), 303);
     assert.equal(existing.headers().location, "/me/purchases");
 
+    // S065 policy matrix: a purchased V1 survives an ordinary draft/withdrawal,
+    // but moderation and hard deletion override even a historical purchase.
+    // Probe all three real HTTP surfaces with the buyer's valid session/CSRF.
+    const policyCsrf = (await context.cookies(SITE))
+      .find((cookie) => cookie.name === "tor-dev-csrf")?.value;
+    assert.match(policyCsrf || "", /^[A-Za-z0-9_-]{43}$/);
+    const paidUrl = SITE + purchasedHref;
+    const assertPaidState = async (expectedStatus) => {
+      const paidPage = await context.request.get(paidUrl);
+      assert.equal(paidPage.status(), expectedStatus);
+      assert((paidPage.headers()["cache-control"] || "").includes("no-store"));
+      assert(!(await paidPage.text()).includes("Оплаченная V1: кириллица"),
+        "HTTP shell/denial must never include the paid plaintext");
+      const library = await context.request.get(SITE + "/me/purchases");
+      assert.equal(library.status(), 200);
+      assert.equal(library.headers()["cache-control"], "no-store");
+      const html = await library.text();
+      assert.equal(html.includes('href="' + purchasedHref + '"'), expectedStatus === 200);
+      const signed = await context.request.post(
+        SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
+        { data: { purchase_id: String(purchase) },
+          headers: { origin: SITE, "x-csrf-token": policyCsrf } });
+      assert.equal(signed.status(), expectedStatus);
+      assert((signed.headers()["cache-control"] || "").includes("no-store"));
+      if (expectedStatus !== 200) {
+        assert.equal((await signed.body()).length, 0,
+          "blocked/delete states must never issue a signed bearer URL");
+      }
+    };
+    assert(Number.isSafeInteger(fixture.book_id) && fixture.book_id > 0);
+    for (const [table, id] of [["books", fixture.book_id], ["chapters", chapter.id]]) {
+      for (const [column, changed, original, expected] of [
+        ["visibility", "'draft'", "'public'", 200],
+        ["admin_hold", "true", "false", 403],
+        ["is_deleted", "true", "false", 404],
+      ]) {
+        // These are fixed test-owned columns, on a disposable PG fixture.
+        pg("UPDATE " + table + " SET " + column + "=" + changed + " WHERE id=" + id);
+        try {
+          await assertPaidState(expected);
+        } finally {
+          pg("UPDATE " + table + " SET " + column + "=" + original + " WHERE id=" + id);
+        }
+        const restored = await context.request.get(paidUrl);
+        assert.equal(restored.status(), 200, "restoring a temporary policy block must restore paid access");
+      }
+    }
+
     // Simulate the canonical access-revocation fact used by D refunds. This
     // verifies C access revocation, not execution of the money-refund workflow.
     pg("INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason) VALUES(" +
