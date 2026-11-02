@@ -88,6 +88,37 @@ async function verify(browser, buyer, viewport) {
     assert.equal((await post(form)).status(), 303);
     assert.equal(balance(), 600 - price);
     assert.equal(purchases(), 1);
+
+    // S065: a different authenticated account cannot read the purchased
+    // edition, fetch its delivery grant, or inspect its progress.
+    const outsider = await browser.newContext();
+    try {
+      assert.match(fixture.outsider_session, /^[a-zA-Z0-9_-]{43}$/);
+      await outsider.addCookies([{ url: SITE, name: "tor-dev-session",
+        value: fixture.outsider_session, httpOnly: true, sameSite: "Strict" }]);
+      const secret = "Оплаченная V1: кириллица";
+      const privateUrl = SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase;
+      const denied = await outsider.request.get(privateUrl);
+      assert.equal(denied.status(), 403);
+      assert(!(await denied.text()).includes(secret));
+      const progress = SITE + "/api/v1/me/progress/purchased?purchase_id=" +
+        purchase + "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
+      assert.equal((await context.request.get(progress)).status(), 200);
+      assert.equal((await outsider.request.get(progress)).status(), 404);
+      for (const alternate of [
+        "/reader/" + chapter.id + "/history?version_id=" + chapter.version,
+        "/reader/" + chapter.id + "/preview?version_id=" + chapter.version,
+        "/api/v1/chapters/" + chapter.id + "/history",
+        "/api/v1/chapters/" + chapter.id + "/versions/" + chapter.version,
+        "/cdn/chapters/" + chapter.id + "/" + chapter.version + ".html",
+      ]) {
+        const response = await outsider.request.get(SITE + alternate);
+        assert.equal(response.status(), 404);
+        assert(!(await response.text()).includes(secret));
+      }
+    } finally {
+      await outsider.close();
+    }
     const existing = await context.request.get(route, { maxRedirects: 0 });
     assert.equal(existing.status(), 303);
     assert.equal(existing.headers().location, "/me/purchases");
