@@ -435,7 +435,14 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let command_key = generate_session_token();
-    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
+    let mut response = private_response(author_pages::new_book(&csrf, &command_key), &cookies);
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
 async fn create_book(
     State(state): State<AuthState>,
