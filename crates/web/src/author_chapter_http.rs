@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
-    repositories::postgres::PgAuthoring,
+    repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
     services::authoring::{
         save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest,
     },
@@ -29,6 +29,11 @@ mod chapter_import;
 #[async_trait]
 pub(crate) trait PaidChapterPublisher: Send + Sync {
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+
+    /// No paid edit without a separately configured, verified S3 writer.
+    async fn publish_edit(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
+        Err(AuthorError::Unavailable)
+    }
 
     /// The isolated illustrated-author route supplies a server-computed
     /// immutable image identity. Non-S3 publishers fail closed by default.
@@ -297,22 +302,43 @@ async fn edit_chapter(
         Ok(chapter) => chapter,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (chapter, is_published) = if let Some(chapter) = published {
-        (chapter, true)
+    let paid = if published.is_none() && state.paid_author.is_some() {
+        match PgPaidStorage::new(state.accounts.pool().clone())
+            .owned_published_paid_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(paid) => paid,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
+    let (chapter, is_published, is_paid) = if let Some(chapter) = published {
+        (chapter, true, false)
+    } else if let Some(chapter) = paid {
+        (chapter, true, true)
     } else {
         match state
             .authoring
             .owned_unpublished_free_chapter(actor, id, chapter_id)
             .await
         {
-            Ok(Some(chapter)) => (chapter, false),
+            Ok(Some(chapter)) => (chapter, false, false),
             Ok(None) => return deny(StatusCode::NOT_FOUND),
             Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         }
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let command_key = generate_session_token();
-    let page = if is_published {
+    let page = if is_paid {
+        crate::author_chapter_pages::edit_published_paid_chapter(
+            id,
+            chapter_id,
+            &chapter,
+            &csrf,
+            &command_key,
+        )
+    } else if is_published {
         crate::author_chapter_pages::edit_published_chapter(
             id,
             chapter_id,
@@ -353,6 +379,56 @@ async fn update_chapter(
         Ok(chapter) if chapter > 0 => chapter,
         _ => return deny(StatusCode::NOT_FOUND),
     };
+    // B decides paid/publication state, never a submitted "paid" form field.
+    // The owner query and the publishing transaction both check ownership.
+    let paid = if state.paid_author.is_some() {
+        match PgPaidStorage::new(state.accounts.pool().clone())
+            .owned_published_paid_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(paid) => paid,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
+    if let (Some(paid), Some(publisher)) = (paid, state.paid_author.as_ref()) {
+        let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
+        let input = match save_chapter(SaveChapterRequest {
+            book_id: book,
+            chapter_id: Some(chapter),
+            number: form.number,
+            expected_revision: form.expected_revision,
+            title: &form.title,
+            body: &body,
+            access: "paid",
+            price_amount: paid.price_amount,
+            command_key: &form.command_key,
+        }) {
+            Ok(input) => input,
+            Err(_) => return deny(StatusCode::BAD_REQUEST),
+        };
+        return match publisher.publish_edit(actor, &input).await {
+            Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}/issues")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => private_response(
+                (
+                    StatusCode::CONFLICT,
+                    "Глава уже изменена. Обновите страницу редактора.",
+                ),
+                &[],
+            ),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => private_response(
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Защищённое сохранение не завершено. Повторите эту же форму.",
+                ),
+                &[],
+            ),
+        };
+    }
     let input = match save_chapter(SaveChapterRequest {
         book_id: book,
         chapter_id: Some(chapter),

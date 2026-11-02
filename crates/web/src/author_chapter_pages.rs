@@ -47,6 +47,7 @@ pub fn detail_with_covers_with_demand(
             uploads_enabled,
             latest_job,
             demand_count,
+            paid_editor_enabled: false,
             next: None,
             has_previous_page: false,
         },
@@ -58,6 +59,7 @@ pub struct OwnerChapterPageOptions<'a> {
     pub uploads_enabled: bool,
     pub latest_job: Option<&'a str>,
     pub demand_count: i64,
+    pub paid_editor_enabled: bool,
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
 }
@@ -74,6 +76,7 @@ pub fn detail_with_covers_with_demand_page(
         uploads_enabled,
         latest_job,
         demand_count,
+        paid_editor_enabled,
         next,
         has_previous_page,
     } = options;
@@ -88,7 +91,11 @@ pub fn detail_with_covers_with_demand_page(
                 ChapterAccess::Paid => "Платная",
             };
             let pending = published && !chapter.published;
-            let edit_action = if chapter.access == ChapterAccess::Free {
+            let edit_action = if chapter.access == ChapterAccess::Free
+                || (chapter.access == ChapterAccess::Paid
+                    && chapter.published
+                    && paid_editor_enabled)
+            {
                 format!(
                     " <a href=\"/me/books/{}/chapters/{}/edit\">Редактировать</a>",
                     book.id, chapter.id
@@ -382,7 +389,15 @@ pub fn edit_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
-    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, false)
+    edit_chapter_mode(
+        book_id,
+        chapter_id,
+        chapter,
+        csrf,
+        command_key,
+        false,
+        false,
+    )
 }
 
 /// A published free chapter uses the same NEwBOO-style editor and save action,
@@ -394,7 +409,18 @@ pub fn edit_published_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
-    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true)
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true, false)
+}
+
+/// Verified paid editor: metadata is frozen; Save publishes encrypted V2.
+pub fn edit_published_paid_chapter(
+    book_id: i64,
+    chapter_id: i64,
+    chapter: &OwnedChapter,
+    csrf: &str,
+    command_key: &str,
+) -> Html<String> {
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true, true)
 }
 
 fn edit_chapter_mode(
@@ -404,8 +430,11 @@ fn edit_chapter_mode(
     csrf: &str,
     command_key: &str,
     published: bool,
+    paid: bool,
 ) -> Html<String> {
-    let description = if published {
+    let description = if paid {
+        "После сохранения новая платная редакция появится только после проверки закрытого S3. Старая купленная редакция останется доступной. Номер, название и цена не изменяются."
+    } else if published {
         "Сохранение сразу обновит опубликованную редакцию. Предыдущая версия останется в истории."
     } else {
         "Редакция остаётся закрытой до выпуска книги или главы."
@@ -436,6 +465,16 @@ fn edit_chapter_mode(
         .replace("<!--NUMBER-->", &chapter.number.to_string())
         .replace("<!--TITLE_HEADING-->", &title_in_heading)
         .replace("<!--TITLE-->", &escape_html(&chapter.title))
+        .replace("<!--TITLE_READONLY-->", if paid { "readonly" } else { "" })
+        .replace(
+            "<!--EDIT_PRICE-->",
+            if paid {
+                format!("<p>Цена неизменна: {} копеек.</p>", chapter.price_amount)
+            } else {
+                String::new()
+            }
+            .as_str(),
+        )
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
