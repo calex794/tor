@@ -1,4 +1,5 @@
 //! Consent-based creator handoff. A proposal never changes group ownership.
+use super::super::notification_events::{self, NotificationEvent};
 use super::{unavailable, PgGroupMail};
 use crate::domain::MailError;
 
@@ -163,6 +164,23 @@ impl PgGroupMail {
         .await
         .map_err(unavailable)?;
         let id = inserted.ok_or(MailError::Conflict)?;
+        // The recipient learns about the proposal through the normal bell.
+        // Commit the source fact with the offer; retries and rollbacks cannot
+        // produce phantom notifications. Delivery rechecks the live offer.
+        let dedupe_key = format!("tor-social:group-creator-offer:{id}:recipient:{recipient}");
+        notification_events::queue(
+            &mut tx,
+            NotificationEvent {
+                event_type: "social.group_creator_transfer.proposed",
+                aggregate_kind: "social_group_creator_transfer",
+                aggregate_id: id,
+                actor,
+                recipient,
+                object_id: group_id,
+                dedupe_key: Some(&dedupe_key),
+            },
+        )
+        .await?;
         tx.commit().await.map_err(unavailable)?;
         Ok(id)
     }
