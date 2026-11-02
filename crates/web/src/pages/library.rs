@@ -13,7 +13,14 @@ pub fn my_library_with_updates(
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
     my_library_with_updates_and_layers(
-        items, saved, csrf, purchased_available, false, checkout_enabled, updates, owned,
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        false,
+        checkout_enabled,
+        updates,
+        owned,
     )
 }
 
@@ -29,7 +36,14 @@ pub fn my_library_with_updates_and_layers(
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(items, saved, csrf, purchased_available, layers_available, &update_html)
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        layers_available,
+        &update_html,
+    )
 }
 
 fn my_library_inner(
