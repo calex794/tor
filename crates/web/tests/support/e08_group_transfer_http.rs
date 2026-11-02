@@ -1,6 +1,7 @@
 //! E-08: isolated PostgreSQL + HTTP regression for consent-based creator handoff.
 use super::{call, pg, text};
 use axum::{http::StatusCode, Router};
+use tor_social::repositories::notifications::PgNotifications;
 
 pub(super) async fn check_consent(
     app: &Router,
@@ -232,6 +233,25 @@ pub(super) async fn check_consent(
     .parse()
     .unwrap();
     assert!(second_offer > first_offer);
+    // Drive the durable outbox and verify the actual recipient HTML before
+    // and after the creator revokes an already delivered offer.
+    let bell_pool = sqlx::PgPool::connect(url).await.unwrap();
+    let bell = PgNotifications::new(bell_pool);
+    for _ in 0..12 {
+        if bell.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    let before_revoke = text(call(app, "GET", "/notifications", &cookies[2], "", &[]).await).await;
+    assert!(before_revoke.contains("Предложение управлять группой"));
+    let old_notice = bell
+        .list(users[2], None, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.title == "Предложение управлять группой")
+        .unwrap()
+        .id;
     assert_eq!(
         call(
             app,
@@ -244,6 +264,22 @@ pub(super) async fn check_consent(
         .await
         .status(),
         StatusCode::SEE_OTHER
+    );
+    let after_revoke = text(call(app, "GET", "/notifications", &cookies[2], "", &[]).await).await;
+    assert!(!after_revoke.contains("Предложение управлять группой"));
+    assert_eq!(
+        call(
+            app,
+            "POST",
+            &format!("/notifications/{old_notice}/read"),
+            &cookies[2],
+            &format!("csrf_token={}", tokens[2]),
+            &[],
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "stale notification's old Open form must not be actionable",
     );
     assert_eq!(
         call(
