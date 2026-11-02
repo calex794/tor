@@ -180,8 +180,8 @@ async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response 
         .unwrap()
 }
 
-// C-12: compare complete UTF-8 byte markers. A fixed 15-byte window
-// silently misses the 14-byte X-Amz-Signature prefix on an otherwise live 404.
+// C-12: scan exact UTF-8 markers for paid text, private image references,
+// scoped keys and signed S3 URLs on all denied reader surfaces.
 fn has_private_reader_material(body: &[u8]) -> bool {
     let markers: [&[u8]; 5] = [
         BODY.as_bytes(),
@@ -197,7 +197,7 @@ fn has_private_reader_material(body: &[u8]) -> bool {
 
 #[test]
 fn c12_denied_reader_scan_detects_exact_s3_signature_bytes() {
-    assert_eq!(b"X-Amz-Signature".len(), 14);
+    assert_eq!(b"X-Amz-Signature".len(), 15);
     assert!(has_private_reader_material(b"X-Amz-Signature"));
     assert!(has_private_reader_material(b"?X-Amz-Signature=masked"));
     assert!(has_private_reader_material(b"ciphertext_url"));
