@@ -29,7 +29,13 @@ pub fn my_library_with_updates_and_layers(
     let (purchased_available, layers_available) = availability;
     if !layers_available {
         return my_library_with_updates(
-            items, saved, csrf, purchased_available, checkout_enabled, updates, owned,
+            items,
+            saved,
+            csrf,
+            purchased_available,
+            checkout_enabled,
+            updates,
+            owned,
         );
     }
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
