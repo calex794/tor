@@ -43,6 +43,7 @@ use tower::ServiceExt;
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "/api/v1/reader/chapters/";
 const UUID: &str = "a1a1a1a1-1111-4111-8111-111111111111";
+const ASSET_UUID: &str = "a1a1a1a1-1111-4111-8111-111111111112";
 const BODY: &str = "S034-PAID-PRIVATE-V1-NEVER-IN-HTTP";
 
 fn pg(url: &str, sql: &str) -> String {
@@ -125,7 +126,7 @@ impl PrivateObjectDeliveryPort for FakeG {
             .unwrap(),
             object_sha256: hex(&object.object.sha256_ciphertext),
             cipher: "AES-256-GCM",
-            codec: "gzip",
+            codec: object.codec.wire(),
             nonce_b64u: URL_SAFE_NO_PAD.encode(object.nonce),
             aad_b64u: URL_SAFE_NO_PAD.encode(&object.aad),
             dek_b64u: SecretValue::new(URL_SAFE_NO_PAD.encode([0x11_u8; 32])).unwrap(),
@@ -377,6 +378,38 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &format!(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
              VALUES({chapter},1,'{BODY}') RETURNING id"
+        ),
+    );
+    // B/S065: exact V1 image membership must exist before chapter publication.
+    // The deterministic G stand-in signs metadata; the separate G suite checks
+    // real storage integrity and S3 signing. This fixture is NOT production media.
+    let image_digest = hex(&Sha256::digest(b"S065 test-only private PNG"));
+    let image_aad =
+        format!("tor.encrypted.asset.v1\n{chapter}\n{version}\n{ASSET_UUID}\n{image_digest}\n");
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO storage_objects(\
+                id,object_kind,bucket,object_key,state,size_bytes,\
+                sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,\
+                kek_id,object_nonce,object_aad,codec,verified_at,attached_at\
+             ) VALUES (\
+                '{ASSET_UUID}'::uuid,'chapter_asset','tor-private-chapter-ci',\
+                'private/chapter-assets/{ASSET_UUID}.enc','attached',64,\
+                decode(repeat('05',32),'hex'),decode('{image_digest}','hex'),\
+                decode(repeat('08',48),'hex'),decode(repeat('03',12),'hex'),\
+                'content-kek-v1',decode(repeat('02',12),'hex'),\
+                decode('{}','hex'),'none',now(),now()\
+             )",
+            hex(image_aad.as_bytes())
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_version_assets(chapter_id,version_id,\
+               storage_object_id,ordinal,media_type) \
+             VALUES({chapter},{version},'{ASSET_UUID}'::uuid,1,'image/png')"
         ),
     );
     pg(
@@ -691,6 +724,50 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         "a successful paid grant must write durable first exposure"
     );
 
+    // Unlike the forged chapter-ciphertext UUID above, this asset is a real
+    // B-attached V1 image. D must authorize the exact purchase before G signs.
+    let owned_asset_route =
+        format!("/api/v1/reader/chapters/{chapter}/assets/{ASSET_UUID}/delivery-grants");
+    let outsider_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&author_cookie),
+        Some(&author_csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(outsider_asset.status(), StatusCode::FORBIDDEN);
+    assert_eq!(outsider_asset.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(outsider_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 1);
+
+    let permitted_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(permitted_asset.status(), StatusCode::OK);
+    assert_eq!(
+        permitted_asset.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let asset_json = json_body(permitted_asset).await;
+    assert_eq!(asset_json["schema"], "tor.paid_asset_delivery.v1");
+    assert_eq!(asset_json["chapter_id"], chapter.to_string());
+    assert_eq!(asset_json["version_id"], version.to_string());
+    assert_eq!(asset_json["object_id"], ASSET_UUID);
+    assert_eq!(asset_json["content"]["codec"], "none");
+    assert!(!asset_json.to_string().contains(BODY));
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+
     let v2 = scalar(
         &url,
         &format!(
@@ -721,7 +798,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     .await;
     assert_eq!(hidden.status(), StatusCode::OK);
     assert_eq!(json_body(hidden).await["version_id"], version.to_string());
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    let retained_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(retained_asset.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(retained_asset).await["version_id"],
+        version.to_string()
+    );
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
 
     pg(
         &url,
@@ -740,6 +832,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .status(),
         StatusCode::FORBIDDEN,
     );
+    let held_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(held_asset.status(), StatusCode::FORBIDDEN);
+    assert_eq!(held_asset.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(held_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
@@ -787,7 +895,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert!(to_bytes(raced.into_body(), 8192).await.unwrap().is_empty());
     assert_eq!(
         fake.signed.load(Ordering::SeqCst),
-        3,
+        5,
         "G signed once, but C must discard the token after D revocation"
     );
     // A subsequent request is rejected by D before reaching G.
@@ -804,7 +912,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .status(),
         StatusCode::FORBIDDEN,
     );
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    let revoked_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(revoked_asset.status(), StatusCode::FORBIDDEN);
+    assert_eq!(revoked_asset.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(revoked_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 5);
     assert_eq!(
         read_page(&browser, &reader_path, Some(&buyer_cookie))
             .await

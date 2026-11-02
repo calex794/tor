@@ -104,9 +104,13 @@ async function inspect(page, name, where) {
         name + ': published free chapter label missing');
       assert(await page.locator('[data-free-settings-open]').isVisible(),
         name + ': free settings missing');
+      assert(await page.locator('[data-free-progress-chapter]').count() === 0,
+        name + ': guest received authenticated progress metadata');
       const freeResponse = await page.request.get(base + '/reader/101');
       assert((freeResponse.headers()['content-security-policy'] || '').includes("script-src 'self'"),
         name + ': free reader script blocked');
+      assert((freeResponse.headers()['content-security-policy'] || '').includes("connect-src 'self'"),
+        name + ': authenticated reader cannot reach its own progress API');
       const lockedResponse = await page.request.get(base + '/reader/103');
       assert((lockedResponse.headers()['content-security-policy'] || '').includes("script-src 'none'"),
         name + ': paid reader CSP relaxed');
@@ -252,7 +256,10 @@ async function inspect(page, name, where) {
     }
     // Exercise real PostgreSQL account forms on both target viewport sizes.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
-      const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+      const context = await browser.newContext({
+        viewport: { width, height }, deviceScaleFactor: 1
+      });
+      const page = await context.newPage();
       await page.goto(base + '/register');
       assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
       assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
@@ -343,6 +350,63 @@ async function inspect(page, name, where) {
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Пока нет сохранённых книг.').isVisible(),
         name + ': bookmark removal failed');
+      // H-05/S006: an authenticated reader uses the existing PostgreSQL CAS
+      // cursor through the public, themed chapter view. A guest has no token.
+      await page.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      const progressArticle = page.locator('[data-free-progress-chapter="101"]');
+      assert(await progressArticle.count() === 1,
+        name + ': authenticated free reader has no progress metadata');
+      assert((await progressArticle.getAttribute('data-free-progress-csrf') || '').length === 43,
+        name + ': missing server-origin CSRF token');
+      await page.waitForFunction(() =>
+        document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
+      // Merely opening a chapter and leaving must NOT create ChapterStarted.
+      await page.goto(base + '/books/1', { waitUntil: 'networkidle' });
+      const unopened = await page.request.get(base +
+        '/api/v1/me/progress/free?chapter_id=101');
+      const untouched = await unopened.json();
+      assert(unopened.status() === 200 && untouched.revision === 0 &&
+        untouched.block_id === null,
+        name + ': GET/pagehide created progress without reading');
+      await page.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await page.waitForFunction(() =>
+        document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
+      const progressPost = page.waitForResponse(response =>
+        response.url().endsWith('/api/v1/me/progress/free') &&
+        response.request().method() === 'PUT', { timeout: 12000 });
+      await page.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight));
+      const firstSaved = await progressPost;
+      assert(firstSaved.status() === 200,
+        name + ': free chapter auto-save failed HTTP ' + firstSaved.status());
+      const sent = firstSaved.request().postDataJSON();
+      const sourceBlocks = (await progressArticle.getAttribute('data-free-progress-blocks'))
+        .split(',').map(part => Number(part.split(':')[1]));
+      assert(sent.block_id >= 1 && sent.block_id <= sourceBlocks.length &&
+        sent.char_offset < sourceBlocks[sent.block_id - 1],
+        name + ': scroll must never silently mark chapter complete');
+      const storedState = await page.request.get(base +
+        '/api/v1/me/progress/free?chapter_id=101');
+      assert(storedState.status() === 200,
+        name + ': cannot read actor-scoped saved progress');
+      const cursor = await storedState.json();
+      assert(cursor.block_id === sent.block_id &&
+        cursor.char_offset === sent.char_offset && cursor.revision > 0,
+        name + ': PostgreSQL cursor does not match auto-save');
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForFunction(() => {
+        const article = document.querySelector('[data-free-progress-chapter]');
+        return article && (article.dataset.freeProgressRestored === '1' ||
+          window.scrollY > 0);
+      });
+      const secondTab = await page.context().newPage();
+      await secondTab.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await secondTab.waitForFunction(() =>
+        document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressRestored === '1');
+      assert(await secondTab.evaluate(() => window.scrollY > 0),
+        name + ': second browser tab did not restore PostgreSQL cursor');
+      await secondTab.close();
+      await inspect(page, name, 'free-resume');
       // Real browser: server-rendered chapter, CSRF POST, private library resume.
       await page.goto(base + '/read/101');
       assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');
@@ -440,7 +504,7 @@ async function inspect(page, name, where) {
       assert(errorStyle.text === 'rgb(248, 250, 252)',
         name + ': registration error has unreadable foreground in dark mode');
       await inspect(page, name + '-dark', 'registration-error');
-      await page.close();
+      await context.close();
     }
     await require('./comment_spoilers_browser.cjs')(browser, base, out);
     await require('./mail_browser_pg.cjs')(browser, base, out);

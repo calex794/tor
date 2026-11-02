@@ -19,6 +19,8 @@ pub use account::{
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
+mod reader_free;
+pub use reader_free::{reader_with_login_link, reader_with_optional_progress};
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -368,73 +370,6 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
     reader_with_login_link(chapter, None)
 }
 
-/// The public reader can link to the existing authenticated completion route.
-/// A link never creates demand, grants access, or assumes that an open was read.
-pub fn reader_with_login_link(
-    chapter: &tor_reading::services::PublicChapterPage,
-    chapter_id: Option<u64>,
-) -> Html<String> {
-    let previous = chapter
-        .previous_chapter_id
-        .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
-        .unwrap_or_default();
-    use tor_reading::services::PublicContinuation;
-    let (next, continuation_status) = match chapter.continuation() {
-        PublicContinuation::ReadNow(id) => (
-            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"),
-            "",
-        ),
-        PublicContinuation::NeedsAccess(id) => (
-            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава — платная</a>"),
-            "<p class=\"reader-next-state\">Следующая глава опубликована. Для чтения может потребоваться покупка.</p>",
-        ),
-        PublicContinuation::WaitingForRelease => (
-            String::new(),
-            "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
-        ),
-    };
-    let return_to_reading = if matches!(
-        chapter.continuation(),
-        PublicContinuation::WaitingForRelease
-    ) {
-        chapter_id
-            .map(|id| {
-                format!(
-                    "<p class=\"reader-next-state\"><a class=\"text-link\" href=\"/read/{id}\">Отметить главу прочитанной и попросить продолжение</a></p>"
-                )
-            })
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
-    let continuation_status = format!("{continuation_status}{return_to_reading}");
-    let navigation = if previous.is_empty() && next.is_empty() {
-        String::new()
-    } else {
-        format!("<nav class=\"chapter-navigation\" aria-label=\"Переход между главами\">{previous}{next}</nav>")
-    };
-    let thanks_link = chapter_id
-        .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
-        .unwrap_or_default();
-    let html = include_str!("../templates/reader.html")
-        .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
-        .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
-        .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
-        .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
-        .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
-        .replace("<!--CONTINUATION_STATUS-->", &continuation_status)
-        .replace("<!--CHAPTER_THANKS_LINK-->", &thanks_link)
-        .replace(
-            "<!--CHAPTER_CONTENT-->",
-            &tor_reading::domain::renderer::render(&chapter.body_markdown),
-        );
-    layout(
-        &chapter.chapter_title,
-        "Опубликованная бесплатная глава.",
-        &html,
-    )
-}
-
 pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str) -> Html<String> {
     let title = escape_html(&book.title);
     let token = escape_html(csrf);
@@ -500,7 +435,15 @@ pub async fn free_reader_script() -> impl IntoResponse {
             ),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        include_str!("../assets/newboo-free-reader.js"),
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../assets/newboo-free-reader.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-progress.js"));
+                js
+            });
+            JS.as_str()
+        },
     )
 }
 
