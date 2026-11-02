@@ -297,7 +297,7 @@ impl PgTextIssues {
         };
         let rows = sqlx::query(
             "SELECT i.id,i.chapter_id,i.version_id,i.block_index,i.issue_type,
-                    (c.access_level='paid') AS is_paid,
+                    (i.purchase_id IS NOT NULL) AS is_paid,
                     i.quote,i.suggested_text,i.status,i.resolution_note,i.resolved_version_id
              FROM text_issues i
              JOIN chapters c ON c.id=i.chapter_id AND c.book_id=i.book_id
@@ -308,7 +308,7 @@ impl PgTextIssues {
                              AND m.is_active AND m.role IN ('owner','translator','moderator')
                              AND NOT b.admin_hold AND NOT b.is_deleted
                              AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
-                             AND (c.access_level='free' OR
+                             AND ((i.purchase_id IS NULL AND c.access_level='free') OR
                                   (m.role='owner' AND b.owner_user_id=m.user_id)))
                AND ($2::text IS NULL OR i.status=$2)
                AND ($3::bigint IS NULL OR i.id<$3)
@@ -399,7 +399,7 @@ impl PgTextIssues {
                AND m.is_active AND m.role IN ('owner','translator','moderator')
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
-               AND (c.access_level='free' OR
+               AND ((i.purchase_id IS NULL AND c.access_level='free') OR
                     (m.role='owner' AND b.owner_user_id=m.user_id))
              FOR UPDATE OF i,m",
         )
