@@ -680,7 +680,7 @@ export function installPaidReaderSettings(root) {
   selectFont("serif");
 }
 
-export // E-12 paid: only after a D-verified S3 grant has decrypted its B-pinned
+// E-12 paid: only after a D-verified S3 grant has decrypted its B-pinned
 // edition. The user explicitly sends a bounded quote; no full body, S3 key
 // or DEK travels in the correction request or is retained in storage.
 export function installPaidIssueReporter(root, article, blocks, chapter, purchase, version, csrf) {
@@ -811,7 +811,7 @@ export function installPaidIssueReporter(root, article, blocks, chapter, purchas
   return section;
 }
 
-async function startPaidReader(root) {
+export async function startPaidReader(root) {
   const chapter = checkedId(root.dataset.chapterId);
   const purchase = checkedId(root.dataset.purchaseId);
   const csrf = root.dataset.csrfToken;
