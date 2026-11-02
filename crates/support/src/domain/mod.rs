@@ -22,6 +22,8 @@ pub struct Chat {
     pub last_message_id: Option<i64>,
     pub last_message_preview: String,
     pub unread: bool,
+    pub is_closed: bool,
+    pub status_revision: i64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

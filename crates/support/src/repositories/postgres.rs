@@ -41,7 +41,7 @@ pub(super) async fn page(
     before: Option<i64>,
     limit: u16,
 ) -> Result<MessagePage, SupportError> {
-    let (requester_id,guest_alias):(Option<i64>,String)=sqlx::query_as("SELECT requester_user_id,guest_alias FROM support_conversations WHERE id=$1 AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE")
+    let (requester_id,guest_alias,is_closed,status_revision):(Option<i64>,String,bool,i64)=sqlx::query_as("SELECT requester_user_id,guest_alias,status='closed',status_revision FROM support_conversations WHERE id=$1 AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE")
         .bind(chat).fetch_optional(&mut **tx).await.map_err(unavailable)?.ok_or(SupportError::NotFound)?;
     let mut rows=sqlx::query_as::<_,(i64,String,String,String)>(r#"SELECT id,sender_kind,body,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
        FROM support_messages WHERE conversation_id=$1 AND ($2::BIGINT IS NULL OR id>$2) AND ($3::BIGINT IS NULL OR id<$3)
@@ -60,6 +60,8 @@ pub(super) async fn page(
             last_message_id: rows.last().map(|m| m.0),
             last_message_preview: String::new(),
             unread: false,
+            is_closed,
+            status_revision,
         },
         messages: rows
             .into_iter()
@@ -100,11 +102,27 @@ pub(super) async fn send(
             });
         }
     }
+    // An explicit administrator close prevents further replies until re-opened.
+    // A replayed idempotency key above remains readable without a new state change.
+    if kind == "admin" {
+        let closed: bool = sqlx::query_scalar("SELECT status='closed' FROM support_conversations WHERE id=$1 FOR UPDATE")
+            .bind(chat).fetch_one(&mut **tx).await.map_err(unavailable)?;
+        if closed {
+            return Err(SupportError::Conflict);
+        }
+    }
     let r=sqlx::query_as::<_,(i64,String,String,String)>(r#"INSERT INTO support_messages(conversation_id,sender_kind,sender_scope,sender_user_id,body,client_message_id)
        VALUES($1,$2,$3,$4,$5,$6) RETURNING id,sender_kind,body,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')"#)
         .bind(chat).bind(kind).bind(scope).bind(user).bind(body).bind(key).fetch_one(&mut **tx).await.map_err(unavailable)?;
-    sqlx::query("UPDATE support_conversations SET updated_at=now(),expires_at=CASE WHEN requester_user_id IS NULL THEN now()+INTERVAL '30 days' ELSE NULL END WHERE id=$1")
-        .bind(chat).execute(&mut **tx).await.map_err(unavailable)?;
+    // A *new* user/guest message reopens a closed ticket. Replays return
+    // before this update, and therefore cannot resurrect a resolved ticket.
+    sqlx::query("UPDATE support_conversations SET updated_at=now(),
+        expires_at=CASE WHEN requester_user_id IS NULL THEN now()+INTERVAL '30 days' ELSE NULL END,
+        status_revision=CASE WHEN $2 IN ('guest','user') AND status='closed' THEN status_revision+1 ELSE status_revision END,
+        closed_at=CASE WHEN $2 IN ('guest','user') THEN NULL ELSE closed_at END,
+        status=CASE WHEN $2 IN ('guest','user') THEN 'open' ELSE status END
+        WHERE id=$1")
+        .bind(chat).bind(kind).execute(&mut **tx).await.map_err(unavailable)?;
     Ok(Message {
         id: r.0,
         sender_kind: r.1,
@@ -151,14 +169,15 @@ impl SupportRepository for PgSupport {
         before: Option<i64>,
         limit: u16,
     ) -> Result<Vec<Chat>, SupportError> {
-        let rows=sqlx::query_as::<_,(i64,Option<i64>,String,Option<i64>,String,bool)>("WITH chats AS (
+        let rows=sqlx::query_as::<_,(i64,Option<i64>,String,Option<i64>,String,bool,bool,i64)>("WITH chats AS (
           SELECT c.id,c.requester_user_id,c.guest_alias,m.id AS last_id,COALESCE(left(m.body,140),'') AS preview,
+            c.status='closed' AS is_closed, c.status_revision,
             (m.id IS NOT NULL AND (r.last_message_id IS NULL OR m.id>r.last_message_id)) AS unread,
             COALESCE(m.created_at,c.created_at) AS activity
           FROM support_conversations c LEFT JOIN LATERAL(SELECT id,body,created_at FROM support_messages WHERE conversation_id=c.id ORDER BY id DESC LIMIT 1)m ON TRUE
           LEFT JOIN support_admin_reads r ON r.conversation_id=c.id AND r.admin_user_id=$1
           WHERE c.expires_at IS NULL OR c.expires_at>now())
-          SELECT id,requester_user_id,guest_alias,last_id,preview,unread FROM chats
+          SELECT id,requester_user_id,guest_alias,last_id,preview,unread,is_closed,status_revision FROM chats
           WHERE $2::BIGINT IS NULL OR (activity,id)<(SELECT activity,id FROM chats WHERE id=$2)
           ORDER BY activity DESC,id DESC LIMIT $3")
             .bind(admin).bind(before).bind(i64::from(limit)).fetch_all(&self.pool).await.map_err(unavailable)?;
@@ -171,6 +190,8 @@ impl SupportRepository for PgSupport {
                 last_message_id: r.3,
                 last_message_preview: r.4,
                 unread: r.5,
+                is_closed: r.6,
+                status_revision: r.7,
             })
             .collect())
     }
@@ -205,6 +226,63 @@ impl SupportRepository for PgSupport {
             .bind(admin).bind(result.id).bind(request_id).execute(&mut *tx).await.map_err(unavailable)?;
         tx.commit().await.map_err(unavailable)?;
         Ok(result)
+    }
+    async fn change_status(
+        &self,
+        admin: i64,
+        chat: i64,
+        closed: bool,
+        expected_revision: i64,
+        request_id: &str,
+    ) -> Result<(), SupportError> {
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        // Locks serialize admin status changes with sends, claims and refreshes.
+        let existing: Option<(bool, i64)> = sqlx::query_as(
+            "SELECT status='closed', status_revision FROM support_conversations
+             WHERE id=$1 AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE",
+        )
+        .bind(chat)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        let (was_closed, revision) = existing.ok_or(SupportError::NotFound)?;
+        if was_closed == closed {
+            // A repeated action has no second audit row or revision change.
+            tx.commit().await.map_err(unavailable)?;
+            return Ok(());
+        }
+        if revision != expected_revision {
+            // Do not let a stale Close suppress a newer requester message.
+            return Err(SupportError::Conflict);
+        }
+        let updated: i64 = sqlx::query_scalar(
+            "UPDATE support_conversations SET status=$2,
+                 status_revision=status_revision+1,
+                 closed_at=CASE WHEN $2='closed' THEN now() ELSE NULL END,
+                 updated_at=now()
+             WHERE id=$1 RETURNING status_revision",
+        )
+        .bind(chat)
+        .bind(if closed { "closed" } else { "open" })
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        sqlx::query(
+            "INSERT INTO admin_action_audit(
+                actor_id,action,resource_type,resource_id,request_id,
+                before_revision,after_revision,outcome)
+             VALUES($1,$2,'support_conversation',$3,$4,$5,$6,'success')",
+        )
+        .bind(admin)
+        .bind(if closed { "support.close" } else { "support.reopen" })
+        .bind(chat)
+        .bind(request_id)
+        .bind(revision)
+        .bind(updated)
+        .execute(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        tx.commit().await.map_err(unavailable)
     }
     async fn mark_admin_read(
         &self,
