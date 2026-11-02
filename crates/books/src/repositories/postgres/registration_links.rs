@@ -53,13 +53,7 @@ pub(super) async fn check(
     // A historical Rulate link may contain a different scheme/query/host.
     for (_, url) in &links {
         if let Some(work_id) = rulate_work_id(url) {
-            if source_alias_guard::rulate_work_exists(
-                tx,
-                &book.target_language,
-                &work_id,
-            )
-            .await?
-            {
+            if source_alias_guard::rulate_work_exists(tx, &book.target_language, &work_id).await? {
                 return Err(AuthorError::Conflict);
             }
         }
