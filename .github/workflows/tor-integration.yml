@@ -89,6 +89,11 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
+      # CI-only: full SQLx integration links many tor-web test binaries.
+      # Avoid debug DWARF and incremental artifacts exhausting runner disk.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       PGHOST: 127.0.0.1
       PGUSER: postgres
       PGDATABASE: postgres
