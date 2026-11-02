@@ -46,6 +46,9 @@ pub struct AuthorIssue {
 
 pub struct AuthorIssuePage {
     pub book_title: String,
+    /// The chapter publisher currently authorizes only the verified owner.
+    /// Translators and moderators can triage but cannot publish text.
+    pub can_edit_chapter: bool,
     pub issues: Vec<AuthorIssue>,
     pub next: Option<i64>,
 }
@@ -218,18 +221,21 @@ impl PgTextIssues {
         {
             return Err(IssueError::Invalid);
         }
-        let title = sqlx::query_scalar::<_, String>(
-            "SELECT b.title FROM books b
+        let access = sqlx::query_as::<_, (String, bool)>(
+            "SELECT b.title,(m.role='owner' AND b.owner_user_id=m.user_id)
+             FROM books b
              JOIN book_members m ON m.book_id=b.id
              WHERE b.id=$1 AND m.user_id=$2 AND m.is_active
-               AND m.role IN ('owner','translator','moderator')",
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND m.role IN ('owner','translator','moderator')
+               AND (m.role<>'owner' OR b.owner_user_id=m.user_id)",
         )
         .bind(book_id)
         .bind(actor)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| IssueError::Unavailable)?;
-        let Some(title) = title else {
+        let Some((title, can_edit_chapter)) = access else {
             return Ok(None);
         };
         let rows = sqlx::query(
@@ -238,8 +244,11 @@ impl PgTextIssues {
              FROM text_issues i
              WHERE i.book_id=$1
                AND EXISTS (SELECT 1 FROM book_members m
+                           JOIN books b ON b.id=m.book_id
                            WHERE m.book_id=i.book_id AND m.user_id=$4
-                             AND m.is_active AND m.role IN ('owner','translator','moderator'))
+                             AND m.is_active AND m.role IN ('owner','translator','moderator')
+                             AND NOT b.admin_hold AND NOT b.is_deleted
+                             AND (m.role<>'owner' OR b.owner_user_id=m.user_id))
                AND ($2::text IS NULL OR i.status=$2)
                AND ($3::bigint IS NULL OR i.id<$3)
              ORDER BY i.id DESC LIMIT 26",
@@ -288,6 +297,7 @@ impl PgTextIssues {
         };
         Ok(Some(AuthorIssuePage {
             book_title: title,
+            can_edit_chapter,
             issues,
             next,
         }))
@@ -318,9 +328,12 @@ impl PgTextIssues {
             .map_err(|_| IssueError::Unavailable)?;
         let current = sqlx::query_scalar::<_, String>(
             "SELECT i.status FROM text_issues i
+             JOIN books b ON b.id=i.book_id
              JOIN book_members m ON m.book_id=i.book_id
              WHERE i.id=$1 AND i.book_id=$2 AND m.user_id=$3
                AND m.is_active AND m.role IN ('owner','translator','moderator')
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
              FOR UPDATE OF i,m",
         )
         .bind(issue_id)

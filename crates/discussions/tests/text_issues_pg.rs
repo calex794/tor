@@ -190,6 +190,46 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
     assert_eq!(page.issues.len(), 1);
     assert_eq!(page.issues[0].id, issue_id);
     assert_eq!(page.issues[0].version_id, version);
+    assert!(page.can_edit_chapter);
+    let translator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Translator','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e12-translator-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let moderator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Moderator','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e12-moderator-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for (actor, role) in [(translator, "translator"), (moderator, "moderator")] {
+        sqlx::query("INSERT INTO book_members(book_id,user_id,role) VALUES ($1,$2,$3)")
+            .bind(book)
+            .bind(actor)
+            .bind(role)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let team_page = store.author_page(actor, book, None, None).await.unwrap().unwrap();
+        assert_eq!(team_page.issues.len(), 1);
+        assert!(!team_page.can_edit_chapter, "{role} must not get the editor link");
+    }
+    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
+        .bind(book)
+        .bind(translator)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store.author_page(translator, book, None, None).await.unwrap().is_none());
+    assert_eq!(
+        store.update_status(translator, book, issue_id, "fixed", None).await.unwrap(),
+        StatusMutation::NotFound
+    );
     assert_eq!(
         store
             .update_status(reader, book, issue_id, "fixed", None)

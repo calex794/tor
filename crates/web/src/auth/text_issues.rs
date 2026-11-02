@@ -124,6 +124,12 @@ pub(super) async fn author_page(
         Err(err) => return deny(status(err)),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let can_edit_chapter = page.can_edit_chapter;
+    let book_link = if can_edit_chapter {
+        format!("<a href=\"/me/books/{book_id}\">К книге</a>")
+    } else {
+        format!("<a href=\"/books/{book_id}\">К книге</a>")
+    };
     let mut cards = String::new();
     for issue in page.issues {
         let name = pages::escape_html(&issue.issue_type);
@@ -134,11 +140,20 @@ pub(super) async fn author_page(
         let resolution = issue.resolved_version_id.map_or_else(String::new, |id| {
             format!("<p>Исправлено в опубликованной редакции №{id}</p>")
         });
+        let edit_action = if can_edit_chapter {
+            format!(
+                "<p><a href=\"/me/books/{book_id}/chapters/{}/edit\">Открыть редактор</a></p>",
+                issue.chapter_id
+            )
+        } else {
+            "<p>Изменять текст главы может только владелец книги. Передайте ему обращение.</p>"
+                .to_owned()
+        };
         cards.push_str(&format!(
             r#"<section class="auth-card"><p>Глава №{chapter}, версия №{version}, фрагмент №{block}</p>
             <p>Тип: {name}. Состояние: {status_name}</p>
             <blockquote>{quote}</blockquote><p>Предложение: {suggestion}</p>{resolution}
-            <p><a href="/me/books/{book_id}/chapters/{chapter}/edit">Открыть редактор</a></p>
+            {edit_action}
             <form method="post" action="/me/books/{book_id}/issues/{id}/status">
             <input type="hidden" name="csrf_token" value="{csrf}">
             <label>Состояние
@@ -177,7 +192,7 @@ pub(super) async fn author_page(
     let body = format!(
         r#"<section class="section auth-section"><div class="container">
         <h1>Ошибки текста — {title}</h1>{revision_warning}
-        <nav><a href="/me/books/{book_id}">К книге</a> ·
+        <nav>{book_link} ·
         <a href="/me/books/{book_id}/issues">Все</a> ·
         <a href="/me/books/{book_id}/issues?status=new">Новые</a> ·
         <a href="/me/books/{book_id}/issues?status=in_review">В работе</a> ·
