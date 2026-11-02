@@ -353,7 +353,8 @@ fn s047_public_free_reader_binds_issue_form_only_to_verified_session() {
     assert!(signed.contains("data-free-issues id=\"text-issues\" open"));
     assert!(!signed.contains("<script>Книга</script>"));
     assert!(!signed.contains("<script>Заголовок</script>"));
-    let injected = reader_with_public_features(&chapter, Some(101), Some("safe"), Some("<script>")).0;
+    let injected =
+        reader_with_public_features(&chapter, Some(101), Some("safe"), Some("<script>")).0;
     assert!(!injected.contains("Сообщение об ошибке отправлено"));
     assert!(!injected.contains("&lt;script&gt;</p>"));
 }
