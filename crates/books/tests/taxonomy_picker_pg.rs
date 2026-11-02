@@ -123,8 +123,7 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         matches!(
             author
                 .resolve_taxonomy_selection(
-                    &TaxonomySelection::parse(None, Some(&candidate_id.to_string()), None)
-                        .unwrap()
+                    &TaxonomySelection::parse(None, Some(&candidate_id.to_string()), None).unwrap()
                 )
                 .await,
             Err(AuthorError::Invalid)
