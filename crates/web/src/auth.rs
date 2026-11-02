@@ -52,10 +52,10 @@ mod book_description;
 mod book_follow_actions;
 mod book_likes;
 mod book_registration_http;
-mod book_title_suggestions;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
+mod book_title_suggestions;
 mod chapter_comments;
 mod chapter_thanks;
 mod checkout;
@@ -370,8 +370,14 @@ fn router_inner(
         )
         .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
-        .route("/me/books/title-suggestions", get(book_title_suggestions::find))
-        .route("/assets/book-title-suggestions.js", get(book_title_suggestions::script))
+        .route(
+            "/me/books/title-suggestions",
+            get(book_title_suggestions::find),
+        )
+        .route(
+            "/assets/book-title-suggestions.js",
+            get(book_title_suggestions::script),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
