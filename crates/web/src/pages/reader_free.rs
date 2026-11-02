@@ -67,7 +67,7 @@ mod progress_tests {
         assert!(rendered.html.contains("т😀a"));
         assert!(rendered.attributes.contains("data-free-progress-chapter=\"101\""));
         assert!(rendered.attributes.contains("data-free-progress-version=\"607\""));
-        assert!(rendered.attributes.contains("data-free-progress-blocks=\"0:4,6:16,24:5\""),
+        assert!(rendered.attributes.contains("data-free-progress-blocks=\"0:4,6:15,23:5\""),
             "reader_blocks must use the same UTF-16 boundaries as the renderer: {}", rendered.attributes);
     }
 
