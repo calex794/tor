@@ -122,7 +122,7 @@ async fn c_14_paid_v1_completion_survives_v2_and_refund_blocks_new_fact() {
         "SELECT payload::text FROM outbox_events
          WHERE id=$1::uuid AND event_type='ChapterCompletedV1'
            AND aggregate_kind='chapter'
-           AND required_consumers=ARRAY['ranking-eligibility-v1']",
+           AND required_consumers=ARRAY['ranking-eligibility-v1','achievements-v1']",
     )
     .bind(&event_id)
     .fetch_one(&pool)

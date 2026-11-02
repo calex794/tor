@@ -353,7 +353,10 @@ async fn f_05_http_reader_finish_form_to_personal_ranking() {
     )
     .await;
     assert_eq!(completed.status(), StatusCode::SEE_OTHER);
-    assert_eq!(completed.headers()[header::LOCATION], "/me/rankings");
+    assert_eq!(
+        completed.headers()[header::LOCATION],
+        "/read/101#continuation"
+    );
     assert_eq!(
         send(
             &app,
@@ -398,6 +401,23 @@ async fn f_05_http_reader_finish_form_to_personal_ranking() {
     let reopened_html = body_of(reopened).await;
     assert!(reopened_html.contains("Глава уже отмечена прочитанной"));
     assert!(!reopened_html.contains("action=\"/read/101/complete\""));
+
+    // F-12/S046: this very same verified C event also awards the first
+    // private reading badge; pageview and saved place alone did not.
+    let private = send(&app, request("GET", "/me", "", &session, ORIGIN)).await;
+    assert_eq!(private.status(), StatusCode::OK);
+    assert_eq!(private.headers()[header::CACHE_CONTROL], "no-store");
+    let dashboard = body_of(private).await;
+    assert!(dashboard.contains("Первая глава"));
+    assert!(dashboard.contains("Получено: 1/1 глав"));
+    assert!(dashboard.contains("Дата получения:"));
+    assert_eq!(
+        send(&app, request("GET", "/me", "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::SEE_OTHER,
+        "guest must never see another reader's achievements"
+    );
 
     let result = send(&app, request("GET", "/me/rankings", "", &session, ORIGIN)).await;
     assert_eq!(result.status(), StatusCode::OK);

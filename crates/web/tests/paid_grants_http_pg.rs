@@ -441,6 +441,14 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         fake.clone(),
         None,
     );
+    // A wallet switch alone cannot expose a purchase form without the private reader.
+    let purchase_path = format!("/me/chapters/{chapter}/buy");
+    assert_eq!(
+        read_page(&app, &purchase_path, Some(&buyer_cookie))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+    );
     let path = route(chapter);
     let pre_purchase = send(
         &app,
@@ -671,6 +679,17 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert_eq!(body["content"]["object_sha256"], sha);
     assert!(!body.to_string().contains(BODY));
     assert_eq!(fake.signed.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        scalar(
+            &url,
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_first_exposures
+                 WHERE purchase_id={purchase_id} AND user_id={buyer}"
+            ),
+        ),
+        1,
+        "a successful paid grant must write durable first exposure"
+    );
 
     let v2 = scalar(
         &url,

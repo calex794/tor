@@ -64,6 +64,22 @@ pub(super) async fn grant_asset(
     .await;
     match result {
         Ok(grant) => {
+            let Some(version) = positive(&grant.version_id) else {
+                return deny(StatusCode::SERVICE_UNAVAILABLE);
+            };
+            if let Err(error) = state
+                .first_direct_grant
+                .record(
+                    actor_id,
+                    chapter_id,
+                    version,
+                    purchase_id,
+                    DirectGrantKind::Asset,
+                )
+                .await
+            {
+                return deny(status(error));
+            }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(
                 header::CACHE_CONTROL,

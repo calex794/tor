@@ -107,6 +107,22 @@ pub(super) async fn count_filtered(
     tag: Option<&str>,
     fandom: Option<&str>,
 ) -> Result<u64, SearchError> {
+    // Exact, transactionally maintained public total for unfiltered pages.
+    // Filtered totals still use the original SQL predicates, never estimates.
+    if term.trim().is_empty()
+        && language.is_none()
+        && genre.is_none()
+        && tag.is_none()
+        && fandom.is_none()
+    {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT visible_book_count FROM public_catalog_statistics WHERE singleton",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|_| SearchError::Unavailable)?;
+        return u64::try_from(count).map_err(|_| SearchError::Unavailable);
+    }
     let total: i64 = sqlx::query_scalar(FILTERED_TOTAL)
         .bind(term.trim())
         .bind(language)
@@ -157,7 +173,7 @@ fn hex_nibble(byte: u8) -> Result<u8, SearchError> {
 
 /// The key is taken from PostgreSQL lower(...), not Rust Unicode lowercasing.
 /// This keeps the cursor's collation consistent with ORDER BY in PostgreSQL.
-fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
+pub(super) fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
     let mut encoded = String::with_capacity(key.len() * 2 + 40);
     encoded.push_str(sort.as_str());
     encoded.push('.');
@@ -170,7 +186,7 @@ fn encode_lexical_cursor(sort: CatalogSort, key: &str, id: u64) -> String {
     encoded
 }
 
-fn decode_lexical_cursor(
+pub(super) fn decode_lexical_cursor(
     raw: Option<&str>,
     sort: CatalogSort,
 ) -> Result<(Option<String>, i64), SearchError> {
@@ -281,26 +297,28 @@ pub struct TaxonomyOptions {
 }
 
 pub(super) async fn taxonomy_options(pool: &PgPool) -> Result<TaxonomyOptions, SearchError> {
-    // Bounded output. Unlike search, this endpoint is intended for first-page
-    // UI discovery and is never invoked for every cursor request.
+    // The migration maintains exact distinct-public-book references in the
+    // SAME transaction as every publication, hold, deletion and facet change.
+    // No stale TTL, pg_class estimates, or per-request scans of all books.
     const SQL: &str = "
         SELECT 'genre' AS kind, name FROM (
-            SELECT DISTINCT unnest(genres) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='genre' AND reference_count>0
             ORDER BY name LIMIT 100
         ) g
         UNION ALL
         SELECT 'tag' AS kind, name FROM (
-            SELECT DISTINCT unnest(tags) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='tag' AND reference_count>0
             ORDER BY name LIMIT 100
         ) t
         UNION ALL
         SELECT 'fandom' AS kind, name FROM (
-            SELECT DISTINCT unnest(fandoms) AS name FROM books
-            WHERE visibility='public' AND NOT admin_hold AND NOT is_deleted
+            SELECT name FROM public_catalog_facets
+            WHERE kind='fandom' AND reference_count>0
             ORDER BY name LIMIT 100
         ) f";
+
     let rows = sqlx::query(SQL)
         .fetch_all(pool)
         .await

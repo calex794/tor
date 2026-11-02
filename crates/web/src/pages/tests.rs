@@ -1,4 +1,33 @@
 use super::*;
+
+#[test]
+fn s035_book_detail_only_links_batch_when_enabled_and_two_paid_chapters_exist() {
+    let book = tor_reading::services::PublicBookPage {
+        id: 91,
+        title: "<script>Book</script>".to_owned(),
+        language: "ru".to_owned(),
+        author_name: String::new(),
+        genres: Vec::new(),
+        description: String::new(),
+        chapters: (1_u64..=2)
+            .map(|id| tor_reading::services::PublicChapterLink {
+                id,
+                number: id as i32,
+                title: "Платная".to_owned(),
+                is_paid: true,
+                price_minor: 100,
+            })
+            .collect(),
+        next_cursor: None,
+    };
+    let hidden = book_detail_with_chapters_cover_internal(&book, 20, false, false).0;
+    assert!(!hidden.contains("buy-chapters"));
+    let enabled = book_detail_with_chapters_cover_internal(&book, 20, false, true).0;
+    assert!(enabled.contains("href=\"/me/books/91/buy-chapters\""));
+    assert!(!enabled.contains("<script>Book</script>"));
+    assert!(enabled.contains("&lt;script&gt;Book&lt;/script&gt;"));
+}
+
 #[test]
 fn escapes_untrusted_book_titles() {
     let page = home(&[PublicBookCard {
@@ -29,6 +58,8 @@ fn catalog_metadata_must_be_escaped_in_cards() {
             tag: None,
             fandom: None,
             cursor: None,
+            previous_cursor: None,
+            page_number: 1,
             sort: "oldest",
             total: Some(1),
             options: None,
@@ -91,6 +122,29 @@ fn registration_has_russian_server_error_not_native_browser_popup() {
 }
 
 #[test]
+fn auth_forms_preserve_explicit_private_reader_return() {
+    let login = login_form_with_next("csrf", Some("/read/42")).0;
+    assert!(login.contains("name=\"next\" value=\"/read/42\""));
+    assert!(login.contains("href=\"/register?next=/read/42\""));
+    let register = registration_form_with_next("csrf", Some("/read/42")).0;
+    assert!(register.contains("name=\"next\" value=\"/read/42\""));
+    assert!(register.contains("href=\"/login?next=/read/42\""));
+    let error = registration_form_with_error_and_next(
+        "csrf",
+        "Reader",
+        "reader@example.test",
+        Some("Повторите отправку"),
+        Some("/read/42"),
+    )
+    .0;
+    assert!(error.contains("name=\"next\" value=\"/read/42\""));
+    assert!(!login_form("csrf").0.contains("name=\"next\""));
+    assert!(!registration_form("csrf").0.contains("name=\"next\""));
+    assert!(!login.contains("<!--AUTH_RETURN_FIELD-->"));
+    assert!(!register.contains("<!--AUTH_LOGIN_NEXT-->"));
+}
+
+#[test]
 fn account_failure_is_complete_branded_page_without_credentials() {
     let html = account_error_page(
         "Не удалось завершить регистрацию",
@@ -108,7 +162,7 @@ fn account_failure_is_complete_branded_page_without_credentials() {
 
 #[test]
 fn profile_shows_only_actual_user_features() {
-    let html = my_account("<reader>", "csrf").0;
+    let html = my_account("<reader>", "csrf", &[]).0;
     assert!(html.contains("&lt;reader&gt;"));
     assert!(html.contains("href=\"/me/books\""));
     assert!(html.contains("href=\"/me/library\""));
@@ -300,4 +354,110 @@ fn seo02_old_books_with_no_description_do_not_invent_plot() {
     let html = book_detail_with_chapters(&book, 20).0;
     assert!(html.contains("Аннотация пока не добавлена."));
     assert!(!html.contains("Откройте оглавление, чтобы читать доступные главы бесплатно."));
+}
+
+#[test]
+fn c_14_public_continuation_distinguishes_read_access_and_missing_release() {
+    use tor_reading::services::{PublicChapterPage, PublicContinuation};
+    let mut chapter = PublicChapterPage {
+        version_id: 10,
+        book_id: 20,
+        book_title: "Книга <скрипт>".to_owned(),
+        chapter_title: "Глава 1".to_owned(),
+        version_no: 1,
+        body_markdown: "Безопасный текст".to_owned(),
+        previous_chapter_id: None,
+        next_chapter_id: Some(31),
+        next_chapter_is_paid: false,
+    };
+    assert_eq!(chapter.continuation(), PublicContinuation::ReadNow(31));
+    let free = reader(&chapter).0;
+    assert!(free.contains("href=\"/reader/31\""));
+    assert!(free.contains("Следующая глава</a>"));
+    assert!(!free.contains("пока нет"));
+
+    chapter.next_chapter_is_paid = true;
+    assert_eq!(chapter.continuation(), PublicContinuation::NeedsAccess(31));
+    let paid = reader(&chapter).0;
+    assert!(paid.contains("Следующая глава — платная"));
+    assert!(paid.contains("может потребоваться покупка"));
+    assert!(!paid.contains("Следующих опубликованных глав пока нет"));
+    assert!(!paid.contains("Книга <скрипт>"));
+
+    chapter.next_chapter_id = None;
+    chapter.next_chapter_is_paid = false;
+    assert_eq!(
+        chapter.continuation(),
+        PublicContinuation::WaitingForRelease
+    );
+    let waiting = reader(&chapter).0;
+    assert!(waiting.contains("Следующих опубликованных глав пока нет"));
+    assert!(!waiting.contains("href=\"/reader/31\""));
+}
+
+#[test]
+fn c_15_public_caught_up_guides_reader_to_explicit_private_completion() {
+    let mut chapter = tor_reading::services::PublicChapterPage {
+        version_id: 15,
+        book_id: 6,
+        book_title: "Ожидаемая книга".to_owned(),
+        chapter_title: "Конец главы".to_owned(),
+        version_no: 1,
+        body_markdown: "Последний абзац".to_owned(),
+        previous_chapter_id: None,
+        next_chapter_id: None,
+        next_chapter_is_paid: false,
+    };
+    let waiting = reader_with_login_link(&chapter, Some(77)).0;
+    assert!(waiting.contains("href=\"/read/77\""));
+    assert!(waiting.contains("попросить продолжение"));
+    assert!(!reader(&chapter).0.contains("href=\"/read/77\""));
+    chapter.next_chapter_id = Some(78);
+    chapter.next_chapter_is_paid = true;
+    let published = reader_with_login_link(&chapter, Some(77)).0;
+    assert!(!published.contains("href=\"/read/77\""));
+    assert!(published.contains("Следующая глава — платная"));
+    let private = private_reader(
+        77,
+        &chapter,
+        "csrf",
+        tor_reading::services::progress::SavedPlaceState::NotSaved,
+        0,
+        false,
+    )
+    .0;
+    assert!(private.contains("href=\"/reader/78\""));
+    assert!(!private.contains("href=\"/read/78\""));
+}
+
+#[test]
+fn b_18_navigation_follows_books_in_catalog_layout() {
+    let query = CatalogPageQuery {
+        query: "",
+        language: None,
+        genre: None,
+        tag: None,
+        fandom: None,
+        cursor: Some("20"),
+        previous_cursor: None,
+        page_number: 1,
+        sort: "oldest",
+        total: Some(42),
+        options: None,
+    };
+    let html = catalog_search(
+        &[PublicBookCard {
+            id: 20,
+            title: "Последняя на странице".into(),
+            language: "ru".into(),
+            author_name: None,
+            genres: vec![],
+        }],
+        query,
+    )
+    .0;
+    let card = html.find("Последняя на странице").expect("book card");
+    let navigation = html.find("catalog-pagination").expect("page controls");
+    assert!(navigation > card, "page navigation follows the book grid");
+    assert!(html.contains("Страница 1"));
 }

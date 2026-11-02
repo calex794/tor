@@ -19,7 +19,7 @@ pub fn chapter_purchase_form(
       <h1>Купить главу</h1>
       <p><strong>{book}</strong> · Глава {chapter_no}. {chapter}</p>
       <p class="purchase-amount">К списанию из внутреннего кошелька: <strong>{price} ₽</strong></p>
-      <p>Будет приобретена редакция, указанная на момент подтверждения. Новые редакции продаются отдельно.</p>
+      <p>Покупка закрепляет указанную редакцию; последующая правка автором её не заменяет.</p>
       <form method="post" action="/me/chapters/{id}/buy">
         <input type="hidden" name="expected_version_id" value="{version}">
         <input type="hidden" name="expected_price_minor" value="{minor}">

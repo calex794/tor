@@ -212,6 +212,15 @@ impl PgReadingSync {
             return Err(SyncError::Conflict);
         }
 
+        super::started::record(
+            &mut tx,
+            actor,
+            book_id,
+            chapter_id,
+            version_id,
+            Some(purchase_id),
+        )
+        .await?;
         let created = sqlx::query_scalar::<_, String>(
             "INSERT INTO reader_chapter_completions
                 (user_id,book_id,chapter_id,first_version_id,purchase_id,source_event_id)
@@ -238,7 +247,7 @@ impl PgReadingSync {
                     jsonb_build_object('user_id',$2,'book_id',$3,
                         'chapter_id',$4,'version_id',$5,'purchase_id',$6,
                         'authority','C-verified-purchased-position'),
-                    ARRAY['ranking-eligibility-v1'])",
+                    ARRAY['ranking-eligibility-v1','achievements-v1'])",
             )
             .bind(&event_id)
             .bind(actor)

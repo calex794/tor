@@ -12,7 +12,7 @@ import tomllib
 
 from ci_test_map import (
     BROWSER_SUITES, CRITICAL_PACKAGES, KNOWN_PACKAGES, POSTGRES_SUITES,
-    PROSE_FILES, PROSE_PREFIXES,
+    PROSE_FILES, PROSE_PREFIXES, RULES_ONLY_FILES,
     SUITES, TEST_SUITES,
 )
 
@@ -107,6 +107,11 @@ def select(root: Path, paths, force_full=None):
             continue
         if path in PROSE_FILES or (path.endswith(".md") and path.startswith(PROSE_PREFIXES)):
             reasons.append(f"prose: {path}")
+            continue
+        if path in RULES_ONLY_FILES:
+            # These exact paths are exercised by unconditional Repository rules.
+            # No Rust/PG/browser suite imports or executes this reporting code.
+            reasons.append(f"rules-only independent CI metrics: {path}")
             continue
         directory = "/".join(parts[:2])
         package = directories.get(directory)

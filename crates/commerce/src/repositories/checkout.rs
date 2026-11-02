@@ -1,5 +1,11 @@
 //! D-02: buyer wallet, immutable purchase and ledger in one PostgreSQL commit.
 //! No public funding route or payment provider. Only the owner can request a buy.
+mod batch;
+mod offers;
+pub use offers::PublishedChapterOffer;
+pub(crate) mod revenue;
+pub use batch::SelectableBatchOffer;
+
 use crate::domain::money::{
     CheckoutError, CheckoutRepository, MoneyMinor, PurchaseCommand, PurchaseId, PurchaseReceipt,
 };
@@ -7,21 +13,11 @@ use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::{ChapterVersionRef, PositiveId};
 
-/// Server-verified paid offer; no plaintext, object key, grant or entitlement.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PublishedChapterOffer {
-    pub book_id: i64,
-    pub book_title: String,
-    pub chapter_id: i64,
-    pub chapter_no: i32,
-    pub chapter_title: String,
-    pub version_id: i64,
-    pub price_minor: i64,
-}
-
 #[derive(Clone)]
 pub struct PgCheckout {
     pool: PgPool,
+    // Explicit staged activation, false for all currently exposed routes.
+    creator_posting_enabled: bool,
 }
 
 fn unavailable(_: sqlx::Error) -> CheckoutError {
@@ -30,102 +26,17 @@ fn unavailable(_: sqlx::Error) -> CheckoutError {
 
 impl PgCheckout {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            creator_posting_enabled: false,
+        }
     }
 
-    /// The browser may offer a purchase only for the current published paid
-    /// edition whose private encrypted S3 object was B/G verified and attached.
-    /// D still rechecks the exact price/version with row locks at debit time.
-    pub async fn published_chapter_offer(
-        &self,
-        chapter_id: i64,
-    ) -> Result<Option<PublishedChapterOffer>, CheckoutError> {
-        if chapter_id <= 0 {
-            return Ok(None);
-        }
-        let row = sqlx::query(
-            "SELECT b.id AS book_id, b.title AS book_title,
-                    c.id AS chapter_id, c.chapter_no, c.title AS chapter_title,
-                    p.version_id, c.price_amount
-             FROM chapters c
-             JOIN books b ON b.id=c.book_id
-             JOIN chapter_publications p ON p.chapter_id=c.id
-             JOIN chapter_versions v ON v.id=p.version_id AND v.chapter_id=c.id
-             JOIN storage_objects o ON o.id=v.storage_object_id
-                 AND o.state='attached' AND o.object_kind='chapter'
-             WHERE c.id=$1 AND c.visibility='public' AND c.access_level='paid'
-               AND c.price_amount>0 AND NOT c.admin_hold AND NOT c.is_deleted
-               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted",
-        )
-        .bind(chapter_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(unavailable)?;
-        row.map(|row| {
-            Ok(PublishedChapterOffer {
-                book_id: row.try_get("book_id").map_err(unavailable)?,
-                book_title: row.try_get("book_title").map_err(unavailable)?,
-                chapter_id: row.try_get("chapter_id").map_err(unavailable)?,
-                chapter_no: row.try_get("chapter_no").map_err(unavailable)?,
-                chapter_title: row.try_get("chapter_title").map_err(unavailable)?,
-                version_id: row.try_get("version_id").map_err(unavailable)?,
-                price_minor: row.try_get("price_amount").map_err(unavailable)?,
-            })
-        })
-        .transpose()
-    }
-
-    /// An existing purchase cannot be charged again through a new browser form,
-    /// even if it was later revoked and the person no longer sees it in library.
-    pub async fn purchased_chapter(
-        &self,
-        actor: i64,
-        chapter_id: i64,
-    ) -> Result<bool, CheckoutError> {
-        if actor <= 0 || chapter_id <= 0 {
-            return Ok(false);
-        }
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM library_purchased_chapters
-             WHERE user_id=$1 AND chapter_id=$2)",
-        )
-        .bind(actor)
-        .bind(chapter_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(unavailable)
-    }
-
-    /// Allow exact successful-command replays after V1 was replaced by V2.
-    /// The D transaction still compares actor/key/chapter/version/price.
-    /// A new command must name a currently published attached edition.
-    pub async fn browser_offer_ready_or_replay(
-        &self,
-        actor: i64,
-        chapter: i64,
-        version: i64,
-        price: i64,
-        command_key: &str,
-    ) -> Result<bool, CheckoutError> {
-        if actor <= 0 || chapter <= 0 || version <= 0 || price <= 0 {
-            return Ok(false);
-        }
-        let completed: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM chapter_purchase_commands
-             WHERE user_id=$1 AND command_key=$2 AND purchase_id IS NOT NULL)",
-        )
-        .bind(actor)
-        .bind(command_key)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(unavailable)?;
-        if completed {
-            return Ok(true);
-        }
-        let offered = self.published_chapter_offer(chapter).await?;
-        Ok(offered
-            .is_some_and(|current| current.version_id == version && current.price_minor == price))
+    /// Only enable after operator-published, immutable revenue/refund terms.
+    /// An absent policy fails closed before the buyer wallet is charged.
+    pub fn with_creator_posting(mut self, enabled: bool) -> Self {
+        self.creator_posting_enabled = enabled;
+        self
     }
 }
 
@@ -272,6 +183,11 @@ impl CheckoutRepository for PgCheckout {
         if share_total != 100 {
             return Err(CheckoutError::Unavailable);
         }
+        let finance_terms = if self.creator_posting_enabled {
+            Some(revenue::load_terms(&mut tx, economic_book_id, share_revision, price).await?)
+        } else {
+            None
+        };
 
         // Lock the wallet across DISTINCT purchase keys to prohibit overspend.
         let balance = sqlx::query_scalar::<_, i64>(
@@ -283,17 +199,30 @@ impl CheckoutRepository for PgCheckout {
         .await
         .map_err(unavailable)?;
 
-        let owned = sqlx::query_scalar::<_, i64>(
-            "SELECT purchase_id FROM library_purchased_chapters
-             WHERE user_id=$1 AND chapter_id=$2",
+        let owned = sqlx::query(
+            "SELECT l.purchase_id,
+                    EXISTS (
+                      SELECT 1 FROM finance_direct_refund_postings refund
+                      WHERE refund.purchase_id=l.purchase_id
+                    ) AS settled_refund
+             FROM library_purchased_chapters l
+             WHERE l.user_id=$1 AND l.chapter_id=$2",
         )
         .bind(actor)
         .bind(chapter)
         .fetch_optional(&mut *tx)
         .await
         .map_err(unavailable)?;
-        if owned.is_some() {
-            return Err(CheckoutError::AlreadyOwned);
+        if let Some(row) = owned {
+            let refunded: bool = row.try_get("settled_refund").map_err(unavailable)?;
+            if !refunded {
+                return Err(CheckoutError::AlreadyOwned);
+            }
+            // A refunded purchase may be reacquired only with a new exact
+            // D-08 creator/platform posting. Never a wallet-only repeat sale.
+            if !self.creator_posting_enabled {
+                return Err(CheckoutError::Unavailable);
+            }
         }
         let balance = balance.unwrap_or(0);
         if balance < price {
@@ -318,14 +247,26 @@ impl CheckoutRepository for PgCheckout {
         // it from mutation. A failure there also rolls the wallet debit back.
         let purchase_id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO chapter_purchase_facts
-              (user_id, chapter_id, version_id, settlement_reference, amount_minor, currency)
-             VALUES ($1, $2, $3, $4, $5, 'RUB') RETURNING id",
+              (user_id, chapter_id, version_id, settlement_reference, amount_minor,
+               currency, first_grant_tracking_version, refund_policy_version,
+               refund_deadline_at)
+             VALUES ($1, $2, $3, $4, $5, 'RUB', 'c06-first-issue-v1',
+                     $6, CASE WHEN $6::TEXT IS NULL THEN NULL
+                         ELSE transaction_timestamp() +
+                              ($7::BIGINT * INTERVAL '1 second') END)
+             RETURNING id",
         )
         .bind(actor)
         .bind(chapter)
         .bind(version)
         .bind(&settlement)
         .bind(price)
+        .bind(
+            finance_terms
+                .as_ref()
+                .map(|t| t.refund_policy_version.as_str()),
+        )
+        .bind(finance_terms.as_ref().map(|t| t.refund_window_seconds))
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| {
@@ -383,6 +324,17 @@ impl CheckoutRepository for PgCheckout {
         .execute(&mut *tx)
         .await
         .map_err(unavailable)?;
+
+        if let Some(terms) = &finance_terms {
+            revenue::post_purchase(
+                &mut tx,
+                purchase_id,
+                economic_book_id,
+                share_revision,
+                terms,
+            )
+            .await?;
+        }
 
         sqlx::query(
             "UPDATE chapter_purchase_commands SET purchase_id=$3

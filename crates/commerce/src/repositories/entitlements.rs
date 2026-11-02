@@ -19,6 +19,13 @@ pub struct ReadablePurchase {
     pub chapter_title: String,
 }
 
+/// D-authorized navigation link, not a new purchase grant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReadablePurchaseLink {
+    pub chapter_id: i64,
+    pub purchase_id: i64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadablePurchasesPage {
     pub items: Vec<ReadablePurchase>,
@@ -311,6 +318,49 @@ impl PgDirectEntitlements {
             chapters,
             truncated,
         })
+    }
+
+    /// A bounded, actor-scoped batch lookup for the follow feed. Only D's
+    /// canonical non-revoked exact-version policy may label a chapter owned.
+    /// A link is navigation metadata; grant issuance rechecks D separately.
+    pub async fn readable_purchase_links(
+        &self,
+        actor: PositiveId,
+        chapter_ids: &[i64],
+    ) -> Result<Vec<ReadablePurchaseLink>, DeliveryError> {
+        if chapter_ids.len() > 30 || chapter_ids.iter().any(|id| *id <= 0) {
+            return Err(DeliveryError::Denied);
+        }
+        if chapter_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            "SELECT l.chapter_id, p.id AS purchase_id
+             FROM library_purchased_chapters l
+             JOIN chapter_purchase_facts p
+               ON p.id=l.purchase_id AND p.user_id=l.user_id
+              AND p.chapter_id=l.chapter_id AND p.version_id=l.active_version_id
+             WHERE l.user_id=$1 AND l.chapter_id=ANY($2::bigint[])
+               AND tor_purchase_version_readable($1,p.id,p.chapter_id,p.version_id)
+             ORDER BY l.chapter_id",
+        )
+        .bind(actor.get())
+        .bind(chapter_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(ReadablePurchaseLink {
+                    chapter_id: row
+                        .try_get("chapter_id")
+                        .map_err(|_| DeliveryError::Unavailable)?,
+                    purchase_id: row
+                        .try_get("purchase_id")
+                        .map_err(|_| DeliveryError::Unavailable)?,
+                })
+            })
+            .collect()
     }
 
     /// D-owned list for the authenticated reader. A purchase ID is only a

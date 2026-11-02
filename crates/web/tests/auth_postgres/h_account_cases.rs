@@ -32,6 +32,95 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     assert!(!escaped_html.contains("value=\"<script>\""));
 }
 
+/// F-09: an invalid manual code must keep the pending guest invitation and
+/// must not create an account before the visitor corrects the form.
+async fn invalid_manual_invitation(app: &Router, csrf: &str, cookies: &str, email: &str) {
+    for (code, message) in [
+        ("broken+code", "Некорректный код приглашения"),
+        ("unknown_invite_2026", "Код приглашения не найден"),
+    ] {
+        let form = format!(
+            "email={}&display_name=CIReader&password=LongSecurePassword2026&manual_invite_code={code}&csrf_token={csrf}",
+            email.replace('@', "%40")
+        );
+        let response = send(app, request("POST", "/register", &form, cookies, ORIGIN)).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(
+            response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .next()
+                .is_none(),
+            "rejected signup must not reset the valid guest invitation"
+        );
+        let html = body_of(response).await;
+        assert!(html.contains(message));
+        assert!(html.contains(format!("value=\"{email}\"").as_str()));
+        assert!(html.contains("name=\"csrf_token\""));
+        assert!(!html.contains("value=\"LongSecurePassword2026\""));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_http_invite_validation_and_consumed_guest_cookie() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
+    assert!(
+        url.ends_with("/tor_ci"),
+        "do not modify a production database"
+    );
+    let catalog = PgCatalog::connect(&url).await.expect("migrated PostgreSQL");
+    let reader = PgReader::new(catalog.pool().clone());
+    let accounts = PgAccounts::from_pool(catalog.pool().clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        reader,
+        accounts,
+        false,
+        ORIGIN.to_owned(),
+    );
+    let page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let csrf_cookie = cookie(&page, "tor-dev-csrf=");
+    let html = body_of(page).await;
+    let csrf = csrf_token(&html);
+    let guest = tor_accounts::services::security::generate_session_token();
+    let cookies = format!("{csrf_cookie}; tor-dev-guest={guest}");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("wall clock")
+        .as_nanos();
+    let email = format!("f09-http-{stamp}@example.invalid");
+
+    invalid_manual_invitation(&app, csrf, &cookies, &email).await;
+
+    // Retrying without the invalid manual code must succeed with the same
+    // guest identity; this also proves the failed POST did not create a user.
+    let form = format!(
+        "email={}&display_name=CIReader&password=LongSecurePassword2026&csrf_token={csrf}",
+        email.replace('@', "%40"),
+    );
+    let response = send(&app, request("POST", "/register", &form, &cookies, ORIGIN)).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/me");
+    assert!(cookie(&response, "tor-dev-session=").len() > 20);
+    assert_eq!(cookie(&response, "tor-dev-guest="), "tor-dev-guest=");
+    let cleared = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find(|value| value.to_str().unwrap_or("").starts_with("tor-dev-guest="))
+        .expect("explicit guest cookie expiration")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(cleared.contains("Max-Age=0"));
+    assert!(cleared.contains("SameSite=Lax"));
+    assert!(cleared.contains("HttpOnly"));
+}
+
 pub(super) async fn duplicate_registration(app: &Router, form: &str, csrf_cookie: &str) {
     let duplicate = send(app, request("POST", "/register", form, csrf_cookie, ORIGIN)).await;
     assert_eq!(
@@ -74,4 +163,507 @@ pub(super) async fn seed_exhausted_proxy_counter(accounts: &PgAccounts) {
             .await
             .expect("seed previously shared Nginx peer limit");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires migrated PostgreSQL 18 tor_ci"]
+async fn f_09_http_personal_referral_link_and_private_aggregate() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
+    assert!(url.ends_with("/tor_ci"), "never test production");
+    let catalog = PgCatalog::connect(&url).await.expect("migrated PostgreSQL");
+    let pool = catalog.pool().clone();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let referrals = tor_referrals::repositories::PgReferrals::new(pool.clone());
+    let reader = PgReader::new(pool);
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        reader,
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+
+    let anonymous = send(&app, request("GET", "/me/referrals", "", "", ORIGIN)).await;
+    assert_eq!(anonymous.status(), StatusCode::SEE_OTHER);
+    assert_eq!(anonymous.headers()[header::LOCATION], "/login");
+    assert_eq!(
+        send(&app, request("GET", "/api/v1/me/referrals", "", "", ORIGIN),)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("wall clock")
+        .as_nanos();
+    let owner_email = format!("f09-owner-{stamp}@example.invalid");
+    let register_page = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+    let register_cookie = cookie(&register_page, "tor-dev-csrf=");
+    let register_body = body_of(register_page).await;
+    let register_csrf = csrf_token(&register_body);
+    let owner_form = format!(
+        "email={}&display_name=Owner&password=LongSecurePassword2026&csrf_token={register_csrf}",
+        owner_email.replace('@', "%40"),
+    );
+    let registered = send(
+        &app,
+        request("POST", "/register", &owner_form, &register_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(registered.status(), StatusCode::SEE_OTHER);
+    let owner_session = cookie(&registered, "tor-dev-session=");
+    let owner_id = accounts
+        .find_user(&owner_email)
+        .await
+        .unwrap()
+        .expect("new owner")
+        .id;
+
+    let initial = send(
+        &app,
+        request("GET", "/me/referrals", "", &owner_session, ORIGIN),
+    )
+    .await;
+    assert_eq!(initial.status(), StatusCode::OK);
+    assert_eq!(initial.headers()[header::CACHE_CONTROL], "no-store");
+    let own_csrf_cookie = cookie(&initial, "tor-dev-csrf=");
+    let initial_html = body_of(initial).await;
+    assert!(initial_html.contains("method=\"post\" action=\"/me/referrals\""));
+    assert!(initial_html.contains("Создать ссылку"));
+    assert!(initial_html.contains("href=\"/me/referrals\""));
+    let token = csrf_token(&initial_html).to_owned();
+    let own_cookies = format!("{owner_session}; {own_csrf_cookie}");
+    let post_form = format!("csrf_token={token}");
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/me/referrals",
+                &post_form,
+                &own_cookies,
+                "https://evil.example"
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals",
+                "csrf_token=invalid",
+                &own_cookies,
+                ORIGIN
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(referrals
+        .default_reader_code(owner_id)
+        .await
+        .unwrap()
+        .is_none());
+
+    let created = send(
+        &app,
+        request("POST", "/me/referrals", &post_form, &own_cookies, ORIGIN),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::SEE_OTHER);
+    assert_eq!(created.headers()[header::LOCATION], "/me/referrals");
+    let owned = referrals
+        .reader_overview(owner_id)
+        .await
+        .unwrap()
+        .default_code
+        .expect("owned invitation");
+    assert_eq!(owned.status, "active");
+    assert_eq!(
+        send(
+            &app,
+            request("POST", "/me/referrals", &post_form, &own_cookies, ORIGIN),
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    let api_create = send(
+        &app,
+        request(
+            "POST",
+            "/api/v1/me/referrals",
+            &post_form,
+            &own_cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(api_create.status(), StatusCode::OK);
+    assert_eq!(api_create.headers()[header::CACHE_CONTROL], "no-store");
+    let data = body_of(api_create).await;
+    assert!(data.contains(&format!("\"code\":\"{}\"", owned.code)));
+    assert!(data.contains("\"active\":0"));
+    assert_eq!(
+        referrals.default_reader_code(owner_id).await.unwrap(),
+        Some(owned.clone()),
+    );
+
+    // Only the verified owner may bind one permanent /go or /promo alias.
+    let alias = format!("reader-{owner_id}-{stamp}");
+    let alias_form = format!("prefix=go&alias={alias}&csrf_token={token}");
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                &alias_form,
+                &own_csrf_cookie,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                "prefix=go&alias=bad-alias&csrf_token=wrong",
+                &own_cookies,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/me/referrals/alias",
+                &alias_form,
+                &own_cookies,
+                "https://evil.example",
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let browser_alias = send(
+        &app,
+        request(
+            "POST",
+            "/me/referrals/alias",
+            &alias_form,
+            &own_cookies,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(browser_alias.status(), StatusCode::SEE_OTHER);
+    assert_eq!(browser_alias.headers()[header::LOCATION], "/me/referrals");
+    for _ in 0..2 {
+        assert_eq!(
+            send(
+                &app,
+                request(
+                    "POST",
+                    "/api/v1/me/referrals/alias",
+                    &alias_form,
+                    &own_cookies,
+                    ORIGIN
+                ),
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                &format!("prefix=promo&alias=other-name&csrf_token={token}"),
+                &own_cookies,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        send(
+            &app,
+            request(
+                "POST",
+                "/api/v1/me/referrals/alias",
+                &format!("prefix=go&alias=me&csrf_token={token}"),
+                &own_cookies,
+                ORIGIN,
+            ),
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let alias_report = send(
+        &app,
+        request("GET", "/api/v1/me/referrals", "", &owner_session, ORIGIN),
+    )
+    .await;
+    let json = body_of(alias_report).await;
+    assert!(json.contains(&format!("{ORIGIN}/go/{alias}")));
+    assert!(!json.contains("subject_user_id"));
+
+    let landing = send(
+        &app,
+        request("GET", &format!("/r/{}", owned.code), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(landing.status(), StatusCode::SEE_OTHER);
+    let guest_cookie = cookie(&landing, "tor-dev-guest=");
+    let guest_page = send(&app, request("GET", "/register", "", &guest_cookie, ORIGIN)).await;
+    let guest_csrf_cookie = cookie(&guest_page, "tor-dev-csrf=");
+    let guest_html = body_of(guest_page).await;
+    let guest_csrf = csrf_token(&guest_html);
+    let invited_email = format!("f09-invited-{stamp}@example.invalid");
+    let invited_form = format!(
+        "email={}&display_name=Invited&password=LongSecurePassword2026&csrf_token={guest_csrf}",
+        invited_email.replace('@', "%40"),
+    );
+    let invited = send(
+        &app,
+        request(
+            "POST",
+            "/register",
+            &invited_form,
+            &format!("{guest_cookie}; {guest_csrf_cookie}"),
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(invited.status(), StatusCode::SEE_OTHER);
+    let invited_session = cookie(&invited, "tor-dev-session=");
+    let invited_id = accounts
+        .find_user(&invited_email)
+        .await
+        .unwrap()
+        .expect("invited account")
+        .id;
+    // The recovery worker can beat this assertion. Replay is idempotent.
+    let _ = referrals.finalize_one(invited_id).await.unwrap();
+
+    let overview = referrals.reader_overview(owner_id).await.unwrap();
+    assert_eq!((overview.active, overview.blocked), (1, 0));
+    let own_page = send(
+        &app,
+        request("GET", "/me/referrals", "", &owner_session, ORIGIN),
+    )
+    .await;
+    let html = body_of(own_page).await;
+    assert!(html.contains("Активных привязок: <strong>1</strong>"));
+    assert!(html.contains(&format!("{ORIGIN}/r/{}", owned.code)));
+    assert!(!html.contains(&invited_email));
+    let other_api = send(
+        &app,
+        request("GET", "/api/v1/me/referrals", "", &invited_session, ORIGIN),
+    )
+    .await;
+    assert_eq!(other_api.status(), StatusCode::OK);
+    let other = body_of(other_api).await;
+    assert!(other.contains("\"invitation\":null"));
+    assert!(other.contains("\"active\":0"));
+    assert!(!other.contains(&owned.code));
+    assert!(!other.contains(&owner_email));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires seeded public/hidden books on migrated PostgreSQL tor_ci"]
+async fn f_09_http_alias_and_public_book_query_privacy() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
+    assert!(url.ends_with("/tor_ci"), "never test production");
+    let catalog = PgCatalog::connect(&url).await.unwrap();
+    let pool = catalog.pool().clone();
+    let accounts = PgAccounts::from_pool(pool.clone());
+    let referrals = tor_referrals::repositories::PgReferrals::new(pool.clone());
+    let app = tor_web::router_with_postgres_reading_auth(
+        catalog,
+        PgReader::new(pool),
+        accounts.clone(),
+        false,
+        ORIGIN.to_owned(),
+    );
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let mut owners = Vec::new();
+    for role in ["owner", "other"] {
+        let email = format!("f09-book-{role}-{stamp}@example.invalid");
+        let register = send(&app, request("GET", "/register", "", "", ORIGIN)).await;
+        let csrf_cookie = cookie(&register, "tor-dev-csrf=");
+        let csrf = csrf_token(&body_of(register).await).to_owned();
+        let form = format!(
+            "email={}&display_name=F09Reader&password=LongSecurePassword2026&csrf_token={csrf}",
+            email.replace('@', "%40"),
+        );
+        let registered = send(
+            &app,
+            request("POST", "/register", &form, &csrf_cookie, ORIGIN),
+        )
+        .await;
+        assert_eq!(registered.status(), StatusCode::SEE_OTHER);
+        let session = cookie(&registered, "tor-dev-session=");
+        let id = accounts.find_user(&email).await.unwrap().unwrap().id;
+        let code = referrals
+            .create_default_reader_code(id, &format!("r_book_{role}_{id}"))
+            .await
+            .unwrap();
+        owners.push((id, session, code.code));
+    }
+    let (inviter, signed_in, first_code) = &owners[0];
+    let (_, _, second_code) = &owners[1];
+    let owned_page = send(
+        &app,
+        request("GET", "/me/referrals?book=1", "", signed_in, ORIGIN),
+    )
+    .await;
+    assert_eq!(owned_page.status(), StatusCode::OK);
+    let share_html = body_of(owned_page).await;
+    assert!(share_html.contains(&format!("{ORIGIN}/books/1?ref={first_code}")));
+    assert!(share_html.contains("id=\"book-referral-url\""));
+    let hidden_dashboard = send(
+        &app,
+        request("GET", "/me/referrals?book=2", "", signed_in, ORIGIN),
+    )
+    .await;
+    assert_eq!(hidden_dashboard.status(), StatusCode::NOT_FOUND);
+
+    // Aliases cannot redirect to untrusted targets, unknown aliases or reserved names.
+    for path in ["/go/unknown-alias", "/promo/unknown-alias", "/go/admin"] {
+        let denied = send(&app, request("GET", path, "", "", ORIGIN)).await;
+        assert_eq!(denied.status(), StatusCode::SEE_OTHER);
+        assert_eq!(denied.headers()[header::LOCATION], "/");
+        assert!(denied.headers().get(header::SET_COOKIE).is_none());
+    }
+
+    // CI fixture: book #1 is public and book #2 is draft.
+    let hidden = send(
+        &app,
+        request("GET", &format!("/books/2?ref={first_code}"), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
+    assert!(hidden.headers().get(header::SET_COOKIE).is_none());
+    for uri in [
+        "/books/1?ref=bad".to_owned(),
+        format!("/books/1?ref={first_code}&ref={second_code}"),
+        "/books/1?ref=unknown_referral_code".to_owned(),
+    ] {
+        let page = send(&app, request("GET", &uri, "", "", ORIGIN)).await;
+        assert_eq!(page.status(), StatusCode::OK);
+        assert!(page.headers().get(header::SET_COOKIE).is_none());
+    }
+    let page = send(
+        &app,
+        request("GET", &format!("/books/1?ref={first_code}"), "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    let guest = cookie(&page, "tor-dev-guest=");
+    assert!(body_of(page).await.contains("TOR CI public"));
+
+    // The second valid referral cannot steal an existing first book capture.
+    let next = send(
+        &app,
+        request(
+            "GET",
+            &format!("/books/1?ref={second_code}"),
+            "",
+            &guest,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(next.status(), StatusCode::OK);
+    assert!(next.headers().get(header::SET_COOKIE).is_none());
+    let also = send(
+        &app,
+        request("GET", &format!("/r/{second_code}"), "", &guest, ORIGIN),
+    )
+    .await;
+    assert_eq!(also.status(), StatusCode::SEE_OTHER);
+    assert!(also.headers().get(header::SET_COOKIE).is_none());
+
+    // A signed-in reader cannot capture even a valid book referral.
+    let signed = send(
+        &app,
+        request(
+            "GET",
+            &format!("/books/1?ref={second_code}"),
+            "",
+            signed_in,
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(signed.status(), StatusCode::OK);
+    assert!(!signed
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .any(|value| value.to_str().unwrap_or("").contains("tor-dev-guest=")));
+
+    // Finalize a real signup from the captured book link, no SQL in tor-web.
+    let register = send(&app, request("GET", "/register", "", &guest, ORIGIN)).await;
+    let csrf_cookie = cookie(&register, "tor-dev-csrf=");
+    let csrf = csrf_token(&body_of(register).await).to_owned();
+    let invited_email = format!("f09-book-invited-{stamp}@example.invalid");
+    let form = format!(
+        "email={}&display_name=BookGuest&password=LongSecurePassword2026&csrf_token={csrf}",
+        invited_email.replace('@', "%40"),
+    );
+    let new_user = send(
+        &app,
+        request(
+            "POST",
+            "/register",
+            &form,
+            &format!("{guest}; {csrf_cookie}"),
+            ORIGIN,
+        ),
+    )
+    .await;
+    assert_eq!(new_user.status(), StatusCode::SEE_OTHER);
+    let new_user_id = accounts
+        .find_user(&invited_email)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let _ = referrals.finalize_one(new_user_id).await.unwrap();
+    assert_eq!(referrals.reader_overview(*inviter).await.unwrap().active, 1);
+    assert_eq!(
+        referrals.reader_overview(owners[1].0).await.unwrap().active,
+        0,
+    );
 }

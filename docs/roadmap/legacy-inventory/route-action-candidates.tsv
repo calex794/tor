@@ -117,9 +117,9 @@ backend/app/web/routes/users.py|311|DELETE|unsubscribe_user	mounted	DELETE	/user
 backend/app/web/routes/honeypot.py|12|GET|honeypot_trap	mounted	GET	/__bp_honeypot/{trap_name:path}	F043	A-09,C-10,C-11	S065	candidate_from_source	not_behavior_verified	Антибот, rate limiting и защита reader payload
 backend/app/web/routes/admin_security.py|22|GET|admin_security_page	mounted	GET	/admin/security	F043	A-09,C-10,C-11	S065	candidate_from_source	not_behavior_verified	Антибот, rate limiting и защита reader payload
 backend/app/api/v1/auth.py|836|GET|api_me	mounted	GET	/api/v1/auth/me	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
-backend/app/web/routes/auth.py|798|GET|yandex_callback_page	mounted	GET	/auth/yandex/callback	F002	A-08	S003	candidate_from_source	not_behavior_verified	Вход через Яндекс и подтверждение чувствительных действий
-backend/app/web/routes/auth.py|733|GET|yandex_login_page	mounted	GET	/auth/yandex/login	F002	A-08	S003	candidate_from_source	not_behavior_verified	Вход через Яндекс и подтверждение чувствительных действий
-backend/app/web/routes/auth.py|762|GET|yandex_step_up_page	mounted	GET	/auth/yandex/step-up	F002	A-08	S003	candidate_from_source	not_behavior_verified	Вход через Яндекс и подтверждение чувствительных действий
+backend/app/web/routes/auth.py|798|GET|yandex_callback_page	frozen	GET	/auth/yandex/callback	FROZEN			excluded	not_behavior_verified	Вход через Яндекс исключён из TOR решением владельца 30.10.2026
+backend/app/web/routes/auth.py|733|GET|yandex_login_page	frozen	GET	/auth/yandex/login	FROZEN			excluded	not_behavior_verified	Вход через Яндекс исключён из TOR решением владельца 30.10.2026
+backend/app/web/routes/auth.py|762|GET|yandex_step_up_page	frozen	GET	/auth/yandex/step-up	FROZEN			excluded	not_behavior_verified	Вход через Яндекс исключён из TOR решением владельца 30.10.2026
 backend/app/web/routes/auth.py|396|GET|login_page	mounted	GET	/login	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
 backend/app/web/routes/account_settings.py|162|GET|account_settings_page	mounted	GET	/me/settings	F003	A-06,A-07	S004	candidate_from_source	not_behavior_verified	Настройки аккаунта: пароль, 18+, delivery и handle
 backend/app/web/routes/users.py|210|GET|public_profiles_page	mounted	GET	/profiles	F015	E-05,E-06	S014,S015	candidate_from_source	not_behavior_verified	Профили, подписка на автора, дружба и блокировка
@@ -133,7 +133,7 @@ backend/app/web/routes/admin_security.py|76|POST|admin_security_ip_unban_submit	
 backend/app/api/v1/auth.py|469|POST|api_login	mounted	POST	/api/v1/auth/login	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
 backend/app/api/v1/auth.py|813|POST|api_logout	mounted	POST	/api/v1/auth/logout	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
 backend/app/api/v1/auth.py|398|POST|api_register	mounted	POST	/api/v1/auth/register	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
-backend/app/api/v1/auth.py|777|POST|api_create_password_step_up	mounted	POST	/api/v1/auth/step-up/password	F002	A-08	S003	candidate_from_source	not_behavior_verified	Вход через Яндекс и подтверждение чувствительных действий
+backend/app/api/v1/auth.py|777|POST|api_create_password_step_up	mounted	POST	/api/v1/auth/step-up/password	F002	A-07,A-09	S004	candidate_from_source	not_behavior_verified	Подтверждение чувствительных действий паролем; Яндекс OAuth исключён
 backend/app/api/v1/auth.py|626|POST|api_login_token	mounted	POST	/api/v1/auth/token	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
 backend/app/web/routes/auth.py|414|POST|login_submit	mounted	POST	/login	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход
 backend/app/web/routes/auth.py|1041|POST|logout_submit	mounted	POST	/logout	F001	A-02,A-03	S002	candidate_from_source	not_behavior_verified	Регистрация, вход по паролю и выход

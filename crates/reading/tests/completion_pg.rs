@@ -116,7 +116,7 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
     let published: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM outbox_events
          WHERE id=$1::uuid AND event_type='ChapterCompletedV1'
-           AND required_consumers=ARRAY['ranking-eligibility-v1']",
+           AND required_consumers=ARRAY['ranking-eligibility-v1','achievements-v1']",
     )
     .bind(&event_id)
     .fetch_one(&pool)

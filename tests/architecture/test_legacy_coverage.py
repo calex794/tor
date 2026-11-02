@@ -38,9 +38,9 @@ class LegacyCoverageTests(unittest.TestCase):
         self.assertEqual(stats["source_declarations"], 560)
         self.assertEqual(stats["job_registered"], 57)
         self.assertEqual(stats["job_frozen"], 8)
-        self.assertEqual(stats["semantic_candidate_from_source"], 417)
+        self.assertEqual(stats["semantic_candidate_from_source"], 414)
         self.assertEqual(stats["semantic_explicit_subfunction"], 48)
-        self.assertEqual(stats["semantic_excluded"], 101)
+        self.assertEqual(stats["semantic_excluded"], 104)
         self.assertEqual(stats["review_unresolved_mount"], 1)
 
     def test_strict_does_not_claim_unreviewed_routes(self):
@@ -63,6 +63,11 @@ class LegacyCoverageTests(unittest.TestCase):
     def test_crawler_freeze_cannot_be_lifted(self):
         f = "http-route-coverage.tsv"
         self.edit(f, "frozen\t-\tF021/S024", "mounted\tG\tG-03")
+        problems, _ = audit(self.root)
+        self.assertTrue(any("frozen" in x for x in problems))
+
+    def test_yandex_login_freeze_cannot_be_lifted(self):
+        self.edit("http-route-coverage.tsv", "frozen\t-\tA-08/S003 (заморожено)", "mounted\tA\tA-08")
         problems, _ = audit(self.root)
         self.assertTrue(any("frozen" in x for x in problems))
 

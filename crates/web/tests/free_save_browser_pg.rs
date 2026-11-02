@@ -200,5 +200,126 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(reader_html.contains("Immediate free text"));
+
+    // BKR-96: the same public chapter can be edited from the owner's
+    // existing form. Saving V2 immediately changes the reader pointer.
+    let edit_path = format!("/me/books/{book}/chapters/{chapter_id}/edit");
+    let (status, editor) = send(&app, "GET", &edit_path, "", Some(&token), &csrf, ORIGIN).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(editor.contains("Сохранение сразу обновит опубликованную редакцию"));
+    assert!(editor.contains("name=\"expected_revision\" value=\"1\""));
+    let edit_key = editor
+        .split("name=\"command_key\" value=\"")
+        .nth(1)
+        .expect("owner edit key")
+        .split('"')
+        .next()
+        .unwrap();
+    let edited = format!(
+        "number=2&title=Updated+chapter&body=Updated%20free%20text%20V2&expected_revision=1&command_key={edit_key}&csrf_token={csrf}"
+    );
+    assert_eq!(
+        send(&app, "POST", &edit_path, &edited, None, &csrf, ORIGIN)
+            .await
+            .0,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &edited,
+            Some(&token),
+            &csrf,
+            "https://evil.example",
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN,
+    );
+    let invalid_csrf = edited.replace(&format!("csrf_token={csrf}"), "csrf_token=wrong");
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &invalid_csrf,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &edited,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
+        StatusCode::SEE_OTHER,
+    );
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &edited,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
+        StatusCode::SEE_OTHER,
+        "same author Save may replay without another version",
+    );
+    let stale = edited.replace(edit_key, &"s".repeat(43));
+    assert_eq!(
+        send(
+            &app,
+            "POST",
+            &edit_path,
+            &stale,
+            Some(&token),
+            &csrf,
+            ORIGIN
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT,
+        "a stale edit form cannot replace a new published version",
+    );
+    let (status, new_reader) = send(
+        &app,
+        "GET",
+        &format!("/reader/{chapter_id}"),
+        "",
+        None,
+        &csrf,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(new_reader.contains("Updated free text V2"));
+    assert!(!new_reader.contains("Immediate free text"));
+    let immutable_v1 = pg(
+        &url,
+        &format!("SELECT body_markdown FROM chapter_versions WHERE id={version_id}"),
+    );
+    assert_eq!(immutable_v1, "Immediate free text");
+    let version_count = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_versions WHERE chapter_id={chapter_id}"),
+    );
+    assert_eq!(version_count, "2");
     pool.close().await;
 }

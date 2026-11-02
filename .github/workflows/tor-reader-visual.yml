@@ -1,11 +1,11 @@
 name: TOR PostgreSQL reader browser
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   select:
     uses: ./.github/workflows/ci-selection.yml
@@ -94,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reader-shots"
-          TOR_AUTH_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3098 DATABASE_URL="$APP_URL" TOR_LISTEN_ADDR=127.0.0.1:3098 ./target/debug/tor-web > "$RUNNER_TEMP/tor-reader.log" 2>&1 &
+          TOR_AUTH_ENABLED=1 TOR_PAID_CHECKOUT_ENABLED=1 TOR_PUBLIC_ORIGIN=http://127.0.0.1:3098 DATABASE_URL="$APP_URL" TOR_LISTEN_ADDR=127.0.0.1:3098 ./target/debug/tor-web > "$RUNNER_TEMP/tor-reader.log" 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 30); do
@@ -104,10 +104,17 @@ jobs:
           curl -fsS http://127.0.0.1:3098/readyz
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/reader_visual_smoke.cjs
           TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/author_chapter_visual_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/loop_01_browser_smoke.cjs
+          TOR_AUTHOR_SHOTS="$RUNNER_TEMP/reader-shots" node tools/chapter_file_import_browser.cjs
           TOR_HOME_SHOTS="$RUNNER_TEMP/reader-shots" node tools/home_spotlight_visual_smoke.cjs
           TOR_SEARCH_SHOTS="$RUNNER_TEMP/reader-shots" node tools/search_visual_smoke.cjs
           TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
           TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
+          node --check tools/mail_browser_pg.cjs
+          node --check tools/batch_checkout_chromium_pg.cjs
+          node --check tools/referral_share_browser_smoke.cjs
+          TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs
+          TOR_REFERRAL_SHOTS="$RUNNER_TEMP/reader-shots" node tools/referral_share_browser_smoke.cjs
       - name: Preserve screenshots for visual review
         if: always()
         uses: actions/upload-artifact@v4

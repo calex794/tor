@@ -284,6 +284,17 @@ pub struct OwnedChapterSummary {
     pub published: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OwnedChapterCursor {
+    pub number: i32,
+    pub id: i64,
+}
+
+pub struct OwnedChapterPage {
+    pub chapters: Vec<OwnedChapterSummary>,
+    pub next: Option<OwnedChapterCursor>,
+}
+
 pub struct OwnedChapter {
     pub number: i32,
     pub title: String,

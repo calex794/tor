@@ -146,3 +146,15 @@ img.book-cover-xl { display: block; height: auto; object-fit: cover; }
 @media (max-width: 520px) {
   .book-rating-summary { grid-template-columns: minmax(0, 1fr); }
 }
+
+
+/* S035: keyboard-accessible multi-chapter form; price stays visible on mobile. */
+.batch-purchase { max-width: 760px; }
+.batch-purchase__form fieldset { border: 1px solid var(--border-color); border-radius: 14px; padding: 12px; margin: 14px 0; }
+.batch-purchase__form legend { font-weight: 800; padding: 0 8px; }
+.batch-purchase__row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--border-color); cursor: pointer; min-height: 48px; }
+.batch-purchase__row input { width: 18px; height: 18px; }
+.batch-purchase__row span { min-width: 0; overflow-wrap: anywhere; }
+.batch-purchase__row strong { white-space: nowrap; }
+.batch-purchase__total { font-weight: 900; font-size: 22px; }
+@media (max-width: 520px) { .batch-purchase__row { grid-template-columns: 22px minmax(0, 1fr); } .batch-purchase__row strong { grid-column: 2; } }

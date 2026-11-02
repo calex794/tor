@@ -143,6 +143,12 @@ fn collected_metrics(metrics: &HttpMetrics) -> String {
             .get_or_init(LoginMetrics::default)
             .prometheus(),
     );
+    text.push_str("# HELP tor_auth_observation_dropped_total Private auth diagnostic events discarded (no identity labels).\n");
+    text.push_str("# TYPE tor_auth_observation_dropped_total counter\n");
+    text.push_str(&format!(
+        "tor_auth_observation_dropped_total {}\n",
+        crate::auth::auth_observation_dropped()
+    ));
     #[cfg(unix)]
     {
         let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();

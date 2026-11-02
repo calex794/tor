@@ -1,591 +1,209 @@
-//! Known MatchedPath taxonomy: fixed index, no per-request allocation.
 use super::*;
-
 mod classifier;
 pub use classifier::classify;
 
-// Indexes below are deliberately shared with classify(), and checked by unit tests.
-// These templates reflect currently registered Axum routes, not future planned API.
 use CostClass::{CheapRead as Read, Free, Write};
 use ProductArea::{Auth, Catalog, Dashboard, Reading, System};
 use RouteMatchKind::{Exact, Prefix};
 use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
-const ROUTES: [RouteRegistration; 77] = [
+// Fixed-index route registry: keep compact entries stable for review.
+#[rustfmt::skip]
+const ROUTES: [RouteRegistration; 192] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
-    RouteRegistration::new(
-        "/reader/{id}",
-        "GET",
-        "/reader/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 3
-    RouteRegistration::new(
-        "/assets/site.css",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 4
+    RouteRegistration::new("/reader/{id}", "GET", "/reader/", Prefix, Page, Reading, Read), // 3
+    RouteRegistration::new("/assets/site.css", "GET", "/assets/", Exact, Static, System, Free), // 4
     RouteRegistration::new("/healthz", "GET", "/healthz/", Exact, Service, System, Free), // 5
     RouteRegistration::new("/readyz", "GET", "/readyz/", Exact, Service, System, Read), // 6
     RouteRegistration::new("/login", "GET", "/login/", Exact, Page, Auth, Read), // 7
     RouteRegistration::new("/login", "POST", "/login/", Exact, Page, Auth, Write), // 8
     RouteRegistration::new("/register", "GET", "/register/", Exact, Page, Auth, Read), // 9
     RouteRegistration::new("/register", "POST", "/register/", Exact, Page, Auth, Write), // 10
-    RouteRegistration::new(
-        "/api/v1/books",
-        "GET",
-        "/api/v1/books/",
-        Exact,
-        Api,
-        Catalog,
-        Read,
-    ), // 11
+    RouteRegistration::new("/api/v1/books", "GET", "/api/v1/books/", Exact, Api, Catalog, Read), // 11
     RouteRegistration::new("/me", "GET", "/me/", Exact, Page, Dashboard, Read), // 12
-    RouteRegistration::new(
-        "/me/library",
-        "GET",
-        "/me/library/",
-        Exact,
-        Page,
-        Reading,
-        Read,
-    ), // 13
+    RouteRegistration::new("/me/library", "GET", "/me/library/", Exact, Page, Reading, Read), // 13
     RouteRegistration::new("/read/{id}", "GET", "/read/", Prefix, Page, Reading, Read), // 14
-    RouteRegistration::new(
-        "/read/{id}/place",
-        "POST",
-        "/read/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 15
+    RouteRegistration::new("/read/{id}/place", "POST", "/read/", Prefix, Page, Reading, Write), // 15
     RouteRegistration::new("/logout", "POST", "/logout/", Exact, Page, Auth, Write), // 16
     RouteRegistration::new("/me/books", "GET", "/me/", Exact, Page, Dashboard, Read), // 17
     RouteRegistration::new("/me/books", "POST", "/me/", Exact, Page, Dashboard, Write), // 18
     RouteRegistration::new("/me/books/new", "GET", "/me/", Exact, Page, Dashboard, Read), // 19
-    RouteRegistration::new(
-        "/me/books/{id}",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 20
-    RouteRegistration::new(
-        "/api/v1/books/{id}/toc",
-        "GET",
-        "/api/v1/books/",
-        Prefix,
-        Api,
-        Reading,
-        Read,
-    ), // 21
-    RouteRegistration::new(
-        "/api/v1/me/library",
-        "GET",
-        "/api/v1/me/library/",
-        Exact,
-        Api,
-        Reading,
-        Read,
-    ), // 22
-    RouteRegistration::new(
-        "/api/v1/me/library/{id}",
-        "POST",
-        "/api/v1/me/library/",
-        Prefix,
-        Api,
-        Reading,
-        Write,
-    ), // 23
-    RouteRegistration::new(
-        "/api/v1/me/library/{id}",
-        "DELETE",
-        "/api/v1/me/library/",
-        Prefix,
-        Api,
-        Reading,
-        Write,
-    ), // 24
-    RouteRegistration::new(
-        "/me/library/add/{id}",
-        "GET",
-        "/me/library/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 25
-    RouteRegistration::new(
-        "/me/library/{id}/save",
-        "POST",
-        "/me/library/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 26
-    RouteRegistration::new(
-        "/me/library/{id}/remove",
-        "POST",
-        "/me/library/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 27
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/new",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 28
-    RouteRegistration::new(
-        "/me/books/{id}/chapters",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 29
-    RouteRegistration::new(
-        "/me/books/{id}/publish",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 30
-    RouteRegistration::new(
-        "/api/v1/me/progress/free",
-        "GET",
-        "/api/v1/me/progress/",
-        Exact,
-        Api,
-        Reading,
-        Read,
-    ), // 31
-    RouteRegistration::new(
-        "/api/v1/me/progress/free",
-        "PUT",
-        "/api/v1/me/progress/",
-        Exact,
-        Api,
-        Reading,
-        Write,
-    ), // 32
-    RouteRegistration::new(
-        "/api/v1/me/progress/purchased",
-        "GET",
-        "/api/v1/me/progress/",
-        Exact,
-        Api,
-        Reading,
-        Read,
-    ), // 33
-    RouteRegistration::new(
-        "/api/v1/me/progress/purchased",
-        "PUT",
-        "/api/v1/me/progress/",
-        Exact,
-        Api,
-        Reading,
-        Write,
-    ), // 34
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/{chapter_id}/edit",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 35
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/{chapter_id}/edit",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 36
-    RouteRegistration::new(
-        "/me/behavior",
-        "POST",
-        "/me/",
-        Exact,
-        Page,
-        Dashboard,
-        Write,
-    ), // 37
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/{chapter_id}/release",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 38
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/{chapter_id}/release",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 39
-    RouteRegistration::new(
-        "/api/v1/chapters/{id}/read",
-        "GET",
-        "/api/v1/chapters/",
-        Prefix,
-        Api,
-        Reading,
-        Read,
-    ), // 40
-    RouteRegistration::new(
-        "/api/v1/search/books",
-        "GET",
-        "/api/v1/books/",
-        Exact,
-        Api,
-        Catalog,
-        Read,
-    ), // 41
-    RouteRegistration::new(
-        "/assets/newboo.css",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 42
-    RouteRegistration::new(
-        "/assets/brand/pandaolate-header.png",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 43
-    RouteRegistration::new(
-        "/assets/brand/pandaolate-header-dark.png",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 44
-    // Internal protected diagnostics: reuse finite technical-service family.
+    RouteRegistration::new("/me/books/{id}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 20
+    RouteRegistration::new("/api/v1/books/{id}/toc", "GET", "/api/v1/books/", Prefix, Api, Reading, Read), // 21
+    RouteRegistration::new("/api/v1/me/library", "GET", "/api/v1/me/library/", Exact, Api, Reading, Read), // 22
+    RouteRegistration::new("/api/v1/me/library/{id}", "POST", "/api/v1/me/library/", Prefix, Api, Reading, Write), // 23
+    RouteRegistration::new("/api/v1/me/library/{id}", "DELETE", "/api/v1/me/library/", Prefix, Api, Reading, Write), // 24
+    RouteRegistration::new("/me/library/add/{id}", "GET", "/me/library/", Prefix, Page, Reading, Read), // 25
+    RouteRegistration::new("/me/library/{id}/save", "POST", "/me/library/", Prefix, Page, Reading, Write), // 26
+    RouteRegistration::new("/me/library/{id}/remove", "POST", "/me/library/", Prefix, Page, Reading, Write), // 27
+    RouteRegistration::new("/me/books/{id}/chapters/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 28
+    RouteRegistration::new("/me/books/{id}/chapters", "POST", "/me/", Prefix, Page, Dashboard, Write), // 29
+    RouteRegistration::new("/me/books/{id}/publish", "POST", "/me/", Prefix, Page, Dashboard, Write), // 30
+    RouteRegistration::new("/api/v1/me/progress/free", "GET", "/api/v1/me/progress/", Exact, Api, Reading, Read), // 31
+    RouteRegistration::new("/api/v1/me/progress/free", "PUT", "/api/v1/me/progress/", Exact, Api, Reading, Write), // 32
+    RouteRegistration::new("/api/v1/me/progress/purchased", "GET", "/api/v1/me/progress/", Exact, Api, Reading, Read), // 33
+    RouteRegistration::new("/api/v1/me/progress/purchased", "PUT", "/api/v1/me/progress/", Exact, Api, Reading, Write), // 34
+    RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/edit", "GET", "/me/", Prefix, Page, Dashboard, Read), // 35
+    RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/edit", "POST", "/me/", Prefix, Page, Dashboard, Write), // 36
+    RouteRegistration::new("/me/behavior", "POST", "/me/", Exact, Page, Dashboard, Write), // 37
+    RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/release", "GET", "/me/", Prefix, Page, Dashboard, Read), // 38
+    RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/release", "POST", "/me/", Prefix, Page, Dashboard, Write), // 39
+    RouteRegistration::new("/api/v1/chapters/{id}/read", "GET", "/api/v1/chapters/", Prefix, Api, Reading, Read), // 40
+    RouteRegistration::new("/api/v1/search/books", "GET", "/api/v1/books/", Exact, Api, Catalog, Read), // 41
+    RouteRegistration::new("/assets/newboo.css", "GET", "/assets/", Exact, Static, System, Free), // 42
+    RouteRegistration::new("/assets/brand/pandaolate-header.png", "GET", "/assets/", Exact, Static, System, Free), // 43
+    RouteRegistration::new("/assets/brand/pandaolate-header-dark.png", "GET", "/assets/", Exact, Static, System, Free), // 44
     RouteRegistration::new("/metrics", "GET", "/healthz/", Exact, Service, System, Read), // 45
-    // Protected operator-only diagnostics are separate from public site accounts.
-    RouteRegistration::new(
-        "/ops/traces",
-        "GET",
-        "/ops/",
-        Exact,
-        TrafficSurface::Admin,
-        ProductArea::Admin,
-        Read,
-    ), // 46
-    RouteRegistration::new(
-        "/ops/overview",
-        "GET",
-        "/ops/",
-        Exact,
-        TrafficSurface::Admin,
-        ProductArea::Admin,
-        Read,
-    ), // 47
-    // Private object read: not a free static image; bounded DB + S3 I/O.
-    RouteRegistration::new(
-        "/covers/{id}/{variant}",
-        "GET",
-        "/assets/",
-        Prefix,
-        Api,
-        ProductArea::Storage,
-        CostClass::ExpensiveRead,
-    ), // 48
-    RouteRegistration::new(
-        "/me/rankings",
-        "GET",
-        "/me/",
-        Exact,
-        Page,
-        ProductArea::Recommendations,
-        Read,
-    ), // 49
-    RouteRegistration::new(
-        "/me/rankings/choice",
-        "POST",
-        "/me/",
-        Exact,
-        Page,
-        ProductArea::Recommendations,
-        Write,
-    ), // 50
-    RouteRegistration::new(
-        "/me/rankings/resume",
-        "POST",
-        "/me/",
-        Exact,
-        Page,
-        ProductArea::Recommendations,
-        Write,
-    ), // 51
-    RouteRegistration::new(
-        "/api/v1/me/rankings",
-        "GET",
-        "/api/v1/me/rankings/",
-        Exact,
-        Api,
-        ProductArea::Recommendations,
-        Read,
-    ), // 52
-    RouteRegistration::new(
-        "/api/v1/me/rankings/choice",
-        "POST",
-        "/api/v1/me/rankings/",
-        Exact,
-        Api,
-        ProductArea::Recommendations,
-        Write,
-    ), // 53
-    RouteRegistration::new(
-        "/api/v1/me/rankings/resume",
-        "POST",
-        "/api/v1/me/rankings/",
-        Exact,
-        Api,
-        ProductArea::Recommendations,
-        Write,
-    ), // 54
-    RouteRegistration::new(
-        "/me/books/{id}/cover",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 55
-    RouteRegistration::new(
-        "/me/books/{id}/settings/covers",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 56
-    RouteRegistration::new(
-        "/assets/newboo-cover-picker.js",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 57
-    RouteRegistration::new(
-        "/api/v1/purchases",
-        "POST",
-        "/api/v1/purchases/",
-        Exact,
-        Api,
-        ProductArea::Billing,
-        Write,
-    ), // 58
-    // Signed, scoped paid content grant. Performs PG rights checks and S3 HEAD.
-    RouteRegistration::new(
-        "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
-        "POST",
-        "/api/v1/reader/chapters/",
-        Prefix,
-        Api,
-        Reading,
-        CostClass::ExpensiveRead,
-    ), // 59
-    RouteRegistration::new(
-        "/read/{id}/complete",
-        "POST",
-        "/read/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 60
-    RouteRegistration::new(
-        "/read/paid/{chapter_id}",
-        "GET",
-        "/read/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 61
-    RouteRegistration::new(
-        "/assets/newboo-paid-reader.mjs",
-        "GET",
-        "/assets/",
-        Exact,
-        Static,
-        System,
-        Free,
-    ), // 62
-    // Only an authenticated, entitled actor can enumerate owned purchases.
-    RouteRegistration::new(
-        "/me/purchases",
-        "GET",
-        "/me/library/",
-        Exact,
-        Page,
-        Reading,
-        Read,
-    ), // 63
-    RouteRegistration::new(
-        "/api/v1/me/progress/purchased/complete",
-        "GET",
-        "/api/v1/me/progress/",
-        Exact,
-        Api,
-        Reading,
-        Read,
-    ), // 64
-    RouteRegistration::new(
-        "/api/v1/me/progress/purchased/complete",
-        "POST",
-        "/api/v1/me/progress/",
-        Exact,
-        Api,
-        Reading,
-        Write,
-    ), // 65
-    RouteRegistration::new(
-        "/me/books/{id}/rate",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 66
-    RouteRegistration::new(
-        "/me/books/{id}/rate",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 67
-    RouteRegistration::new(
-        "/me/books/{id}/description",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 68
-    RouteRegistration::new(
-        "/me/books/{id}/description",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 69
-    RouteRegistration::new(
-        "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
-        "POST",
-        "/api/v1/reader/chapters/",
-        Prefix,
-        Api,
-        Reading,
-        CostClass::ExpensiveRead,
-    ), // 70
-    RouteRegistration::new(
-        "/books/{id}/comments",
-        "GET",
-        "/books/",
-        Prefix,
-        Page,
-        Reading,
-        Read,
-    ), // 71
-    RouteRegistration::new(
-        "/books/{id}/comments",
-        "POST",
-        "/books/",
-        Prefix,
-        Page,
-        Reading,
-        Write,
-    ), // 72
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/illustrated",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Read,
-    ), // 73
-    RouteRegistration::new(
-        "/me/books/{id}/chapters/illustrated",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        Dashboard,
-        Write,
-    ), // 74
-    // S034: a private price/version confirmation, followed by D-owned debit.
-    RouteRegistration::new(
-        "/me/chapters/{id}/buy",
-        "GET",
-        "/me/",
-        Prefix,
-        Page,
-        ProductArea::Billing,
-        Read,
-    ), // 75
-    RouteRegistration::new(
-        "/me/chapters/{id}/buy",
-        "POST",
-        "/me/",
-        Prefix,
-        Page,
-        ProductArea::Billing,
-        Write,
-    ), // 76
+    RouteRegistration::new("/ops/traces", "GET", "/ops/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 46
+    RouteRegistration::new("/ops/overview", "GET", "/ops/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 47
+    RouteRegistration::new("/covers/{id}/{variant}", "GET", "/assets/", Prefix, Api, ProductArea::Storage, CostClass::ExpensiveRead), // 48
+    RouteRegistration::new("/me/rankings", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read), // 49
+    RouteRegistration::new("/me/rankings/choice", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 50
+    RouteRegistration::new("/me/rankings/resume", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 51
+    RouteRegistration::new("/api/v1/me/rankings", "GET", "/api/v1/me/rankings/", Exact, Api, ProductArea::Recommendations, Read), // 52
+    RouteRegistration::new("/api/v1/me/rankings/choice", "POST", "/api/v1/me/rankings/", Exact, Api, ProductArea::Recommendations, Write), // 53
+    RouteRegistration::new("/api/v1/me/rankings/resume", "POST", "/api/v1/me/rankings/", Exact, Api, ProductArea::Recommendations, Write), // 54
+    RouteRegistration::new("/me/books/{id}/cover", "POST", "/me/", Prefix, Page, Dashboard, Write), // 55
+    RouteRegistration::new("/me/books/{id}/settings/covers", "GET", "/me/", Prefix, Page, Dashboard, Read), // 56
+    RouteRegistration::new("/assets/newboo-cover-picker.js", "GET", "/assets/", Exact, Static, System, Free), // 57
+    RouteRegistration::new("/api/v1/purchases", "POST", "/api/v1/purchases/", Exact, Api, ProductArea::Billing, Write), // 58
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 59
+    RouteRegistration::new("/read/{id}/complete", "POST", "/read/", Prefix, Page, Reading, Write), // 60
+    RouteRegistration::new("/read/paid/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 61
+    RouteRegistration::new("/assets/newboo-paid-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 62
+    RouteRegistration::new("/me/purchases", "GET", "/me/library/", Exact, Page, Reading, Read), // 63
+    RouteRegistration::new("/api/v1/me/progress/purchased/complete", "GET", "/api/v1/me/progress/", Exact, Api, Reading, Read), // 64
+    RouteRegistration::new("/api/v1/me/progress/purchased/complete", "POST", "/api/v1/me/progress/", Exact, Api, Reading, Write), // 65
+    RouteRegistration::new("/me/books/{id}/rate", "GET", "/me/", Prefix, Page, Reading, Read), // 66
+    RouteRegistration::new("/me/books/{id}/rate", "POST", "/me/", Prefix, Page, Reading, Write), // 67
+    RouteRegistration::new("/me/books/{id}/description", "GET", "/me/", Prefix, Page, Dashboard, Read), // 68
+    RouteRegistration::new("/me/books/{id}/description", "POST", "/me/", Prefix, Page, Dashboard, Write), // 69
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, CostClass::ExpensiveRead), // 70
+    RouteRegistration::new("/books/{id}/comments", "GET", "/books/", Prefix, Page, Reading, Read), // 71
+    RouteRegistration::new("/books/{id}/comments", "POST", "/books/", Prefix, Page, Reading, Write), // 72
+    RouteRegistration::new("/me/books/{id}/chapters/illustrated", "GET", "/me/", Prefix, Page, Dashboard, Read), // 73
+    RouteRegistration::new("/me/books/{id}/chapters/illustrated", "POST", "/me/", Prefix, Page, Dashboard, Write), // 74
+    RouteRegistration::new("/api/v1/purchases/batch", "POST", "/api/v1/purchases/", Exact, Api, ProductArea::Billing, Write), // 75
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 76
+    RouteRegistration::new("/me/books/{id}/buy-chapters", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 77
+    RouteRegistration::new("/read/{id}/want-continuation", "POST", "/read/", Prefix, Page, Reading, Write), // 78
+    RouteRegistration::new("/me/books/{id}/follow", "POST", "/me/", Prefix, Page, Reading, Write), // 79
+    RouteRegistration::new("/me/books/{id}/unfollow", "POST", "/me/", Prefix, Page, Reading, Write), // 80
+    RouteRegistration::new("/me/replies/{id}/read-state", "POST", "/me/replies/", Prefix, Page, Dashboard, Write), // 81
+    RouteRegistration::new("/me/inbox", "GET", "/me/inbox/", Exact, Page, Dashboard, Read), // 82
+    RouteRegistration::new("/api/v1/me/inbox", "GET", "/api/v1/me/inbox/", Exact, Api, Dashboard, Read), // 83
+    RouteRegistration::new("/me/updates/{id}/read-state", "POST", "/me/updates/", Prefix, Page, Reading, Write), // 84
+    RouteRegistration::new("/me/settings/password", "GET", "/me/", Exact, Page, Auth, Read), // 85
+    RouteRegistration::new("/me/settings/password", "POST", "/me/", Exact, Page, Auth, Write), // 86
+    RouteRegistration::new("/me/settings", "GET", "/me/settings/", Exact, Page, Dashboard, Read), // 87
+    RouteRegistration::new("/me/settings", "POST", "/me/settings/", Exact, Page, Dashboard, Write), // 88
+    RouteRegistration::new("/api/v1/me", "GET", "/api/v1/me/", Exact, Api, Auth, Read), // 89
+    RouteRegistration::new("/api/v1/me", "PATCH", "/api/v1/me/", Exact, Api, Auth, Write), // 90
+    RouteRegistration::new("/me/notification-settings", "GET", "/me/notification-settings/", Exact, Page, Dashboard, Read), // 91
+    RouteRegistration::new("/me/notification-settings", "POST", "/me/notification-settings/", Exact, Page, Dashboard, Write), // 92
+    RouteRegistration::new("/forgot-password", "GET", "/forgot-password/", Exact, Page, Auth, Read), // 93
+    RouteRegistration::new("/forgot-password", "POST", "/forgot-password/", Exact, Page, Auth, Write), // 94
+    RouteRegistration::new("/reset-password", "GET", "/reset-password/", Exact, Page, Auth, Read), // 95
+    RouteRegistration::new("/reset-password", "POST", "/reset-password/", Exact, Page, Auth, Write), // 96
+    RouteRegistration::new("/api/v1/me/password", "POST", "/api/v1/me/password/", Exact, Api, Auth, Write), // 97
+    RouteRegistration::new("/assets/account-reset.js", "GET", "/assets/", Exact, Static, System, Free), // 98
+    RouteRegistration::new("/r/{code}", "GET", "/r/", Prefix, Page, Auth, Write), // 99
+    RouteRegistration::new("/me/referrals", "GET", "/me/referrals/", Exact, Page, Dashboard, Read), // 100
+    RouteRegistration::new("/me/referrals", "POST", "/me/referrals/", Exact, Page, Dashboard, Write), // 101
+    RouteRegistration::new("/api/v1/me/referrals", "GET", "/api/v1/me/referrals/", Exact, Api, Dashboard, Read), // 102
+    RouteRegistration::new("/api/v1/me/referrals", "POST", "/api/v1/me/referrals/", Exact, Api, Dashboard, Write), // 103
+    RouteRegistration::new("/go/{alias}", "GET", "/go/", Prefix, Page, Auth, Read), // 104
+    RouteRegistration::new("/promo/{alias}", "GET", "/promo/", Prefix, Page, Auth, Read), // 105
+    RouteRegistration::new("/me/referrals/alias", "POST", "/me/referrals/alias/", Exact, Page, Dashboard, Write), // 106
+    RouteRegistration::new("/api/v1/me/referrals/alias", "POST", "/api/v1/me/referrals/alias/", Exact, Api, Dashboard, Write), // 107
+    RouteRegistration::new("/me/security/sessions", "GET", "/me/", Exact, Page, Auth, Read), // 108
+    RouteRegistration::new("/me/security/sessions", "POST", "/me/", Exact, Page, Auth, Write), // 109
+    RouteRegistration::new("/assets/mentions.js", "GET", "/assets/", Exact, Static, System, Read), // 110
+    RouteRegistration::new("/api/v1/social/mentions/discover", "GET", "/api/v1/social/", Exact, Api, Dashboard, Read), // 111
+    RouteRegistration::new("/me/books/{id}/chapters/import", "GET", "/me/", Prefix, Page, Dashboard, Read), // 112
+    RouteRegistration::new("/me/books/{id}/chapters/import-preview", "POST", "/me/", Prefix, Page, Dashboard, Write), // 113
+    RouteRegistration::new("/me/books/{id}/chapters/import-confirm", "POST", "/me/", Prefix, Page, Dashboard, Write), // 114
+    RouteRegistration::new("/assets/newboo-chapter-import.js", "GET", "/assets/", Exact, Static, System, Free), // 115
+    RouteRegistration::new("/books/{id}/stats", "GET", "/books/", Prefix, Page, Dashboard, Read), // 116
+    RouteRegistration::new("/books/{id}/stats/export.csv", "GET", "/books/", Prefix, Page, Dashboard, Read), // 117
+    RouteRegistration::new("/reader/{id}/thanks", "GET", "/reader/", Prefix, Page, Reading, Read), // 118
+    RouteRegistration::new("/reader/{id}/thanks", "POST", "/reader/", Prefix, Page, Reading, Write), // 119
+    RouteRegistration::new("/me/creators", "GET", "/me/", Exact, Page, Dashboard, Read), // 120
+    RouteRegistration::new("/me/creators/{id}/unfollow", "POST", "/me/", Prefix, Page, Dashboard, Write), // 121
+    RouteRegistration::new("/me/books/{id}/follow-creator", "POST", "/me/", Prefix, Page, Reading, Write), // 122
+    RouteRegistration::new("/books/{id}/like", "GET", "/books/", Prefix, Page, Reading, Read), // 123
+    RouteRegistration::new("/books/{id}/like", "POST", "/books/", Prefix, Page, Reading, Write), // 124
+    RouteRegistration::new("/api/v1/recommendations", "GET", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Read), // 125
+    RouteRegistration::new("/api/v1/books/{id}/recommendations", "GET", "/api/v1/books/", Prefix, Api, ProductArea::Recommendations, Read), // 126
+    RouteRegistration::new("/api/v1/recommendations/impressions", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 127
+    RouteRegistration::new("/api/v1/recommendations/activate", "POST", "/api/v1/recommendations/", Exact, Api, ProductArea::Recommendations, Write), // 128
+    RouteRegistration::new("/api/v1/me/recommendation-feedback", "GET", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Read), // 129
+    RouteRegistration::new("/api/v1/me/recommendation-feedback", "POST", "/api/v1/me/", Exact, Api, ProductArea::Recommendations, Write), // 130
+    RouteRegistration::new("/me/recommendations", "GET", "/me/", Exact, Page, ProductArea::Recommendations, Read), // 131
+    RouteRegistration::new("/me/recommendations/consent", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 132
+    RouteRegistration::new("/me/recommendations/feedback", "POST", "/me/", Exact, Page, ProductArea::Recommendations, Write), // 133
+    RouteRegistration::new("/api/v1/admin/recommendations/quality", "GET", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 134
+    RouteRegistration::new("/api/v1/admin/recommendations/control", "POST", "/api/v1/recommendations/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 135
+    RouteRegistration::new("/me/recommendations/manage", "GET", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 136
+    RouteRegistration::new("/me/recommendations/manage", "POST", "/me/", Exact, TrafficSurface::Admin, ProductArea::Admin, Write), // 137
+    RouteRegistration::new("/me/books/{id}/recommendations", "GET", "/me/", Prefix, Page, ProductArea::Recommendations, Read), // 138
+    RouteRegistration::new("/me/books/{id}/recommendations", "POST", "/me/", Prefix, Page, ProductArea::Recommendations, Write), // 139
+    RouteRegistration::new("/assets/recommendations.js", "GET", "/assets/", Exact, Static, System, Free), // 140
+    RouteRegistration::new("/api/v1/discovery/activate", "POST", "/api/v1/discovery/", Exact, Api, ProductArea::Recommendations, Write), // 141
+    RouteRegistration::new("/assets/organic_discovery.js", "GET", "/assets/", Exact, Static, System, Free), // 142
+    RouteRegistration::new("/mail", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 143
+    RouteRegistration::new("/mail/start/{recipient_user_id}", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 144
+    RouteRegistration::new("/mail/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 145
+    RouteRegistration::new("/mail/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 146
+    RouteRegistration::new("/mail/{id}/block", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 147
+    RouteRegistration::new("/api/v1/me/messages", "GET", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Read), // 148
+    RouteRegistration::new("/api/v1/me/messages", "POST", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Write), // 149
+    RouteRegistration::new("/assets/mail.js", "GET", "/assets/", Exact, Static, ProductArea::Mail, Free), // 150
+    RouteRegistration::new("/users/{display_name}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 151
+    RouteRegistration::new("/users/{target_user_id}/friend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 152
+    RouteRegistration::new("/users/{target_user_id}/unfriend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 153
+    RouteRegistration::new("/users/{target_user_id}/block", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 154
+    RouteRegistration::new("/notifications", "GET", "/notifications/", Exact, Page, Dashboard, Read), // 155
+    RouteRegistration::new("/notifications/{id}/read", "POST", "/notifications/", Prefix, Page, Dashboard, Write), // 156
+    RouteRegistration::new("/notifications/read-all", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 157
+    RouteRegistration::new("/notifications/preferences", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 158
+    RouteRegistration::new("/mail/groups", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 159
+    RouteRegistration::new("/mail/groups", "POST", "/mail/", Exact, Page, ProductArea::Mail, Write), // 160
+    RouteRegistration::new("/mail/groups/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 161
+    RouteRegistration::new("/mail/groups/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 162
+    RouteRegistration::new("/mail/groups/{id}/leave", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 163
+    RouteRegistration::new("/books/{id}/room", "GET", "/books/", Prefix, Page, ProductArea::Mail, Read), // 164
+    RouteRegistration::new("/books/{id}/room/join", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 165
+    RouteRegistration::new("/books/{id}/room/messages", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 166
+    RouteRegistration::new("/books/{id}/room/leave", "POST", "/books/", Prefix, Page, ProductArea::Mail, Write), // 167
+    RouteRegistration::new("/admin/mail", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 168
+    RouteRegistration::new("/admin/mail/users/{user_id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 169
+    RouteRegistration::new("/admin/mail/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 170
+    RouteRegistration::new("/mail/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 171
+    RouteRegistration::new("/mail/groups/{id}/messages", "GET", "/mail/", Prefix, Api, ProductArea::Mail, Read), // 172
+    RouteRegistration::new("/mail/groups/{id}/transfer", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 173
+    RouteRegistration::new("/me/books/{id}/preview", "GET", "/me/", Prefix, Page, ProductArea::Mail, Read), // 174
+    RouteRegistration::new("/mail/group-invitations", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 175
+    RouteRegistration::new("/mail/groups/{id}/invite", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 176
+    RouteRegistration::new("/mail/groups/{id}/invite", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 177
+    RouteRegistration::new("/mail/group-invitations/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 178
+    RouteRegistration::new("/mail/group-invitations/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 179
+    RouteRegistration::new("/mail/groups/{id}/invite/{invitation_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 180
+    RouteRegistration::new("/mail/groups/{id}/disband", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 181
+    RouteRegistration::new("/mail/group-transfers", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 182
+    RouteRegistration::new("/mail/group-transfers/{id}/accept", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 183
+    RouteRegistration::new("/mail/group-transfers/{id}/decline", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 184
+    RouteRegistration::new("/mail/groups/{id}/transfer/{offer_id}/revoke", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 185
+    RouteRegistration::new("/admin/mail/groups", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 186
+    RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 187
+    RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 188
+    RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 189
+    RouteRegistration::new("/me/chapters/{id}/buy", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 190
+    RouteRegistration::new("/me/chapters/{id}/buy", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 191
 ];
 
-/// Read-only, finite route graph for subsequent governance checks.
 pub const fn registry() -> &'static [RouteRegistration] {
     &ROUTES
 }

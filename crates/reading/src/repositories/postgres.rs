@@ -219,18 +219,22 @@ impl PublicReadingRepository for PgReader {
                        AND NOT prior.admin_hold AND NOT prior.is_deleted \
                        AND (prior.reader_released_at IS NULL OR prior.reader_released_at <= now()) \
                      ORDER BY prior.chapter_no DESC LIMIT 1) AS previous_chapter_id, \
-                    (SELECT following.id FROM chapters following \
-                     JOIN chapter_publications fp ON fp.chapter_id = following.id \
-                     JOIN chapter_versions fv ON fv.id = fp.version_id AND fv.chapter_id = following.id \
-                     WHERE following.book_id = c.book_id AND following.chapter_no > c.chapter_no \
-                       AND following.visibility = 'public' AND following.access_level = 'free' \
-                       AND NOT following.admin_hold AND NOT following.is_deleted \
-                       AND (following.reader_released_at IS NULL OR following.reader_released_at <= now()) \
-                     ORDER BY following.chapter_no ASC LIMIT 1) AS next_chapter_id \
+                    next_public.id AS next_chapter_id, \
+                    COALESCE(next_public.access_level = 'paid', FALSE) AS next_chapter_is_paid \
              FROM chapters AS c \
              JOIN books AS b ON b.id = c.book_id \
              JOIN chapter_publications AS p ON p.chapter_id = c.id \
              JOIN chapter_versions AS v ON v.id = p.version_id AND v.chapter_id = c.id \
+             LEFT JOIN LATERAL ( \
+                SELECT following.id, following.access_level FROM chapters following \
+                JOIN chapter_publications fp ON fp.chapter_id = following.id \
+                JOIN chapter_versions fv ON fv.id = fp.version_id AND fv.chapter_id = following.id \
+                WHERE following.book_id = c.book_id AND following.chapter_no > c.chapter_no \
+                  AND following.visibility = 'public' AND NOT following.admin_hold \
+                  AND NOT following.is_deleted \
+                  AND (following.reader_released_at IS NULL OR following.reader_released_at <= now()) \
+                ORDER BY following.chapter_no, following.id LIMIT 1 \
+             ) AS next_public ON TRUE \
              WHERE c.id = $1 AND b.visibility = 'public' AND NOT b.admin_hold \
                AND NOT b.is_deleted AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
@@ -258,6 +262,7 @@ impl PublicReadingRepository for PgReader {
                     .map_err(map_db)?
                     .map(positive_id)
                     .transpose()?,
+                next_chapter_is_paid: row.try_get("next_chapter_is_paid").map_err(map_db)?,
             })
         })
         .transpose()

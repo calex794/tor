@@ -67,7 +67,11 @@ pub fn router_with_postgres_reading_auth_covers(
             Some(reader),
             true,
             Some(objects),
-            false,
+            Some(super::book_follow_page::FollowBookControl::new(
+                accounts.clone(),
+                secure,
+                public_origin.clone(),
+            )),
         )
         .merge(auth::router(accounts, auth_reader, secure, public_origin)),
     )
@@ -84,6 +88,11 @@ pub fn router_with_postgres_reading_auth_cover_uploads(
     objects: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
 ) -> Router {
     let auth_reader = reader.clone();
+    let follows = super::book_follow_page::FollowBookControl::new(
+        accounts.clone(),
+        secure,
+        public_origin.clone(),
+    );
     let uploads = auth::router_with_cover_uploads(
         accounts,
         auth_reader,
@@ -98,7 +107,7 @@ pub fn router_with_postgres_reading_auth_cover_uploads(
             Some(reader),
             true,
             Some(objects),
-            false,
+            Some(follows),
         )
         .merge(uploads),
     )
@@ -116,6 +125,6 @@ pub fn router_with_postgres_reading_covers(
         Some(reader),
         false,
         Some(objects),
-        false,
+        None,
     ))
 }

@@ -529,8 +529,8 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         )
         .await
         .status(),
-        StatusCode::NOT_FOUND,
-        "published chapter text cannot be edited as a draft"
+        StatusCode::OK,
+        "owner must edit the published free chapter without a second release"
     );
     // BKR-96: normal Save in a published book is an immediate release; the
     // historical B-06 explicit release API remains available for old drafts.

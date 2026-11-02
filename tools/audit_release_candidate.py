@@ -16,7 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from ci_test_map import SUITES
+from ci_test_map import CI_REQUIRED_JOB, CI_WORKFLOW, SUITES, SUITE_JOB_IDS
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -28,11 +28,10 @@ class EvidenceError(ValueError):
 
 
 def workflow_names(root: Path = ROOT) -> dict[str, str]:
-    """Resolve the real registered workflow titles, not a guessed job count."""
+    """Resolve the registered automatic push workflows, not manual suite wrappers."""
     directory = root / ".github" / "workflows"
     names: dict[str, str] = {}
-    paths = ["rules.yml", *(filename for filename, _ in SUITES.values())]
-    for filename in paths:
+    for filename in ("rules.yml", CI_WORKFLOW):
         source = (directory / filename).read_text(encoding="utf-8")
         first = source.splitlines()[0].strip() if source else ""
         if not first.startswith("name: "):
@@ -41,8 +40,8 @@ def workflow_names(root: Path = ROOT) -> dict[str, str]:
         if not title or title in names:
             raise EvidenceError(f"duplicate or empty workflow title: {filename}")
         names[title] = filename
-    if len(names) != len(SUITES) + 1:
-        raise EvidenceError("required CI registry has duplicate entries")
+    if len(names) != 2:
+        raise EvidenceError("required automatic CI workflows have duplicate entries")
     return names
 
 
@@ -86,12 +85,20 @@ def evaluate_ci(
 ) -> dict:
     if not SHA.fullmatch(sha):
         raise EvidenceError("candidate SHA must be 40 lowercase hex characters")
-    if not expected:
-        raise EvidenceError("empty workflow registry")
+    if (not isinstance(expected, dict)
+            or set(expected.values()) != {"rules.yml", CI_WORKFLOW}
+            or len(expected) != 2):
+        raise EvidenceError("incomplete or unreviewed automatic workflow registry")
+    if len(SUITE_JOB_IDS) != len(SUITES) or len(set(SUITE_JOB_IDS.values())) != len(SUITES):
+        raise EvidenceError("duplicate or incomplete suite-job registry")
     current = latest_push_runs(runs, sha)
     blockers: list[str] = []
     verified: list[str] = []
     checks: dict[str, dict] = {}
+    suite_checks = {
+        suite: {"job": job_id, "state": "missing"}
+        for suite, job_id in SUITE_JOB_IDS.items()
+    }
     for title, filename in sorted(expected.items()):
         run = current.get(title)
         if run is None:
@@ -111,31 +118,60 @@ def evaluate_ci(
             continue
         if any(not isinstance(job, dict) for job in jobs):
             raise EvidenceError("non-object job")
-        main_jobs = [job for job in jobs if not is_selector(job)]
-        if not main_jobs:
-            blockers.append(f"{title}: selector-only success is not a test")
-            checks[title] = dict(details, state="selector_only")
+        names = [job.get("name") for job in jobs]
+        if any(not isinstance(name, str) or not name for name in names):
+            raise EvidenceError("missing job name")
+        if len(names) != len(set(names)):
+            blockers.append(f"{title}: duplicate job evidence")
+            checks[title] = dict(details, state="duplicate_jobs")
             continue
-        # A successful wrapper may contain a skipped, cancelled or pending job.
-        # Every non-selector job must actually complete and succeed.
+        by_name = dict(zip(names, jobs))
+        if filename == "rules.yml":
+            required = {"rules"}
+        else:
+            selectors = {name for name in names if is_selector({"name": name})}
+            if len(selectors) != 1 or not selectors <= {"select", "select / select"}:
+                blockers.append(f"{title}: exactly one successful selector is required")
+                checks[title] = dict(details, state="invalid_selector")
+                continue
+            required = set(SUITE_JOB_IDS.values()) | selectors | {CI_REQUIRED_JOB}
+            for suite, job_id in SUITE_JOB_IDS.items():
+                job = by_name.get(job_id)
+                if job is not None:
+                    state = ("verified" if job.get("status") == "completed"
+                             and job.get("conclusion") == "success" else "blocked")
+                    suite_checks[suite] = {"job": job_id, "state": state}
+        missing, unexpected = sorted(required - set(names)), sorted(set(names) - required)
+        if missing or unexpected:
+            if filename == CI_WORKFLOW and len(names) == 1 and is_selector(jobs[0]):
+                blockers.append(f"{title}: selector-only success is not a test")
+            else:
+                blockers.append(f"{title}: missing/unknown jobs: {missing} / {unexpected}")
+            checks[title] = dict(details, state="invalid_jobs",
+                                 missing=missing, unexpected=unexpected)
+            continue
+        # Every required job, including the planner, must succeed on this SHA.
         if any(job.get("status") != "completed" or job.get("conclusion") != "success"
                for job in jobs):
             blockers.append(f"{title}: a job failed, was skipped or is pending")
             checks[title] = dict(details, state="blocked_jobs")
             continue
         verified.append(title)
-        checks[title] = dict(details, state="verified", jobs=len(main_jobs))
+        checks[title] = dict(details, state="verified", jobs=len(jobs))
     for title in sorted(set(current) - set(expected)):
         blockers.append(f"{title}: unregistered push workflow")
     return {
-        "schema": "tor.release_ci_evidence.v1",
+        "schema": "tor.release_ci_evidence.v2",
         "sha": sha,
         "scope": "CI-only, not a production or product-parity approval",
         "ci_complete": not blockers,
         "release_approved": False,
         "verified_workflows": len(verified),
         "required_workflows": len(expected),
+        "verified_suites": sum(x["state"] == "verified" for x in suite_checks.values()),
+        "required_suites": len(SUITE_JOB_IDS),
         "checks": checks,
+        "suite_checks": suite_checks,
         "blockers": blockers,
         "external_gates": [
             "I-06: enforce branch protection administratively",
@@ -186,7 +222,7 @@ def require_current_main(api: GitHub, sha: str) -> None:
 def collect(api: GitHub, sha: str, root: Path = ROOT) -> dict:
     if not SHA.fullmatch(sha):
         raise EvidenceError("invalid release candidate SHA")
-    # A frequently updated main can move while 15 workflow jobs are fetched.
+    # A frequently updated main can move while required job evidence is fetched.
     require_current_main(api, sha)
     payload = api.get(f"/repos/{REPO}/actions/runs",
                       {"head_sha": sha, "event": "push", "per_page": 100})

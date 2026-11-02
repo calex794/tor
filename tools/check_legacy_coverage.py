@@ -34,7 +34,7 @@ KNOWN_SUPPLEMENTAL_GROUPS = {
 
 VALID_MOUNTS = {"mounted", "conditional", "frozen", "unconfirmed_mount"}
 VALID_COMPARISONS = {"path_mentioned", "semantic_review", "frozen", "mount_review"}
-FROZEN_ROUTES = ("book_crawler", "/book-imports/crawl", "scene_marketplace",
+FROZEN_ROUTES = ("book_crawler", "/book-imports/crawl", "/auth/yandex/", "scene_marketplace",
                  "scene_presets", "chapter_scene_", "shadow-availability")
 FROZEN_JOBS = ("scene_marketplace", "book_crawler")
 EXTRA_FILES = {"backend/app/main.py", "backend/app/web/routes/mail_admin_routes.py"}

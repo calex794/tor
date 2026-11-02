@@ -1,14 +1,11 @@
 name: TOR private S3 crypto
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: tor-storage-crypto-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   select:
     uses: ./.github/workflows/ci-selection.yml

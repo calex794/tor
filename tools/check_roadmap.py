@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 import re
 import sys
 import tomllib
@@ -10,7 +11,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED = {"S024": "заморожено", "S040": "не переносить", "S053": "заморожено", "S054": "заморожено",
+EXCLUDED = {"S003": "заморожено", "S024": "заморожено", "S040": "не переносить", "S053": "заморожено", "S054": "заморожено",
             "S055": "заморожено", "S056": "заморожено", "S067": "не переносить",
             "S069": "не переносить"}
 LANE_TASK_COUNTS = {"A": 11, "B": 16, "C": 12, "D": 13, "E": 14,
@@ -25,6 +26,8 @@ LANE_CRATES = {
 SUMMARY_TASKS = {"A-11", "B-16", "C-12", "D-13", "E-14", "F-14", "G-12", "H-12", "I-13"}
 TASK_RE = re.compile(r"^([A-I])-(\d{2})$")
 S_RE = re.compile(r"^S\d{3}$")
+RUST_STATUSES = {"Не сверено", "Не начат", "Частично", "Есть код", "Поведение сверено", "Исключено"}
+RUST_SCOPES = {"main", "draft", "mixed", "not_started", "excluded"}
 INVALID = re.compile(r"\b(TODO|TBD|TBC|FIXME)\b|проработать\s+потом|решить\s+позже", re.I)
 VAGUE_START = re.compile(r"^\s*(?:Сопоставить|Сверить|Зафиксировать|Выбрать|Согласовать|Проработать|Проверить|Собрать матрицу|Оформить)\b", re.I)
 
@@ -66,13 +69,39 @@ def check(root: Path = ROOT) -> list[str]:
     owners: dict[str, str] = {}
     for s in scenarios:
         code, owner = s.get("code", ""), s.get("owner", "")
+        status, scope = s.get("rust_status", ""), s.get("rust_scope", "")
+        if status not in RUST_STATUSES or scope not in RUST_SCOPES:
+            errors.append(f"{code}: missing/invalid Rust status or scope")
+        if None in s:
+            errors.append(f"{code}: extra TSV fields")
         if code in EXCLUDED:
+            if status != "Исключено" or scope != "excluded":
+                errors.append(f"{code}: excluded Rust status/scope changed")
             if owner != "-" or s.get("decision") != EXCLUDED[code]:
                 errors.append(f"{code}: excluded/frozen status or owner changed")
         elif owner not in LANE_TASK_COUNTS or owner == "H":
             errors.append(f"{code}: missing/invalid owning lane {owner}")
         else:
             owners[code] = owner
+        if code not in EXCLUDED:
+            if scope == "excluded" or status == "Исключено":
+                errors.append(f"{code}: active scenario marked excluded")
+            if (scope == "not_started") != (status == "Не начат"):
+                errors.append(f"{code}: Rust status contradicts not_started scope")
+            checked_at = s.get("rust_checked_at", "")
+            try:
+                datetime.date.fromisoformat(checked_at)
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", checked_at):
+                    raise ValueError("expected YYYY-MM-DD")
+            except ValueError:
+                errors.append(f"{code}: missing/invalid Rust check date")
+            if not re.fullmatch(r"[0-9a-f]{40}", s.get("rust_snapshot_sha", "")):
+                errors.append(f"{code}: missing/invalid Rust main snapshot SHA")
+            evidence = s.get("rust_evidence_urls", "").split(";")
+            if any(not url.startswith("https://github.com/") for url in evidence):
+                errors.append(f"{code}: missing/invalid Rust evidence URLs")
+            if not s.get("rust_gap", "").strip():
+                errors.append(f"{code}: missing Rust scope/remaining-work explanation")
         if not s.get("title") or not s.get("priority") or not s.get("acceptance"):
             errors.append(f"{code}: missing title/priority/acceptance")
         if not s.get("notion_scenario_url", "").startswith("https://app.notion.com/"):
@@ -113,7 +142,7 @@ def check(root: Path = ROOT) -> list[str]:
         if t.get("target_crate") not in LANE_CRATES[lane]:
             errors.append(f"{task_id}: package is not owned by lane {lane}")
         is_archived = task_id in set(expected.get("archived_task_ids", []))
-        if is_archived and (t.get("day") != "ЗАМОРОЖЕНО" or t.get("related_s_ids") != "S024" or "не создавать" not in t.get("implementation", "").lower()):
+        if is_archived and (t.get("day") != "ЗАМОРОЖЕНО" or t.get("related_s_ids") != {"A-08": "S003", "G-03": "S024"}[task_id] or "не создавать" not in t.get("implementation", "").lower()):
             errors.append(f"{task_id}: archived task accidentally reactivated")
         test = t.get("test_entry", "")
         if lane != "I" and not is_archived and f" {lane.lower()}_{m.group(2)}_" not in test:
@@ -131,8 +160,8 @@ def check(root: Path = ROOT) -> list[str]:
         if counts[lane] != expected:
             errors.append(f"lane {lane}: expected {expected} tasks, got {counts[lane]}")
     locked_counts = lock.get("roadmap", {})
-    if set(locked_counts.get("archived_task_ids", [])) != {"G-03"}:
-        errors.append("archived task G-03 must remain frozen")
+    if set(locked_counts.get("archived_task_ids", [])) != {"A-08", "G-03"}:
+        errors.append("archived tasks A-08 and G-03 must remain frozen")
     if len(tasks) != locked_counts.get("tasks_total") or len(LANE_TASK_COUNTS) != locked_counts.get("lanes"):
         errors.append(f"expected {locked_counts.get('tasks_total')} tasks in {locked_counts.get('lanes')} lanes, got {len(tasks)}")
     for code, lane in owners.items():
@@ -191,4 +220,4 @@ if __name__ == "__main__":
         print("FAIL:", issue, file=sys.stderr)
     if issues:
         sys.exit(1)
-    print("TOR roadmap coverage: 69 S (61 assigned/8 excluded), 61 F, 117 task entries (G-03 archive), 9 lanes: PASS")
+    print("TOR roadmap coverage: 69 S (60 assigned/9 excluded), 61 F, 117 task entries (A-08/G-03 archive), 9 lanes: PASS")

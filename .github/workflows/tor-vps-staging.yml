@@ -19,7 +19,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   stage:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    # I-10: Retired. This old SSH/install path bypasses the new main-protection
+    # I-06 release gate. Keep as an inert test fixture for rollback regression.
+    # The only permitted production updater is tor-one-click-release.yml.
+    if: ${{ false }}
     environment: tor-staging
     runs-on: ubuntu-24.04
     timeout-minutes: 30
