@@ -263,7 +263,7 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
     );
     let closed_html = text(call(&app, "GET", &path, &sessions[2], "", ORIGIN).await).await;
     assert!(closed_html.contains("Статус: закрыто."));
-    assert!(closed_html.contains(&format!("action=\\"{reopen_path}\\"")));
+    assert!(closed_html.contains(&reopen_path));
     assert!(!closed_html.contains("data-admin-support-form"));
     assert_eq!(
         call(

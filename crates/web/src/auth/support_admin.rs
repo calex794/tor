@@ -261,7 +261,8 @@ pub(super) async fn close(
         Ok(a) => a,
         Err(s) => return denied(s),
     };
-    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token) {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
         return denied(StatusCode::FORBIDDEN);
     }
     match service(&state)
@@ -289,7 +290,8 @@ pub(super) async fn reopen(
         Ok(a) => a,
         Err(s) => return denied(s),
     };
-    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token) {
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
         return denied(StatusCode::FORBIDDEN);
     }
     match service(&state)
