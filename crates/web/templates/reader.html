@@ -1,5 +1,5 @@
-<!-- NEwBOO reader/detail.html: public free chapter, without unavailable JS settings. -->
-<section class="section reader-page reader-public" aria-labelledby="reader-title">
+<!-- Public free chapter: accessible presentation controls without privileged reading APIs. -->
+<section class="section reader-page reader-public" data-public-reader aria-labelledby="reader-title">
   <div class="container reader-width">
     <header class="reader-topbar" aria-label="Панель чтения">
       <a class="reader-topbar__back" href="/books/<!--BOOK_ID-->">
@@ -9,6 +9,38 @@
         <span class="reader-topbar__book"><!--BOOK_TITLE--></span>
         <span class="reader-topbar__chapter"><!--CHAPTER_TITLE--></span>
       </div>
+      <details class="reader-public__settings" data-public-settings>
+        <summary aria-label="Настройки чтения" title="Настройки чтения">Aa</summary>
+        <div class="reader-public__settings-panel" aria-label="Настройки текста">
+          <label>Тема
+            <select data-public-theme>
+              <option value="system">Системная</option>
+              <option value="light">Светлая</option>
+              <option value="sepia">Сепия</option>
+              <option value="dark">Тёмная</option>
+            </select>
+          </label>
+          <label>Шрифт
+            <select data-public-font>
+              <option value="serif">С засечками</option>
+              <option value="sans">Без засечек</option>
+            </select>
+          </label>
+          <label>Размер текста
+            <input data-public-scale type="range" min="80" max="140" step="5" value="100">
+            <output data-public-scale-out>100%</output>
+          </label>
+          <label>Межстрочный интервал
+            <input data-public-spacing type="range" min="150" max="220" step="5" value="185">
+            <output data-public-spacing-out>1.85</output>
+          </label>
+          <label>Ширина текста
+            <input data-public-width type="range" min="620" max="980" step="20" value="860">
+            <output data-public-width-out>860 px</output>
+          </label>
+          <button type="button" data-public-reset>Сбросить настройки</button>
+        </div>
+      </details>
     </header>
     <div class="reader-page__header">
       <p class="reader-page__meta">Бесплатная глава · Версия <!--CHAPTER_VERSION--></p>
@@ -22,4 +54,5 @@
     <!--CHAPTER_THANKS_LINK-->
     <p class="reader-page__return"><a class="text-link" href="/books/<!--BOOK_ID-->">Вернуться к оглавлению</a></p>
   </div>
+  <script defer src="/assets/newboo-public-reader.js"></script>
 </section>
