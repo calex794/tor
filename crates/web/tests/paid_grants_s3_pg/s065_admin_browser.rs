@@ -62,9 +62,13 @@ pub(super) async fn verify(
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        private_get(app, &format!("/read/admin/{chapter}"), Some(outsider_session))
-            .await
-            .status(),
+        private_get(
+            app,
+            &format!("/read/admin/{chapter}"),
+            Some(outsider_session)
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
 
@@ -82,7 +86,9 @@ pub(super) async fn verify(
     options.write(true).create_new(true);
     #[cfg(unix)]
     options.mode(0o600);
-    let mut file = options.open(&fixture_path).expect("private admin browser fixture");
+    let mut file = options
+        .open(&fixture_path)
+        .expect("private admin browser fixture");
     file.write_all(payload.to_string().as_bytes()).unwrap();
     file.sync_all().unwrap();
     drop(file);
@@ -101,7 +107,10 @@ pub(super) async fn verify(
     });
     let script =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/s065_admin_real_chromium.cjs");
-    assert!(script.is_file(), "S065 admin real browser runner must exist");
+    assert!(
+        script.is_file(),
+        "S065 admin real browser runner must exist"
+    );
     let child_fixture = fixture_path.clone();
     let output = tokio::task::spawn_blocking(move || {
         Command::new("timeout")
