@@ -366,5 +366,49 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         store.0.lock().await.is_empty(),
         "completed and cancelled source objects are cleaned up"
     );
+
+    // Publishing a book must close the queued import route before any S3 PUT,
+    // even if the caller is still the authenticated owner.
+    sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
+        .bind(book_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let published_text = "Глава 2: После публикации\\nНовая глава";
+    let published_text = published_text.replace("\\n", "\n");
+    let published_chapters = parse_text("published.txt", &published_text).unwrap();
+    let published_fp = fingerprint(book_id, &published_chapters);
+    let published_response = call(
+        &app,
+        &queue_path,
+        "POST",
+        &owner_cookie,
+        Some(json!({
+            "filename": "published.txt",
+            "text": published_text,
+            "csrf_token": csrf,
+            "command_key": generate_session_token(),
+            "fingerprint": fingerprint_hex(&published_fp),
+        })),
+    )
+    .await;
+    assert_eq!(
+        published_response.0,
+        StatusCode::CONFLICT,
+        "S023 cannot import into an already published book"
+    );
+    assert!(
+        store.0.lock().await.is_empty(),
+        "published-book refusal must precede private S3 staging"
+    );
+    assert_eq!(
+        authoring
+            .list_owned_chapters(owner, book_id)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "rejected published-book import must not add chapters"
+    );
     pool.close().await;
 }
