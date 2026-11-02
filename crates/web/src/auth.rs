@@ -52,6 +52,7 @@ mod book_description;
 mod book_follow_actions;
 mod book_likes;
 mod book_registration_http;
+mod book_sources;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
@@ -376,6 +377,10 @@ fn router_inner(
         .route(
             "/me/books/{id}/description",
             get(book_description::edit).post(book_description::save),
+        )
+        .route(
+            "/me/books/{id}/settings/sources",
+            get(book_sources::edit).post(book_sources::save),
         )
         .route("/me/books/{id}/settings/covers", get(cover_settings))
         .route("/read/{id}", get(private_reader::page))
