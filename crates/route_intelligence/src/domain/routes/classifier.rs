@@ -210,7 +210,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/me/books/{id}/issues"), "GET") => Some(197),
         (Some("/me/books/{id}/issues/{issue_id}/status"), "POST") => Some(198),
         (Some("/read/{id}/text-issues"), "POST") => Some(199),
-        (Some("/assets/newboo-free-reader.js"), "GET") => Some(200),
+        (Some("/me/refunds/swap"), "GET") => Some(200),
+        (Some("/me/refunds/swap"), "POST") => Some(201),
+        (Some("/api/v1/reader/chapters/{chapter_id}/text-issues"), "POST") => Some(202),
+        (Some("/assets/newboo-free-reader.js"), "GET") => Some(203),
         _ => None,
     };
     index

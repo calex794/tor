@@ -48,6 +48,7 @@ pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
 }
 mod account_form_http;
+mod account_home;
 mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -64,6 +65,7 @@ mod checkout_browser;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
+mod direct_swap_browser;
 mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
@@ -181,6 +183,8 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    let swap_browser_enabled = paid_checkout_enabled
+        && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
     let cover_upload_enabled = storage.is_some();
     let state = AuthState {
@@ -190,6 +194,7 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        swap_browser_enabled,
         paid_reader_available,
         authoring,
         progress,
@@ -310,6 +315,10 @@ fn router_inner(
         .route("/api/v1/me/rankings", get(rankings::api_state))
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
+        .route(
+            "/me/refunds/swap",
+            get(direct_swap_browser::page).post(direct_swap_browser::submit),
+        )
         .route("/api/v1/purchases", post(checkout::buy))
         .merge(checkout_browser::router())
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
@@ -389,32 +398,7 @@ async fn me(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let name = match state.accounts.user_display_name(user_id).await {
-        Ok(Some(value)) => value,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let discussions =
-        tor_discussions::repositories::public_book_comments::PgPublicBookComments::new(
-            state.accounts.pool().clone(),
-        );
-    let replies = match discussions.received_replies(user_id, 10).await {
-        Ok(replies) => replies,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let unread = match state.follow_updates.unread_count_capped(user_id).await {
-        Ok(count) => count,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let achievements = match state.achievements.snapshot(user_id).await {
-        Ok(achievements) => achievements,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        pages::my_account_with_achievements(&name, &csrf, &replies, unread, &achievements),
-        &cookies,
-    )
+    account_home::page(state, headers, user_id).await
 }
 async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Response {
     let actor = match session_user(&state, &headers).await {

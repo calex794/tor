@@ -40,7 +40,7 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
-    "active_role", "create_free",
+    "active_role", "create_free", "create_paid",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove",
 }
@@ -305,6 +305,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     }
     if route_key in e12_team and policy != "scoped":
         errors.append(f"{label}: E-12 team triage must remain actor-scoped")
+    if route_key == (
+        "POST", "/api/v1/reader/chapters/{chapter_id}/text-issues",
+        "text_issues::submit",
+    ) and policy != "scoped":
+        errors.append(f"{label}: E-12 paid correction must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "administrator":
