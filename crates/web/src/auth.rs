@@ -449,7 +449,7 @@ async fn create_book(
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => {
             private_response((StatusCode::CONFLICT, author_pages::create_conflict()), &[])
-        },
+        }
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
