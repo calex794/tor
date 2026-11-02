@@ -12,8 +12,24 @@ pub fn my_library_with_updates(
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
+    my_library_with_updates_and_layers(
+        items, saved, csrf, purchased_available, false, checkout_enabled, updates, owned,
+    )
+}
+
+/// The purchased-Layer navigation only appears with explicit storefront opt-in.
+pub fn my_library_with_updates_and_layers(
+    items: &[tor_reading::services::progress::ContinueReading],
+    saved: &tor_reading::services::library::SavedBookPage,
+    csrf: &str,
+    purchased_available: bool,
+    layers_available: bool,
+    checkout_enabled: bool,
+    updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
+    owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
+) -> Html<String> {
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(items, saved, csrf, purchased_available, &update_html)
+    my_library_inner(items, saved, csrf, purchased_available, layers_available, &update_html)
 }
 
 fn my_library_inner(
@@ -21,6 +37,7 @@ fn my_library_inner(
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
     purchased_available: bool,
+    layers_available: bool,
     updates_html: &str,
 ) -> Html<String> {
     let mut cards = String::new();
@@ -70,8 +87,13 @@ fn my_library_inner(
     } else {
         ""
     };
+    let layers_link = if layers_available {
+        "<p><a class=\"button button--small\" href=\"/me/library/layers\">Мои пакеты доступа</a></p>"
+    } else {
+        ""
+    };
     let html = format!(
-        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}</div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
+        "<section class=\"section library-page\"><div class=\"container\"><nav class=\"breadcrumbs\" aria-label=\"Навигационная цепочка\"><a href=\"/me\">Мой кабинет</a><span aria-hidden=\"true\">/</span><span aria-current=\"page\">Библиотека</span></nav><div class=\"library-heading\"><p class=\"eyebrow\">Моё чтение</p><h1>Продолжить чтение</h1><p>История чтения показывает бесплатные главы; новые главы подписок могут быть платными.</p>{purchased_link}{layers_link}</div><div class=\"library-grid\">{cards}</div>{updates_html}<section class=\"section\" aria-label=\"Сохранённые книги\"><h2>Сохранённые книги</h2><div class=\"library-grid\">{saved_html}</div></section></div></section>"
     );
     layout(
         "Моя библиотека",

@@ -6,6 +6,11 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod layer_storefront;
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
 mod creators;
 pub use creators::creator_follows;
 mod referrals;
@@ -450,7 +455,7 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::my_library_with_updates;
+pub use library::{my_library_with_updates, my_library_with_updates_and_layers};
 
 pub async fn stylesheet() -> impl IntoResponse {
     (
@@ -477,6 +482,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-support-widget.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
         css

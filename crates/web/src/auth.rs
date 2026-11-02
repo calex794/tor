@@ -71,7 +71,9 @@ mod followed_purchase_links;
 mod friendship;
 mod group_mail;
 mod inbox;
+mod layer_checkout_api;
 mod layer_routes;
+mod layer_storefront;
 mod library_actions;
 mod library_page;
 mod login_limiter;
@@ -185,6 +187,10 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    // Layer sales require two independent, explicit switches on top of direct paid checkout.
+    let layer_pages_enabled = std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1");
+    let layer_checkout_enabled =
+        paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
     let swap_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
@@ -196,6 +202,8 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled,
+        layer_pages_enabled,
         swap_browser_enabled,
         paid_reader_available,
         authoring,
@@ -219,6 +227,7 @@ fn router_inner(
     let app = Router::new()
         .merge(settings_routes::router())
         .merge(layer_routes::routes())
+        .merge(layer_storefront::router())
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
@@ -287,6 +296,15 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .route("/layers/{layer_id}", get(layer_storefront::page))
+        .route(
+            "/layers/{layer_id}/purchase",
+            post(layer_storefront::buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/v1/layers/{layer_id}/purchase",
+            post(layer_checkout_api::buy),
+        )
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
