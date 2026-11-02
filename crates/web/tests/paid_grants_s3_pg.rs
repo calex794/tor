@@ -50,12 +50,12 @@ mod fixture_writer;
 mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
-#[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
-mod s065_admin_browser;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
+#[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
+mod s065_admin_browser;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
