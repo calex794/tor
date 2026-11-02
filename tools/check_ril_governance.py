@@ -69,6 +69,7 @@ OWNER_CALLS = {
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
+    "owned_book_source_links", "update_book_source_links",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "add_book", "remove_book_if_current", "create_once",
@@ -389,9 +390,8 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "admin_reader":
-        # Dedicated S065 exception: only an exact, read-only admin shell is
-        # eligible. Never allow the normal buyer grant / purchases / invoices
-        # to inherit a mere administrator route label.
+        # A single, read-only admin shell; never authorize an ordinary
+        # purchase grant, wallet operation or an unreviewed admin URL.
         allowed_admin_reader = (
             entry["method"] == "GET"
             and entry["template"] == "/read/admin/{chapter_id}"

@@ -159,9 +159,28 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByLabel('Дополнительная ссылка на это произведение').fill(mirrorLink);
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
+        const sourceBookId = page.url().split('/').pop();
+        await page.getByRole('link', { name: 'Ссылки на произведение' }).click();
+        assert(await page.getByLabel('Ссылка на оригинал').inputValue() === chineseOriginal,
+          'S019: source settings must show the existing original');
+        assert(await page.getByLabel('Дополнительная ссылка на произведение')
+          .inputValue() === mirrorLink, 'S019: existing mirror must be shown');
+        const editedMirror = 'https://mirror.example.org/updated/' + workNum;
+        await page.getByLabel('Дополнительная ссылка на произведение').fill(editedMirror);
+        const [linksSaved] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books/' + sourceBookId +
+            '/settings/sources' && r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Сохранить ссылки' }).click(),
+        ]);
+        assert(linksSaved.status() === 303, 'S019: owner must be able to save URLs');
+        await page.waitForURL(base + '/me/books/' + sourceBookId);
+        await page.goto(base + '/me/books/' + sourceBookId + '/settings/sources');
+        assert(await page.getByLabel('Дополнительная ссылка на произведение')
+          .inputValue() === editedMirror, 'S019: saved mirror must survive reload');
+
         await page.goto(base + '/me/books/new');
         await page.getByLabel('Название книги').fill('Другое название зеркала ' + workNum);
-        await page.getByLabel('Ссылка на первоисточник').fill(mirrorLink);
+        await page.getByLabel('Ссылка на первоисточник').fill(editedMirror);
         const [mirrorDuplicate] = await Promise.all([
           page.waitForResponse(r => r.url() === base + '/me/books' &&
             r.request().method() === 'POST'),

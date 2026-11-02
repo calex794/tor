@@ -192,6 +192,28 @@ pub fn registration_link_claims(book: &NewBook) -> Result<Vec<(String, String)>,
     Ok(claims)
 }
 
+/// Validate at most three owner-edited links (original plus two mirrors).
+/// This reuses registration's exact URL contract, without inferring matches
+/// between unrelated domains or invoking any network requests.
+pub fn edited_link_claims(raw_links: [&str; 3]) -> Result<Vec<(String, String)>, AuthorError> {
+    let mut claims = Vec::new();
+    let key = "a".repeat(43);
+    for raw in raw_links {
+        let url = raw.trim();
+        if url.is_empty() {
+            continue;
+        }
+        let identity = source_identity(url, 1, &key)?;
+        if claims
+            .iter()
+            .all(|(previous, _): &(String, String)| previous != &identity)
+        {
+            claims.push((identity, url.to_owned()));
+        }
+    }
+    Ok(claims)
+}
+
 pub fn with_registration_metadata(
     mut book: NewBook,
     fields: RegistrationFields<'_>,
@@ -349,6 +371,26 @@ mod tests {
 
         let book = new_book("manual:7:test", "ru", "Книга", KEY).unwrap();
         assert!(with_extra_source_links(book, ["javascript:alert(1)", ""]).is_err());
+    }
+
+    #[test]
+    fn s019_owner_link_edits_validate_and_deduplicate() {
+        let old = "https://original.example.cn/novel/23";
+        let rulate = "https://tl.rulate.ru/book/268849";
+        let claims =
+            edited_link_claims([old, rulate, "http://www.rulate.ru/book/000268849?ref=other"])
+                .unwrap();
+        assert_eq!(claims.len(), 2, "Rulate work IDs collapse exact aliases");
+        assert!(claims.iter().any(|(_, url)| url == old));
+        assert!(edited_link_claims(["", "", ""]).unwrap().is_empty());
+        for invalid in [
+            "javascript:alert(1)",
+            "https://127.0.0.1/private",
+            "https://user@example.org/private",
+            "https://example.org:8080/book",
+        ] {
+            assert!(edited_link_claims([invalid, "", ""]).is_err(), "{invalid}");
+        }
     }
 
     #[test]

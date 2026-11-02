@@ -205,6 +205,76 @@ pub(super) async fn assert_layer_s3_grants(
         .status(),
         StatusCode::OK
     );
+    // C-12 / S065: a valid Layer term must not bypass Book or Chapter
+    // administrative holds. Blocked Layer storefronts alone do not revoke
+    // purchased rights; hard B holds independently stop new signed grants.
+    for (scope, hold, clear) in [
+        (
+            "book",
+            format!("UPDATE books SET admin_hold=TRUE WHERE id={book}"),
+            format!("UPDATE books SET admin_hold=FALSE WHERE id={book}"),
+        ),
+        (
+            "chapter",
+            format!("UPDATE chapters SET admin_hold=TRUE WHERE id={chapter}"),
+            format!("UPDATE chapters SET admin_hold=FALSE WHERE id={chapter}"),
+        ),
+    ] {
+        pg(url, &hold);
+        let denied_grant = post_grant(
+            app,
+            chapter,
+            Some(cookie),
+            Some(csrf),
+            ORIGIN,
+            r#"{"source":"layer"}"#,
+        )
+        .await;
+        assert_eq!(
+            denied_grant.status(),
+            StatusCode::NOT_FOUND,
+            "{scope} hold must override a valid Layer term"
+        );
+        assert_eq!(denied_grant.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(
+            to_bytes(denied_grant.into_body(), 8192)
+                .await
+                .unwrap()
+                .is_empty(),
+            "denied {scope} grant must contain no S3 credentials"
+        );
+
+        let denied_shell = private_get(app, &layer_page, Some(cookie)).await;
+        assert_eq!(
+            denied_shell.status(),
+            StatusCode::NOT_FOUND,
+            "{scope} hold must close the Layer reader shell"
+        );
+        assert!(
+            to_bytes(denied_shell.into_body(), 8192)
+                .await
+                .unwrap()
+                .is_empty(),
+            "denied {scope} shell must contain no chapter text"
+        );
+
+        pg(url, &clear);
+        assert_eq!(
+            post_grant(
+                app,
+                chapter,
+                Some(cookie),
+                Some(csrf),
+                ORIGIN,
+                r#"{"source":"layer"}"#,
+            )
+            .await
+            .status(),
+            StatusCode::OK,
+            "lifting {scope} hold restores existing Layer entitlements"
+        );
+    }
+
     pg(
         url,
         &format!(
