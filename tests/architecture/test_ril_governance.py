@@ -262,6 +262,35 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
+    def test_e12_paid_corrections_cannot_downgrade_to_session(self):
+        path = self.root / INVENTORY
+        data = json.loads(path.read_text(encoding="utf-8"))
+        endpoint = next(
+            route for route in data["routes"]
+            if route["template"] == "/api/v1/reader/chapters/{chapter_id}/text-issues"
+        )
+        endpoint["policy"] = "session"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_detected("E-12 paid correction must remain actor-scoped")
+
+    def test_e12_paid_corrections_must_bind_actor(self):
+        self.mutate(
+            "crates/web/src/paid_grants_http/text_issues.rs",
+            "        .create_paid(\n            actor,",
+            "        .create_paid(\n            1,",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_e12_paid_corrections_require_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/paid_grants_http/text_issues.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.same_origin_bypass(&headers)",
+            start="pub(super) async fn submit(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_duplicate_reviewed_binding_fails(self):
         path = self.root / INVENTORY
         data = json.loads(path.read_text(encoding="utf-8"))

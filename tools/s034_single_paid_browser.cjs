@@ -85,6 +85,45 @@ async function verify(browser, buyer, viewport) {
     assert.equal(new URL(page.url()).searchParams.get("purchase_id"), String(purchase));
     assert.equal(number("SELECT count(*) FROM reader_wallet_entries WHERE user_id=" + buyer.id +
       " AND kind='chapter_purchase'"), 1);
+
+    // E-12/S047: a REAL reader selection from decrypted private S3 content.
+    const issues = page.locator("[data-paid-issues] form");
+    await issues.waitFor({ state: "visible" });
+    const selectedQuote = await page
+      .locator("[data-paid-content] .reader-piece__text")
+      .filter({ hasText: "Оплаченная V1: кириллица" }).first()
+      .evaluate((paragraph) => {
+        const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          const offset = (node.textContent || "").indexOf("Оплаченная");
+          if (offset < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, offset);
+          range.setEnd(node, offset + "Оплаченная".length);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+          return "Оплаченная";
+        }
+        throw new Error("No selectable paid text node");
+      });
+    assert.equal(await issues.locator('textarea[name="quote"]').inputValue(), selectedQuote);
+    const suggestion = "Проверьте написание слова в купленной редакции.";
+    await issues.locator('textarea[name="suggested_text"]').fill(suggestion);
+    const issueButton = issues.locator('button[type="submit"]');
+    const issueCount = () => number("SELECT count(*) FROM text_issues WHERE reporter_user_id=" +
+      buyer.id + " AND purchase_id=" + purchase + " AND chapter_id=" + chapter.id);
+    await issueButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-paid-issues] [role="status"]')
+      ?.textContent === "Сообщение отправлено владельцу книги.");
+    assert.equal(issueCount(), 1);
+    await issueButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-paid-issues] [role="status"]')
+      ?.textContent === "Такое сообщение уже отправлялось.");
+    assert.equal(issueCount(), 1, "identical correction replay must not duplicate issue");
+
     assert.equal((await post(form)).status(), 303);
     assert.equal(balance(), 600 - price);
     assert.equal(purchases(), 1);
@@ -147,6 +186,18 @@ async function verify(browser, buyer, viewport) {
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
       { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
     assert.equal(grant.status(), 403);
+    const rejectedIssue = await context.request.post(
+      SITE + "/api/v1/reader/chapters/" + chapter.id + "/text-issues", {
+        data: {
+          purchase_id: String(purchase), version_id: String(chapter.version),
+          block_index: 1, selection_start: 0, selection_end: selectedQuote.length,
+          quote: selectedQuote, suggested_text: "Повтор после отзыва права",
+          issue_type: "typo",
+        },
+        headers: { origin: SITE, "x-csrf-token": csrf },
+      });
+    assert.equal(rejectedIssue.status(), 403);
+    assert.equal(issueCount(), 1, "revoked purchase must not create a new text issue");
     assert.equal(balance(), 600 - price, "revocation alone must never pretend to refund money");
     assert.equal(purchases(), 1);
     const width = viewport.width === 1440 ? "desktop" : "mobile";
