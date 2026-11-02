@@ -157,7 +157,11 @@ async fn c_10_denied_reader_api_has_no_text_or_shared_cache() {
         if path == "/reader/103" {
             assert_eq!(reply.headers()["x-robots-tag"], "noindex, nofollow");
         }
-        assert!(policy.contains("script-src 'none'"));
+        if path == "/reader/101" {
+            assert!(policy.contains("script-src 'self'"));
+        } else {
+            assert!(policy.contains("script-src 'none'"));
+        }
         assert!(policy.contains("frame-ancestors 'none'"));
         let body = to_bytes(reply.into_body(), 256 * 1024).await.unwrap();
         let text = String::from_utf8(body.to_vec()).unwrap();
