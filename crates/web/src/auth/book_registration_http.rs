@@ -2,7 +2,9 @@
 use super::*;
 use tor_books::services::{
     authoring::{new_book_with_taxonomy, with_book_description, TaxonomyFields},
-    book_registration::{source_identity, with_extra_source_links, with_registration_metadata, RegistrationFields},
+    book_registration::{
+        source_identity, with_extra_source_links, with_registration_metadata, RegistrationFields,
+    },
 };
 
 pub(super) fn request(
