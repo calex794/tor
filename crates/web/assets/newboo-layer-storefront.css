@@ -1,0 +1,46 @@
+/* D-05: NEwBOO layers/public_detail.html + layer-storefront.css.
+   Reuse Pandaolate design tokens and existing site navigation, no new theme. */
+.layers-page { padding: 32px 0 64px; min-height: 60vh; }
+.layers-page .ui-page-header { margin: 12px 0 28px; }
+.layers-public-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 22px; align-items: start; }
+.layer-panel { min-width: 0; border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 24px; background: var(--bg-surface); box-shadow: 0 8px 22px rgba(15,23,42,.035); }
+.layer-panel h2 { margin: 0 0 12px; font-size: 22px; line-height: 1.25; }
+.layer-storefront-books { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.layer-storefront-book { display: grid; grid-template-columns: 42px minmax(0,1fr); align-items: center; gap: 10px; min-height: 70px; padding: 9px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-secondary); text-decoration: none; color: inherit; transition: border-color .18s ease, transform .18s ease; }
+.layer-storefront-book:hover { border-color: var(--primary-color); transform: translateY(-1px); text-decoration: none; }
+.layer-storefront-book__cover { display: flex; width: 40px; height: 52px; justify-content: center; align-items: center; overflow: hidden; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); color: var(--text-muted); font-weight: 900; }
+.layer-storefront-book__cover img { width: 100%; height: 100%; object-fit: cover; }
+.layer-storefront-book__title { min-width: 0; overflow: hidden; color: var(--text-main); font-size: 14px; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+.layer-storefront-offer { position: sticky; top: 92px; }
+.layer-offer { display: grid; gap: 10px; margin-bottom: 16px; }
+.layer-offer__box { display: grid; gap: 8px; width: 100%; min-height: 120px; padding: 18px; border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color)); border-radius: var(--radius-lg); background: linear-gradient(135deg, color-mix(in srgb, var(--bg-surface) 88%, var(--primary-color)), var(--bg-surface)); color: inherit; text-align: left; text-decoration: none; }
+.layer-offer__box--button { min-height: 52px; cursor: pointer; font: inherit; font-weight: 850; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.layer-offer__box--button:hover, .layer-offer__box--button:focus-visible { border-color: var(--primary-color); box-shadow: 0 14px 32px rgba(15,23,42,.12); transform: translateY(-1px); text-decoration: none; outline: none; }
+.layer-offer__label { color: var(--primary-color); font-size: 13px; font-weight: 900; letter-spacing: .02em; }
+.layer-offer__price { color: var(--text-main); font-size: 34px; line-height: 1.15; }
+.layer-offer__meta { color: var(--text-muted); font-size: 14px; font-weight: 800; }
+.layer-purchase-form { display: grid; gap: 14px; }
+.layer-purchase-confirm { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
+.layer-purchase-confirm input { margin-top: 3px; width: 17px; height: 17px; flex: 0 0 17px; accent-color: var(--primary-color); }
+.layer-note { color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+.layer-back { margin-top: 28px; color: var(--text-muted); }
+.layer-back a { color: var(--primary-color); }
+.layer-term-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+.layer-term-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.layer-term-card h2 { margin: 0; }
+.layer-term-card p { margin: 0; }
+.layer-term-card__status { display: inline-flex; border: 1px solid var(--border-color); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--text-secondary); background: var(--bg-secondary); }
+.layer-term-card__price { font-size: 20px; font-weight: 900; }
+.layer-term-card .ui-button { margin-top: auto; }
+.layer-error { max-width: 580px; margin: 20px auto; }
+.layer-error h1 { font-size: clamp(26px,4vw,36px); }
+.layer-error p { line-height: 1.6; margin-bottom: 24px; }
+@media (max-width: 900px) {
+  .layer-storefront-offer { position: static; }
+  .layers-public-layout { grid-template-columns: minmax(0,1fr); }
+}
+@media (max-width: 640px) {
+  .layers-page { padding: 18px 0 44px; }
+  .layer-panel { padding: 16px; }
+  .layer-storefront-books, .layer-term-grid { grid-template-columns: minmax(0,1fr); }
+}

@@ -69,6 +69,9 @@ OWNER_CALLS = {
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
+    "owned_layers", "addable_books", "current_books", "owner_offer_state",
+    "add_book", "remove_book_if_current", "create_once",
+    "update_metadata_if_current", "offer_if_current",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -158,6 +161,10 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/layer_storefront.rs":
+        return (source.parent / "layer_checkout_api.rs"
+                if module == "layer_checkout_api"
+                else root / "__unsupported_layer_handler__")
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
         return (source.parent / "admin_mail.rs"
                 if module == "admin_mail"
@@ -323,7 +330,33 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "page": {"list_section"}, "mark_one": {"mark_read"},
                 "mark_all": {"mark_all_read"}, "save_preferences": {"set_preferences"},
             }.get(entry["handler"], proof)
-        if not _contains_scoped_call(evidence, proof):
+        # The Layer form/JSON route delegates a *session-derived* actor into
+        # one shared financial command. Do not call that delegation scoped
+        # without proving the wallet, command and authoritative PG buy binding.
+        layer_delegates = {
+            ("POST", "/layers/{layer_id}/purchase", "buy_form"):
+                r"layer_checkout_api::charge\s*\(\s*&state\s*,\s*actor\s*,",
+            ("POST", "/api/v1/layers/{layer_id}/purchase", "layer_checkout_api::buy"):
+                r"\bcharge\s*\(\s*&state\s*,\s*actor\s*,",
+        }
+        layer_pattern = layer_delegates.get(admin_key)
+        if layer_pattern is not None:
+            charged = functions.get("__layer_charge", "")
+            scoped = (
+                entry["source"] == "crates/web/src/auth/layer_storefront.rs"
+                and bool(re.search(layer_pattern, evidence))
+                and bool(re.search(r"\bsession_user\s*\(\s*&state\s*,\s*&headers\s*\)", evidence))
+                and "if !state.layer_checkout_enabled" in charged
+                and "PositiveId::new(actor)" in charged
+                and "WalletId::new(actor.get())" in charged
+                and "LayerCheckoutCommand {" in charged
+                and bool(re.search(r"(?m)^\s*actor,\s*$", charged))
+                and "PgLayers::new" in charged
+                and ".buy(&command)" in charged
+            )
+        else:
+            scoped = _contains_scoped_call(evidence, proof)
+        if not scoped:
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
         if policy in {"deny", "public"}:
@@ -479,6 +512,17 @@ def check(root: Path = ROOT) -> list[str]:
                 source_cache[path] = _functions(path.read_text(encoding="utf-8"))
             except OSError:
                 source_cache[path] = {}
+        if (entry.get("method"), entry.get("template")) in {
+            ("POST", "/layers/{layer_id}/purchase"),
+            ("POST", "/api/v1/layers/{layer_id}/purchase"),
+        }:
+            helper_path = root / "crates/web/src/auth/layer_checkout_api.rs"
+            try:
+                source_cache[path]["__layer_charge"] = _functions(
+                    helper_path.read_text(encoding="utf-8")
+                ).get("charge", "")
+            except OSError:
+                source_cache[path]["__layer_charge"] = ""
         if entry.get("policy") == "support_requester":
             identity_file = root / "crates/web/src/auth/support_identity.rs"
             source_cache[path]["__support_identity"] = (

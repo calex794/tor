@@ -71,6 +71,9 @@ mod followed_purchase_links;
 mod friendship;
 mod group_mail;
 mod inbox;
+mod layer_checkout_api;
+mod layer_routes;
+mod layer_storefront;
 mod library_actions;
 mod library_page;
 mod login_limiter;
@@ -185,6 +188,10 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
+    // Layer sales require two independent, explicit switches on top of direct paid checkout.
+    let layer_pages_enabled = std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1");
+    let layer_checkout_enabled =
+        paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
     let swap_browser_enabled = paid_checkout_enabled
         && std::env::var("TOR_DIRECT_SWAP_BROWSER_ENABLED").as_deref() == Ok("1");
     let cover_jobs = storage.as_ref().map(|_| PgCoverJobs::new(pool.clone()));
@@ -196,6 +203,8 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled,
+        layer_pages_enabled,
         swap_browser_enabled,
         paid_reader_available,
         paid_author_available,
@@ -219,6 +228,8 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(layer_routes::routes())
+        .merge(layer_storefront::router())
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
@@ -411,7 +422,7 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Err(status) => return deny(status),
     };
     match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+        Ok(books) => layer_routes::author_index(&state, actor, &books).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
