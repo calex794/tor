@@ -384,9 +384,8 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     // The deterministic G stand-in signs metadata; the separate G suite checks
     // real storage integrity and S3 signing. This fixture is NOT production media.
     let image_digest = hex(&Sha256::digest(b"S065 test-only private PNG"));
-    let image_aad = format!(
-        "tor.encrypted.asset.v1\n{chapter}\n{version}\n{ASSET_UUID}\n{image_digest}\n"
-    );
+    let image_aad =
+        format!("tor.encrypted.asset.v1\n{chapter}\n{version}\n{ASSET_UUID}\n{image_digest}\n");
     pg(
         &url,
         &format!(
@@ -810,7 +809,10 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     )
     .await;
     assert_eq!(retained_asset.status(), StatusCode::OK);
-    assert_eq!(json_body(retained_asset).await["version_id"], version.to_string());
+    assert_eq!(
+        json_body(retained_asset).await["version_id"],
+        version.to_string()
+    );
     assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
 
     pg(
@@ -841,7 +843,10 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     .await;
     assert_eq!(held_asset.status(), StatusCode::FORBIDDEN);
     assert_eq!(held_asset.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(to_bytes(held_asset.into_body(), 8192).await.unwrap().is_empty());
+    assert!(to_bytes(held_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
     pg(
         &url,
