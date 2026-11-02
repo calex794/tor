@@ -8,8 +8,10 @@ use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId};
 use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHEMA_V1};
 
+mod admin_delivery;
 mod delivery;
 mod edit;
+pub use admin_delivery::PgAdminPaidStorage;
 pub use edit::PreparedPaidEdit;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
