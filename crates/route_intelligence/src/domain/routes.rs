@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 125] = [
+const ROUTES: [RouteRegistration; 154] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -135,6 +135,35 @@ const ROUTES: [RouteRegistration; 125] = [
     RouteRegistration::new("/me/books/{id}/follow-creator", "POST", "/me/", Prefix, Page, Reading, Write), // 122
     RouteRegistration::new("/books/{id}/like", "GET", "/books/", Prefix, Page, Reading, Read), // 123
     RouteRegistration::new("/books/{id}/like", "POST", "/books/", Prefix, Page, Reading, Write), // 124
+    RouteRegistration::new("/mail", "GET", "/mail/", Exact, Page, ProductArea::Mail, Read), // 125
+    RouteRegistration::new("/mail/start/{recipient_user_id}", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 126
+    RouteRegistration::new("/mail/{id}", "GET", "/mail/", Prefix, Page, ProductArea::Mail, Read), // 127
+    RouteRegistration::new("/mail/{id}/messages", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 128
+    RouteRegistration::new("/mail/{id}/block", "POST", "/mail/", Prefix, Page, ProductArea::Mail, Write), // 129
+    RouteRegistration::new("/api/v1/me/messages", "GET", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Read), // 130
+    RouteRegistration::new("/api/v1/me/messages", "POST", "/api/v1/me/messages/", Exact, Api, ProductArea::Mail, Write), // 131
+    RouteRegistration::new("/assets/mail.js", "GET", "/assets/", Exact, Static, ProductArea::Mail, Free), // 132
+    RouteRegistration::new("/users/{display_name}", "GET", "/users/", Prefix, Page, ProductArea::Mail, Read), // 133
+    RouteRegistration::new("/users/{target_user_id}/friend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 134
+    RouteRegistration::new("/users/{target_user_id}/unfriend", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 135
+    RouteRegistration::new("/users/{target_user_id}/block", "POST", "/users/", Prefix, Page, ProductArea::Mail, Write), // 136
+    RouteRegistration::new("/notifications", "GET", "/notifications/", Exact, Page, Dashboard, Read), // 137
+    RouteRegistration::new("/notifications/{id}/read", "POST", "/notifications/", Prefix, Page, Dashboard, Write), // 138
+    RouteRegistration::new("/notifications/read-all", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 139
+    RouteRegistration::new("/notifications/preferences", "POST", "/notifications/", Exact, Page, Dashboard, Write), // 140
+    RouteRegistration::new("/support", "GET", "/support/", Exact, Page, Dashboard, Read), // 141
+    RouteRegistration::new("/support/widget", "GET", "/support/", Exact, Api, Dashboard, Read), // 142
+    RouteRegistration::new("/support/messages", "GET", "/support/", Exact, Api, Dashboard, Read), // 143
+    RouteRegistration::new("/support/messages", "POST", "/support/", Exact, Api, Dashboard, Write), // 144
+    RouteRegistration::new("/admin/support", "GET", "/support/", Exact, TrafficSurface::Admin, Dashboard, Read), // 145
+    RouteRegistration::new("/admin/support/{id}", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 146
+    RouteRegistration::new("/admin/support/{id}/messages", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 147
+    RouteRegistration::new("/admin/support/{id}/messages", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 148
+    RouteRegistration::new("/api/v1/support/tickets", "GET", "/support/", Exact, Api, Dashboard, Read), // 149
+    RouteRegistration::new("/api/v1/support/tickets", "POST", "/support/", Exact, Api, Dashboard, Write), // 150
+    RouteRegistration::new("/admin/support/{id}/read", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 151
+    RouteRegistration::new("/assets/newboo-support-widget.js", "GET", "/assets/", Exact, Static, System, Free), // 152
+    RouteRegistration::new("/assets/newboo-admin-support.js", "GET", "/assets/", Exact, Static, System, Free), // 153
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

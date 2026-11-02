@@ -1,0 +1,56 @@
+.support-widget { --palette-white: #fff; --palette-black: #000; --support-accent: var(--primary-color); --error-text: #b91c1c; position: fixed; right: 24px; bottom: 24px; z-index: 900; }
+.support-widget__trigger { min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; color: var(--palette-white); background: var(--color-accent, var(--support-accent)); box-shadow: 0 12px 32px color-mix(in srgb, var(--palette-black) 22%, transparent); cursor: pointer; font: inherit; font-weight: 700; }
+.support-widget__panel { position: absolute; right: 0; bottom: 64px; display: grid; grid-template-rows: auto auto minmax(180px, 1fr) auto; width: min(390px, calc(100vw - 32px)); height: min(620px, calc(100vh - 120px)); overflow: hidden; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-surface); color: var(--text-main); box-shadow: 0 24px 70px color-mix(in srgb, var(--palette-black) 25%, transparent); }
+.support-widget__panel[hidden] { display: none; }
+.support-widget__header { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border-color); }
+.support-widget__title { margin: 0; font-size: 1.1rem; }
+.support-widget__close { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 1.5rem; line-height: 1; }
+.support-widget__notice { margin: 0; padding: 12px 20px; color: var(--text-muted); background: var(--bg-secondary); font-size: .82rem; line-height: 1.4; }
+.support-widget__messages { overflow-y: auto; padding: 18px; }
+.support-widget__message { display: flex; margin: 0 0 10px; }
+.support-widget__message--own { justify-content: flex-end; }
+.support-widget__message-body { max-width: 82%; padding: 10px 13px; border-radius: 15px; background: var(--bg-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.support-widget__message--own .support-widget__message-body { color: var(--palette-white); background: var(--color-accent, var(--support-accent)); border-bottom-right-radius: 5px; }
+.support-widget__message--support .support-widget__message-body { border-bottom-left-radius: 5px; }
+.support-widget__form { padding: 14px; border-top: 1px solid var(--border-color); }
+.support-widget__input { width: 100%; min-height: 76px; max-height: 150px; resize: vertical; }
+.support-widget__form-row { display: flex; justify-content: flex-end; margin-top: 8px; }
+.support-widget__error { margin: 8px 0 0; color: var(--error-text); font-size: .84rem; }
+.support-widget__honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+@media (max-width:640px) {
+.support-widget { right: 16px; bottom: 16px; }
+  .support-widget__panel { position: fixed; inset: auto 0 0; width: 100%; height: min(76vh, 680px); border-radius: 22px 22px 0 0; }
+}
+@media (max-width:480px) {
+  .support-widget {
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .support-widget__trigger {
+    width: 52px;
+    min-height: 52px;
+    padding: 0;
+    border-radius: 18px;
+    font-size: 0;
+  }
+  .support-widget__trigger::after {
+    content: "Чат";
+    font-size: 12px;
+    line-height: 1;
+  }
+  /* Keep the fixed trigger out of the full-width auth CTA collision zone. */
+  body:has(.auth-entry-section) .support-widget {
+    top: calc(72px + env(safe-area-inset-top));
+    bottom: auto;
+  }
+}
+
+.support-widget .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.admin-support-message { margin: 12px 0; padding: 12px; border: 1px solid var(--border-color); border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.admin-support-message.is-own { background: var(--bg-secondary); }

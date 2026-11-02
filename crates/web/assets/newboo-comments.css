@@ -466,3 +466,25 @@
     padding-left: 10px;
   }
 }
+
+/* E-08 messages are plain text, including literal links and line breaks. */
+.mail-message-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.mail-page .ui-button { white-space: normal; max-width: 100%; }
+
+/* E-08: book cards only after B has checked public visibility. */
+.mail-book-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.mail-book-preview img { width: 48px; max-height: 68px; object-fit: cover; flex: none; }
+
+
+.support-message-body { white-space: pre-wrap; overflow-wrap: anywhere; }

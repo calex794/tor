@@ -117,7 +117,7 @@ impl CookiePolicy {
 }
 
 /// Reject duplicate cookie names rather than choosing an attacker-selected one.
-fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     let mut result = None;
     for line in headers.get_all(header::COOKIE) {
         let value = line.to_str().ok()?;
@@ -136,7 +136,7 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     result
 }
 
-fn valid_token(token: &str) -> bool {
+pub(crate) fn valid_token(token: &str) -> bool {
     token.len() == 43
         && token
             .bytes()

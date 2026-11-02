@@ -27,6 +27,32 @@ impl From<sqlx::Error> for ProfileError {
 }
 
 impl PgAccounts {
+    /// Public display-name resolution is account-owned, fail-closed on duplicates.
+    /// Never return email, credentials, access tier or a private profile record.
+    pub async fn public_profile_by_display_name(
+        &self,
+        display_name: &str,
+    ) -> Result<Option<(i64, String)>, sqlx::Error> {
+        let mut rows = sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, display_name FROM users WHERE display_name=$1 ORDER BY id LIMIT 2",
+        )
+        .bind(display_name)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(if rows.len() == 1 { rows.pop() } else { None })
+    }
+
+    /// Bounded display-name projection for support queues; never credentials/email.
+    pub async fn user_display_names(&self, ids: &[i64]) -> Result<Vec<(i64, String)>, sqlx::Error> {
+        if ids.len() > 200 || ids.iter().any(|id| *id <= 0) {
+            return Err(sqlx::Error::Protocol("invalid public-name batch".into()));
+        }
+        sqlx::query_as("SELECT id,display_name FROM users WHERE id=ANY($1)")
+            .bind(ids)
+            .fetch_all(self.pool())
+            .await
+    }
+
     pub async fn profile(&self, user_id: i64) -> Result<Option<Profile>, sqlx::Error> {
         let row: Option<(i64, String, Option<String>, bool, i64)> = sqlx::query_as(
             "SELECT u.id,u.display_name,s.handle,u.adult_enabled,COALESCE(s.revision,0)

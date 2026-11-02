@@ -392,6 +392,8 @@ async function inspect(page, name, where) {
       await page.close();
     }
     await require('./comment_spoilers_browser.cjs')(browser, base, out);
+    await require('./mail_browser_pg.cjs')(browser, base, out);
+    await require('./support_browser_pg.cjs')(browser, base, out);
     console.log('TOR PG reader+auth browser PASS: 2 viewports, localized validation, full error pages, clean profile and real DB');
   } finally {
     await browser.close();
