@@ -80,6 +80,37 @@ class TaxonomyAdminReadTests(unittest.TestCase):
                 self.assertEqual(result, 2)
                 query.assert_not_called()
 
+    def test_variants_are_read_only_json_from_public_projection(self):
+        self.assertIn("FROM public_catalog_facets", admin.VARIANTS_SQL)
+        self.assertNotIn("FROM books", admin.VARIANTS_SQL)
+        self.assertIn("json_build_object(", admin.VARIANTS_SQL)
+        self.assertIn("admin_taxonomy_key(f.name)=p.k", admin.VARIANTS_SQL)
+        self.assertNotIn("LIKE", admin.VARIANTS_SQL.split("FROM public_catalog_facets")[1])
+        result, stdout, query = self.call([
+            "variants", "tag", "Ｒｅｖｉｅｗ", "--limit", "25", "--offset", "50"
+        ])
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout, "test-result\n")
+        query.assert_called_once_with(
+            self.URL, admin.VARIANTS_SQL, kind="tag", label="Ｒｅｖｉｅｗ",
+            limit="25", offset="50",
+        )
+
+    def test_variants_reject_invalid_input_without_db(self):
+        cases = [
+            ["variants", "tag", ""],
+            ["variants", "tag", "foo\nbar"],
+            ["variants", "tag", "  bad"],
+            ["variants", "tag", "a" * 81],
+            ["variants", "tag", "word", "--offset", "-1"],
+            ["variants", "tag", "word", "--limit", "501"],
+        ]
+        for args in cases:
+            with self.subTest(args=args):
+                result, _, query = self.call(args)
+                self.assertEqual(result, 2)
+                query.assert_not_called()
+
     def test_lookup_rejects_non_migrator_url(self):
         with mock.patch.dict(
             os.environ,

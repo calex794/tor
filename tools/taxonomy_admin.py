@@ -48,6 +48,23 @@ ORDER BY u.uses DESC,u.kind,u.k
 LIMIT :'limit'::integer OFFSET :'offset'::integer;
 """
 
+VARIANTS_SQL = """
+-- Exact normalized key: Unicode symbols do not become LIKE wildcards.
+-- JSON Lines preserve raw Unicode labels containing separators or newlines.
+WITH prefix AS (
+ SELECT admin_taxonomy_key(:'label') AS k
+)
+SELECT json_build_object(
+    'kind',f.kind,'label',f.name,'reference_count',f.reference_count,
+    'normalized_key',p.k
+)::text
+FROM public_catalog_facets f CROSS JOIN prefix p
+WHERE f.kind=:'kind' AND f.reference_count>0
+  AND admin_taxonomy_key(f.name)=p.k
+ORDER BY f.reference_count DESC,f.name
+LIMIT :'limit'::integer OFFSET :'offset'::integer;
+"""
+
 LOOKUP_SQL = """
 -- Read-only indexed prefix lookup of canonical terms and approved aliases.
 WITH prefix AS (
@@ -117,6 +134,11 @@ def main(argv=None):
     listing = commands.add_parser("unmapped", help="public-only legacy unknown names")
     listing.add_argument("--limit", type=int, default=40)
     listing.add_argument("--offset", type=int, default=0, help="skip earlier unmatched rows")
+    variants = commands.add_parser("variants", help="list public raw spellings for one normalized key")
+    variants.add_argument("kind", choices=("genre", "tag", "fandom"))
+    variants.add_argument("label", help="exact key or sample label from unmapped queue")
+    variants.add_argument("--limit", type=int, default=50)
+    variants.add_argument("--offset", type=int, default=0)
     lookup = commands.add_parser("lookup", help="find canonical IDs by name or alias")
     lookup.add_argument("kind", choices=("genre", "tag", "fandom"))
     lookup.add_argument("query", help="indexed, normalized prefix")
@@ -131,6 +153,19 @@ def main(argv=None):
             if not 0 <= args.offset <= 1_000_000:
                 raise ValueError("offset must be 0..1000000")
             print(run_sql(url, READ_ONLY, limit=str(args.limit), offset=str(args.offset)))
+            return 0
+        if args.command == "variants":
+            if not 1 <= args.limit <= 500:
+                raise ValueError("variants limit must be 1..500")
+            if not 0 <= args.offset <= 1_000_000:
+                raise ValueError("variants offset must be 0..1000000")
+            if (not 1 <= len(args.label) <= 80 or args.label != args.label.strip()
+                    or any(ord(c) < 32 or ord(c) == 127 for c in args.label)):
+                raise ValueError("variants label must be a 1..80 character literal")
+            print(run_sql(
+                url, VARIANTS_SQL, kind=args.kind, label=args.label,
+                limit=str(args.limit), offset=str(args.offset),
+            ))
             return 0
         if args.command == "lookup":
             if not 1 <= args.limit <= 100:

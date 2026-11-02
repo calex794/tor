@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check real CSV replay and rollback only on disposable local PostgreSQL."""
 import csv
+import json
 import os
 from pathlib import Path
 import secrets
@@ -54,6 +55,18 @@ def unmapped():
     if done.returncode:
         raise AssertionError(f"curator review queue failed: {done.stderr[-400:]}")
     return done.stdout.splitlines()
+
+
+def variants(kind, label):
+    script = Path(__file__).resolve().parents[1] / "taxonomy_admin.py"
+    done = subprocess.run(
+        [sys.executable, str(script), "variants", kind, label, "--limit", "100"],
+        env=os.environ.copy(), text=True, capture_output=True,
+        timeout=30, check=False,
+    )
+    if done.returncode:
+        raise AssertionError(f"curator variants failed: {done.stderr[-400:]}")
+    return [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
 
 
 def apply(path, expected_success=True):
@@ -135,6 +148,28 @@ def main():
             raise AssertionError("review queue omitted candidate label, count or ID")
         if any(hidden in entry for entry in entries):
             raise AssertionError("private draft leaked into public review queue")
+        raw_variant = f"ＲｅｖｉｅｗＣｓｖ{suffix}"
+        scalar(
+            url,
+            "WITH created AS (INSERT INTO books"
+            "(source_identity,target_language,title,visibility,tags) "
+            f"VALUES({quote('ci-variant:'+suffix)},'ru','Review variant','public',ARRAY[{quote(raw_variant)}]) "
+            "RETURNING id) SELECT id FROM created",
+        )
+        expected_merged = f"tag|{candidate}|{importer.key(candidate)}|2|2|{candidate_id}|candidate"
+        if expected_merged not in unmapped():
+            raise AssertionError("normalization did not group two public spellings")
+        spellings = variants("tag", candidate)
+        if {v["label"] for v in spellings} != {candidate, raw_variant}:
+            raise AssertionError("variants did not reveal exact public spellings")
+        if any(int(v["reference_count"]) != 1 for v in spellings):
+            raise AssertionError("raw variant reference counts are wrong")
+        if any(v["kind"] != "tag" for v in spellings):
+            raise AssertionError("variant kind filter lost")
+        if any(v["label"] == hidden for v in spellings):
+            raise AssertionError("private draft leaked into variant diagnostics")
+        if {v["label"] for v in variants("tag", raw_variant)} != {candidate, raw_variant}:
+            raise AssertionError("variant search did not normalize fullwidth input")
         reviewed = make_csv(root, "reviewed-candidate.csv", [("tag", candidate, "")])
         apply(reviewed)
         if any(candidate in entry for entry in unmapped()):
