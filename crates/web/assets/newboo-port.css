@@ -1022,3 +1022,8 @@ img.home-spotlight-card__cover {
 .book-error-promos__title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.35; }
 .book-error-promos__author { display: block; margin-top: 8px; color: var(--text-muted); font-size: 13px; }
 @media (max-width: 640px) { .book-error-promos__grid { grid-template-columns: minmax(0,1fr); } .book-error-promos__card { min-height: 118px; } }
+
+/* S019: visible book-registration action in both header layouts. */
+.site-nav__create { white-space: nowrap; min-height: 40px; }
+.site-mobile-nav__link--create { background: var(--primary-color); color: #fff; }
+.site-mobile-nav__link--create:hover,.site-mobile-nav__link--create:focus-visible { color: #fff; background: var(--primary-color); filter: brightness(.9); }
