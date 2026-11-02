@@ -207,6 +207,16 @@ async function readyCover(page, bookId, viewport, scheme) {
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');
 
+        // S019: pre-create hint uses published aliases without private leaks.
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill(title);
+        await page.waitForFunction(() =>
+          document.querySelector('#book-title-suggestions a[href="/books/${bookId}"]') !== null,
+          { timeout: 10000 });
+        const hint = page.locator('#book-title-suggestions');
+        assert(await hint.getByRole('link', { name: title }).isVisible(),
+          'S019: public title hint must link to the already published book');
+        await page.goto(base + '/books/' + bookId);
         const publicBook = await page.goto(base + '/books/' + bookId);
         assert(publicBook && publicBook.status() === 200, 'Published book lost');
         assert(await page.locator('img[src="/covers/' + bookId + '/main.webp"]').count() === 1,
