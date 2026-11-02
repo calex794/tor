@@ -168,6 +168,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let mut pending_social_notifications = None;
     let mut pending_support_cleanup = None;
+    // Explicit operator opt-in. A copied binary must never silently run
+    // scheduled releases before the additive S058 migration is applied.
+    let schedule_worker_enabled = match env::var("TOR_SCHEDULED_RELEASE_WORKER_ENABLED") {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        _ => return Err("TOR_SCHEDULED_RELEASE_WORKER_ENABLED must be 0 or 1".into()),
+    };
+    if schedule_worker_enabled
+        && (demo
+            || env::var_os("DATABASE_URL").is_none()
+            || env::var("TOR_AUTH_ENABLED").as_deref() != Ok("1"))
+    {
+        return Err("S058 worker requires authenticated PostgreSQL runtime".into());
+    }
+    let mut pending_scheduled_release_worker = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -227,6 +243,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
                 let accounts = PgAccounts::from_pool(pool.clone());
                 accounts.probe().await?;
+                if schedule_worker_enabled {
+                    let author = tor_books::repositories::postgres::PgAuthoring::new(pool.clone());
+                    author
+                        .probe_scheduled_releases()
+                        .await
+                        .map_err(|_| "S058 scheduled release migration is not applied")?;
+                    pending_scheduled_release_worker = Some(author);
+                }
                 if chapter_import_worker_enabled {
                     tor_imports::repositories::postgres::PgImportJobs::new(pool.clone())
                         .probe()
@@ -381,6 +405,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+    let _scheduled_release_worker = pending_scheduled_release_worker.map(|author| {
+        println!("TOR S058 scheduled release worker enabled");
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                for _ in 0..16 {
+                    match author.process_one_due_scheduled_release().await {
+                        Ok(Some((_chapter, _outcome))) => (),
+                        Ok(None) => break,
+                        Err(error) => {
+                            tracing::warn!(?error, "S058 worker failed; lease retry pending");
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    });
     let _chapter_import_worker = pending_chapter_import_worker.map(|(catalog, storage)| {
         println!("TOR chapter import worker enabled");
         tor_web::chapter_import_worker::start_chapter_import_worker_background(catalog, storage)

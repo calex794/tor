@@ -153,6 +153,63 @@ async function inspect(page, viewport, name) {
         viewport + ': reader did not display new public version');
       await inspect(page, viewport, 'second-reader');
 
+      // S058: a published book must still allow a deliberately private free
+      // draft, then owner-only scheduling, rescheduling and cancellation.
+      await page.goto(base + '/me/books/' + bookId);
+      await page.getByRole('link', { name: 'Добавить главу' }).click();
+      await page.waitForURL('**/chapters/new');
+      const privateChoice = page.getByLabel(
+        'Сохранить бесплатную главу закрытым черновиком для отложенного выпуска'
+      );
+      assert(await privateChoice.isVisible(),
+        viewport + ': missing S058 private-draft choice on public book');
+      await page.getByLabel('Номер главы').fill('50');
+      await page.getByLabel('Название главы').fill('S058 scheduled draft');
+      await page.getByLabel('Текст главы').fill('PRIVATE S058 browser content');
+      await privateChoice.check();
+      await Promise.all([
+        page.waitForURL(/\/chapters\/\d+\/release$/),
+        page.getByRole('button', { name: 'Сохранить главу' }).click(),
+      ]);
+      const scheduledDraftUrl = page.url();
+      const scheduledDraftId = scheduledDraftUrl.match(/\/chapters\/(\d+)\/release$/)?.[1];
+      assert(scheduledDraftId,
+        viewport + ': S058 new draft did not open release confirmation');
+      assert(await page.getByText('PRIVATE S058 browser content').isVisible(),
+        viewport + ': scheduled author preview lost exact private draft');
+      const beforeTime = await page.goto(base + '/reader/' + scheduledDraftId);
+      assert(beforeTime && beforeTime.status() === 404,
+        viewport + ': scheduled free chapter exposed before due time');
+      await page.goto(scheduledDraftUrl);
+      const scheduledUtc = new Date(Date.now() + 60 * 60 * 1000)
+        .toISOString().slice(0, 16);
+      await page.getByLabel('Дата и время (UTC)').fill(scheduledUtc);
+      await Promise.all([
+        page.waitForNavigation(),
+        page.getByRole('button', { name: 'Запланировать или перенести выпуск' }).click(),
+      ]);
+      assert(await page.getByText(/статус: pending/).isVisible(),
+        viewport + ': scheduled release not shown as pending');
+      await inspect(page, viewport, 's058-scheduled');
+      const rescheduledUtc = new Date(Date.now() + 2 * 60 * 60 * 1000)
+        .toISOString().slice(0, 16);
+      await page.getByLabel('Дата и время (UTC)').fill(rescheduledUtc);
+      await Promise.all([
+        page.waitForNavigation(),
+        page.getByRole('button', { name: 'Запланировать или перенести выпуск' }).click(),
+      ]);
+      assert((await page.content()).includes(rescheduledUtc),
+        viewport + ': S058 changed UTC deadline was not persisted');
+      await Promise.all([
+        page.waitForNavigation(),
+        page.getByRole('button', { name: 'Отменить отложенный выпуск' }).click(),
+      ]);
+      assert(await page.getByText(/статус: cancelled/).isVisible(),
+        viewport + ': cancelled S058 release still appears active');
+      const afterCancel = await page.goto(base + '/reader/' + scheduledDraftId);
+      assert(afterCancel && afterCancel.status() === 404,
+        viewport + ': cancelled S058 draft became publicly readable');
+
       // BKR-96: the published free chapter editor is available to its owner.
       // A second release remains forbidden; Save immediately publishes V2.
       const chapterId = href.split('/').pop();
