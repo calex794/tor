@@ -455,7 +455,7 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::{my_library_with_updates, my_library_with_updates_and_layers};
+pub use library::my_library_with_updates_and_layers;
 
 pub async fn stylesheet() -> impl IntoResponse {
     (
