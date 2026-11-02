@@ -76,10 +76,17 @@ fn submit_form(chapter_id: u64, version_id: u64, csrf: &str, parent: Option<i64>
     )
 }
 
-fn comment_card(chapter_id: u64, version_id: u64, csrf: Option<&str>, entry: &ChapterComment) -> String {
+fn comment_card(
+    chapter_id: u64,
+    version_id: u64,
+    csrf: Option<&str>,
+    entry: &ChapterComment,
+) -> String {
     let id = entry.id;
     let reply_ref = entry.parent_id.map_or_else(String::new, |parent| {
-        format!("<p class=\"reader-chapter-comments__reply-ref\">Ответ на комментарий №{parent}</p>")
+        format!(
+            "<p class=\"reader-chapter-comments__reply-ref\">Ответ на комментарий №{parent}</p>"
+        )
     });
     let selection = entry.anchor.as_ref().map_or_else(String::new, |anchor| {
         let block = anchor.block_index;
@@ -163,7 +170,9 @@ pub(super) fn panel(
     );
     let mut list = String::new();
     if page.items.is_empty() {
-        list.push_str("<p class=\"comments-block__empty\">Комментариев к этой редакции пока нет.</p>");
+        list.push_str(
+            "<p class=\"comments-block__empty\">Комментариев к этой редакции пока нет.</p>",
+        );
     } else {
         list.push_str("<div class=\"comments-list\">");
         for entry in &page.items {
@@ -230,7 +239,14 @@ mod tests {
 
     #[test]
     fn s011_actor_forms_bind_same_version_and_new_command_key() {
-        let html = panel(Some(101), 602, Some("safe"), Some(&page()), Some("repeat"), "A\n\nB");
+        let html = panel(
+            Some(101),
+            602,
+            Some("safe"),
+            Some(&page()),
+            Some("repeat"),
+            "A\n\nB",
+        );
         assert!(html.contains("name=\"version_id\" value=\"602\""));
         assert!(html.contains("name=\"csrf_token\" value=\"safe\""));
         assert!(html.contains("name=\"command_key\" value=\""));
@@ -245,7 +261,14 @@ mod tests {
 
     #[test]
     fn s011_escaped_csrf_and_never_echo_untrusted_status() {
-        let output = panel(Some(101), 602, Some("\" onmouseover=\"x"), Some(&page()), Some("<script>"), "A");
+        let output = panel(
+            Some(101),
+            602,
+            Some("\" onmouseover=\"x"),
+            Some(&page()),
+            Some("<script>"),
+            "A",
+        );
         assert!(output.contains("&quot; onmouseover=&quot;x"));
         assert!(!output.contains("csrf_token\" value=\"\" onmouseover"));
         assert!(!output.contains("Комментарий уже был опубликован."));
