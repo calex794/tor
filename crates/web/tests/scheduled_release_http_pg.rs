@@ -308,7 +308,10 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     assert!(visible.contains("PRIVATE S058 before due"));
     let events: i64 = pg(
         &url,
-        &format!("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={}", chapter.id),
+        &format!(
+            "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={}",
+            chapter.id
+        ),
     )
     .parse()
     .unwrap();
@@ -342,7 +345,10 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         )
         .await
         .unwrap();
-    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={}", book_id));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=true WHERE id={}", book_id),
+    );
     pg(
         &url,
         &format!(
@@ -356,12 +362,18 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     );
     let held_publications: i64 = pg(
         &url,
-        &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={}", saved3.chapter_id),
+        &format!(
+            "SELECT count(*) FROM chapter_publications WHERE chapter_id={}",
+            saved3.chapter_id
+        ),
     )
     .parse()
     .unwrap();
     assert_eq!(held_publications, 0);
-    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={}", book_id));
+    pg(
+        &url,
+        &format!("UPDATE books SET admin_hold=false WHERE id={}", book_id),
+    );
 
     // Changing the book owner after scheduling invalidates the pinned actor.
     let fourth = save_chapter(SaveChapterRequest {
@@ -411,7 +423,10 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     );
     let transferred_publications: i64 = pg(
         &url,
-        &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={}", saved4.chapter_id),
+        &format!(
+            "SELECT count(*) FROM chapter_publications WHERE chapter_id={}",
+            saved4.chapter_id
+        ),
     )
     .parse()
     .unwrap();
