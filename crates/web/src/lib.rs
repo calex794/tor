@@ -313,10 +313,11 @@ async fn book_detail(
 async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    Query(query): Query<public_reader_http::PublicIssueQuery>,
     headers: axum::http::HeaderMap,
     method: axum::http::Method,
 ) -> Response {
-    public_reader_http::reader_page(State(state), Path(id), headers, method).await
+    public_reader_http::reader_page(State(state), Path(id), Query(query), headers, method).await
 }
 
 /// S3 delivery is not connected: deny every alternative reader API request.
