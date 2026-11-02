@@ -1,4 +1,5 @@
-//! NEwBOO F-05: personal ranking, not general popularity.
+//! Personal ranking and bounded recommendation feedback; no paid access authority.
 #![forbid(unsafe_code)]
+pub mod domain;
 pub mod repositories;
 pub mod services;

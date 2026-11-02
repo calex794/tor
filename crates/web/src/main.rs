@@ -1,3 +1,5 @@
+mod social_notification_consumer;
+
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
 use tor_books::{
@@ -96,17 +98,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         PgCatalog,
         Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
     )> = None;
+    let mut pending_rec_worker: Option<tor_recommendations::repositories::PgRecommendations> = None;
     let mut pending_ranking_consumer: Option<tor_recommendations::repositories::PgRanking> = None;
     let mut pending_achievements_consumer: Option<
         tor_recommendations::repositories::PgAchievements,
     > = None;
     let mut pending_referral_consumer: Option<tor_referrals::repositories::PgReferrals> = None;
+    for flag in ["TOR_RECOMMENDATIONS_ENABLED", "TOR_REC_ATTRIBUTION_ENABLED"] {
+        if let Ok(value) = env::var(flag) {
+            if !matches!(value.as_str(), "0" | "1") {
+                return Err(format!("invalid boolean flag {flag}").into());
+            }
+        }
+    }
+    if env::var("TOR_REC_ATTRIBUTION_ENABLED").as_deref() == Ok("1")
+        && env::var("TOR_RECOMMENDATIONS_ENABLED").as_deref() != Ok("1")
+    {
+        return Err("attribution requires recommendations".into());
+    }
+    let mut pending_social_notifications = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
             // Share one bounded pool across the catalog, reader and accounts,
             // respecting tor_app's six-connection server limit.
             let pool = catalog.pool();
+            if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_rec_worker = Some(
+                    tor_recommendations::repositories::PgRecommendations::new(pool.clone()),
+                );
+            }
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
@@ -116,6 +137,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 );
                 pending_referral_consumer =
                     Some(tor_referrals::repositories::PgReferrals::new(pool.clone()));
+                pending_social_notifications = Some(
+                    tor_social::repositories::notifications::PgNotifications::new(pool.clone()),
+                );
             }
             // Optional RIL telemetry uses the same restricted connection pool.
             // PG outage or unapplied RIL migration never blocks core HTTP routes.
@@ -288,6 +312,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Replay pending facts after restart; only the authenticated PG runtime runs this.
     let _referral_consumer =
         pending_referral_consumer.map(tor_web::referral_consumer::start_referral_consumer);
+    let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
+    let _social_notification_consumer =
+        pending_social_notifications.map(social_notification_consumer::start);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

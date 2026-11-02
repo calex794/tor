@@ -13,8 +13,9 @@ mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
     account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
-    my_account_with_achievements_and_swap, my_account_with_follow_updates, password_change_form,
-    registration_form, registration_form_with_error, registration_form_with_error_and_next,
+    my_account_with_achievements_and_swap,
+    my_account_with_follow_updates, password_change_form, registration_form,
+    registration_form_with_error, registration_form_with_error_and_next,
     registration_form_with_next,
 };
 pub use referrals::referrals_page;
@@ -303,8 +304,8 @@ fn book_detail_body(
     };
     let discussion = if toc.is_some() {
         format!(
-            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a></section>",
-            book.id
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a> · <a class=\"text-link\" href=\"/books/{}/room\">Книжный чат</a></section>",
+            book.id, book.id
         )
     } else {
         String::new()
