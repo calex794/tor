@@ -194,7 +194,7 @@ impl PgTextIssues {
             suggestion,
             issue_type,
         } = issue;
-        let blocks = reader_blocks(&source);
+        let blocks = reader_blocks(source);
         let Some(block) = usize::try_from(block_index - 1)
             .ok()
             .and_then(|i| blocks.get(i))
