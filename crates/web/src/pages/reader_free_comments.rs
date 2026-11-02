@@ -119,6 +119,7 @@ pub(super) fn panel(
     csrf: Option<&str>,
     page: Option<&ChapterCommentPage>,
     feedback: Option<&str>,
+    source: &str,
 ) -> String {
     let Some(chapter_id) = chapter_id else {
         return String::new();
@@ -126,6 +127,23 @@ pub(super) fn panel(
     let Some(page) = page else {
         return String::new();
     };
+    // Public source metadata contains lengths only, never an authenticated
+    // cursor or chapter grant; guests can follow exact comment anchors.
+    let normalized = source.replace("\r\n", "\n").replace('\r', "\n");
+    let mut blocks = String::new();
+    let mut offset = 0;
+    for (index, block) in tor_reading::services::progress::reader_blocks(&normalized)
+        .iter()
+        .enumerate()
+    {
+        if index > 0 {
+            blocks.push(',');
+            offset += 2;
+        }
+        let len = block.encode_utf16().count();
+        write!(blocks, "{offset}:{len}").expect("write public source offsets");
+        offset += len;
+    }
     let status = if csrf.is_some() {
         match feedback {
             Some("sent") => "<p class=\"reader-chapter-comments__feedback\" role=\"status\">Комментарий опубликован.</p>",
@@ -164,6 +182,7 @@ pub(super) fn panel(
     }
     format!(
         "<section class=\"comments-block reader-chapter-comments\" id=\"chapter-comments\" \
+         data-chapter-comments data-reader-comment-blocks=\"{blocks}\" \
          aria-labelledby=\"chapter-comments-title\">\
          <div class=\"comments-block__head\"><div>\
          <p class=\"comments-block__kicker\">Обсуждение редакции {version_id}</p>\
@@ -197,7 +216,7 @@ mod tests {
 
     #[test]
     fn s011_guest_gets_public_exact_version_but_no_post_form_or_csrf() {
-        let html = panel(Some(101), 602, None, Some(&page()), Some("sent"));
+        let html = panel(Some(101), 602, None, Some(&page()), Some("sent"), "A\n\nB");
         assert!(html.contains("Обсуждение редакции 602"));
         assert!(html.contains("data-anchor-block=\"2\""));
         assert!(html.contains("data-anchor-start=\"4\""));
@@ -211,7 +230,7 @@ mod tests {
 
     #[test]
     fn s011_actor_forms_bind_same_version_and_new_command_key() {
-        let html = panel(Some(101), 602, Some("safe"), Some(&page()), Some("repeat"));
+        let html = panel(Some(101), 602, Some("safe"), Some(&page()), Some("repeat"), "A\n\nB");
         assert!(html.contains("name=\"version_id\" value=\"602\""));
         assert!(html.contains("name=\"csrf_token\" value=\"safe\""));
         assert!(html.contains("name=\"command_key\" value=\""));
@@ -220,13 +239,13 @@ mod tests {
         assert!(html.contains("name=\"body\""));
         assert!(!html.contains("name=\"anchor_quote\""));
         assert!(!html.contains("data-anchor-chapter"));
-        assert!(panel(None, 602, Some("safe"), Some(&page()), None).is_empty());
-        assert!(panel(Some(101), 602, Some("safe"), None, None).is_empty());
+        assert!(panel(None, 602, Some("safe"), Some(&page()), None, "A").is_empty());
+        assert!(panel(Some(101), 602, Some("safe"), None, None, "A").is_empty());
     }
 
     #[test]
     fn s011_escaped_csrf_and_never_echo_untrusted_status() {
-        let output = panel(Some(101), 602, Some("\" onmouseover=\"x"), Some(&page()), Some("<script>"));
+        let output = panel(Some(101), 602, Some("\" onmouseover=\"x"), Some(&page()), Some("<script>"), "A");
         assert!(output.contains("&quot; onmouseover=&quot;x"));
         assert!(!output.contains("csrf_token\" value=\"\" onmouseover"));
         assert!(!output.contains("Комментарий уже был опубликован."));
