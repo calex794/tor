@@ -71,10 +71,8 @@ pub(super) async fn reader_page(
 }
 
 fn free_reader_response(chapter: &tor_reading::services::PublicChapterPage, id: u64) -> Response {
-    let mut response = auth_cookies::private_response(
-        pages::reader_with_login_link(chapter, Some(id)),
-        &[],
-    );
+    let mut response =
+        auth_cookies::private_response(pages::reader_with_login_link(chapter, Some(id)), &[]);
     // This narrowly scoped CSP applies only to successfully authorized free text,
     // never to paid paywalls, denied responses or unrelated private pages.
     response.headers_mut().insert(
@@ -85,4 +83,3 @@ fn free_reader_response(chapter: &tor_reading::services::PublicChapterPage, id: 
     );
     response
 }
-
