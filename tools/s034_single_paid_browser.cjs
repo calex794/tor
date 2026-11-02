@@ -32,6 +32,18 @@ async function verify(browser, buyer, viewport) {
   for (const id of [buyer.id, chapter.id, chapter.version]) assert(Number.isSafeInteger(id) && id > 0);
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
+  const assetId = fixture.asset_object_id;
+  assert.match(assetId, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+  const assetGrantPath = "/api/v1/reader/chapters/" + chapter.id +
+    "/assets/" + assetId + "/delivery-grants";
+  let assetGrants = 0, assetCiphertexts = 0;
+  page.on("response", (reply) => {
+    if (reply.url().startsWith(SITE + assetGrantPath) &&
+        reply.request().method() === "POST" && reply.status() === 200) assetGrants++;
+    if (reply.url().startsWith("http://127.0.0.1:9000/") &&
+        reply.url().includes("/private/chapter-assets/" + assetId + ".enc") &&
+        reply.request().method() === "GET" && reply.status() === 200) assetCiphertexts++;
+  });
   try {
     // A guest sees metadata only, and cannot submit another person's purchase.
     const guest = await context.request.get(SITE + "/me/chapters/" + chapter.id + "/buy",
@@ -79,6 +91,45 @@ async function verify(browser, buyer, viewport) {
     await page.waitForURL("**/read/paid/**");
     await page.waitForFunction(() => [...document.querySelectorAll("[data-paid-content] .reader-piece__text")]
       .some((node) => (node.textContent || "").includes("Оплаченная V1: кириллица")), null, { timeout: 30000 });
+    // Full-stack S065: Rust B/D/C authorizes a real V1 image, MinIO returns
+    // its sealed ciphertext, and Chromium WebCrypto renders an in-memory PNG.
+    const frame = page.locator(".reader-paid__image-block .reader-content__image-frame");
+    assert.equal(await frame.count(), 1, "exactly one B-attached V1 figure");
+    await frame.scrollIntoViewIfNeeded();
+    try {
+      await page.waitForFunction(() => {
+        const frame = document.querySelector(".reader-paid__image-block .reader-content__image-frame");
+        const img = frame?.querySelector("img");
+        return frame?.classList.contains("is-error") ||
+          (img && img.complete && img.naturalWidth === 1 && img.naturalHeight === 1);
+      }, null, { timeout: 30000 });
+    } catch (error) {
+      // Never log ciphertext URLs, purchase/session IDs, DEKs or paid content.
+      const media = await frame.evaluate((node) => ({
+        failed: node.classList.contains("is-error"),
+        displayed: Boolean(node.querySelector("img")),
+        status: (node.textContent || "").slice(0, 120),
+      }));
+      throw new Error("S065 image did not settle: " + JSON.stringify({
+        media, assetGrants, assetCiphertexts,
+      }) + "; " + error.message);
+    }
+    const imageFailed = await frame.evaluate((node) => node.classList.contains("is-error"));
+    assert(!imageFailed, "S065 private image loader rejected: " + JSON.stringify({
+      status: (await frame.textContent()).slice(0, 120),
+      assetGrants, assetCiphertexts,
+    }));
+    const image = await frame.locator("img").evaluate((img) => ({
+      src: img.getAttribute("src"), alt: img.alt, policy: img.referrerPolicy,
+    }));
+    assert(image.src.startsWith("blob:"), "private image must not expose a signed S3 URL");
+    assert.equal(image.alt, "Рисунок платной главы");
+    assert.equal(image.policy, "no-referrer");
+    assert.equal(assetGrants, 1, "one real authenticated image grant");
+    assert.equal(assetCiphertexts, 1, "one real encrypted MinIO image GET");
+    const privateHtml = await page.locator("[data-paid-content]").innerHTML();
+    assert(!privateHtml.includes("X-Amz-Signature"));
+    assert(!privateHtml.includes("asset:"), "raw private media marker must be replaced");
     assert.equal(balance(), 600 - price);
     assert.equal(purchases(), 1);
     const purchase = number("SELECT id FROM chapter_purchase_facts WHERE user_id=" + buyer.id);
@@ -159,6 +210,13 @@ async function verify(browser, buyer, viewport) {
       assert.equal(deniedGrant.status(), 403);
       assert.equal(deniedGrant.headers()["cache-control"], "no-store");
       assert.equal((await deniedGrant.body()).length, 0);
+      const deniedAsset = await outsider.request.post(SITE + assetGrantPath, {
+        data: { purchase_id: String(purchase) },
+        headers: { origin: SITE, "x-csrf-token": csrf },
+      });
+      assert.equal(deniedAsset.status(), 403);
+      assert.equal(deniedAsset.headers()["cache-control"], "no-store");
+      assert.equal((await deniedAsset.body()).length, 0);
       // /me/purchases is a real entitlement-backed route. Neither an outsider
       // nor a guessed keyset cursor may reveal the buyer's pinned edition.
       for (const path of ["/me/purchases", "/me/purchases?after=" + purchase]) {
@@ -302,6 +360,13 @@ async function verify(browser, buyer, viewport) {
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
       { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
     assert.equal(grant.status(), 403);
+    const revokedAsset = await context.request.post(SITE + assetGrantPath, {
+      data: { purchase_id: String(purchase) },
+      headers: { origin: SITE, "x-csrf-token": csrf },
+    });
+    assert.equal(revokedAsset.status(), 403);
+    assert.equal(revokedAsset.headers()["cache-control"], "no-store");
+    assert.equal((await revokedAsset.body()).length, 0);
     await assertAlternateSurfacesClosed();
     const rejectedIssue = await context.request.post(
       SITE + "/api/v1/reader/chapters/" + chapter.id + "/text-issues", {

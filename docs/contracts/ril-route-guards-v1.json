@@ -1653,6 +1653,13 @@
       "source": "crates/web/src/lib.rs",
       "handler": "layer_reader_assets::script",
       "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_comments::submit",
+      "policy": "scoped"
     }
   ]
 }

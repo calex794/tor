@@ -157,6 +157,27 @@ pub fn new_book(csrf: &str, command_key: &str) -> Html<String> {
     layout("Создать книгу", "Новая книга в вашем кабинете.", &content)
 }
 
+/// Generic duplicate response. Do not reveal whether another user's draft exists.
+pub fn create_conflict() -> Html<String> {
+    let content = r#"<section class="section auth-section">
+      <div class="container"><div class="auth-card author-card" role="alert">
+        <p class="eyebrow">Регистрация книги</p>
+        <h1>Книга не создана</h1>
+        <p>Такое название или ссылка на оригинал уже может использоваться другой книгой.
+        Проверьте каталог. Если это ваша книга, откройте её в личном кабинете.
+        Также проверьте, не меняли ли вы данные при повторной отправке формы.</p>
+        <p><a class="button" href="/catalog">Проверить каталог</a></p>
+        <p><a href="/me/books">Мои книги</a> ·
+        <a href="/me/books/new">Попробовать с другим названием</a></p>
+      </div></div>
+    </section>"#;
+    layout(
+        "Книга не создана",
+        "Обнаружено возможное совпадение книги.",
+        content,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

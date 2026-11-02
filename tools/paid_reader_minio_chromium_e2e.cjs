@@ -255,9 +255,24 @@ async function run() {
         await page.locator("[data-paid-status]")
           .getByText("Защищённая загрузка завершена", { exact: false })
           .waitFor({ timeout: 20000 });
+        // The real paid reader renders private image markers as guarded
+        // figures, never as visible Markdown or public image URLs. This
+        // synthetic shell verifies the text layer; S034's live PG/MinIO
+        // browser separately proves the private PNG grant and decryption.
+        const sourceBlocks = fixture.expected_markdown.split("\n\n");
+        const privateMarker =
+          /^!\[[^\]\r\n]{0,160}\]\(asset:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\)$/;
+        const imageBlocks = sourceBlocks.filter((block) => privateMarker.test(block));
+        assert.equal(imageBlocks.length, 1, "Expected one strict private image marker");
+        const textBlocks = sourceBlocks.filter((block) => !privateMarker.test(block));
         const chunks = await page.locator(".reader-piece__text").allTextContents();
-        assert(chunks.join("\n\n") === fixture.expected_markdown,
-          "Decrypted synthetic fixture differs (do not log paid plaintext)");
+        assert.deepEqual(chunks, textBlocks,
+          "Decrypted synthetic text blocks differ (do not log paid plaintext)");
+        assert.equal(await page.locator(".reader-paid__image-block").count(), 1,
+          "Protected image marker must render as a guarded figure");
+        const contentHtml = await page.locator("[data-paid-content]").innerHTML();
+        assert(!contentHtml.includes("asset:") && !contentHtml.includes("X-Amz-Signature"),
+          "Private image reference or S3 signature leaked into reader HTML");
         assert.equal(realS3, 1, "Browser must fetch ciphertext from actual MinIO");
         // Design reference: capture the ACTUAL first screen at scroll=0.
         // Full-page screenshots taken after clicking bottom controls move

@@ -42,6 +42,8 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/asset_fixture.rs"]
+mod asset_fixture;
 #[path = "paid_grants_s3_pg/fixture_writer.rs"]
 mod fixture_writer;
 #[path = "paid_grants_s3_pg/layer_fixtures.rs"]
@@ -61,7 +63,7 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
 const OBJECT_ID_SECOND: &str = "f0c0e034-2026-4034-8034-000000000035";
 const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <script>опасно</script>";
-const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n第二章 — только купленная редакция";
+const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
 
@@ -299,13 +301,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
              VALUES({chapter},1,'{sql_body}') RETURNING id"
         ),
     );
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO chapter_publications(chapter_id,version_id) \
-             VALUES({chapter},{v1})"
-        ),
-    );
     let pinned = ChapterVersionRef {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
@@ -322,13 +317,19 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
     registry.mark_ready(&receipt).await.unwrap();
+    assert!(MARKDOWN.contains(asset_fixture::ASSET_OBJECT_ID));
+    asset_fixture::upload_exact_v1_image(&catalog, &s3, kek.clone(), author, pinned).await;
+    // Publish the first immutable edition through B, which atomically
+    // records the public pointer and encrypted release event required by G.
     PgPaidStorage::new(pool.clone())
         .attach_verified_and_publish(
             author,
             book,
             pinned,
             &object_id,
-            PaidPublication::KeepCurrent,
+            PaidPublication::Publish {
+                expected_current: None,
+            },
         )
         .await
         .unwrap();
@@ -751,12 +752,15 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(state["available"], true);
     assert_eq!(state["completed"], false);
     let sha = hex::encode(sealed.plaintext_sha256);
+    // A separate protected image paragraph is a separate reader block;
+    // completion must target the true last text block of the pinned edition.
     let final_block = MARKDOWN.split("\n\n").last().unwrap();
+    let last_block_id = MARKDOWN.split("\n\n").count();
     let command = json!({
         "purchase_id": purchase_id.to_string(),
         "chapter_id": chapter.to_string(),
         "version_id": v1.to_string(),
-        "block_id": 2,
+        "block_id": last_block_id,
         "char_offset": final_block.encode_utf16().count(),
         "expected_revision": 0,
         "plaintext_sha256": sha,

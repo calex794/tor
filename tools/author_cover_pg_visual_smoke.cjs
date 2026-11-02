@@ -90,12 +90,41 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.waitForURL('**/me');
 
         await page.getByRole('link', { name: 'Мои книги' }).click();
-        await page.getByRole('link', { name: 'Создать книгу' }).click();
+        // S019: exercise the header action at both viewport sizes.
+        if (viewport === 'desktop') {
+          const create = page.getByRole('navigation', { name: 'Основная навигация' })
+            .getByRole('link', { name: 'Создать книгу' });
+          assert(await create.isVisible(), 'Desktop header must offer book registration');
+          await create.click();
+        } else {
+          await page.locator('.site-mobile-menu__trigger').click();
+          const create = page.getByRole('navigation', { name: 'Мобильная навигация' })
+            .getByRole('link', { name: 'Создать книгу' });
+          assert(await create.isVisible(), 'Mobile menu must offer book registration');
+          await create.click();
+        }
         await page.getByLabel('Название книги').fill(title);
-        await page.getByLabel('Язык').fill('ru');
+        await page.getByLabel('Язык', { exact: true }).fill('ru');
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
         const bookId = page.url().split('/').pop();
+
+        // A second form with the same title must show a useful 409, not a blank error.
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill(title);
+        await page.getByLabel('Язык', { exact: true }).fill('ru');
+        const [duplicateResponse] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books' &&
+            r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Создать книгу' }).click(),
+        ]);
+        assert(duplicateResponse.status() === 409,
+          'S019: duplicate title must return 409');
+        assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
+          'S019: duplicate title must explain the failure in Russian');
+        assert(await page.getByRole('link', { name: 'Проверить каталог' }).isVisible(),
+          'S019: duplicate response must offer a useful next action');
+        await page.goto(base + '/me/books/' + bookId);
 
         await page.getByRole('link', { name: 'Добавить главу' }).click();
         await page.getByLabel('Номер главы').fill('1');

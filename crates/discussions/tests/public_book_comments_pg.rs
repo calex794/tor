@@ -609,3 +609,305 @@ async fn e_03_private_mention_participant_is_canonical_and_replay_safe() {
             .unwrap();
     }
 }
+
+/// S011: PostgreSQL checks exact free version, UTF-16 anchor, replay,
+/// same-version parent, paywall and withdraw/republication without new schema.
+#[tokio::test]
+#[ignore = "disposable PostgreSQL 18 tor_ci with migrations"]
+async fn e_02_free_chapter_comments_edition_acl_and_replay() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tor_discussions::repositories::public_chapter_comments::{
+        CreateResult as ChapterCreate, NewAnchor, NewChapterComment, PgPublicChapterComments,
+    };
+
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable test database");
+    assert!(url.ends_with("/tor_ci"), "production database forbidden");
+    let pool = sqlx::PgPool::connect(&url).await.unwrap();
+    let store = PgPublicChapterComments::new(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let actor: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S011 reader','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e02-free-comment-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES($1,'ru','S011 free','public') RETURNING id",
+    )
+    .bind(format!("ci:s011:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let chapter: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,1,'Free','public','free',0) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,2,'Private','public','paid',100) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,$2) RETURNING id",
+    )
+    .bind(chapter)
+    .bind("A😀Z\n\n**Привет** мир")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'PAID-SOURCE-SECRET') RETURNING id",
+    )
+    .bind(paid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2),($3,$4)")
+        .bind(chapter)
+        .bind(version)
+        .bind(paid)
+        .bind(paid_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let key = "a".repeat(43);
+    let hash = [3_u8; 32];
+    let anchor = NewAnchor {
+        block_index: 1,
+        start_utf16: 1,
+        end_utf16: 3,
+        quote: "😀",
+    };
+    let message = NewChapterComment {
+        chapter_id: chapter,
+        version_id: version,
+        body: "Привет, ||секрет||",
+        command_key: &key,
+        payload_hash: &hash,
+        parent_id: None,
+        anchor: Some(anchor),
+    };
+    let id = match store.create_free(actor, message).await {
+        ChapterCreate::Created(id) => id,
+        other => panic!("expected created, got {other:?}"),
+    };
+    assert_eq!(
+        store.create_free(actor, message).await,
+        ChapterCreate::Replayed(id)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    body: "Другая запись",
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::Conflict
+    );
+    let part: (String, i32, i32) = sqlx::query_as(
+        "SELECT block_key,start_utf16,end_utf16 FROM discussion_anchors WHERE comment_id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(part, ("b:1".to_owned(), 1, 3));
+    let page = store
+        .list_free(chapter, version, None, 25)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].id, id);
+    assert_eq!(page.items[0].anchor.as_ref().unwrap().block_index, 1);
+    assert_eq!(page.next_cursor, None);
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    anchor: Some(NewAnchor {
+                        quote: "Z",
+                        ..anchor
+                    }),
+                    command_key: &"k".repeat(43),
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::Invalid
+    );
+    assert_eq!(store.create_free(0, message).await, ChapterCreate::Invalid);
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    chapter_id: paid,
+                    version_id: paid_version,
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    let key2 = "b".repeat(43);
+    let reply = NewChapterComment {
+        parent_id: Some(id),
+        anchor: None,
+        command_key: &key2,
+        payload_hash: &[4; 32],
+        body: "Ответ",
+        ..message
+    };
+    let reply_id = match store.create_free(actor, reply).await {
+        ChapterCreate::Created(id) => id,
+        other => panic!("expected reply, got {other:?}"),
+    };
+    assert_eq!(
+        store.create_free(actor, reply).await,
+        ChapterCreate::Replayed(reply_id)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    parent_id: Some(i64::MAX),
+                    command_key: &"c".repeat(43),
+                    ..reply
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    let first_page = store
+        .list_free(chapter, version, None, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first_page.items[0].id, reply_id);
+    assert_eq!(first_page.next_cursor, Some(reply_id));
+    let second_page = store
+        .list_free(chapter, version, first_page.next_cursor, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second_page.items[0].id, id);
+    assert_eq!(second_page.next_cursor, None);
+    // Moderated roots hide the entire reply chain, without leaking bodies.
+    sqlx::query("UPDATE discussion_comments SET visibility='hidden' WHERE id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .list_free(chapter, version, None, 25)
+        .await
+        .unwrap()
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"d".repeat(43),
+                    ..reply
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    sqlx::query("UPDATE chapters SET admin_hold=true WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list_free(chapter, version, None, 25).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"e".repeat(43),
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
+        .bind(chapter)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let next_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Новая редакция') RETURNING id",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(chapter)
+        .bind(next_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list_free(chapter, version, None, 25).await.unwrap(),
+        None
+    );
+    assert!(store
+        .list_free(chapter, next_version, None, 25)
+        .await
+        .unwrap()
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        store
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"f".repeat(43),
+                    ..message
+                }
+            )
+            .await,
+        ChapterCreate::NotFound
+    );
+    assert_eq!(
+        store.list_free(paid, paid_version, None, 25).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        store.list_free(chapter, version, Some(-1), 25).await,
+        Err(tor_discussions::repositories::public_chapter_comments::ListError::Invalid)
+    );
+}

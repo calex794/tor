@@ -7,11 +7,13 @@ mod chapter_published_edit;
 mod chapter_release;
 mod chapter_schedule;
 pub use chapter_schedule::{DueReleaseOutcome, ScheduledChapter};
+mod legacy_title_guard;
 mod mail_aliases;
 mod owned_book_hash;
 mod owned_chapter_pages;
 use crate::{
     domain::{Book, BookKey, Visibility},
+    services::book_registration::registration_titles,
     services::{
         authoring::{
             valid_command_key, AuthorError, ChapterAccess, NewBook, OwnedBook, SaveChapter,
@@ -168,6 +170,7 @@ impl PgAuthoring {
             return Err(AuthorError::Forbidden);
         }
         let digest = owned_book_hash::payload_hash(book);
+        let title_claims = registration_titles(book)?;
         let mut tx = self
             .pool
             .begin()
@@ -209,9 +212,13 @@ impl PgAuthoring {
             return previous_id.ok_or(AuthorError::Unavailable);
         }
 
+        if legacy_title_guard::exists(&mut tx, &book.target_language, &title_claims).await? {
+            return Err(AuthorError::Conflict);
+        }
         let book_id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms, description, access_level)
-             VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, 'basic') RETURNING id",
+            "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
+                 original_title, original_language, source_url, release_year, project_status, catalog_section, alt_titles)
+             VALUES ($1, $2, $3, 'draft', $4, $5, $6, $7, $8, $9, 'basic', $10, $11, $12, $13, $14, $15, $16) RETURNING id",
         )
         .bind(&book.source_identity)
         .bind(&book.target_language)
@@ -222,6 +229,13 @@ impl PgAuthoring {
         .bind(&book.tags)
         .bind(&book.fandoms)
         .bind(&book.description)
+        .bind(&book.original_title)
+        .bind(&book.original_language)
+        .bind(&book.source_url)
+        .bind(book.release_year)
+        .bind(&book.project_status)
+        .bind(&book.catalog_section)
+        .bind(&book.alt_titles)
         .fetch_one(&mut *tx)
         .await
         .map_err(|error| match error {
@@ -230,6 +244,24 @@ impl PgAuthoring {
             }
             _ => AuthorError::Unavailable,
         })?;
+        for normalized in &title_claims {
+            let claim = sqlx::query(
+                "INSERT INTO book_registration_titles (book_id, target_language, normalized_title)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(book_id)
+            .bind(&book.target_language)
+            .bind(normalized)
+            .execute(&mut *tx)
+            .await;
+            match claim {
+                Ok(_) => (),
+                Err(sqlx::Error::Database(ref db)) if db.code().as_deref() == Some("23505") => {
+                    return Err(AuthorError::Conflict);
+                }
+                Err(_) => return Err(AuthorError::Unavailable),
+            }
+        }
         sqlx::query(
             "UPDATE book_create_commands SET book_id=$3 WHERE user_id=$1 AND command_key=$2",
         )

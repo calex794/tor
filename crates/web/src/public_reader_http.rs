@@ -5,12 +5,15 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::Response,
 };
+use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
 use tor_reading::services::PublicReadingRepository;
 
 /// E-12: non-authoritative display-only issue result; no persistence on GET.
 #[derive(Default, serde::Deserialize)]
 pub(super) struct PublicIssueQuery {
     pub issue: Option<String>,
+    pub comment: Option<String>,
+    pub comments_after: Option<i64>,
 }
 
 /// C-10: successful and denied reading both use no-store and strict CSP.
@@ -89,12 +92,40 @@ pub(super) async fn reader_page(
             }
         }
     }
+    // E-02/S011: comments are scoped to the currently published *free*
+    // edition. Querying the canonical E tables never inherits book-level or
+    // purchased chapter visibility, and keyset reading stays bounded.
+    let discussion = if let Some(catalog) = state.postgres.as_ref() {
+        let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(chapter.version_id))
+        {
+            (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
+            _ => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+        };
+        let store = PgPublicChapterComments::new(catalog.pool().clone());
+        match store
+            .list_free(chapter_id, version_id, query.comments_after, 25)
+            .await
+        {
+            Ok(Some(comments)) => Some(comments),
+            Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
+            Err(ListError::Invalid) => {
+                return auth_cookies::private_response(StatusCode::BAD_REQUEST, &[]);
+            }
+            Err(ListError::Unavailable) => {
+                return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]);
+            }
+        }
+    } else {
+        None
+    };
     let mut response = auth_cookies::private_response(
-        pages::reader_with_public_features(
+        pages::reader_with_public_discussions(
             &chapter,
             Some(id),
             progress_csrf.as_deref(),
             query.issue.as_deref(),
+            discussion.as_ref(),
+            query.comment.as_deref(),
         ),
         &progress_cookies,
     );

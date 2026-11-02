@@ -21,12 +21,7 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
-use tor_books::{
-    repositories::postgres::PgAuthoring,
-    services::authoring::{
-        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
-    },
-};
+use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
@@ -56,9 +51,11 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_likes;
+mod book_registration_http;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
+mod chapter_comments;
 mod chapter_thanks;
 mod checkout;
 mod checkout_browser;
@@ -317,6 +314,7 @@ fn router_inner(
             "/me/books/{id}/issues/{issue_id}/status",
             post(text_issues::change_status),
         )
+        .route("/reader/{id}/comments", post(chapter_comments::submit))
         .route(
             "/reader/{id}/thanks",
             get(chapter_thanks::page).post(chapter_thanks::submit),
@@ -453,21 +451,7 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let identity = format!("manual:{actor}:{}", form.command_key);
-    let request = match new_book_with_taxonomy(
-        &identity,
-        &form.target_language,
-        &form.title,
-        &form.command_key,
-        form.author_name.as_deref().unwrap_or(""),
-        form.genres.as_deref().unwrap_or(""),
-        TaxonomyFields {
-            tags: form.tags.as_deref().unwrap_or(""),
-            fandoms: form.fandoms.as_deref().unwrap_or(""),
-        },
-    )
-    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    {
+    let request = match book_registration_http::request(actor, &form) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
@@ -476,7 +460,9 @@ async fn create_book(
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
-        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+        Err(AuthorError::Conflict) => {
+            private_response((StatusCode::CONFLICT, author_pages::create_conflict()), &[])
+        }
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
