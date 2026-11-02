@@ -34,7 +34,10 @@ fn pg(url: &str, statement: &str) -> String {
         "financial tests require disposable tor_ci"
     );
     let result = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=15000 -c lock_timeout=5000")
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=15000 -c lock_timeout=5000",
+        )
         .args([
             "-X",
             "-A",
@@ -447,10 +450,14 @@ async fn swap_journey(width: u32) {
     .unwrap();
     server.abort();
     let _ = server.await;
-    eprintln!("S037 width={width}: Chromium process returned {:?}", browser.status.code());
+    eprintln!(
+        "S037 width={width}: Chromium process returned {:?}",
+        browser.status.code()
+    );
     assert!(
         browser.status.success(),
-        "Chromium (exit {:?}): {}", browser.status.code(),
+        "Chromium (exit {:?}): {}",
+        browser.status.code(),
         String::from_utf8_lossy(&browser.stderr)
     );
     let submit = String::from_utf8(browser.stdout).unwrap();
