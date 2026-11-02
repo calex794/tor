@@ -38,8 +38,8 @@ use tor_commerce::repositories::{
     layer_entitlements::PgLayerChapterEntitlements,
 };
 use tor_contracts::paid_delivery::{
-    Actor, ChapterVersionPort, DeliveryError, EntitlementDecision, EntitlementPort,
-    PositiveId, PrivateObjectDeliveryPort,
+    Actor, ChapterVersionPort, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
+    PrivateObjectDeliveryPort,
 };
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
 
