@@ -342,6 +342,19 @@ impl PgGroupMail {
         }
         let body = clean_body(body)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        // Serialize different senders before allocating message IDs, so a
+        // lower keyset cursor cannot hide a late-committing earlier message.
+        // NO KEY UPDATE remains compatible with message FK key-share locks.
+        let group: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM social_group_conversations WHERE id=$1 FOR NO KEY UPDATE",
+        )
+        .bind(group_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if group.is_none() {
+            return Err(MailError::NotFound);
+        }
         let status: Option<String> = sqlx::query_scalar(
             "SELECT status FROM social_group_members
              WHERE group_id=$1 AND user_id=$2 FOR UPDATE",

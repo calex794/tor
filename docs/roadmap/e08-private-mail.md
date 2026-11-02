@@ -594,3 +594,18 @@ and browser acceptance must pass before merge. No main/production change.
 ## 02.11.2026 — Ownership offers appear in on-site mail notifications
 
 A committed group-creator proposal now writes exactly one `social.group_creator_transfer.proposed` source event in the same PostgreSQL transaction. The existing five-second notification consumer shows a `mail` notification only to the proposed active recipient, linking to `/mail/group-transfers`. Before delivery it checks the original outbox aggregate and the live, unexpired offer, active creator/recipient accounts and memberships, as well as existing bilateral blocks and the recipient's mail notification preference. Revoked, declined, expired and departed-member offers are acknowledged but never projected as fresh notifications; no message body, group title or private history is copied into the notification. No migration, background service or new HTTP route is needed. Disposable PostgreSQL tests cover exact-once event recording, suppression and delivery. Draft only; main and production unchanged.
+
+## 02.11.2026 — E-08 ordering of concurrently committed group messages (PR #379)
+
+`PgGroupMail::send` now obtains a group-row `FOR NO KEY UPDATE` lock before
+allocating a message ID, retaining that lock through message and outbox commit.
+This serializes sends by different participants in the same group and prevents
+keyset pagination from skipping a lower ID committed after a higher one.
+Idempotent command-key and membership checks remain in the same transaction.
+
+A disposable PostgreSQL test `e_08_group_mail_commit_order_preserves_pagination`
+uses a held outbox lock and `pg_blocking_pids` to establish concurrent sends,
+then checks commit order, both history windows, replay, and notification count.
+No migration or HTTP contract change. The old PR branch has been integrated
+onto current `main` without carrying unrelated old test formatting changes;
+exact-HEAD CI and independent review are required before merging.
