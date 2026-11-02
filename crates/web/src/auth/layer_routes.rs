@@ -6,7 +6,7 @@ use tor_books::services::authoring::OwnedBook;
 use tor_commerce::{repositories::layers::PgLayers, services::layers::LayerService};
 use tor_contracts::paid_delivery::PositiveId;
 
-mod layer_books;
+pub(super) mod layer_books;
 mod layer_create;
 mod layer_offer_manage;
 
