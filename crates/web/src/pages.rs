@@ -24,6 +24,8 @@ pub use account::{
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
+mod reader_admin;
+pub use reader_admin::administrator_chapter_view;
 mod reader_free;
 mod reader_free_comments;
 mod reader_free_issues;
