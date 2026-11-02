@@ -7,6 +7,8 @@ DECLARE
     label TEXT;
     alias_name TEXT;
     v_term_id BIGINT;
+    pending_id BIGINT;
+    pending_label TEXT;
     second_id BIGINT;
     v_book_id BIGINT;
     actual_tags TEXT[];
@@ -24,6 +26,28 @@ BEGIN
     END IF;
     IF current_database()<>'tor_ci' OR current_user<>'tor_migrator' THEN
         RAISE EXCEPTION 'only disposable migration-owner tor_ci is accepted';
+    END IF;
+    -- Published labels start as candidates, not visible active terms.
+    pending_label := 'ReviewPending' || suffix;
+    INSERT INTO book_taxonomy_terms(kind,label,search_key,status)
+    VALUES('tag',pending_label,admin_taxonomy_key(pending_label),'candidate')
+    RETURNING id INTO pending_id;
+    rejected:=false;
+    BEGIN
+        PERFORM admin_taxonomy_add_alias('tag',pending_id,'AwaitingAlias'||suffix,'ci-smoke');
+    EXCEPTION WHEN invalid_parameter_value THEN rejected:=true;
+    END;
+    IF NOT rejected THEN RAISE EXCEPTION 'pending candidate accepted alias'; END IF;
+    IF admin_taxonomy_add_term('tag',pending_label,'ci-smoke') <> pending_id THEN
+        RAISE EXCEPTION 'explicit approval changed canonical candidate ID';
+    END IF;
+    IF admin_taxonomy_add_term('tag',pending_label,'ci-smoke') <> pending_id THEN
+        RAISE EXCEPTION 'repeated approval changed canonical ID';
+    END IF;
+    IF (SELECT status FROM book_taxonomy_terms WHERE id=pending_id) <> 'active'
+       OR (SELECT count(*) FROM book_taxonomy_curation_events
+           WHERE term_id=pending_id AND action='approve_term') <> 1 THEN
+        RAISE EXCEPTION 'approval must activate and audit candidate exactly once';
     END IF;
     label := 'CurationTest' || suffix;
     alias_name := 'LegacyAlias' || suffix;

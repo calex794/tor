@@ -101,6 +101,48 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         .await
         .unwrap();
     assert!(by_alias.iter().any(|row| row.id == tag));
+    // A publicly used text label is not an approved canonical taxonomy term.
+    // Pending candidates are invisible to suggestions and ID-only author forms.
+    let candidate_label = format!("Candidate{stamp}");
+    let candidate_key = format!("candidate{stamp}");
+    let candidate_id: i64 = sqlx::query_scalar(
+        "INSERT INTO book_taxonomy_terms(kind,label,search_key,status)
+         VALUES('tag',$1,$2,'candidate') RETURNING id",
+    )
+    .bind(&candidate_label)
+    .bind(&candidate_key)
+    .fetch_one(&admin_pool)
+    .await
+    .unwrap();
+    let before_approval = author
+        .suggest_taxonomies("tag", &candidate_label, 15)
+        .await
+        .unwrap();
+    assert!(!before_approval.iter().any(|row| row.id == candidate_id));
+    assert!(
+        matches!(
+            author
+                .resolve_taxonomy_selection(
+                    &TaxonomySelection::parse(None, Some(&candidate_id.to_string()), None)
+                        .unwrap()
+                )
+                .await,
+            Err(AuthorError::Invalid)
+        ),
+        "a pending candidate ID must not be accepted on author POST"
+    );
+    // B/TAX-01 verifies the visibility boundary; B/TAX-03 owns the audited
+    // approval function that makes this exact ID active.
+    sqlx::query("UPDATE book_taxonomy_terms SET status='active' WHERE id=$1")
+        .bind(candidate_id)
+        .execute(&admin_pool)
+        .await
+        .unwrap();
+    let after_approval = author
+        .suggest_taxonomies("tag", &candidate_label, 15)
+        .await
+        .unwrap();
+    assert!(after_approval.iter().any(|row| row.id == candidate_id));
     // Search with capital Ё must hit the same prefix key as lowercase е.
     let yo_label = format!("Ёжик{stamp}");
     let yo_key = format!("ежик{stamp}");

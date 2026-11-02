@@ -3,7 +3,7 @@
 -- to tor_app, a site session, or the read-only operator diagnostics endpoint.
 CREATE TABLE book_taxonomy_curation_events (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    action TEXT NOT NULL CHECK (action IN ('create_term','add_alias','reconcile_book')),
+    action TEXT NOT NULL CHECK (action IN ('create_term','approve_term','add_alias','reconcile_book')),
     kind TEXT CHECK (kind IN ('genre','tag','fandom')),
     term_id BIGINT REFERENCES book_taxonomy_terms(id),
     book_id BIGINT REFERENCES books(id) ON DELETE SET NULL,
@@ -63,7 +63,19 @@ BEGIN
       FROM book_taxonomy_terms
      WHERE kind=desired_kind AND search_key=k;
     IF FOUND THEN
-        IF previous_status='active' AND previous_label=desired_label THEN
+        -- Public catalogue seeds are candidates, never automatically approved.
+        -- Only an explicit, exactly matched curator decision activates one.
+        IF previous_label=desired_label AND previous_status='active' THEN
+            RETURN result_id;
+        END IF;
+        IF previous_label=desired_label AND previous_status='candidate' THEN
+            UPDATE book_taxonomy_terms SET status='active' WHERE id=result_id;
+            INSERT INTO book_taxonomy_curation_events(
+                action,kind,term_id,curator,details
+            ) VALUES (
+                'approve_term',desired_kind,result_id,curator_tag,
+                jsonb_build_object('source','reviewed_public_candidate')
+            );
             RETURN result_id;
         END IF;
         RAISE EXCEPTION 'canonical name collision or inactive term'

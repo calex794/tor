@@ -20,8 +20,13 @@ python3 tools/taxonomy_admin.py --confirm-db tor_ci reconcile 123 --apply --cura
 
 `add` creates the immutable canonical ID or returns an existing ID only when
 the exact label and active status match. Repeated approved CSV imports cannot
-duplicate audit records. Alternative spellings, inactive terms and conflicts
-with another term's alias are rejected instead of being silently renamed.
+duplicate audit records. Public-book labels are staged as `candidate`
+instead of `active`: visibility is NOT editorial approval. A curator
+may approve an existing candidate using exactly the same displayed label;
+the canonical ID is retained and an `approve_term` audit event is written.
+The same approved CSV can be imported again without duplicate approvals.
+Alternative spellings, blocked/merged terms and conflicts with another
+term's alias are rejected instead of being silently renamed.
 `alias` maps a normalized spelling
 to exactly one active term in the same kind. Repeated identical aliases are
 idempotent. The same spelling cannot belong to a different canonical term
@@ -67,6 +72,13 @@ TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci' \
   python3 tools/taxonomy_import_csv.py reviewed-tags.csv --curator review-20261101 \
   --confirm-db tor_ci --apply
 ```
+
+Опубликованные книги сами по себе не утверждают словарь: их старые названия
+попадают в таблицу кандидатов со статусом `candidate`, но **не** появляются
+в подсказках автора. Для допуска в список нужен одобренный CSV или команда
+`add` куратора с точно совпадающим названием. При одобрении ID сохраняется,
+решение записывается в аудит. После утверждения старые книги можно
+сопоставлять через `reconcile` по одной, без удаления неизвестных тегов.
 
 По умолчанию операция только проверяет CSV: база не подключается.
 Запись требует `--apply`, подтверждения имени базы и миграционной роли.

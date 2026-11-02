@@ -85,6 +85,23 @@ def main():
 
     with TemporaryDirectory() as directory:
         root = Path(directory)
+        # Existing published facets must be explicitly reviewed; CSV approval
+        # retains the candidate ID and writes exactly one audit decision.
+        candidate = f"ReviewCsv{suffix}"
+        candidate_id = scalar(url,
+            "INSERT INTO book_taxonomy_terms(kind,label,search_key,status) "
+            f"VALUES('tag',{quote(candidate)},book_taxonomy_key({quote(candidate)}),'candidate') "
+            "RETURNING id"
+        )
+        if "candidate" not in lookup("tag", candidate):
+            raise AssertionError("review candidate not visible in curator diagnostics")
+        reviewed = make_csv(root, "reviewed-candidate.csv", [("tag", candidate, "")])
+        apply(reviewed)
+        if scalar(url, f"SELECT id FROM book_taxonomy_terms WHERE label={quote(candidate)} AND status='active'") != candidate_id:
+            raise AssertionError("CSV approval failed or changed the candidate ID")
+        apply(reviewed)
+        if scalar(url, f"SELECT count(*) FROM book_taxonomy_curation_events WHERE term_id={candidate_id} AND action='approve_term'") != 1:
+            raise AssertionError("CSV candidate approval was not audited once")
         approved = make_csv(root, "approved.csv", [
             ("tag", tag, f"{synonym}|{synonym_zh}"),
             ("genre", genre, ""),
