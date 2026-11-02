@@ -5,9 +5,9 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use sqlx::PgPool;
 use std::{
     num::NonZeroU32,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tor_accounts::{
@@ -25,6 +25,31 @@ use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
+
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    let result = Command::new("psql")
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
+        .output()
+        .expect("psql is required for isolated PostgreSQL acceptance");
+    assert!(
+        result.status.success(),
+        "isolated fixture SQL failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap().trim().to_owned()
+}
 
 async fn send(
     app: &Router,
@@ -59,7 +84,7 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "never use production");
     let catalog = PgCatalog::connect(&url).await.unwrap();
-    let pool: PgPool = catalog.pool();
+    let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let author = PgAuthoring::new(pool.clone());
     let nonce = SystemTime::now()
@@ -166,13 +191,11 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     assert!(confirmation.contains("name=\"scheduled_utc\""));
     assert!(confirmation.contains("PRIVATE S058 before due"));
 
-    let utc: String = sqlx::query_scalar(
+    let utc = pg(
+        &url,
         "SELECT to_char((now()+interval '1 hour') AT TIME ZONE 'UTC',
                 'YYYY-MM-DD\"T\"HH24:MI')",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    );
     let scheduled = format!(
         "expected_revision={}&version_id={}&scheduled_utc={}&csrf_token={csrf}",
         pending.revision,
@@ -230,13 +253,11 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     let (_, public_book) = send(&app, "GET", &format!("/books/{book_id}"), "", "", ORIGIN).await;
     assert!(!public_book.contains("Scheduled chapter"));
 
-    let utc2: String = sqlx::query_scalar(
+    let utc2 = pg(
+        &url,
         "SELECT to_char((now()+interval '2 hours') AT TIME ZONE 'UTC',
                 'YYYY-MM-DD\"T\"HH24:MI')",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    );
     let rescheduled = scheduled.replace(&utc.replace(':', "%3A"), &utc2.replace(':', "%3A"));
     assert_eq!(
         send(&app, "POST", &schedule_url, &rescheduled, &cookie, ORIGIN)
@@ -271,14 +292,13 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
             .0,
         StatusCode::SEE_OTHER
     );
-    sqlx::query(
-        "UPDATE chapter_scheduled_releases SET scheduled_at=now()-interval '1 second'
-         WHERE chapter_id=$1",
-    )
-    .bind(chapter.id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "UPDATE chapter_scheduled_releases SET scheduled_at=now()-interval '1 second' WHERE chapter_id={}",
+            chapter.id
+        ),
+    );
     assert_eq!(
         author.process_one_due_scheduled_release().await.unwrap(),
         Some((chapter.id, DueReleaseOutcome::Published))
@@ -286,12 +306,12 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     let (status, visible) = send(&app, "GET", &reader_path, "", "", ORIGIN).await;
     assert_eq!(status, StatusCode::OK);
     assert!(visible.contains("PRIVATE S058 before due"));
-    let events: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
-            .bind(chapter.id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let events: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={}", chapter.id),
+    )
+    .parse()
+    .unwrap();
     assert_eq!(events, 1, "one reader-visible first-release event");
 
     // A held book cannot be published by a previously valid schedule.
@@ -322,35 +342,26 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         )
         .await
         .unwrap();
-    sqlx::query("UPDATE books SET admin_hold=true WHERE id=$1")
-        .bind(book_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "UPDATE chapter_scheduled_releases SET scheduled_at=now()-interval '1 second'
-         WHERE chapter_id=$1",
-    )
-    .bind(saved3.chapter_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(&url, &format!("UPDATE books SET admin_hold=true WHERE id={}", book_id));
+    pg(
+        &url,
+        &format!(
+            "UPDATE chapter_scheduled_releases SET scheduled_at=now()-interval '1 second' WHERE chapter_id={}",
+            saved3.chapter_id
+        ),
+    );
     assert_eq!(
         author.process_one_due_scheduled_release().await.unwrap(),
         Some((saved3.chapter_id, DueReleaseOutcome::Stale))
     );
-    let held_publications: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
-            .bind(saved3.chapter_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let held_publications: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={}", saved3.chapter_id),
+    )
+    .parse()
+    .unwrap();
     assert_eq!(held_publications, 0);
-    sqlx::query("UPDATE books SET admin_hold=false WHERE id=$1")
-        .bind(book_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    pg(&url, &format!("UPDATE books SET admin_hold=false WHERE id={}", book_id));
 
     // Changing the book owner after scheduling invalidates the pinned actor.
     let fourth = save_chapter(SaveChapterRequest {
@@ -380,30 +391,30 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
         )
         .await
         .unwrap();
-    sqlx::query("UPDATE books SET owner_user_id=$2 WHERE id=$1")
-        .bind(book_id)
-        .bind(outsider)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "UPDATE chapter_scheduled_releases SET scheduled_at=now()-interval '1 second'
-         WHERE chapter_id=$1",
-    )
-    .bind(saved4.chapter_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET owner_user_id={} WHERE id={}",
+            outsider, book_id
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "UPDATE chapter_scheduled_releases SET scheduled_at=now()-interval '1 second' WHERE chapter_id={}",
+            saved4.chapter_id
+        ),
+    );
     assert_eq!(
         author.process_one_due_scheduled_release().await.unwrap(),
         Some((saved4.chapter_id, DueReleaseOutcome::Stale))
     );
-    let transferred_publications: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
-            .bind(saved4.chapter_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let transferred_publications: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={}", saved4.chapter_id),
+    )
+    .parse()
+    .unwrap();
     assert_eq!(transferred_publications, 0);
 
     pool.close().await;
