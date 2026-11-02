@@ -24,14 +24,12 @@ fn comment_body_html(body: &str) -> String {
 }
 
 fn submit_form(chapter_id: u64, version_id: u64, csrf: &str, parent: Option<i64>) -> String {
-    let (reply, label, extra) = match parent {
+    let (label, extra) = match parent {
         Some(id) => (
-            format!(" id=\"chapter-reply-{id}\""),
             format!("Ваш ответ на комментарий №{id}"),
             format!("<input type=\"hidden\" name=\"parent_id\" value=\"{id}\">"),
         ),
         None => (
-            " id=\"chapter-comment-body\"".to_owned(),
             "Комментарий к главе".to_owned(),
             "<input type=\"hidden\" data-chapter-comment-block>\
              <input type=\"hidden\" data-chapter-comment-start>\
