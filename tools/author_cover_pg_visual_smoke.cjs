@@ -158,7 +158,7 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByLabel('Ссылка на первоисточник').fill(chineseOriginal);
         await page.getByLabel('Дополнительная ссылка на это произведение').fill(mirrorLink);
         await page.getByRole('button', { name: 'Создать книгу' }).click();
-        await page.waitForURL(/\\/me\\/books\\/\\d+$/);
+        await page.waitForURL(/\/me\/books\/\d+$/);
         await page.goto(base + '/me/books/new');
         await page.getByLabel('Название книги').fill('Другое название зеркала ' + workNum);
         await page.getByLabel('Ссылка на первоисточник').fill(mirrorLink);
