@@ -1,5 +1,7 @@
 //! Authenticated, bounded public title suggestions on the new-book form.
 use super::{deny, session_user, AuthState};
+use crate::author_pages;
+use axum::http::HeaderValue;
 use crate::auth_cookies::private_response;
 use axum::{
     extract::{Query, State},
@@ -80,4 +82,16 @@ pub(super) async fn script() -> Response {
         include_str!("../../assets/book_title_suggestions.js"),
     )
         .into_response()
+}
+
+/// This page alone is permitted the first-party suggestion script and API.
+pub(super) fn registration_page(csrf: &str, key: &str, cookies: &[String]) -> Response {
+    let mut response = private_response(author_pages::new_book(csrf, key), cookies);
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
