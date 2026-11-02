@@ -925,7 +925,8 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
 .reader-private .reader-continuation h2 { color: var(--text-main); }
 
 .reader-public .reader-width { width:min(calc(100% - 28px),var(--free-reader-width,860px));max-width:var(--free-reader-width,860px); }
-.reader-public .free-reader-actions { display:flex;justify-content:flex-end;gap:8px; }
+.reader-public .free-reader-actions { display:none;justify-content:flex-end;gap:8px; }
+.reader-public[data-free-settings-ready="1"] .free-reader-actions { display:flex; }
 .reader-public .free-reader-actions button { min-width:44px;min-height:44px;border:1px solid var(--border-color);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text-main);font:inherit;font-weight:800;cursor:pointer; }
 .reader-public .reader-markdown { font-family:var(--free-font-family,Georgia,"Times New Roman",serif);font-size:calc(clamp(17px,2.3vw,20px)*var(--free-font-scale,1));line-height:var(--free-line-height,1.85); }
 .reader-public .reader-markdown p { line-height:inherit; }
