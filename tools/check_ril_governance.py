@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -26,6 +26,21 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
     ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
+SUPPORT_ADMIN_HANDLERS = {
+    ("GET", "/admin/support", "index"),
+    ("GET", "/admin/support/{id}", "page"),
+    ("GET", "/admin/support/{id}/messages", "messages"),
+    ("POST", "/admin/support/{id}/messages", "submit"),
+    ("POST", "/admin/support/{id}/read", "mark_read"),
+}
+SUPPORT_REQUESTER_HANDLERS = {
+    ("GET", "/support", "page"),
+    ("GET", "/support/widget", "widget"),
+    ("GET", "/support/messages", "messages"),
+    ("POST", "/support/messages", "submit"),
+    ("GET", "/api/v1/support/tickets", "widget"),
+    ("POST", "/api/v1/support/tickets", "json_submit"),
 }
 SCOPE_CALLS = {
     "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
@@ -40,7 +55,7 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
-    "active_role",
+    "active_role", "create_free", "create_paid",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove",
 }
@@ -162,7 +177,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load", "administrator"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body
@@ -196,7 +211,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     audited_admin = (policy == "admin_mail"
                      and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                      and admin_key in ADMIN_MAIL_HANDLERS)
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not audited_admin:
+    audited_support = (
+        policy == "support_admin"
+        and entry["source"] == "crates/web/src/auth/support_admin.rs"
+        and admin_key in SUPPORT_ADMIN_HANDLERS
+    )
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
     if policy == "admin_mail":
         method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
@@ -209,6 +229,26 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "session_token_digest" in evidence
         ):
             errors.append(f"{label}: missing session-bound audited admin mail repository call")
+    if policy == "support_admin":
+        if not audited_support:
+            errors.append(f"{label}: unreviewed support administrator route")
+        if not ("session_actor(" in evidence
+                and "if !actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence):
+            errors.append(f"{label}: missing live support administrator role guard")
+        if not _contains_scoped_call(evidence, {"admin_chats", "admin_messages", "admin_send", "admin_mark_read"}):
+            errors.append(f"{label}: missing actor-bound support administrator operation")
+    if policy == "support_requester":
+        allowed = (entry["source"] == "crates/web/src/auth/support.rs"
+                   and admin_key in SUPPORT_REQUESTER_HANDLERS)
+        identity = functions.get("__support_identity", "")
+        if not (allowed
+                and "support_identity::resolve(&state, &headers)" in evidence
+                and re.search(r"\b(?:messages|send|json_send)\s*\(\s*&who", evidence)
+                and "session_user(state, headers)" in identity
+                and "valid_token(t)" in identity
+                and '"tor-support:{token}"' in identity):
+            errors.append(f"{label}: missing support requester capability boundary")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
@@ -260,6 +300,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        # E-12 is book-team triage, not owner-only chapter publishing.
+        if policy == "scoped" and entry["handler"] == "text_issues::author_page":
+            proof = {"author_page"}
+        elif policy == "scoped" and entry["handler"] == "text_issues::change_status":
+            proof = {"update_status"}
         if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
             proof = {
                 "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
@@ -295,6 +340,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
     route_key = (entry["method"], entry["template"], entry["handler"])
+    e12_team = {
+        ("GET", "/me/books/{id}/issues", "text_issues::author_page"),
+        ("POST", "/me/books/{id}/issues/{issue_id}/status", "text_issues::change_status"),
+    }
+    if route_key == (
+        "POST", "/api/v1/reader/chapters/{chapter_id}/text-issues",
+        "text_issues::submit",
+    ) and policy != "scoped":
+        errors.append(f"{label}: E-12 paid correction must remain actor-scoped")
+    if route_key in e12_team and policy != "scoped":
+        errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "administrator":
@@ -422,6 +478,12 @@ def check(root: Path = ROOT) -> list[str]:
                 source_cache[path] = _functions(path.read_text(encoding="utf-8"))
             except OSError:
                 source_cache[path] = {}
+        if entry.get("policy") == "support_requester":
+            identity_file = root / "crates/web/src/auth/support_identity.rs"
+            source_cache[path]["__support_identity"] = (
+                _strip_comments(identity_file.read_text(encoding="utf-8"))
+                if identity_file.exists() else ""
+            )
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 

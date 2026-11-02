@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 200] = [
+const ROUTES: [RouteRegistration; 220] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -206,10 +206,30 @@ const ROUTES: [RouteRegistration; 200] = [
     RouteRegistration::new("/me/books/{book_id}/chapters/import-jobs/latest", "GET", "/me/", Prefix, Page, Dashboard, Read), // 193
     RouteRegistration::new("/me/books/{book_id}/chapters/import-jobs/{job_id}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 194
     RouteRegistration::new("/me/books/{book_id}/chapters/import-jobs/{job_id}/cancel", "POST", "/me/", Prefix, Page, Dashboard, Write), // 195
-    RouteRegistration::new("/api/v1/taxonomies/suggest", "GET", "/api/v1/taxonomies/", Exact, Api, Catalog, Read), // 196
-    RouteRegistration::new("/assets/taxonomy-picker.js", "GET", "/assets/", Exact, Static, System, Free), // 197
-    RouteRegistration::new("/me/books/{id}/taxonomy", "GET", "/me/", Prefix, Page, Dashboard, Read), // 198
-    RouteRegistration::new("/me/books/{id}/taxonomy", "POST", "/me/", Prefix, Page, Dashboard, Write), // 199
+    RouteRegistration::new("/assets/newboo-text-issues.js", "GET", "/assets/", Exact, Static, System, Free), // 196
+    RouteRegistration::new("/me/books/{id}/issues", "GET", "/me/", Prefix, Page, Dashboard, Read), // 197
+    RouteRegistration::new("/me/books/{id}/issues/{issue_id}/status", "POST", "/me/", Prefix, Page, Dashboard, Write), // 198
+    RouteRegistration::new("/read/{id}/text-issues", "POST", "/read/", Prefix, Page, Reading, Write), // 199
+    RouteRegistration::new("/me/refunds/swap", "GET", "/me/refunds/", Exact, Page, ProductArea::Billing, Read), // 200
+    RouteRegistration::new("/me/refunds/swap", "POST", "/me/refunds/", Exact, Page, ProductArea::Billing, Write), // 201
+    RouteRegistration::new("/support", "GET", "/support/", Exact, Page, Dashboard, Read), // 202
+    RouteRegistration::new("/support/widget", "GET", "/support/", Exact, Api, Dashboard, Read), // 203
+    RouteRegistration::new("/support/messages", "GET", "/support/", Exact, Api, Dashboard, Read), // 204
+    RouteRegistration::new("/support/messages", "POST", "/support/", Exact, Api, Dashboard, Write), // 205
+    RouteRegistration::new("/admin/support", "GET", "/support/", Exact, TrafficSurface::Admin, Dashboard, Read), // 206
+    RouteRegistration::new("/admin/support/{id}", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 207
+    RouteRegistration::new("/admin/support/{id}/messages", "GET", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Read), // 208
+    RouteRegistration::new("/admin/support/{id}/messages", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 209
+    RouteRegistration::new("/api/v1/support/tickets", "GET", "/support/", Exact, Api, Dashboard, Read), // 210
+    RouteRegistration::new("/api/v1/support/tickets", "POST", "/support/", Exact, Api, Dashboard, Write), // 211
+    RouteRegistration::new("/admin/support/{id}/read", "POST", "/support/", Prefix, TrafficSurface::Admin, Dashboard, Write), // 212
+    RouteRegistration::new("/assets/newboo-support-widget.js", "GET", "/assets/", Exact, Static, System, Free), // 213
+    RouteRegistration::new("/assets/newboo-admin-support.js", "GET", "/assets/", Exact, Static, System, Free), // 214
+    RouteRegistration::new("/api/v1/reader/chapters/{chapter_id}/text-issues", "POST", "/api/v1/reader/chapters/", Prefix, Api, Reading, Write), // 215
+    RouteRegistration::new("/api/v1/taxonomies/suggest", "GET", "/api/v1/taxonomies/", Exact, Api, Catalog, Read), // 216
+    RouteRegistration::new("/assets/taxonomy-picker.js", "GET", "/assets/", Exact, Static, System, Free), // 217
+    RouteRegistration::new("/me/books/{id}/taxonomy", "GET", "/me/", Prefix, Page, Dashboard, Read), // 218
+    RouteRegistration::new("/me/books/{id}/taxonomy", "POST", "/me/", Prefix, Page, Dashboard, Write), // 219
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

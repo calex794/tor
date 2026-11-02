@@ -89,6 +89,11 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
+      # CI-only: full SQLx integration links many tor-web test binaries.
+      # Avoid debug DWARF and incremental artifacts exhausting runner disk.
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
       PGHOST: 127.0.0.1
       PGUSER: postgres
       PGDATABASE: postgres
@@ -103,6 +108,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Chromium for S037 swap acceptance
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
       - name: PostgreSQL client
         run: |
           sudo apt-get update -qq
@@ -287,6 +299,7 @@ jobs:
           cargo test -p tor-social --test slices_pg e_05_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test slices_pg e_01_ -- --ignored --test-threads=1
           cargo test -p tor-discussions --test public_book_comments_pg e_02_ -- --ignored --test-threads=1
+          cargo test -p tor-discussions --test text_issues_pg e_12_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_02_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test batch_checkout_pg d_s035_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test slices_pg d_03_ -- --ignored --test-threads=1
@@ -295,9 +308,13 @@ jobs:
            cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
+          cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
+          cargo test -p tor-web --test support_http_pg e_11_ -- --ignored --test-threads=1
           cargo test -p tor-web --test postgres_http -- --ignored
           cargo test -p tor-web --test catalog_pagination_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test auth_postgres -- --ignored
+          env -u TOR_DIRECT_SWAP_BROWSER_ENABLED -u TOR_PAID_CHECKOUT_ENABLED cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_disabled_by_default -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_DIRECT_SWAP_BROWSER_ENABLED=1 cargo test -p tor-web --test direct_swap_browser_http_pg d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay -- --ignored --test-threads=1
           cargo test -p tor-web --test free_save_browser_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test book_stars_http_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test chapter_thanks_http_pg -- --ignored --test-threads=1
@@ -506,6 +523,7 @@ jobs:
           TOR_RANKING_SHOTS="$RUNNER_TEMP/reader-shots" node tools/ranking_visual_smoke.cjs
           TOR_PAID_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/paid_reader_browser_smoke.cjs
           node --check tools/mail_browser_pg.cjs
+          node --check tools/support_browser_pg.cjs
           node --check tools/batch_checkout_chromium_pg.cjs
           node --check tools/referral_share_browser_smoke.cjs
           TOR_READER_SHOTS="$RUNNER_TEMP/reader-shots" node tools/batch_checkout_chromium_pg.cjs

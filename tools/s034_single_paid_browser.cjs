@@ -83,11 +83,110 @@ async function verify(browser, buyer, viewport) {
     assert.equal(purchases(), 1);
     const purchase = number("SELECT id FROM chapter_purchase_facts WHERE user_id=" + buyer.id);
     assert.equal(new URL(page.url()).searchParams.get("purchase_id"), String(purchase));
+    // The owner must see the exact pinned paid edition in the real library.
+    const purchasedHref = "/read/paid/" + chapter.id + "?purchase_id=" + purchase;
+    const ownLibrary = await context.request.get(SITE + "/me/purchases");
+    assert.equal(ownLibrary.status(), 200);
+    assert.equal(ownLibrary.headers()["cache-control"], "no-store");
+    assert((await ownLibrary.text()).includes('href="' + purchasedHref + '"'));
     assert.equal(number("SELECT count(*) FROM reader_wallet_entries WHERE user_id=" + buyer.id +
       " AND kind='chapter_purchase'"), 1);
+
+    // E-12/S047: a REAL reader selection from decrypted private S3 content.
+    const issues = page.locator("[data-paid-issues] form");
+    await issues.waitFor({ state: "visible" });
+    const selectedQuote = await page
+      .locator("[data-paid-content] .reader-piece__text")
+      .filter({ hasText: "Оплаченная V1: кириллица" }).first()
+      .evaluate((paragraph) => {
+        const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          const offset = (node.textContent || "").indexOf("Оплаченная");
+          if (offset < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, offset);
+          range.setEnd(node, offset + "Оплаченная".length);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+          return "Оплаченная";
+        }
+        throw new Error("No selectable paid text node");
+      });
+    assert.equal(await issues.locator('textarea[name="quote"]').inputValue(), selectedQuote);
+    const suggestion = "Проверьте написание слова в купленной редакции.";
+    await issues.locator('textarea[name="suggested_text"]').fill(suggestion);
+    const issueButton = issues.locator('button[type="submit"]');
+    const issueCount = () => number("SELECT count(*) FROM text_issues WHERE reporter_user_id=" +
+      buyer.id + " AND purchase_id=" + purchase + " AND chapter_id=" + chapter.id);
+    await issueButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-paid-issues] [role="status"]')
+      ?.textContent === "Сообщение отправлено владельцу книги.");
+    assert.equal(issueCount(), 1);
+    await issueButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-paid-issues] [role="status"]')
+      ?.textContent === "Такое сообщение уже отправлялось.");
+    assert.equal(issueCount(), 1, "identical correction replay must not duplicate issue");
+
     assert.equal((await post(form)).status(), 303);
     assert.equal(balance(), 600 - price);
     assert.equal(purchases(), 1);
+
+    // S065: a different authenticated account cannot read the purchased
+    // edition, fetch its delivery grant, or inspect its progress.
+    const outsider = await browser.newContext();
+    try {
+      assert.match(fixture.outsider_session, /^[a-zA-Z0-9_-]{43}$/);
+      await outsider.addCookies([{ url: SITE, name: "tor-dev-session",
+        value: fixture.outsider_session, httpOnly: true, sameSite: "Strict" }]);
+      const secret = "Оплаченная V1: кириллица";
+      const privateUrl = SITE + "/read/paid/" + chapter.id + "?purchase_id=" + purchase;
+      const denied = await outsider.request.get(privateUrl);
+      assert.equal(denied.status(), 403);
+      assert(!(await denied.text()).includes(secret));
+      // Test the mounted grant API with valid Origin and CSRF, so any denial
+      // comes from purchase ownership rather than a missing route or CSRF.
+      const csrf = require("node:crypto").randomBytes(32).toString("base64url");
+      assert.equal(csrf.length, 43);
+      await outsider.addCookies([{ url: SITE, name: "tor-dev-csrf",
+        value: csrf, httpOnly: true, sameSite: "Strict" }]);
+      const deniedGrant = await outsider.request.post(
+        SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
+        { data: { purchase_id: String(purchase) },
+          headers: { origin: SITE, "x-csrf-token": csrf } });
+      assert.equal(deniedGrant.status(), 403);
+      assert.equal(deniedGrant.headers()["cache-control"], "no-store");
+      assert.equal((await deniedGrant.body()).length, 0);
+      // /me/purchases is a real entitlement-backed route. Neither an outsider
+      // nor a guessed keyset cursor may reveal the buyer's pinned edition.
+      for (const path of ["/me/purchases", "/me/purchases?after=" + purchase]) {
+        const foreignLibrary = await outsider.request.get(SITE + path);
+        assert.equal(foreignLibrary.status(), 200);
+        assert.equal(foreignLibrary.headers()["cache-control"], "no-store");
+        const html = await foreignLibrary.text();
+        assert(html.includes("Доступных покупок пока нет"));
+        assert(!html.includes('href="' + purchasedHref + '"'));
+      }
+      const progress = SITE + "/api/v1/me/progress/purchased?purchase_id=" +
+        purchase + "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
+      assert.equal((await context.request.get(progress)).status(), 200);
+      assert.equal((await outsider.request.get(progress)).status(), 404);
+      for (const alternate of [
+        "/reader/" + chapter.id + "/history?version_id=" + chapter.version,
+        "/reader/" + chapter.id + "/preview?version_id=" + chapter.version,
+        "/api/v1/chapters/" + chapter.id + "/history",
+        "/api/v1/chapters/" + chapter.id + "/versions/" + chapter.version,
+        "/cdn/chapters/" + chapter.id + "/" + chapter.version + ".html",
+      ]) {
+        const response = await outsider.request.get(SITE + alternate);
+        assert.equal(response.status(), 404);
+        assert(!(await response.text()).includes(secret));
+      }
+    } finally {
+      await outsider.close();
+    }
     const existing = await context.request.get(route, { maxRedirects: 0 });
     assert.equal(existing.status(), 303);
     assert.equal(existing.headers().location, "/me/purchases");
@@ -103,6 +202,26 @@ async function verify(browser, buyer, viewport) {
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
       { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
     assert.equal(grant.status(), 403);
+    const rejectedIssue = await context.request.post(
+      SITE + "/api/v1/reader/chapters/" + chapter.id + "/text-issues", {
+        data: {
+          purchase_id: String(purchase), version_id: String(chapter.version),
+          block_index: 1, selection_start: 0, selection_end: selectedQuote.length,
+          quote: selectedQuote, suggested_text: "Повтор после отзыва права",
+          issue_type: "typo",
+        },
+        headers: { origin: SITE, "x-csrf-token": csrf },
+      });
+    assert.equal(rejectedIssue.status(), 403);
+    assert.equal(issueCount(), 1, "revoked purchase must not create a new text issue");
+    // A revoked entitlement must leave the purchased library immediately;
+    // keeping a historical purchase fact must not create a navigable link.
+    const revokedLibrary = await context.request.get(SITE + "/me/purchases");
+    assert.equal(revokedLibrary.status(), 200);
+    assert.equal(revokedLibrary.headers()["cache-control"], "no-store");
+    const revokedHtml = await revokedLibrary.text();
+    assert(revokedHtml.includes("Доступных покупок пока нет"));
+    assert(!revokedHtml.includes('href="' + purchasedHref + '"'));
     assert.equal(balance(), 600 - price, "revocation alone must never pretend to refund money");
     assert.equal(purchases(), 1);
     const width = viewport.width === 1440 ? "desktop" : "mobile";

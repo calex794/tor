@@ -1,0 +1,537 @@
+//! E-12 integration: immutable version, idempotent proposals, author ACL.
+#![forbid(unsafe_code)]
+use sqlx::{PgPool, Row};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tor_discussions::repositories::text_issues::{
+    CreatedIssue, IssueError, NewTextIssue, PgTextIssues, StatusMutation,
+};
+
+#[tokio::test]
+#[ignore = "disposable PostgreSQL 18 tor_ci with migrations"]
+async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
+    let url = std::env::var("TEST_DATABASE_URL").expect("test PostgreSQL");
+    assert!(url.ends_with("/tor_ci"), "never write to a live database");
+    let pool = PgPool::connect(&url).await.unwrap();
+    let store = PgTextIssues::new(pool.clone());
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let reader: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Reader','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e12-reader-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let author: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Author','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e12-author-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let book: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+         VALUES($1,'ru','E12 Book','public',$2) RETURNING id",
+    )
+    .bind(format!("e12:{nonce}"))
+    .bind(author)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let free: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,1,'free','public','free',0) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid: i64 = sqlx::query_scalar(
+        "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+         VALUES($1,2,'paid','public','paid',100) RETURNING id",
+    )
+    .bind(book)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,$2) RETURNING id",
+    )
+    .bind(free)
+    .bind("Слово слово😀 слово")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,1,'PRIVATE-PAID-TEXT') RETURNING id",
+    )
+    .bind(paid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO chapter_publications(chapter_id,version_id) VALUES ($1,$2),($3,$4)")
+        .bind(free)
+        .bind(version)
+        .bind(paid)
+        .bind(paid_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = store
+        .create_free(
+            reader,
+            NewTextIssue {
+                chapter_id: free,
+                version_id: version,
+                block_index: 1,
+                selection_start: 0,
+                selection_end: 5,
+                quote: "Слово",
+                suggestion: "слово",
+                issue_type: "typo",
+            },
+        )
+        .await
+        .unwrap();
+    let issue_id = match result {
+        CreatedIssue::Added(id) => id,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: free,
+                    version_id: version,
+                    block_index: 1,
+                    selection_start: 0,
+                    selection_end: 5,
+                    quote: "Слово",
+                    suggestion: "слово",
+                    issue_type: "typo",
+                },
+            )
+            .await
+            .unwrap(),
+        CreatedIssue::Replayed(issue_id)
+    );
+    // Wrong offset/quote, absent version and paid edition must fail closed.
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: free,
+                    version_id: version,
+                    block_index: 1,
+                    selection_start: 6,
+                    selection_end: 11,
+                    quote: "Слово",
+                    suggestion: "fix",
+                    issue_type: "typo",
+                },
+            )
+            .await,
+        Err(IssueError::Invalid)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: free,
+                    version_id: version + 100000,
+                    block_index: 1,
+                    selection_start: 0,
+                    selection_end: 5,
+                    quote: "Слово",
+                    suggestion: "fix",
+                    issue_type: "typo",
+                },
+            )
+            .await,
+        Err(IssueError::NotVisible)
+    );
+    assert_eq!(
+        store
+            .create_free(
+                reader,
+                NewTextIssue {
+                    chapter_id: paid,
+                    version_id: paid_version,
+                    block_index: 1,
+                    selection_start: 0,
+                    selection_end: 7,
+                    quote: "PRIVATE",
+                    suggestion: "fix",
+                    issue_type: "typo",
+                },
+            )
+            .await,
+        Err(IssueError::NotVisible)
+    );
+    assert!(store
+        .author_page(reader, book, None, None)
+        .await
+        .unwrap()
+        .is_none());
+    let page = store
+        .author_page(author, book, Some("new"), None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.issues.len(), 1);
+    assert_eq!(page.issues[0].id, issue_id);
+    assert_eq!(page.issues[0].version_id, version);
+    assert!(page.can_edit_chapter);
+    let translator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Translator','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e12-translator-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let moderator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'Moderator','$argon2id$fixture') RETURNING id",
+    )
+    .bind(format!("e12-moderator-{nonce}@example.invalid"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for (actor, role) in [(translator, "translator"), (moderator, "moderator")] {
+        sqlx::query("INSERT INTO book_members(book_id,user_id,role) VALUES ($1,$2,$3)")
+            .bind(book)
+            .bind(actor)
+            .bind(role)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let team_page = store
+            .author_page(actor, book, None, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(team_page.issues.len(), 1);
+        assert!(
+            !team_page.can_edit_chapter,
+            "{role} must not get the editor link"
+        );
+    }
+    sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
+        .bind(book)
+        .bind(translator)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(store
+        .author_page(translator, book, None, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        store
+            .update_status(translator, book, issue_id, "fixed", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    assert_eq!(
+        store
+            .update_status(reader, book, issue_id, "fixed", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    assert_eq!(
+        store
+            .update_status(author, book, issue_id, "in_review", None)
+            .await
+            .unwrap(),
+        StatusMutation::Changed
+    );
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                issue_id,
+                "fixed",
+                Some("Создана новая редакция")
+            )
+            .await,
+        Err(IssueError::Conflict)
+    );
+    let revised_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Слово исправлено😀 слово') RETURNING id",
+    )
+    .bind(free)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(free)
+        .bind(revised_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                issue_id,
+                "fixed",
+                Some("Создана новая редакция")
+            )
+            .await
+            .unwrap(),
+        StatusMutation::Changed
+    );
+    let resolved: Option<i64> =
+        sqlx::query_scalar("SELECT resolved_version_id FROM text_issues WHERE id=$1")
+            .bind(issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(resolved, Some(revised_version));
+    let audited: Option<i64> = sqlx::query_scalar(
+        "SELECT resolved_version_id FROM text_issue_status_events
+         WHERE issue_id=$1 AND new_status='fixed'",
+    )
+    .bind(issue_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audited, Some(revised_version));
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                issue_id,
+                "fixed",
+                Some("Создана новая редакция")
+            )
+            .await
+            .unwrap(),
+        StatusMutation::Replayed
+    );
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM text_issue_status_events WHERE issue_id=$1")
+            .bind(issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(events, 2);
+    let unmodified: String = sqlx::query("SELECT body_markdown FROM chapter_versions WHERE id=$1")
+        .bind(version)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .try_get("body_markdown")
+        .unwrap();
+    assert_eq!(unmodified, "Слово слово😀 слово");
+    // D must authorize the purchased, immutable edition: knowing a paid
+    // chapter/version cannot create an issue or reveal private text.
+    let paid_report = || NewTextIssue {
+        chapter_id: paid,
+        version_id: paid_version,
+        block_index: 1,
+        selection_start: 0,
+        selection_end: 7,
+        quote: "PRIVATE",
+        suggestion: "CORRECT",
+        issue_type: "typo",
+    };
+    assert_eq!(
+        store.create_paid(reader, 999_999, paid_report()).await,
+        Err(IssueError::NotVisible)
+    );
+    let purchase_id: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_purchase_facts
+         (user_id,chapter_id,version_id,settlement_reference,amount_minor,currency)
+         VALUES($1,$2,$3,$4,100,'RUB') RETURNING id",
+    )
+    .bind(reader)
+    .bind(paid)
+    .bind(paid_version)
+    .bind(format!("e12-paid-{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let paid_result = store
+        .create_paid(reader, purchase_id, paid_report())
+        .await
+        .unwrap();
+    let paid_issue_id = match paid_result {
+        CreatedIssue::Added(id) => id,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        store
+            .create_paid(reader, purchase_id, paid_report())
+            .await
+            .unwrap(),
+        CreatedIssue::Replayed(paid_issue_id)
+    );
+    let stored_purchase: Option<i64> =
+        sqlx::query_scalar("SELECT purchase_id FROM text_issues WHERE id=$1")
+            .bind(paid_issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_purchase, Some(purchase_id));
+    assert_eq!(
+        store
+            .create_paid(
+                reader,
+                purchase_id,
+                NewTextIssue {
+                    quote: "WRONG",
+                    ..paid_report()
+                },
+            )
+            .await,
+        Err(IssueError::Invalid)
+    );
+    let owner_issues = store
+        .author_page(author, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(owner_issues
+        .issues
+        .iter()
+        .any(|item| item.id == paid_issue_id && item.is_paid));
+    let team_issues = store
+        .author_page(moderator, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(team_issues.issues.iter().all(|item| !item.is_paid));
+    assert_eq!(
+        store
+            .update_status(moderator, book, paid_issue_id, "rejected", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    // S048: a paid complaint cannot claim to be fixed merely because a
+    // newer Markdown row has been made the publication pointer. A protected
+    // paid V2 needs an actual B/G verified encrypted release fact.
+    assert_eq!(
+        store
+            .update_status(author, book, paid_issue_id, "fixed", None)
+            .await,
+        Err(IssueError::Conflict)
+    );
+    let unsealed_paid_v2: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'PRIVATE-PAID-TEXT corrected') RETURNING id",
+    )
+    .bind(paid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(paid)
+        .bind(unsealed_paid_v2)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                paid_issue_id,
+                "fixed",
+                Some("Новая платная редакция")
+            )
+            .await,
+        Err(IssueError::Conflict),
+        "unsealed paid V2 cannot satisfy correction acceptance"
+    );
+    let state: (String, Option<i64>) =
+        sqlx::query_as("SELECT status,resolved_version_id FROM text_issues WHERE id=$1")
+            .bind(paid_issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(state, ("new".to_owned(), None));
+    let paid_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM text_issue_status_events WHERE issue_id=$1")
+            .bind(paid_issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        paid_events, 0,
+        "failed closure must not create an audit fact"
+    );
+
+    // Paid issue provenance is immutable. If the public pricing mode changes,
+    // the old quote MUST NOT become readable or actionable to a translator.
+    sqlx::query("UPDATE chapters SET access_level='free',price_amount=0 WHERE id=$1")
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let after_reclassification = store
+        .author_page(moderator, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(after_reclassification
+        .issues
+        .iter()
+        .all(|item| item.id != paid_issue_id));
+    assert_eq!(
+        store
+            .update_status(moderator, book, paid_issue_id, "rejected", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    let paid_owner_queue = store
+        .author_page(author, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(paid_owner_queue
+        .issues
+        .iter()
+        .any(|item| item.id == paid_issue_id && item.is_paid));
+    sqlx::query("UPDATE chapters SET access_level='paid',price_amount=100 WHERE id=$1")
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
+         VALUES($1,$2,'refund')",
+    )
+    .bind(purchase_id)
+    .bind(format!("e12-refund-{nonce}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store.create_paid(reader, purchase_id, paid_report()).await,
+        Err(IssueError::NotVisible)
+    );
+    // CI uses a disposable tor_ci database. Keep its fixture until the entire
+    // database is dropped: B-10 intentionally prohibits deleting immutable
+    // revenue-share history, even when its owner/book was test-created.
+    pool.close().await;
+}

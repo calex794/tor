@@ -680,6 +680,137 @@ export function installPaidReaderSettings(root) {
   selectFont("serif");
 }
 
+// E-12 paid: only after a D-verified S3 grant has decrypted its B-pinned
+// edition. The user explicitly sends a bounded quote; no full body, S3 key
+// or DEK travels in the correction request or is retained in storage.
+export function installPaidIssueReporter(root, article, blocks, chapter, purchase, version, csrf) {
+  const section = document.createElement("section");
+  section.className = "reader-issues";
+  section.setAttribute("data-paid-issues", "");
+  const heading = document.createElement("h2");
+  heading.textContent = "Предложить исправление";
+  const help = document.createElement("p");
+  help.textContent = "Выделите текст в главе. Автор получит только этот фрагмент и предложение.";
+  const form = document.createElement("form");
+  const quoteLabel = document.createElement("label");
+  quoteLabel.textContent = "Цитата из купленной редакции";
+  const quote = document.createElement("textarea");
+  quote.name = "quote";
+  quote.readOnly = true;
+  quote.required = true;
+  quote.maxLength = 500;
+  quoteLabel.append(quote);
+  const typeLabel = document.createElement("label");
+  typeLabel.textContent = "Тип ошибки";
+  const type = document.createElement("select");
+  type.name = "issue_type";
+  for (const [value, label] of [
+    ["typo", "Опечатка"], ["formatting", "Оформление"],
+    ["broken_link", "Нерабочая ссылка"], ["factual", "Фактическая ошибка"],
+    ["continuity", "Несогласованность"], ["other", "Другое"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    type.append(option);
+  }
+  typeLabel.append(type);
+  const suggestionLabel = document.createElement("label");
+  suggestionLabel.textContent = "Предложение";
+  const suggestion = document.createElement("textarea");
+  suggestion.name = "suggested_text";
+  suggestion.required = true;
+  suggestion.maxLength = 1000;
+  suggestionLabel.append(suggestion);
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Отправить автору";
+  const receipt = document.createElement("p");
+  receipt.setAttribute("role", "status");
+  receipt.setAttribute("aria-live", "polite");
+  form.append(quoteLabel, typeLabel, suggestionLabel, submit, receipt);
+  section.append(heading, help, form);
+  article.insertAdjacentElement("afterend", section);
+  let selectionSource = null;
+  let availableBlocks = blocks;
+  const onSelection = () => {
+    if (!availableBlocks) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return;
+    const range = selection.getRangeAt(0);
+    if (range.startContainer.nodeType !== Node.TEXT_NODE ||
+        range.endContainer.nodeType !== Node.TEXT_NODE ||
+        range.startContainer !== range.endContainer) return;
+    const paragraph = range.startContainer.parentElement.closest(".reader-piece__text");
+    if (!paragraph || !article.contains(paragraph) || !paragraph.contains(range.endContainer)) return;
+    const piece = paragraph.closest(".reader-piece");
+    const match = /^p-(\d+)$/.exec(piece?.id || "");
+    if (!match) return;
+    const blockIndex = Number(match[1]);
+    // Image-marker blocks are rendered as several trimmed paragraphs;
+    // their DOM positions are not stable source offsets. Fail closed.
+    if (paragraph.textContent !== availableBlocks[blockIndex - 1]) return;
+    const selected = selection.toString();
+    if (selected.length < 1 || selected.length > 500 ||
+        selected.trim() !== selected ||
+        range.endOffset <= range.startOffset || range.endOffset > 100000) return;
+    selectionSource = {
+      block_index: blockIndex,
+      selection_start: range.startOffset,
+      selection_end: range.endOffset,
+      quote: selected,
+    };
+    quote.value = selected;
+    receipt.textContent = "";
+  };
+  document.addEventListener("selectionchange", onSelection);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!availableBlocks || !selectionSource) {
+      receipt.textContent = "Сначала выделите цитату в главе.";
+      return;
+    }
+    const proposed = suggestion.value.trim();
+    if (!proposed || proposed.length > 1000) {
+      receipt.textContent = "Укажите предложение длиной до 1000 символов.";
+      return;
+    }
+    submit.disabled = true;
+    receipt.textContent = "Проверяем покупку и цитату…";
+    try {
+      const response = await api(
+        "/api/v1/reader/chapters/" + chapter + "/text-issues",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          body: JSON.stringify({
+            purchase_id: purchase,
+            version_id: version,
+            ...selectionSource,
+            issue_type: type.value,
+            suggested_text: proposed,
+          }),
+        }
+      );
+      requireValue(response.status === "sent" || response.status === "repeat");
+      receipt.textContent = response.status === "sent"
+        ? "Сообщение отправлено владельцу книги."
+        : "Такое сообщение уже отправлялось.";
+    } catch {
+      receipt.textContent = "Не удалось отправить. Проверьте доступ и повторите.";
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    document.removeEventListener("selectionchange", onSelection);
+    availableBlocks = null;
+    selectionSource = null;
+    section.remove();
+  }, { once: true });
+  return section;
+}
+
 export async function startPaidReader(root) {
   const chapter = checkedId(root.dataset.chapterId);
   const purchase = checkedId(root.dataset.purchaseId);
@@ -727,6 +858,7 @@ export async function startPaidReader(root) {
       resume.textContent = "Не удалось сохранить место. Обновите страницу и повторите.";
     }
   }, showPrivateImage);
+  installPaidIssueReporter(root, article, blocks, chapter, purchase, versionId, csrf);
   // A BFCache return must ask D again, not resurrect decrypted text and Blob
   // URLs from a previously authorized purchase that may have been refunded.
   window.addEventListener("pagehide", () => {
