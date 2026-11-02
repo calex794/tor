@@ -648,7 +648,6 @@ async fn b_12_private_chapter_keyset_covers_501_chapters_without_leaks() {
     pool.close().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn b_02_registration_persists_source_and_rejects_duplicate_titles() {
@@ -669,7 +668,10 @@ async fn b_02_registration_persists_source_and_rejects_duplicate_titles() {
     .unwrap();
     let author = PgAuthoring::new(pool.clone());
     let key = "r".repeat(43);
-    let unique = format!("https://original.example/book/{user}-{}", std::process::id());
+    let unique = format!(
+        "https://original.example/book/{user}-{}",
+        std::process::id()
+    );
     let identity = source_identity(&unique, user, &key).unwrap();
     let title = format!("С019 регистрация {user} {}", std::process::id());
     let book = new_book(&identity, "ru", &title, &key).unwrap();
@@ -687,7 +689,10 @@ async fn b_02_registration_persists_source_and_rejects_duplicate_titles() {
     )
     .unwrap();
     let book_id = author.create_owned_book(user, &book).await.unwrap();
-    assert_eq!(author.create_owned_book(user, &book).await.unwrap(), book_id);
+    assert_eq!(
+        author.create_owned_book(user, &book).await.unwrap(),
+        book_id
+    );
     let row = sqlx::query(
         "SELECT source_url, original_language, release_year, project_status, catalog_section,
                 alt_titles, visibility FROM books WHERE id=$1",
@@ -701,7 +706,10 @@ async fn b_02_registration_persists_source_and_rejects_duplicate_titles() {
     assert_eq!(row.get::<Option<i32>, _>("release_year"), Some(2024));
     assert_eq!(row.get::<String, _>("project_status"), "ongoing");
     assert_eq!(row.get::<String, _>("catalog_section"), "novels/chinese");
-    assert_eq!(row.get::<Vec<String>, _>("alt_titles"), vec!["Псевдоним С019"]);
+    assert_eq!(
+        row.get::<Vec<String>, _>("alt_titles"),
+        vec!["Псевдоним С019"]
+    );
     assert_eq!(row.get::<String, _>("visibility"), "draft");
     let duplicate_key = "s".repeat(43);
     let duplicate = new_book(
