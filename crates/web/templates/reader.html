@@ -10,6 +10,15 @@
         <span class="reader-topbar__chapter"><!--CHAPTER_TITLE--></span>
       </div>
       <div class="reader-topbar__actions free-reader-actions">
+        <details class="reader-topbar__toc reader-free-toc" data-free-toc data-free-toc-book="<!--BOOK_ID-->" data-free-toc-chapter="<!--CHAPTER_ID-->">
+          <summary class="reader-free-toc__trigger" aria-label="Открыть оглавление">Оглавление</summary>
+          <div class="reader-free-toc__menu">
+            <p class="reader-free-toc__status" role="status" data-free-toc-status>Откройте оглавление, чтобы загрузить главы.</p>
+            <ol class="reader-free-toc__list" data-free-toc-list aria-label="Главы книги"></ol>
+            <button type="button" data-free-toc-more hidden>Показать ещё</button>
+            <a class="text-link" href="/books/<!--BOOK_ID-->#chapters">Полное оглавление на странице книги</a>
+          </div>
+        </details>
         <button class="reader-topbar__settings" type="button" data-free-settings-open aria-controls="free-reader-settings" aria-expanded="false" aria-label="Настройки чтения">Aa</button>
         <button class="reader-topbar__theme" type="button" data-free-theme-cycle aria-label="Сменить тему">☾</button>
       </div>
@@ -43,6 +52,7 @@
     <!--CHAPTER_NAVIGATION-->
     <article class="chapter-content reader-markdown" <!--FREE_PROGRESS_ATTRS--> aria-label="Текст главы"><!--CHAPTER_CONTENT--></article>
     <p class="reader-free-progress__notice" data-free-progress-notice role="status" hidden></p>
+    <!--FREE_ISSUES_PANEL-->
     <!--CHAPTER_NAVIGATION-->
     <!--CONTINUATION_STATUS-->
     <!--CHAPTER_THANKS_LINK-->

@@ -1,6 +1,6 @@
 //! H-05 / S006: keep published free reading HTML intact, expose only
 //! server-verified source offsets to the authenticated reader.
-use super::{escape_html, layout};
+use super::{escape_html, layout, reader_free_issues};
 use axum::response::Html;
 use std::fmt::Write;
 
@@ -70,6 +70,16 @@ pub fn reader_with_optional_progress(
     chapter_id: Option<u64>,
     csrf: Option<&str>,
 ) -> Html<String> {
+    reader_with_public_features(chapter, chapter_id, csrf, None)
+}
+
+/// Reuse the existing trusted text-issues POST; query feedback is display only.
+pub fn reader_with_public_features(
+    chapter: &tor_reading::services::PublicChapterPage,
+    chapter_id: Option<u64>,
+    csrf: Option<&str>,
+    issue_feedback: Option<&str>,
+) -> Html<String> {
     let previous = chapter
         .previous_chapter_id
         .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
@@ -113,8 +123,14 @@ pub fn reader_with_optional_progress(
         .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
         .unwrap_or_default();
     let progress = progress_view(&chapter.body_markdown, chapter_id, chapter.version_id, csrf);
+    let issues = reader_free_issues::panel(chapter_id, chapter.version_id, csrf, issue_feedback);
     let html = include_str!("../../templates/reader.html")
         .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
+        .replace(
+            "<!--CHAPTER_ID-->",
+            &chapter_id.map_or_else(String::new, |id| id.to_string()),
+        )
+        .replace("<!--FREE_ISSUES_PANEL-->", &issues)
         .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
