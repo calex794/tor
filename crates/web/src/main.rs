@@ -180,7 +180,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 );
             }
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
-                pending_support_cleanup = Some(tor_support::repositories::postgres::PgSupport::new(pool.clone()));
+                pending_support_cleanup = Some(
+                    tor_support::repositories::postgres::PgSupport::new(pool.clone()),
+                );
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
