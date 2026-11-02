@@ -42,6 +42,8 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/s005_browser.rs"]
+mod s005_browser;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
@@ -372,6 +374,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
 
     let short_store = s3.clone();
     let signer = PgPrivateDelivery::new(pool.clone(), s3, kek.clone(), BUCKET.to_owned()).unwrap();
+    let accounts_for_single = accounts.clone();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
         catalog,
         reader,
@@ -470,6 +473,26 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         )
         .await
         .unwrap();
+    // S005 purchases a distinct chapter with an independent wallet so S035
+    // can still verify its own two-chapter atomic checkout.
+    let (single_buyer, single_cookie) =
+        user(&accounts_for_single, "s005-single@tor-ci.example").await;
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \\
+             VALUES({single_buyer},600,'RUB')"
+        ),
+    );
+    s005_browser::checkout_and_verify(
+        &app,
+        &url,
+        (chapter, v1),
+        (single_buyer, &single_cookie),
+        &_author_cookie,
+        MARKDOWN,
+    )
+    .await;
     let (purchase_id, purchase_two_id) = s035_browser::checkout_and_verify(
         &app,
         &url,
