@@ -69,6 +69,9 @@ OWNER_CALLS = {
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
+    "owned_layers", "addable_books", "current_books", "owner_offer_state",
+    "add_book", "remove_book_if_current", "create_once",
+    "update_metadata_if_current", "offer_if_current",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("

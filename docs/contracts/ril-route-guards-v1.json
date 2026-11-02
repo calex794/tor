@@ -1548,6 +1548,55 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::free_reader_script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/{layer_id}/books",
+      "source": "crates/web/src/auth/layer_routes/layer_books.rs",
+      "handler": "page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/books",
+      "source": "crates/web/src/auth/layer_routes/layer_books.rs",
+      "handler": "add",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/new",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/new",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "create",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/offer",
+      "source": "crates/web/src/auth/layer_routes/layer_offer_manage.rs",
+      "handler": "publish",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "index",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/metadata",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "update_metadata",
+      "policy": "owner"
     }
   ]
 }
