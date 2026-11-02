@@ -12,6 +12,8 @@
 - `CanEdit(BookId/ChapterId,Actor)`, `CanModerate(Target,Actor)`, `CanRefund(PurchaseId,Actor,Reason)`;
 - `CanReadFile/Preview/CacheKey` — те же права применяются к media, API, фоновой выдаче, HTML и cache.
 
+**Исключение для администратора сайта (03.11.2026):** по исходной модели NEwBOO действующий administrator может читать весь существующий контент без покупки, через отдельный проверенный A/B административный маршрут. Это не позволяет создавать покупки, чужие grants, возвраты или финансовые операции. Обычный reader и D-покупки сохраняют прежнюю модель. [P0 #442](https://github.com/calex794/tor/issues/442).
+
 **Базовая иерархия проверок на reader:** (1) достоверный Actor/guest; (2) существование материала, отдельная проверка `hard_deleted/legal/admin_hold/blocked` → hard deny на нормальном reader; (3) разрешённый author preview **только в отдельном авторском маршруте**; (4) явный purchased chapter pin V1 + не revoked; (5) active paid Layer на книги; (6) public/free current edition; (7) deny. Не использовать шаг (4)/(5) для обхода (2). Guest не должен узнать, какой скрытый объект существует.
 
 **Отдельная покупка:** алгоритм не вызывает `CanRead` как разрешение списать деньги: `CanPurchase` проверяет offer/status/actor/version/price **в той же PG-транзакции, где пишется wallet/ledger/purchase**, без TOCTOU. Для выдачи платных байтов понадобится отдельная проверка гранта; факт появления позиции чтения не является грантом.

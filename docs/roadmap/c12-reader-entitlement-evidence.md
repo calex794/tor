@@ -29,7 +29,7 @@
 
 ## Ключевое различие NEwBOO и TOR — не сливать модели авторизации
 
-В исходном [NEwBOO ChapterReaderGate](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/services/chapter_access_service.py) `can_open_reader` учитывает `can_bypass_moderation` (moderator/admin/право управлять книгой), `is_publicly_readable` и `has_library_access` для сохранённой версии. В TOR [решение D](../../crates/commerce/src/services/entitlements.rs) требует реальной покупки для обычного paid reader; право автора на preview должно быть **отдельным** маршрутом, а bookmark не заменяет entitlement. Это намеренное более строгое правило по [ACL-контракту](access-authorization-contract.md), а не основание переносить legacy bypass.
+В исходном [NEwBOO ChapterReaderGate](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/services/chapter_access_service.py) `can_open_reader` учитывает `can_bypass_moderation` (moderator/admin/право управлять книгой), `is_publicly_readable` и `has_library_access` для сохранённой версии. В TOR [решение D](../../crates/commerce/src/services/entitlements.rs) требует реальной покупки для обычного paid reader; право автора на preview должно быть **отдельным** маршрутом, а bookmark не заменяет entitlement. Отдельный **административный** просмотр теперь обязателен по решению владельца от 03.11.2026: администратор читает весь контент без покупки; его право не является D-коммерческим entitlement. См. [P0 #442](https://github.com/calex794/tor/issues/442).
 
 ## Приоритет оставшейся C-12 приёмки
 

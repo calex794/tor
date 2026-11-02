@@ -1,37 +1,29 @@
-# C-12 / S065 — Reader entitlement and bypass acceptance matrix
+# C-12 / S065 — права чтения (NEwBOO parity)
 
-**State: partial, repository-only.** This inventory documents real evidence and open parity gaps. It is not production deployment approval or a claim of DRM/copy protection.
+**Решение владельца, 03.11.2026:** активный администратор сайта видит весь контент без покупки, включая платные, скрытые и черновые главы. Запрет из PR #438 ошибочен. Обычный пользователь, автор без права на данную главу и гость не приобретают право на чтение только от наличия чужого purchase_id.
 
-Source: [S065 scenario](https://app.notion.com/p/40432a84beec8115b1f9f8567f855ce7), [C-12 task](tasks.tsv), [reader API](api-v1.md), [paid delivery contract](../contracts/paid-delivery-v1.md). Reference implementation: NEwBOO `backend/app/web/routes/reader_page.py` and related history/preview routes; absent legacy endpoints in TOR are **not** equivalent to implemented feature parity.
+Источник: [NEwBOO ChapterReaderGate](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/services/chapter_access_service.py) и [NEwBOO reader_page.py](https://github.com/HeisLuka/newboo/blob/17125ef758a791e9630505c14d24f7fe65aed228/backend/app/web/routes/reader_page.py).
 
-## Policy / route matrix
+## Матрица
 
-| Route or state | Positive proof already in main | Negative proof already in main | New C-12 proof in this PR | Limit |
-| --- | --- | --- | --- | --- |
-| Paid SSR `/read/paid/{chapter}?purchase_id=...` | Owned immutable V1 after V2 | Unpurchased author, another user, guest; refund/hold/delete | Actual PostgreSQL-backed administrator role, plus guest on the exact purchased ID | No server-paid body in HTML |
-| Chapter delivery grant POST | D pinned V1, B attachment, G presigned encrypted GET | CSRF/Origin/tampering, stranger, refund, moderation, race | Admin session and guest denied with empty no-store response | Already-issued bearer valid until TTL; plaintext already decrypted cannot be recalled |
-| Private image delivery grant POST | Owner-only exact asset of purchased V1 | Wrong UUID/version, stranger, revoked, hold | Admin and guest denied without invoking G signer | Real PNG/WebCrypto checked separately |
-| Public paid `/reader/{chapter}` | Public price/paywall metadata | Cannot inject `purchase_id` or `preview=1` to obtain paid text | Admin and guest with forged query get paywall only | Public metadata is intentional |
-| Legacy history, preview, versions API, media, CDN | None: these routes are not implemented in TOR | Existing routes deny 404, no ciphertext/keys/text | Guest and admin explicitly tested against representative aliases | 404 is a closed bypass, **not** history/preview parity or deployed CDN purge |
-| Purchased progress GET/PUT | Buyer reads own exact V1 state (never body) | Foreign actor cannot read/overwrite by stolen purchase ID | Admin cannot read owned progress by privilege alone | No entitlement inferred from stored cursor |
-| Free reader | Published public free edition | Draft, held, deleted and paid body unavailable in public reader | No new proof here | Covered under S005; not replaced by S065 test |
-| Purchase refund / 90 s S3 TTL | Fresh grant after refund denied; issued ciphertext URL expires | Signing/refund race rechecked by D | No new proof here | No immediate invalidation of an already issued S3 URL |
-| Author upload / purchased image | Real PG/MinIO PNG in purchased V1, 1440/390 Chromium | Outsider/tampered/expired | No new proof here | Single-image author workflow is not full arbitrary inline image parity |
+| Поверхность | Обычный пользователь/гость | Действующий администратор | Состояние |
+| --- | --- | --- | --- |
+| Публичная `/reader/{chapter}` | Только свободный контент или paywall | Публичный маршрут не меняет семантику | Установлено |
+| Прямая покупка `/read/paid`, D grant | Только подтверждённая собственная покупка | Не использовать фиктивную покупку для обхода | Установлено |
+| `/admin/reader/chapters/{id}?version_id=...` | Гость 401, обычный пользователь 403 | Существующая редакция из B, включая paid/draft/hold | Новый ограниченный срез, PG CI |
+| Отзыв роли administrator | Не меняет гостевые права | Следующий запрос должен получить 403 | Новый PG тест |
+| Приватные иллюстрации / S3 AES-GCM | Только законный покупатель, короткий bearer TTL | Нужен отдельный admin grant из B/G без D покупок | **Открыто** |
+| Платная история, соседние главы, навигация, модератор/владелец | По собственной роли | Не подменять site admin обычным buyer | **Открыто** |
+| Оплаченный прогресс, возвраты, wallet | Только собственные права | Админ-просмотр **не** создаёт финансовые события или чужой прогресс | Не расширять |
 
-## Reproducible acceptance evidence
+Новая администраторская страница использует проверенную роль из A session и повторно сверяет активную роль в PostgreSQL внутри запроса B на содержимое. Ответ строго приватный, с `no-store`, `noindex`, `no-referrer`, запретом активного JS и экранированием Markdown. Это **доверенный предпросмотр текста**, а не публичный HTML-канал и не G-зашифрованный paid grant. Для зашифрованных изображений требуется отдельная положительная проверка через G.
 
-- Real PostgreSQL/Axum role checks, no mocked identity: `crates/web/tests/paid_grants_http_pg.rs` and `crates/web/tests/paid_grants_http_pg/s065_role_matrix.rs`. The latter inserts an actual active `account_roles.administrator` in **disposable `tor_ci`**, verifies it via `session_actor`, cleans up the temporary active role even on assertion failure (so subsequent A-05 last-admin checks remain isolated), then sends valid-origin/CSRF requests.
-- Exact image purchase/MinIO/WebCrypto: `crates/web/tests/paid_grants_s3_pg.rs` and `tools/s034_single_paid_browser.cjs`.
-- Historical aliases/progress/buyer/author: `s065_alternate_reader_access_matrix` in `paid_grants_http_pg.rs`.
-- Previous merged [PR #426](https://github.com/calex794/tor/pull/426): [post-merge integration 16/16 SUCCESS](https://github.com/calex794/tor/actions/runs/41510027811), [repository rules SUCCESS](https://github.com/calex794/tor/actions/runs/41510027954).
-- Current C-12 administrator-role addition is **not yet accepted** until exact-head PostgreSQL runtime CI, repository rules and post-merge regression all succeed.
-- CI command: `cargo test -p tor-web --test paid_grants_http_pg -- --ignored --test-threads=1` in `.github/workflows/tor-integration.yml`; run only against disposable `TEST_DATABASE_URL=.../tor_ci`.
+## Доказательства и статус
 
-## Remaining acceptance blockers (do not mark S065 complete)
+- [Задача P0 #442](https://github.com/calex794/tor/issues/442).
+- [PR #438](https://github.com/calex794/tor/pull/438): проверку отказа администратору считать **аннулированной**.
+- `crates/books/src/repositories/admin_reading.rs`: авторитетный серверный выбор версии только для действующей роли.
+- `crates/web/src/paid_grants_http/admin_reader.rs`, `crates/web/src/pages/reader_admin.rs`: приватный административный маршрут.
+- `crates/web/tests/paid_grants_http_pg/s065_role_matrix.rs`: действительная роль, положительное чтение, hold, запрет гостя/покупателя/автора, отзыв роли, отсутствие фиктивных покупок.
 
-1. Map every **actually implemented** history/preview/versions/media route from NEwBOO to its intended TOR behavior; missing routes are safe by absence but do not prove user-facing parity.
-2. Verify moderator / team actor distinctions independently where those roles have different capabilities; the site administrator must not become a paid entitlement by default.
-3. Explicitly document deployment-dependent public origins/CDN invalidation and short-lived signed S3 URL semantics. No current repo-only test proves a deployed production CDN or revocation of already delivered plaintext.
-4. C-12 requires a separate signed-off comparison for S005/S006/S007 as well as S065. This file proves one additional role slice, not 4/4 line C or an increment of the canonical 20/60 scenarios.
-
-**Operational constraints:** no deployment, external payments, feature-flag activation, permanent DB changes, migrations, or protected-content logs.
+**S065 остаётся частичным** до теста приватной PNG через G, полной сверки NEwBOO, полного CI и приёмки на едином SHA. Без деплоя, миграций и постоянных БД.
