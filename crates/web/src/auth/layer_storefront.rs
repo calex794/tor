@@ -101,7 +101,12 @@ async fn my_terms(State(state): State<AuthState>, headers: HeaderMap) -> Respons
         Err(status) => return deny(status),
     };
     match layer_storefront::purchased_terms(actor, state.accounts.pool()).await {
-        Ok(terms) => private_response(pages::purchased_layers_page(&terms, false), &[]),
+        // A Layer term gets a read link only while the existing private S3
+        // reader has been explicitly configured; no public content fallback.
+        Ok(terms) => private_response(
+            pages::purchased_layers_page(&terms, state.paid_reader_available),
+            &[],
+        ),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
