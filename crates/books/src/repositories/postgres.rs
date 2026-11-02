@@ -6,6 +6,7 @@ mod chapter_publish_free;
 mod chapter_published_edit;
 mod chapter_release;
 mod chapter_schedule;
+pub use chapter_schedule::ScheduledChapter;
 mod mail_aliases;
 mod owned_book_hash;
 mod owned_chapter_pages;

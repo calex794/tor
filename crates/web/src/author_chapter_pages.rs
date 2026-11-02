@@ -4,6 +4,7 @@ use std::fmt::Write;
 use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
+use tor_books::repositories::postgres::ScheduledChapter;
 
 use crate::pages::{escape_html, layout};
 
@@ -449,7 +450,23 @@ pub fn release_chapter(
     chapter_id: i64,
     chapter: &PendingChapter,
     csrf: &str,
+    schedule: Option<&ScheduledChapter>,
 ) -> Html<String> {
+    let schedule_status = match schedule {
+        Some(s) => format!(
+            "<p>Расписание: {} UTC · статус: {}</p>",
+            escape_html(&s.scheduled_utc),escape_html(&s.status)
+        ),
+        None => String::new(),
+    };
+    let cancel_form = if schedule.is_some_and(|s| s.status=="pending" || s.status=="stale") {
+        format!(
+            r#"<form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/cancel-schedule">
+               <input type="hidden" name="csrf_token" value="{}">
+               <button class="button" type="submit">Отменить отложенный выпуск</button>
+               </form>"#,escape_html(csrf)
+        )
+    } else { String::new() };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
         <div class="auth-card author-chapter-card">
@@ -464,6 +481,18 @@ pub fn release_chapter(
           <input type="hidden" name="version_id" value="{}">
           <button class="button" type="submit">Опубликовать эту главу</button>
         </form>
+        <h3>Отложенный выпуск</h3>
+        <p>Время указывается в UTC, а не в часовом поясе браузера.</p>
+        {schedule_status}
+        <form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/schedule">
+          <input type="hidden" name="csrf_token" value="{}">
+          <input type="hidden" name="expected_revision" value="{}">
+          <input type="hidden" name="version_id" value="{}">
+          <label for="scheduled_utc">Дата и время (UTC)</label>
+          <input id="scheduled_utc" type="datetime-local" name="scheduled_utc" required>
+          <button class="button" type="submit">Запланировать или перенести выпуск</button>
+        </form>
+        {cancel_form}
         <p><a href="/me/books/{book_id}">Вернуться к черновикам</a></p>
         </div></div></section>"#,
         chapter.number,
@@ -471,6 +500,9 @@ pub fn release_chapter(
         chapter.revision,
         chapter.version_id,
         escape_html(&chapter.body),
+        escape_html(csrf),
+        chapter.revision,
+        chapter.version_id,
         escape_html(csrf),
         chapter.revision,
         chapter.version_id,
