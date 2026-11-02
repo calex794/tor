@@ -5,7 +5,7 @@ use tor_books::{
     services::{
         authoring::{new_book, AuthorError},
         book_registration::{
-            rulate_work_id, source_identity, with_registration_metadata, RegistrationFields,
+            normalized_source_url, source_identity, with_registration_metadata, RegistrationFields,
         },
     },
 };
@@ -121,24 +121,24 @@ async fn s019_historical_original_and_alternative_titles_block_new_claims() {
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
-async fn s019_known_provider_work_id_links_block_different_titles() {
+async fn s019_any_source_url_aliases_block_different_titles() {
     let (pool, owner, nonce) = fixture().await;
     let number = nonce % 9_000_000_000 + 100_000;
-    let old_link = format!("http://tl.rulate.ru/book/000{number}/?utm_source=legacy");
-    let new_link = format!("https://www.rulate.ru/book/{number}?utm_campaign=sharing");
-    assert_eq!(rulate_work_id(&old_link), rulate_work_id(&new_link));
-    let db_key: Option<String> = sqlx::query_scalar("SELECT book_registration_rulate_work_id($1)")
+    let old_link = format!("http://www.qidian.com/book/{number}/");
+    let new_link = format!("https://qidian.com/book/{number}");
+    assert_eq!(normalized_source_url(&old_link).unwrap(), normalized_source_url(&new_link).unwrap());
+    let db_key: Option<String> = sqlx::query_scalar("SELECT book_registration_normalized_source_url($1)")
         .bind(&old_link)
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(db_key, rulate_work_id(&new_link));
+    assert_eq!(db_key, Some(normalized_source_url(&new_link).unwrap()));
 
     sqlx::query(
         "INSERT INTO books(source_identity, target_language, title, source_url)
          VALUES($1, 'ru', $2, $3)",
     )
-    .bind(format!("legacy:rulate:{nonce}"))
+    .bind(format!("legacy:source:{nonce}"))
     .bind(format!("Историческая версия {nonce}"))
     .bind(&old_link)
     .execute(&pool)
@@ -164,7 +164,7 @@ async fn s019_known_provider_work_id_links_block_different_titles() {
     assert_eq!(
         repo.create_owned_book(owner, &proposed).await,
         Err(AuthorError::Conflict),
-        "provider work number must defeat changed titles and URL tracking"
+        "normalized URL must defeat changed titles on any source website"
     );
 
     let key2 = "d".repeat(43);
@@ -197,9 +197,9 @@ async fn s019_known_provider_work_id_links_block_different_titles() {
     assert_eq!(english_row.get::<String, _>("visibility"), "draft");
     assert!(english_row
         .get::<String, _>("source_identity")
-        .starts_with("rulate:book:"));
+        .starts_with("url:"));
     let key3 = "e".repeat(43);
-    let another_url = format!("https://tl.rulate.ru/book/{number}/?ref=other");
+    let another_url = format!("http://www.qidian.com/book/{number}/");
     let duplicate = new_book(
         &source_identity(&another_url, owner, &key3).unwrap(),
         "en",
