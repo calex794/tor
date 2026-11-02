@@ -42,6 +42,8 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
@@ -903,6 +905,20 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             draft_chapter,
         ),
     );
+
+    // End-to-end S031/C/G: Layer purchaser receives signed S3 CURRENT grant
+    // independently from direct ChapterPurchase, including revocation.
+    let (layer_buyer, layer_cookie) =
+        user(&accounts, "s031-layer-minio-reader@tor-ci.example").await;
+    let _layer_shell = layer_fixtures::assert_layer_s3_grants(
+        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
+        &app,
+        &url,
+        (author, layer_buyer),
+        (book, chapter, v1),
+        (&layer_cookie, &csrf),
+    )
+    .await;
 
     pg(
         &url,
