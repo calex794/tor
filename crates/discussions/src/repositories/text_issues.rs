@@ -162,7 +162,7 @@ impl PgTextIssues {
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
              WHERE p.id=$1 AND p.user_id=$2 AND p.chapter_id=$3 AND p.version_id=$4
                AND tor_purchase_version_readable($2,p.id,c.id,v.id)
-             FOR SHARE OF p,l,b,c,v",
+             FOR SHARE OF b,c,v",
         )
         .bind(purchase_id)
         .bind(actor)
