@@ -2,7 +2,9 @@
 use super::*;
 use tor_books::services::{
     authoring::{new_book_with_taxonomy, with_book_description, TaxonomyFields},
-    book_registration::{source_identity, with_registration_metadata, RegistrationFields},
+    book_registration::{
+        source_identity, with_extra_source_links, with_registration_metadata, RegistrationFields,
+    },
 };
 
 pub(super) fn request(
@@ -27,7 +29,7 @@ pub(super) fn request(
         },
     )?;
     let book = with_book_description(book, form.description.as_deref().unwrap_or(""))?;
-    with_registration_metadata(
+    let book = with_registration_metadata(
         book,
         RegistrationFields {
             source_url: form.source_url.as_deref().unwrap_or(""),
@@ -42,5 +44,12 @@ pub(super) fn request(
                 form.alt_title_3.as_deref().unwrap_or(""),
             ],
         },
+    )?;
+    with_extra_source_links(
+        book,
+        [
+            form.extra_source_1.as_deref().unwrap_or(""),
+            form.extra_source_2.as_deref().unwrap_or(""),
+        ],
     )
 }

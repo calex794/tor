@@ -149,6 +149,49 @@ pub fn registration_titles(book: &NewBook) -> Result<Vec<String>, AuthorError> {
     Ok(titles)
 }
 
+/// A user can attach translation/mirror links without treating them as the
+/// original work. A URL's identity is exact or provider-specific, never fuzzy.
+pub fn with_extra_source_links(
+    mut book: NewBook,
+    raw_links: [&str; 2],
+) -> Result<NewBook, AuthorError> {
+    let mut seen = Vec::new();
+    if !book.source_url.is_empty() {
+        seen.push(source_identity(&book.source_url, 1, &book.command_key)?);
+    }
+    for raw in raw_links {
+        let url = raw.trim();
+        if url.is_empty() {
+            continue;
+        }
+        let identity = source_identity(url, 1, &book.command_key)?;
+        if seen.contains(&identity) {
+            continue;
+        }
+        seen.push(identity);
+        book.extra_source_urls.push(url.to_owned());
+    }
+    Ok(book)
+}
+
+/// Primary and additional source links must make the same atomic claims.
+pub fn registration_link_claims(book: &NewBook) -> Result<Vec<(String, String)>, AuthorError> {
+    if book.extra_source_urls.len() > 2 {
+        return Err(AuthorError::Invalid);
+    }
+    let mut claims: Vec<(String, String)> = Vec::new();
+    for raw in std::iter::once(&book.source_url).chain(book.extra_source_urls.iter()) {
+        if raw.is_empty() {
+            continue;
+        }
+        let identity = source_identity(raw, 1, &book.command_key)?;
+        if claims.iter().all(|(existing, _)| existing != &identity) {
+            claims.push((identity, raw.to_owned()));
+        }
+    }
+    Ok(claims)
+}
+
 pub fn with_registration_metadata(
     mut book: NewBook,
     fields: RegistrationFields<'_>,
@@ -281,6 +324,31 @@ mod tests {
             source_identity("https://example.org/a?chapter=2", 12, KEY).unwrap(),
             "other providers retain semantic query parameters"
         );
+    }
+
+    #[test]
+    fn s019_extra_links_accept_any_safe_host_without_conflating_originals() {
+        let book = new_book("manual:7:test", "ru", "Книга", KEY).unwrap();
+        let book = with_extra_source_links(
+            book,
+            [
+                "https://example.cn/novel/abc",
+                "https://tl.rulate.ru/book/268849",
+            ],
+        )
+        .unwrap();
+        let links = registration_link_claims(&book).unwrap();
+        assert_eq!(links.len(), 2);
+        assert_ne!(links[0].0, links[1].0);
+        assert_eq!(book.extra_source_urls.len(), 2);
+
+        let original = "https://example.cn/novel/abc";
+        let book = new_book("manual:7:test", "ru", "Книга", KEY).unwrap();
+        let book = with_extra_source_links(book, [original, original]).unwrap();
+        assert_eq!(registration_link_claims(&book).unwrap().len(), 1);
+
+        let book = new_book("manual:7:test", "ru", "Книга", KEY).unwrap();
+        assert!(with_extra_source_links(book, ["javascript:alert(1)", ""]).is_err());
     }
 
     #[test]
