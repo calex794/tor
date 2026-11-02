@@ -96,7 +96,8 @@ pub(super) async fn reader_page(
     // edition. Querying the canonical E tables never inherits book-level or
     // purchased chapter visibility, and keyset reading stays bounded.
     let discussion = if let Some(catalog) = state.postgres.as_ref() {
-        let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(chapter.version_id)) {
+        let (chapter_id, version_id) = match (i64::try_from(id), i64::try_from(chapter.version_id))
+        {
             (Ok(chapter_id), Ok(version_id)) => (chapter_id, version_id),
             _ => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
         };
