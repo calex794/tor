@@ -696,7 +696,6 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         quote: "😀",
     };
     let message = NewChapterComment {
-        actor_id: actor,
         chapter_id: chapter,
         version_id: version,
         body: "Привет, ||секрет||",
@@ -705,13 +704,13 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         parent_id: None,
         anchor: Some(anchor),
     };
-    let id = match store.create_free(message).await {
+    let id = match store.create_free(actor, message).await {
         ChapterCreate::Created(id) => id,
         other => panic!("expected created, got {other:?}"),
     };
-    assert_eq!(store.create_free(message).await, ChapterCreate::Replayed(id));
+    assert_eq!(store.create_free(actor, message).await, ChapterCreate::Replayed(id));
     assert_eq!(
-        store.create_free(NewChapterComment {
+        store.create_free(actor, NewChapterComment {
             body: "Другая запись",
             ..message
         })
@@ -733,7 +732,7 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     assert_eq!(page.next_cursor, None);
     assert_eq!(
         store
-            .create_free(NewChapterComment {
+            .create_free(actor, NewChapterComment {
                 anchor: Some(NewAnchor {
                     quote: "Z",
                     ..anchor
@@ -745,17 +744,12 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         ChapterCreate::Invalid
     );
     assert_eq!(
-        store
-            .create_free(NewChapterComment {
-                actor_id: 0,
-                ..message
-            })
-            .await,
+        store.create_free(0, message).await,
         ChapterCreate::Invalid
     );
     assert_eq!(
         store
-            .create_free(NewChapterComment {
+            .create_free(actor, NewChapterComment {
                 chapter_id: paid,
                 version_id: paid_version,
                 ..message
@@ -772,14 +766,14 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         body: "Ответ",
         ..message
     };
-    let reply_id = match store.create_free(reply).await {
+    let reply_id = match store.create_free(actor, reply).await {
         ChapterCreate::Created(id) => id,
         other => panic!("expected reply, got {other:?}"),
     };
-    assert_eq!(store.create_free(reply).await, ChapterCreate::Replayed(reply_id));
+    assert_eq!(store.create_free(actor, reply).await, ChapterCreate::Replayed(reply_id));
     assert_eq!(
         store
-            .create_free(NewChapterComment {
+            .create_free(actor, NewChapterComment {
                 parent_id: Some(i64::MAX),
                 command_key: &"c".repeat(43),
                 ..reply
@@ -814,7 +808,7 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     );
     assert_eq!(
         store
-            .create_free(NewChapterComment {
+            .create_free(actor, NewChapterComment {
                 command_key: &"d".repeat(43),
                 ..reply
             })
@@ -829,7 +823,7 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     assert_eq!(store.list_free(chapter, version, None, 25).await.unwrap(), None);
     assert_eq!(
         store
-            .create_free(NewChapterComment {
+            .create_free(actor, NewChapterComment {
                 command_key: &"e".repeat(43),
                 ..message
             })
@@ -867,7 +861,7 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     );
     assert_eq!(
         store
-            .create_free(NewChapterComment {
+            .create_free(actor, NewChapterComment {
                 command_key: &"f".repeat(43),
                 ..message
             })
