@@ -66,6 +66,7 @@ struct ChapterForm {
     command_key: String,
     access: Option<String>,
     price_amount: Option<i64>,
+    save_as_draft: Option<String>,
     csrf_token: Option<String>,
 }
 
@@ -177,18 +178,16 @@ async fn new_chapter(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let paid_enabled = if state.paid_author.is_some() {
-        matches!(
-            state.authoring.owned_book_is_public(actor, id).await,
-            Ok(true)
-        )
-    } else {
-        false
+    let is_public = match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(value) => value,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let paid_enabled = is_public && state.paid_author.is_some();
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
     private_response(
-        crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled),
+        crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled, is_public),
         &cookies,
     )
 }
@@ -218,6 +217,11 @@ async fn create_chapter(
     // G requires identical LF canonicalization for B's content SHA and
     // the ciphertext AAD. Never permit the form to choose a KEK or S3 path.
     let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
+    let save_as_draft = match form.save_as_draft.as_deref() {
+        None => false,
+        Some("1") => true,
+        Some(_) => return deny(StatusCode::BAD_REQUEST),
+    };
     let access = form.access.as_deref().unwrap_or("free");
     let request = match save_chapter(SaveChapterRequest {
         book_id: id,
@@ -234,6 +238,9 @@ async fn create_chapter(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     if request.access == ChapterAccess::Paid {
+        if save_as_draft {
+            return deny(StatusCode::BAD_REQUEST);
+        }
         let Some(publisher) = &state.paid_author else {
             return private_response(
                 (
@@ -272,7 +279,12 @@ async fn create_chapter(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let outcome = if is_public {
+    if save_as_draft && !is_public {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let outcome = if save_as_draft {
+        state.authoring.create_pending_free_chapter(actor, &request).await
+    } else if is_public {
         state
             .authoring
             .create_published_free_chapter(actor, &request)
@@ -281,6 +293,10 @@ async fn create_chapter(
         state.authoring.create_free_chapter(actor, &request).await
     };
     match outcome {
+        Ok(saved) if save_as_draft => private_response(
+            Redirect::to(&format!("/me/books/{id}/chapters/{}/release", saved.chapter_id)),
+            &[],
+        ),
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),

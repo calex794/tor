@@ -39,10 +39,15 @@ fn b12_owner_pages_keep_navigation_for_long_books() {
 }
 #[test]
 fn paid_controls_only_appear_in_enabled_author_pages() {
-    let disabled = new_chapter(42, "csrf", "command", false).0;
+    let disabled = new_chapter(42, "csrf", "command", false, false).0;
+    assert!(!disabled.contains("name=\"save_as_draft\""));
     assert!(!disabled.contains("<option value=\"paid\">"));
     assert!(disabled.contains("name=\"access\" value=\"free\""));
-    let enabled = new_chapter(42, "csrf", "command", true).0;
+    let enabled = new_chapter(42, "csrf", "command", true, true).0;
+    assert!(enabled.contains("name=\"save_as_draft\""));
+    let free_public = new_chapter(42, "csrf", "command", false, true).0;
+    assert!(free_public.contains("name=\"save_as_draft\""));
+    assert!(!free_public.contains("<option value=\"paid\">"));
     assert!(enabled.contains("<option value=\"paid\">"));
     assert!(enabled.contains("name=\"price_amount\""));
     assert!(enabled.contains("сразу после сохранения"));

@@ -300,6 +300,7 @@ pub fn new_chapter(
     csrf: &str,
     command_key: &str,
     paid_enabled: bool,
+    is_public: bool,
 ) -> Html<String> {
     // No paid-control is presented unless the private S3 writer and
     // owner-only publishing flow are explicitly enabled for this book.
@@ -328,6 +329,17 @@ pub fn new_chapter(
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
         .replace("<!--CHAPTER_ACCESS-->", access_fields)
+        .replace(
+            "<!--SCHEDULE_OPTION-->",
+            if is_public {
+                r#"<label><input type="checkbox" name="save_as_draft" value="1">
+                   Сохранить бесплатную главу закрытым черновиком для отложенного выпуска</label>
+                   <p class="account-profile__hint">После сохранения откроется подтверждение,
+                   где можно назначить время публикации в UTC.</p>"#
+            } else {
+                ""
+            },
+        )
         .replace(
             "<!--CHAPTER_HEADING-->",
             if paid_enabled { "Новая глава" } else { "Новая бесплатная глава" },
