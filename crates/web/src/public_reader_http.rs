@@ -90,7 +90,7 @@ pub(super) async fn reader_page(
     response.headers_mut().insert(
         "content-security-policy",
         axum::http::HeaderValue::from_static(
-            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         ),
     );
     response
