@@ -9,10 +9,10 @@ pub(super) async fn check_consent(
     path: &str,
     group_id: i64,
     users: &[i64],
-    cookies: &[String],
-    tokens: &[String],
+    auth: (&[String], &[String]),
     bell: &PgNotifications,
 ) {
+    let (cookies, tokens) = auth;
     // Only the creator can propose management. The roles stay unchanged until
     // the named recipient explicitly accepts; old offers are single-use.
     let transfer_path = format!("{path}/transfer");
