@@ -102,11 +102,20 @@ pub(super) async fn submit(
         )
         .await
     {
-        Ok(CreatedIssue::Added(_)) => {
-            private_response(Redirect::to(&issue_destination(chapter_id, "sent", form.return_to_public.as_deref())), &[])
-        }
+        Ok(CreatedIssue::Added(_)) => private_response(
+            Redirect::to(&issue_destination(
+                chapter_id,
+                "sent",
+                form.return_to_public.as_deref(),
+            )),
+            &[],
+        ),
         Ok(CreatedIssue::Replayed(_)) => private_response(
-            Redirect::to(&issue_destination(chapter_id, "repeat", form.return_to_public.as_deref())),
+            Redirect::to(&issue_destination(
+                chapter_id,
+                "repeat",
+                form.return_to_public.as_deref(),
+            )),
             &[],
         ),
         Err(err) => deny(status(err)),
@@ -265,7 +274,6 @@ pub(super) async fn change_status(
         Err(err) => deny(status(err)),
     }
 }
-
 
 #[cfg(test)]
 mod destination_tests {
