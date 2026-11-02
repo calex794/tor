@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail", "support_requester", "support_admin"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail", "support_admin"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -388,6 +388,28 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
+    if policy == "admin_reader":
+        # Dedicated S065 exception: only an exact, read-only admin shell is
+        # eligible. Never allow the normal buyer grant / purchases / invoices
+        # to inherit a mere administrator route label.
+        allowed_admin_reader = (
+            entry["method"] == "GET"
+            and entry["template"] == "/read/admin/{chapter_id}"
+            and entry["source"] == "crates/web/src/paid_grants_http.rs"
+            and entry["handler"] == "admin_reader::admin_reader"
+        )
+        if not allowed_admin_reader:
+            errors.append(f"{label}: unreviewed site administrator reader route")
+        if not all(marker in evidence for marker in (
+            "session_token_digest(&session)",
+            "session_actor(&digest)",
+            "if actor.administrator",
+            "PgAdministratorReaderEntitlements::new",
+            ".resolve_entitlement(",
+            "StatusCode::FORBIDDEN",
+            "StatusCode::UNAUTHORIZED",
+        )):
+            errors.append(f"{label}: missing live administrator read-entitlement proof")
     if policy == "administrator":
         if route_key not in rec_admin or entry["source"] != "crates/web/src/recommendation_http/mod.rs":
             errors.append(f"{label}: administrator exception is not allowed here")
