@@ -254,7 +254,11 @@ impl PgPublicChapterComments {
         {
             return Err(ListError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| ListError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ListError::Unavailable)?;
         let permitted = sqlx::query_scalar::<_, i64>(
             "SELECT v.id FROM chapters c
              JOIN books b ON b.id=c.book_id
@@ -316,11 +320,13 @@ impl PgPublicChapterComments {
                     .and_then(|number| number.parse::<i32>().ok())
                     .zip(start_utf16)
                     .zip(end_utf16)
-                    .map(|((block_index, start_utf16), end_utf16)| ChapterCommentAnchor {
-                        block_index,
-                        start_utf16,
-                        end_utf16,
-                    });
+                    .map(
+                        |((block_index, start_utf16), end_utf16)| ChapterCommentAnchor {
+                            block_index,
+                            start_utf16,
+                            end_utf16,
+                        },
+                    );
                 ChapterComment {
                     id,
                     parent_id,
