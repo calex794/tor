@@ -54,6 +54,19 @@ impl PgDirectSwaps {
             .begin()
             .await
             .map_err(|_| SwapError::Unavailable)?;
+        // Reject a missing/foreign immutable purchase before claiming a command.
+        // Otherwise the wallet/ownership FK turns a normal denial into a 503.
+        let old_book: i64 = sqlx::query_scalar(
+            "SELECT c.book_id FROM chapter_purchase_facts p
+             JOIN chapters c ON c.id=p.chapter_id
+             WHERE p.id=$1 AND p.user_id=$2",
+        )
+        .bind(i.source_purchase_id)
+        .bind(i.buyer_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| SwapError::Unavailable)?
+        .ok_or(SwapError::NotFound)?;
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO finance_direct_swap_commands
               (buyer_user_id,request_key,request_digest,source_purchase_id,
@@ -127,17 +140,6 @@ impl PgDirectSwaps {
             });
         }
 
-        let old_book: i64 = sqlx::query_scalar(
-            "SELECT c.book_id FROM chapter_purchase_facts p
-             JOIN chapters c ON c.id=p.chapter_id
-             WHERE p.id=$1 AND p.user_id=$2",
-        )
-        .bind(i.source_purchase_id)
-        .bind(i.buyer_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| SwapError::Unavailable)?
-        .ok_or(SwapError::NotFound)?;
         let target_book: i64 = sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1")
             .bind(i.target_chapter_id)
             .fetch_optional(&mut *tx)
@@ -231,9 +233,11 @@ impl PgDirectSwaps {
             return Err(SwapError::NoPolicy);
         }
 
+        // Claims hold FK KEY SHARE locks on wallet/purchase rows. Non-key
+        // updates serialize settlement without two claims deadlocking on upgrade.
         let balance: i64 = sqlx::query_scalar(
             "SELECT balance_minor FROM reader_wallet_accounts
-             WHERE user_id=$1 AND currency='RUB' FOR UPDATE",
+             WHERE user_id=$1 AND currency='RUB' FOR NO KEY UPDATE",
         )
         .bind(i.buyer_id)
         .fetch_optional(&mut *tx)
@@ -259,7 +263,7 @@ impl PgDirectSwaps {
                ON l.purchase_id=p.id AND l.user_id=p.user_id
                   AND l.chapter_id=p.chapter_id AND l.active_version_id=p.version_id
              JOIN finance_chapter_postings fp ON fp.purchase_id=p.id
-             WHERE p.id=$1 AND p.user_id=$2 AND c.book_id=$3 FOR UPDATE OF p",
+             WHERE p.id=$1 AND p.user_id=$2 AND c.book_id=$3 FOR NO KEY UPDATE OF p",
         )
         .bind(i.source_purchase_id)
         .bind(i.buyer_id)

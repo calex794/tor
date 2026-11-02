@@ -2,6 +2,7 @@
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod asset_grants;
+mod text_issues;
 
 use crate::{
     auth_cookies::{private_response, CookiePolicy},
@@ -459,6 +460,10 @@ fn router_inner(
     if state.reader_s3_origin.is_some() {
         app = app
             .route("/read/paid/{chapter_id}", get(paid_reader))
+            .route(
+                "/api/v1/reader/chapters/{chapter_id}/text-issues",
+                post(text_issues::submit).layer(DefaultBodyLimit::max(4096)),
+            )
             .route("/me/purchases", get(purchased_library));
     }
     app.layer(DefaultBodyLimit::max(512)).with_state(state)

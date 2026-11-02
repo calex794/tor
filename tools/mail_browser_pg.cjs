@@ -397,6 +397,12 @@ module.exports = async (browser, base, out) => {
       await a.page.waitForURL('**/mail/groups');
       assert.equal((await a.context.request.get(base + groupPath)).status(), 404);
       assert.equal((await c.context.request.get(base + groupPath)).status(), 200);
+      // A completed transfer is no longer an actionable bell notification,
+      // although its source event/receipt remains in PostgreSQL.
+      await c.page.goto(base + '/notifications');
+      assert.equal(await c.page.locator('[data-notification-kind="mail"]')
+        .filter({ hasText: 'Предложение управлять группой' }).count(), 0,
+        'accepted transfer must disappear from the recipient notification inbox');
 
       // A pending invitation is not membership: D cannot read until accepting.
       await c.page.goto(base + '/users/' + encodeURIComponent('Почта ' + name + ' d'));

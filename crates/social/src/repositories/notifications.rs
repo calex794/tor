@@ -327,22 +327,45 @@ impl PgNotifications {
             return Err(MailError::Invalid);
         }
         let rows = sqlx::query_as::<_, (i64, String, String, String, String, String, bool)>(
-            r#"SELECT id,kind,title,body,url,
-                      to_char((created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI'),
-                      read_at IS NOT NULL
-               FROM user_notifications
-               WHERE recipient_user_id=$1 AND ($2::bigint IS NULL OR id<$2)
+            r#"SELECT n.id,n.kind,n.title,n.body,n.url,
+                      to_char((n.created_at AT TIME ZONE 'UTC')+INTERVAL '3 hours','DD.MM.YYYY HH24:MI'),
+                      n.read_at IS NOT NULL
+               FROM user_notifications n
+               WHERE n.recipient_user_id=$1 AND ($2::bigint IS NULL OR n.id<$2)
                  AND (
                    $4::text='notifications'
-                   OR ($4='releases' AND kind IN (
+                   OR ($4='releases' AND n.kind IN (
                      'chapter_created','project_news','author_new_book',
                      'author_new_layer','author_new_collection'))
-                   OR ($4='system' AND kind NOT IN (
+                   OR ($4='system' AND n.kind NOT IN (
                      'chapter_created','project_news','author_new_book',
                      'author_new_layer','author_new_collection',
                      'comment','comment_reply','comment_mention'))
                  )
-               ORDER BY id DESC LIMIT $3"#,
+               -- Evaluate offer validity before LIMIT: stale rows must not
+               -- consume a page slot or reappear on other notification tabs.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM outbox_events e
+                   WHERE e.id=n.source_event_id
+                     AND e.event_type='social.group_creator_transfer.proposed'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM social_group_creator_transfers t
+                       JOIN social_group_members owner
+                         ON owner.group_id=t.group_id AND owner.user_id=t.from_user_id
+                         AND owner.status='active' AND owner.role='creator'
+                       JOIN social_group_members member
+                         ON member.group_id=t.group_id AND member.user_id=t.to_user_id
+                         AND member.status='active'
+                       JOIN users sender ON sender.id=t.from_user_id
+                         AND sender.account_state='active'
+                       JOIN users receiver ON receiver.id=t.to_user_id
+                         AND receiver.account_state='active'
+                       WHERE t.id=e.aggregate_id AND t.from_user_id=n.actor_user_id
+                         AND t.to_user_id=n.recipient_user_id AND t.state='pending'
+                         AND t.expires_at>clock_timestamp()
+                     )
+                 )
+               ORDER BY n.id DESC LIMIT $3"#,
         )
         .bind(actor)
         .bind(before)
@@ -431,8 +454,31 @@ impl PgNotifications {
             return Err(MailError::Invalid);
         }
         let count = sqlx::query(
-            "UPDATE user_notifications SET read_at=COALESCE(read_at,clock_timestamp())
-             WHERE recipient_user_id=$1 AND id=$2",
+            r#"UPDATE user_notifications n SET read_at=COALESCE(n.read_at,clock_timestamp())
+             WHERE n.recipient_user_id=$1 AND n.id=$2
+               -- A stale form left open in the browser must not acknowledge
+               -- or navigate through an already revoked/expired proposal.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM outbox_events e
+                   WHERE e.id=n.source_event_id
+                     AND e.event_type='social.group_creator_transfer.proposed'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM social_group_creator_transfers t
+                       JOIN social_group_members owner
+                         ON owner.group_id=t.group_id AND owner.user_id=t.from_user_id
+                         AND owner.status='active' AND owner.role='creator'
+                       JOIN social_group_members member
+                         ON member.group_id=t.group_id AND member.user_id=t.to_user_id
+                         AND member.status='active'
+                       JOIN users sender ON sender.id=t.from_user_id
+                         AND sender.account_state='active'
+                       JOIN users receiver ON receiver.id=t.to_user_id
+                         AND receiver.account_state='active'
+                       WHERE t.id=e.aggregate_id AND t.from_user_id=n.actor_user_id
+                         AND t.to_user_id=n.recipient_user_id AND t.state='pending'
+                         AND t.expires_at>clock_timestamp()
+                     )
+                 )"#,
         )
         .bind(actor)
         .bind(id)

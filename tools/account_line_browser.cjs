@@ -61,7 +61,7 @@ async function login(browser,mail,secret) {
     }
     await alice.page.goto(`${base}/me/notification-settings`);
     await alice.page.locator('[name=delivery_mode][value=daily_digest]').check();
-    await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/notification-settings`),alice.page.locator('form button').click()]);
+    await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/me/notification-settings`),alice.page.locator('form[action="/me/notification-settings"] button').click()]);
     await alice.page.waitForLoadState('networkidle');
     assert.equal((await (await alice.context.request.get(`${base}/api/v1/me`)).json()).delivery_settings,'daily_digest');
     await alice.page.goto(`${base}/me/security/sessions`);
@@ -102,7 +102,7 @@ async function login(browser,mail,secret) {
     await alice.page.locator('[name=token]').fill(code);
     await alice.page.locator('[name=new_password]').fill(replacement);
     await alice.page.locator('[name=confirm_password]').fill(replacement);
-    const [replay]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/reset-password`),alice.page.locator('form button').click()]);
+    const [replay]=await Promise.all([alice.page.waitForResponse(r=>r.request().method()==='POST'&&r.url()===`${base}/reset-password`),alice.page.locator('form[action="/reset-password"] button').click()]);
     assert.equal(replay.status(),422);
     const fresh=await login(browser,email,replacement);
     assert.equal((await (await fresh.context.request.get(`${base}/api/v1/me`)).json()).display_name,'Updated A reader');
