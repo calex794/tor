@@ -102,8 +102,35 @@ async function inspect(page, name, where) {
         name + ': original chapter heading missing');
       assert(await page.locator('.reader-public .reader-page__meta').getByText('Бесплатная глава', { exact: false }).isVisible(),
         name + ': published free chapter label missing');
-      assert(!(await page.content()).includes('data-reader-theme-cycle'),
-        name + ': unimplemented reader settings displayed');
+      // C: the real public-reader Aa controls must work on desktop and mobile,
+      // retain only presentation choices and leave the paid reader untouched.
+      assert(await page.locator('[data-public-reader][data-public-ready]').count() === 1,
+        name + ': public reader JavaScript did not initialize');
+      const settings = page.locator('[data-public-settings]');
+      await settings.locator('summary').click();
+      await page.locator('[data-public-theme]').selectOption('sepia');
+      await page.locator('[data-public-font]').selectOption('sans');
+      await page.locator('[data-public-scale]').fill('125');
+      await page.locator('[data-public-spacing]').fill('200');
+      await page.locator('[data-public-width]').fill('780');
+      assert(await page.locator('[data-public-reader][data-public-theme="sepia"]').count() === 1,
+        name + ': selected free-reader theme not applied');
+      const stored = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem('tor.free_reader_settings.v1')));
+      assert(stored && stored.theme === 'sepia' && stored.font === 'sans' &&
+        stored.scale === 125 && stored.spacing === 200 && stored.width === 780,
+        name + ': settings not persisted or contain unexpected values');
+      await page.reload({ waitUntil: 'networkidle' });
+      assert(await page.locator('[data-public-reader][data-public-theme="sepia"]').count() === 1,
+        name + ': settings lost after reload');
+      await page.locator('[data-public-settings] summary').click();
+      await page.locator('[data-public-reset]').click();
+      assert(await page.locator('[data-public-theme]').inputValue() === 'system' &&
+        await page.locator('[data-public-scale]').inputValue() === '100',
+        name + ': reset did not restore default settings');
+      await page.locator('[data-public-settings] summary').click();
+      assert(!(await page.content()).includes('PRIVATE-PAID-MARKER'),
+        name + ': private text appeared after changing reader preferences');
       assert(await page.getByText('Первая строка').count() > 0, name + ': no actual text');
       const html = await page.content();
       assert(!html.includes('<script>alert(1)</script>'), name + ': unsafe author HTML');
