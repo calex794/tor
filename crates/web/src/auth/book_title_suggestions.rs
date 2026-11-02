@@ -77,6 +77,6 @@ pub(super) async fn script() -> Response {
         [("content-type", "text/javascript; charset=utf-8"),
          ("cache-control", "public, max-age=300"),
          ("x-content-type-options", "nosniff")],
-        include_str!("../../../../assets/book_title_suggestions.js"),
+        include_str!("../../assets/book_title_suggestions.js"),
     ).into_response()
 }
