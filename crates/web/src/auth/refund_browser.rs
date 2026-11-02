@@ -3,7 +3,7 @@
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{DefaultBodyLimit, Form, State},
+    extract::{rejection::FormRejection, DefaultBodyLimit, Form, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Html, Redirect, Response},
     routing::get,
@@ -206,7 +206,7 @@ pub(super) async fn page(State(state): State<AuthState>, headers: HeaderMap) -> 
 pub(super) async fn submit(
     State(state): State<AuthState>,
     headers: HeaderMap,
-    Form(form): Form<RefundForm>,
+    submitted: Result<Form<RefundForm>, FormRejection>,
 ) -> Response {
     if !enabled(&state) {
         return deny(StatusCode::NOT_FOUND);
@@ -215,6 +215,11 @@ pub(super) async fn submit(
         Ok(Some(id)) => id,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
+    };
+    // A malformed form must not reveal a disabled route before the feature gate.
+    let Form(form) = match submitted {
+        Ok(form) => form,
+        Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
     if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
