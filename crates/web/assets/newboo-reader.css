@@ -1029,3 +1029,68 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   }
   .reader-public .reader-free-issues { padding:14px; }
 }
+
+
+/* S011: public free-edition discussion below the reader. Never overlay text. */
+.reader-public .reader-chapter-comments {
+  box-sizing: border-box;
+  margin: 26px 0;
+  padding: clamp(14px, 3.5vw, 24px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+.reader-public .reader-chapter-comments .comments-block__head {
+  margin-bottom: 16px;
+}
+.reader-public .reader-chapter-comments__form { display: grid; gap: 11px; }
+.reader-public .reader-chapter-comments__form label { color: var(--text-main); font-weight: 750; }
+.reader-public .reader-chapter-comments__form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 94px;
+}
+.reader-public .reader-chapter-comments__form button {
+  min-height: 44px;
+  width: fit-content;
+}
+.reader-public .reader-chapter-comments__anchor,
+.reader-public .reader-chapter-comments__feedback,
+.reader-public .reader-chapter-comments__reply-ref {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.reader-public .reader-chapter-comments .comments-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.reader-public .reader-chapter-comments .comment-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.reader-public .reader-chapter-comments__goto,
+.reader-public .reader-chapter-comments__pagination a,
+.reader-public .reader-chapter-comments__login a {
+  color: var(--primary-color);
+  text-underline-offset: 3px;
+}
+.reader-public .reader-chapter-comments .comment-reply { margin-top: 10px; }
+.reader-public .reader-chapter-comments .comment-reply summary {
+  min-height: 44px;
+  cursor: pointer;
+  padding-block: 9px;
+}
+.reader-public .reader-chapter-comments__source-highlight {
+  background: color-mix(in srgb, var(--primary-color) 25%, transparent);
+  transition: background 1.8s ease-out;
+}
+.reader-public .reader-chapter-comments__pagination { margin-block: 18px; }
+@media(max-width:640px) {
+  .reader-public .reader-chapter-comments { padding: 14px; }
+  .reader-public .reader-chapter-comments__form button { width: 100%; }
+}
