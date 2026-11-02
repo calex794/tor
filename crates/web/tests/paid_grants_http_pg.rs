@@ -40,6 +40,9 @@ use tor_contracts::paid_delivery::{
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
+#[path = "paid_grants_http_pg/s065_role_matrix.rs"]
+mod s065_role_matrix;
+
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "/api/v1/reader/chapters/";
 const UUID: &str = "a1a1a1a1-1111-4111-8111-111111111111";
@@ -611,6 +614,16 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     )
     .await;
 
+    s065_role_matrix::assert_administrator_can_read(
+        &url,
+        &accounts,
+        &browser,
+        chapter,
+        version,
+        &buyer_cookie,
+        &author_cookie,
+    )
+    .await;
     assert_eq!(
         fake.signed.load(Ordering::SeqCst),
         0,
