@@ -309,3 +309,92 @@ async fn a_04_a_05_roles_are_live_audited_and_never_granted_by_identity_claims()
         .unwrap()
         .is_none());
 }
+
+#[tokio::test]
+#[ignore = "requires disposable tor_ci PostgreSQL"]
+async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privilege() {
+    let (accounts, admin, admin_session) = fixture("a05-grant-admin").await;
+    let (_, recipient, _) = fixture("a05-grant-recipient").await;
+    let target = UserId::new(recipient).unwrap();
+
+    // Only the isolated test fixture bootstraps the first administrator.
+    sqlx::query("INSERT INTO account_roles(user_id,role) VALUES($1,'administrator')")
+        .bind(admin)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    for state in ["suspended", "closed"] {
+        sqlx::query("UPDATE users SET account_state=$1 WHERE id=$2")
+            .bind(state)
+            .bind(recipient)
+            .execute(accounts.pool())
+            .await
+            .unwrap();
+        for role in [AccountRole::Administrator, AccountRole::Author] {
+            assert!(matches!(
+                accounts
+                    .change_account_role(&admin_session, target, role, true)
+                    .await,
+                Err(AuthorityError::Denied)
+            ));
+        }
+    }
+    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM account_roles WHERE user_id=$1")
+        .bind(recipient)
+        .fetch_one(accounts.pool())
+        .await
+        .unwrap();
+    assert_eq!(stored, 0, "denied grant must not leave a dormant privilege");
+    let denied_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_role_events WHERE user_id=$1")
+            .bind(recipient)
+            .fetch_one(accounts.pool())
+            .await
+            .unwrap();
+    assert_eq!(denied_events, 0, "denied grant must not be audited as success");
+
+    sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
+        .bind(recipient)
+        .execute(accounts.pool())
+        .await
+        .unwrap();
+    let new_session = session_token_digest(&format!("a05-active-again-{recipient}"));
+    accounts
+        .insert_session(recipient, &new_session, NonZeroU32::new(3600).unwrap())
+        .await
+        .unwrap();
+    assert!(!accounts
+        .session_actor(&new_session)
+        .await
+        .unwrap()
+        .unwrap()
+        .administrator);
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Administrator, true)
+        .await
+        .unwrap();
+    assert!(accounts
+        .session_actor(&new_session)
+        .await
+        .unwrap()
+        .unwrap()
+        .administrator);
+    accounts
+        .change_account_role(&admin_session, target, AccountRole::Administrator, false)
+        .await
+        .unwrap();
+    assert!(!accounts
+        .session_actor(&new_session)
+        .await
+        .unwrap()
+        .unwrap()
+        .administrator);
+    let events: Vec<String> = sqlx::query_scalar(
+        "SELECT value FROM account_role_events WHERE user_id=$1 ORDER BY id",
+    )
+    .bind(recipient)
+    .fetch_all(accounts.pool())
+    .await
+    .unwrap();
+    assert_eq!(events, vec!["granted", "revoked"]);
+}
