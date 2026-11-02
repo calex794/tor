@@ -9,6 +9,23 @@
         <input type="hidden" name="command_key" value="<!--COMMAND_KEY-->">
         <label for="book-title">Название книги</label>
         <input id="book-title" name="title" type="text" required maxlength="200" minlength="1">
+        <label for="book-original-title">Оригинальное название</label>
+        <input id="book-original-title" name="original_title" type="text" maxlength="200">
+        <label for="book-source">Ссылка на первоисточник</label>
+        <input id="book-source" name="source_url" type="url" maxlength="512" placeholder="https://example.org/book/123">
+        <p>Если это перевод, укажите ссылку: она помогает не создавать повторно то же произведение.</p>
+        <label for="book-original-language">Язык оригинала</label>
+        <select id="book-original-language" name="original_language"><option value="">Не указан</option><option value="zh">Китайский</option><option value="ko">Корейский</option><option value="ja">Японский</option><option value="en">Английский</option><option value="ru">Русский</option><option value="vi">Вьетнамский</option></select>
+        <label for="book-release-year">Год выпуска</label>
+        <input id="book-release-year" name="release_year" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4">
+        <label for="book-project-status">Состояние произведения</label>
+        <select id="book-project-status" name="project_status"><option value="">Не указано</option><option value="ongoing">В процессе</option><option value="completed">Завершено</option><option value="paused">Приостановлено</option><option value="planned">Запланировано</option></select>
+        <label for="book-section">Раздел каталога</label>
+        <select id="book-section" name="catalog_section"><option value="">Выбрать позже</option><option value="novels/chinese">Китайские новеллы</option><option value="novels/korean">Корейские новеллы</option><option value="novels/japanese">Японские новеллы</option><option value="novels/english">Английские новеллы</option><option value="novels/original">Авторские произведения</option><option value="fanfic/translated">Переводы фанфиков</option></select>
+        <label for="book-alt-1">Другие названия (до трёх)</label>
+        <input id="book-alt-1" name="alt_title_1" type="text" maxlength="200">
+        <input name="alt_title_2" type="text" maxlength="200" aria-label="Второе альтернативное название">
+        <input name="alt_title_3" type="text" maxlength="200" aria-label="Третье альтернативное название">
         <label for="book-author">Автор произведения (необязательно)</label>
         <input id="book-author" name="author_name" type="text" maxlength="160">
         <label for="book-description">Аннотация книги (до 4000 символов)</label>

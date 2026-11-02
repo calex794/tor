@@ -29,6 +29,7 @@ pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
         "chapters": chapter_rows,
         "buyers": buyer_rows,
         "outsider_session": fixture.outsider_session,
+        "asset_object_id": asset_fixture::ASSET_OBJECT_ID,
     });
     // No cookies or bearer credentials in source control, artifacts or logs.
     let mut options = OpenOptions::new();
