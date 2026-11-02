@@ -402,7 +402,7 @@ async function testSingleChapter(browser) {
       }]);
       const denied = await outsider.request.get(SITE + "/read/paid/" +
         chapter.id + "?purchase_id=" + purchase);
-      assert.equal(denied.status(), 404);
+      assert.equal(denied.status(), 403);
       assert(!(await denied.text()).includes(marker));
       const progress = "/api/v1/me/progress/purchased?purchase_id=" + purchase +
         "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
