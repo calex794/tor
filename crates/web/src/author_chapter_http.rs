@@ -412,13 +412,19 @@ async fn update_chapter(
             Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}/issues")), &[]),
             Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
             Err(AuthorError::Conflict) => private_response(
-                (StatusCode::CONFLICT, "Глава уже изменена. Обновите страницу редактора."),
+                (
+                    StatusCode::CONFLICT,
+                    "Глава уже изменена. Обновите страницу редактора.",
+                ),
                 &[],
             ),
             Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
             Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
             Err(AuthorError::Unavailable) => private_response(
-                (StatusCode::SERVICE_UNAVAILABLE, "Защищённое сохранение не завершено. Повторите эту же форму."),
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Защищённое сохранение не завершено. Повторите эту же форму.",
+                ),
                 &[],
             ),
         };

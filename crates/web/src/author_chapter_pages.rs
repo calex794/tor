@@ -389,7 +389,15 @@ pub fn edit_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
-    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, false, false)
+    edit_chapter_mode(
+        book_id,
+        chapter_id,
+        chapter,
+        csrf,
+        command_key,
+        false,
+        false,
+    )
 }
 
 /// A published free chapter uses the same NEwBOO-style editor and save action,
@@ -460,7 +468,12 @@ fn edit_chapter_mode(
         .replace("<!--TITLE_READONLY-->", if paid { "readonly" } else { "" })
         .replace(
             "<!--EDIT_PRICE-->",
-            if paid { format!("<p>Цена неизменна: {} копеек.</p>", chapter.price_amount) } else { String::new() }.as_str(),
+            if paid {
+                format!("<p>Цена неизменна: {} копеек.</p>", chapter.price_amount)
+            } else {
+                String::new()
+            }
+            .as_str(),
         )
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))

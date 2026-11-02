@@ -265,12 +265,20 @@ impl PgPaidStorage {
         .map_err(|_| AuthorError::Unavailable)?;
         row.map(|row| {
             Ok(OwnedChapter {
-                number: row.try_get("chapter_no").map_err(|_| AuthorError::Unavailable)?,
+                number: row
+                    .try_get("chapter_no")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
-                body: row.try_get("body_markdown").map_err(|_| AuthorError::Unavailable)?,
+                body: row
+                    .try_get("body_markdown")
+                    .map_err(|_| AuthorError::Unavailable)?,
                 access: ChapterAccess::Paid,
-                price_amount: row.try_get("price_amount").map_err(|_| AuthorError::Unavailable)?,
-                revision: row.try_get("edit_revision").map_err(|_| AuthorError::Unavailable)?,
+                price_amount: row
+                    .try_get("price_amount")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                revision: row
+                    .try_get("edit_revision")
+                    .map_err(|_| AuthorError::Unavailable)?,
             })
         })
         .transpose()
