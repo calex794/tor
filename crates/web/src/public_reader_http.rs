@@ -51,10 +51,7 @@ pub(super) async fn reader_page(
                 Some(control) => match control.verified_reader(&headers).await {
                     Ok(actor) => actor,
                     Err(_) => {
-                        return auth_cookies::private_response(
-                            pages::reader_with_login_link(&chapter, Some(id)),
-                            &[],
-                        )
+                        return free_reader_response(&chapter, id)
                     }
                 },
                 None => None,
@@ -70,5 +67,22 @@ pub(super) async fn reader_page(
             }
         }
     }
-    auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[])
+    free_reader_response(&chapter, id)
 }
+
+fn free_reader_response(chapter: &tor_reading::services::PublicChapterPage, id: u64) -> Response {
+    let mut response = auth_cookies::private_response(
+        pages::reader_with_login_link(chapter, Some(id)),
+        &[],
+    );
+    // This narrowly scoped CSP applies only to successfully authorized free text,
+    // never to paid paywalls, denied responses or unrelated private pages.
+    response.headers_mut().insert(
+        "content-security-policy",
+        axum::http::HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        ),
+    );
+    response
+}
+
