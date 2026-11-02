@@ -86,7 +86,10 @@ pub(super) async fn checkout_and_verify(
     assert!(!html.contains("<img src=x onerror=window.__xss=true>"));
     assert!(!html.contains(paid_marker));
     assert!(!html.contains("X-Amz-Signature"));
-    assert_eq!(hidden_field(&html, "expected_version_id"), version.to_string());
+    assert_eq!(
+        hidden_field(&html, "expected_version_id"),
+        version.to_string()
+    );
     assert_eq!(hidden_field(&html, "expected_price_minor"), "175");
     assert_eq!(hidden_field(&html, "csrf_token"), csrf);
     let key = hidden_field(&html, "command_key");
