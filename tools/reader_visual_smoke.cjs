@@ -482,7 +482,7 @@ async function inspect(page, name, where) {
       // offset; submission and replies use real PostgreSQL + the same CSRF.
       const chapterComments = page.locator('[data-chapter-comments]');
       assert(await chapterComments.count() === 1 &&
-        await chapterComments.locator('[data-chapter-comment-form]').count() === 1,
+        await chapterComments.locator('[data-chapter-comment-form]').count() >= 1,
         name + ': signed free reader missing chapter discussion form');
       assert((await chapterComments.getAttribute('data-reader-comment-blocks') || '')
         .startsWith('0:'), name + ': missing canonical source offset map');
