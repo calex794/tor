@@ -237,28 +237,54 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
     let reopen_path = format!("{path}/reopen");
     let close_form = format!("csrf_token={}&expected_revision=0", tokens[2]);
     assert_eq!(
-        call(&app, "GET", &close_path, &sessions[2], "", ORIGIN).await.status(),
+        call(&app, "GET", &close_path, &sessions[2], "", ORIGIN)
+            .await
+            .status(),
         StatusCode::METHOD_NOT_ALLOWED
     );
     assert_eq!(
-        call(&app, "POST", &close_path, &sessions[0], &close_form, ORIGIN).await.status(),
+        call(&app, "POST", &close_path, &sessions[0], &close_form, ORIGIN)
+            .await
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &close_path, &sessions[2], &close_form, "https://evil.invalid").await.status(),
+        call(
+            &app,
+            "POST",
+            &close_path,
+            &sessions[2],
+            &close_form,
+            "https://evil.invalid"
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &close_path, &sessions[2], "csrf_token=invalid&expected_revision=0", ORIGIN).await.status(),
+        call(
+            &app,
+            "POST",
+            &close_path,
+            &sessions[2],
+            "csrf_token=invalid&expected_revision=0",
+            ORIGIN
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN).await.status(),
+        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN)
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     // Repeating a close is harmless; GET remains read-only.
     assert_eq!(
-        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN).await.status(),
+        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN)
+            .await
+            .status(),
         StatusCode::SEE_OTHER
     );
     let closed_html = text(call(&app, "GET", &path, &sessions[2], "", ORIGIN).await).await;
@@ -267,18 +293,38 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
     assert!(!closed_html.contains("data-admin-support-form"));
     assert_eq!(
         call(
-            &app, "POST", &format!("{path}/messages"), &sessions[2],
-            &format!("csrf_token={}&body=FORBIDDEN%20CLOSED&client_message_id=closed", tokens[2]),
+            &app,
+            "POST",
+            &format!("{path}/messages"),
+            &sessions[2],
+            &format!(
+                "csrf_token={}&body=FORBIDDEN%20CLOSED&client_message_id=closed",
+                tokens[2]
+            ),
             ORIGIN
-        ).await.status(), StatusCode::CONFLICT
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
     );
     let reopen_form = format!("csrf_token={}&expected_revision=1", tokens[2]);
     assert_eq!(
-        call(&app, "POST", &reopen_path, &sessions[2], &reopen_form, ORIGIN).await.status(),
+        call(
+            &app,
+            "POST",
+            &reopen_path,
+            &sessions[2],
+            &reopen_form,
+            ORIGIN
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN).await.status(),
+        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN)
+            .await
+            .status(),
         StatusCode::CONFLICT,
         "stale close cannot hide a newer open"
     );
@@ -494,9 +540,16 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
     );
     for endpoint in [&close_path, &reopen_path] {
         assert_eq!(
-            call(&app, "POST", endpoint, &sessions[2],
-                &format!("csrf_token={}&expected_revision=2", tokens[2]), ORIGIN)
-                .await.status(),
+            call(
+                &app,
+                "POST",
+                endpoint,
+                &sessions[2],
+                &format!("csrf_token={}&expected_revision=2", tokens[2]),
+                ORIGIN
+            )
+            .await
+            .status(),
             StatusCode::FORBIDDEN,
             "revoked administrator cannot change support state"
         );
