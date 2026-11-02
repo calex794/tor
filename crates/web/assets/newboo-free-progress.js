@@ -35,6 +35,7 @@
   let enabled = false;
   let blocked = false;
   let movedBeforeRead = false;
+  let hasScrolled = false;
   let restoring = false;
   let saving = false;
   let saveTimer = 0;
@@ -121,7 +122,8 @@
     a.block_id === b.block_id && a.char_offset === b.char_offset;
 
   const save = async () => {
-    if (!enabled || blocked || saving) return;
+    // A GET and a pagehide alone are not evidence of having read this chapter.
+    if (!enabled || !hasScrolled || blocked || saving) return;
     const place = currentPlace();
     if (!validPlace(place) || samePlace(place, saved)) return;
     saving = true;
@@ -161,6 +163,7 @@
   const onScroll = () => {
     if (!enabled) { movedBeforeRead = true; return; }
     if (blocked || restoring) return;
+    hasScrolled = true;
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => { void save(); }, 1200);
   };
