@@ -34,6 +34,7 @@ pub(super) fn save_ephemeral_fixture(
         "layer_reader_csp": layer_reader_csp,
         "expiry_probe_url": expiry_probe_url,
         "expected_markdown": MARKDOWN,
+        "expected_layer_markdown": "New V2, not purchased",
         "expected_book_title": BOOK_TITLE,
         "expected_chapter_title": CHAPTER_TITLE,
         "expected_chapter_no": 1,

@@ -18,7 +18,7 @@ const grant = fixture.layer_grant;
 const chapter = grant.chapter_id;
 assert(typeof html === "string" && html.includes("data-layer-chapter-reader") &&
   html.includes('data-chapter-id="' + chapter + '"'));
-assert(!html.includes(fixture.expected_markdown) &&
+assert(!html.includes(fixture.expected_layer_markdown) &&
   !html.includes(grant.content.dek_b64u) && !html.includes("data-purchase-id"));
 const csrf = html.match(/data-csrf-token="([A-Za-z0-9_-]{43})"/)?.[1];
 assert(csrf, "Layer shell must provide server-generated CSRF token");
@@ -111,7 +111,7 @@ async function run() {
       hasText: "Защищённая загрузка завершена",
     }).waitFor({ timeout: 20000 });
     const visible = await page.locator("[data-layer-content]").textContent();
-    assert(visible.includes(fixture.expected_markdown.split("\n\n")[0]));
+    assert(visible.includes(fixture.expected_layer_markdown.split("\n\n")[0]));
     assert.equal(await page.locator("[data-purchase-id]").count(), 0);
     assert.equal(await page.locator("[data-paid-completion]").count(), 0);
     assert.equal(grantCalls, 1);
