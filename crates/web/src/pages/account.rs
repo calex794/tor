@@ -152,6 +152,7 @@ pub fn my_account_with_achievements(
     render_my_account(name, csrf, replies, unread, Some(achievements))
 }
 
+#[allow(dead_code)] // Retained for the established swap-only renderer and its snapshot tests.
 pub fn my_account_with_achievements_and_swap(
     name: &str,
     csrf: &str,
@@ -160,13 +161,42 @@ pub fn my_account_with_achievements_and_swap(
     achievements: &ReaderAchievements,
     swap_enabled: bool,
 ) -> Html<String> {
+    my_account_with_achievements_refunds_and_swap(
+        name,
+        csrf,
+        replies,
+        unread,
+        achievements,
+        swap_enabled,
+        false,
+    )
+}
+
+pub fn my_account_with_achievements_refunds_and_swap(
+    name: &str,
+    csrf: &str,
+    replies: &[ReceivedReply],
+    unread: u16,
+    achievements: &ReaderAchievements,
+    swap_enabled: bool,
+    refund_enabled: bool,
+) -> Html<String> {
     let html = render_my_account(name, csrf, replies, unread, Some(achievements));
-    let link = if swap_enabled {
+    let swap_link = if swap_enabled {
         "<a class=\"dashboard-nav__item\" href=\"/me/refunds/swap\">Обмен глав</a>"
     } else {
         ""
     };
-    Html(html.0.replace("<!--SWAP_NAV_LINK-->", link))
+    let refund_link = if refund_enabled {
+        "<a class=\"dashboard-nav__item\" href=\"/me/refunds\">Заявки на возврат</a>"
+    } else {
+        ""
+    };
+    Html(
+        html.0
+            .replace("<!--SWAP_NAV_LINK-->", swap_link)
+            .replace("<!--REFUND_NAV_LINK-->", refund_link),
+    )
 }
 
 fn render_my_account(
@@ -426,5 +456,19 @@ mod tests {
         let enabled =
             my_account_with_achievements_and_swap("Reader", "csrf", &[], 0, &achievements, true).0;
         assert!(enabled.contains("href=\"/me/refunds/swap\""));
+
+        let refund_only = my_account_with_achievements_refunds_and_swap(
+            "Reader",
+            "csrf",
+            &[],
+            0,
+            &achievements,
+            false,
+            true,
+        )
+        .0;
+        assert!(refund_only.contains("href=\"/me/refunds\""));
+        assert!(!refund_only.contains("href=\"/me/refunds/swap\""));
+        assert!(!hidden.contains("href=\"/me/refunds\""));
     }
 }

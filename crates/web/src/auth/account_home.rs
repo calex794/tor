@@ -25,13 +25,14 @@ pub(super) async fn page(state: AuthState, headers: HeaderMap, user_id: i64) -> 
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     private_response(
-        pages::my_account_with_achievements_and_swap(
+        pages::my_account_with_achievements_refunds_and_swap(
             &name,
             &csrf,
             &replies,
             unread,
             &achievements,
             state.swap_browser_enabled,
+            state.refund_browser_enabled,
         ),
         &cookies,
     )

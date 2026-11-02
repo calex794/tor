@@ -1688,6 +1688,20 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_reader::script",
       "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/refunds",
+      "source": "crates/web/src/auth/refund_browser.rs",
+      "handler": "page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/refunds",
+      "source": "crates/web/src/auth/refund_browser.rs",
+      "handler": "submit",
+      "policy": "scoped"
     }
   ]
 }

@@ -59,7 +59,7 @@ SCOPE_CALLS = {
     "delivery_preference", "set_delivery_preference",
     "active_role", "create_free", "create_paid",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
-    "send_unkeyed", "set_block", "request", "remove",
+    "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",
@@ -375,6 +375,20 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("GET", "/me/recommendations/manage", "admin::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
+    if (entry["template"] == "/me/refunds"
+            and entry["source"] == "crates/web/src/auth/refund_browser.rs"):
+        if entry["method"] == "POST":
+            checks = ("!enabled(&state)", "session_user(&state, &headers)",
+                      "same_origin(&headers)", "valid_csrf(&headers",
+                      "IdempotencyKey::parse(&form.command_key)",
+                      ".request_once(actor, purchase, &key, &form.reason)")
+            if not all(check in evidence for check in checks):
+                errors.append(f"{label}: S036 buyer refund cannot bypass session/CSRF/policy")
+        elif entry["method"] == "GET" and not (
+                "!enabled(&state)" in evidence
+                and "recent_for_buyer(actor)" in evidence
+                and "session_user(&state, &headers)" in evidence):
+            errors.append(f"{label}: S036 refund history must remain buyer-scoped")
     route_key = (entry["method"], entry["template"], entry["handler"])
     e12_team = {
         ("GET", "/me/books/{id}/issues", "text_issues::author_page"),
