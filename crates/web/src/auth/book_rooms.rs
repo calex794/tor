@@ -256,7 +256,11 @@ mod tests {
         assert!(html.contains("name=\"csrf_token\" value=\"&lt;csrf&gt;\""));
         let guest = render(3, "Public book", false, &messages, "csrf", "key", 11).0;
         assert!(guest.contains("Вступить в чат"));
-        assert!(!guest.contains("Отправить</button>"));
+        // The global support widget has its own send button. A guest still
+        // must not receive the book-room message form or its command key.
+        assert!(html.contains("action=\"/books/3/room/messages\""));
+        assert!(!guest.contains("action=\"/books/3/room/messages\""));
+        assert!(!guest.contains("name=\"command_key\""));
         assert!(!guest.contains("onerror=alert(2)"));
     }
 }
