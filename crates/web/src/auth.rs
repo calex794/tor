@@ -20,6 +20,7 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
+use tor_books::services::book_registration::{source_identity, with_registration_metadata, RegistrationFields};
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{
     repositories::postgres::PgAuthoring,
@@ -442,7 +443,10 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let identity = format!("manual:{actor}:{}", form.command_key);
+    let identity = match source_identity(form.source_url.as_deref().unwrap_or(""), actor, &form.command_key) {
+        Ok(identity) => identity,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
     let request = match new_book_with_taxonomy(
         &identity,
         &form.target_language,
@@ -456,6 +460,15 @@ async fn create_book(
         },
     )
     .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
+    .and_then(|book| with_registration_metadata(book, RegistrationFields {
+        source_url: form.source_url.as_deref().unwrap_or(""),
+        original_title: form.original_title.as_deref().unwrap_or(""),
+        original_language: form.original_language.as_deref().unwrap_or(""),
+        release_year: form.release_year.as_deref().unwrap_or(""),
+        project_status: form.project_status.as_deref().unwrap_or(""),
+        catalog_section: form.catalog_section.as_deref().unwrap_or(""),
+        alt_titles: [form.alt_title_1.as_deref().unwrap_or(""), form.alt_title_2.as_deref().unwrap_or(""), form.alt_title_3.as_deref().unwrap_or("")],
+    }))
     {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
