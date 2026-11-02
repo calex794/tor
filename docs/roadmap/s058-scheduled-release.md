@@ -1,7 +1,7 @@
 # S058 — durable scheduled release of a free chapter
 
 Implementation scope: a chapter that is still a private, unpublished free draft
-inside an already public book. Paid paid-author/S3 release is **not** included.
+inside an already public book. Paid-author/S3 release is **not** included.
 
 * Author opens `/me/books/{book}/chapters/{chapter}/release` and chooses a
   UTC time via `datetime-local`. Server accepts only an exact current
