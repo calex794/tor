@@ -1,6 +1,7 @@
 """Disposable HTTP fixture for TOR edge-over-WireGuard CI; no production data."""
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BODY_SIZES = {
@@ -48,4 +49,4 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("10.88.0.2", 18081), FixtureHandler).serve_forever()
+    ThreadingHTTPServer((os.environ.get("TOR_TEST_LISTEN_HOST", "10.88.0.2"), int(os.environ.get("TOR_TEST_LISTEN_PORT", "18081"))), FixtureHandler).serve_forever()

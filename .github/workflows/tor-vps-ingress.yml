@@ -6,6 +6,8 @@ on:
       - tests/load/vps_ingress_ci.sh
       - tests/load/vps_ingress_backend.py
       - docs/infra/vps-ingress-sizing.md
+      - ops/home-ingress/**
+      - tests/load/home_ingress_examples_ci.sh
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,10 +31,15 @@ jobs:
         run: |
           bash -n tests/load/vps_ingress_ci.sh
           python3 -m py_compile tests/load/vps_ingress_backend.py
+          bash -n tests/load/home_ingress_examples_ci.sh
       - name: Run disposable three-namespace gateway test
         run: |
           sudo env GITHUB_ACTIONS=true GITHUB_RUN_ID="$GITHUB_RUN_ID" \
             RUNNER_TEMP="$RUNNER_TEMP" bash tests/load/vps_ingress_ci.sh
+      - name: Validate future Nginx examples in disposable TLS/WireGuard lab
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_TEMP="$RUNNER_TEMP" \
+            bash tests/load/home_ingress_examples_ci.sh
       - name: Show test summary
         if: always()
         run: |

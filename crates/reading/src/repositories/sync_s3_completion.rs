@@ -212,6 +212,15 @@ impl PgReadingSync {
             return Err(SyncError::Conflict);
         }
 
+        super::started::record(
+            &mut tx,
+            actor,
+            book_id,
+            chapter_id,
+            version_id,
+            Some(purchase_id),
+        )
+        .await?;
         let created = sqlx::query_scalar::<_, String>(
             "INSERT INTO reader_chapter_completions
                 (user_id,book_id,chapter_id,first_version_id,purchase_id,source_event_id)

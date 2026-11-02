@@ -123,3 +123,80 @@ The borrower must have an immutable D-08 finance snapshot with original buyer
 debit, platform credit, and matching author earnings. This blocks historical
 wallet-only purchases, even if their grant rows are missing.
 Approval and creator reversal are still deliberately unavailable.
+
+
+## Moderator step-up before direct refund approval (2026-10-31)
+
+Direct refund approval now requires a fresh password-verification capability
+before a proof can be issued by the A-owned session authority. The capability is created only by
+`verify_password_for_step_up` and must be checked in the bounded web
+`PasswordJobs` worker; raw passwords never enter the commerce repository.
+The commerce module computes the exact decision digest; the accounts module
+verifies credentials and issues the scoped proof on an active session. This
+separation keeps the TOR feature dependency rules intact.
+Issuance rechecks the exact stored password hash, active global administrator
+role, active session and pending request revision under PostgreSQL locks.
+
+The opaque proof token is never stored or returned to the browser. Only its
+SHA-256 digest is stored on the existing session row. It is bound to
+`finance.refund.approve.v1`, the current session, request ID, expected
+revision and normalized decision-reason digest; it expires after five minutes.
+The approval transaction validates and consumes it atomically with buyer
+credit, platform/creator reversals and entitlement revocation. Missing,
+expired, reused, wrong-session, wrong-request, stale-revision or changed-reason
+proofs fail closed with no business writes. Session revocation, password
+rotation and administrator demotion invalidate the proof.
+
+The approval method remains internal and is not mounted on HTTP. Any future
+web/API handler must perform same-origin + CSRF validation, authoritative
+administrator lookup, account-scoped attempt limiting and bounded current
+password verification before issuing the proof. No user-facing refund request
+or approval flow is enabled by this change.
+
+PostgreSQL tests distinguish A-issued credential authority from D's negative and
+positive approval transitions. The issuance and decision share the exact
+scope, request ID, revision and reason digest. The `202610310292` migration
+uses `statement_timestamp()` for both issue and expiry to avoid microsecond
+constraint drift.
+
+
+## D-06 atomic swap implementation gate (2026-11-01)
+
+**Status: design gate, NOT an executable swap.** The existing `swap_quote` is a
+read-only snapshot and must never be accepted as authorization. The swap writer
+must reuse the existing immutable chapter purchase, wallet ledger, creator
+posting, platform credit, revocation and first-grant facts; do not create a
+parallel balance or rights system.
+
+1. Lock buyer wallet before the source purchase, matching checkout and refund
+   approval lock order. Lock the exact source purchase before checking first
+   protected exposure, revocation, policy and expiry in the same transaction.
+   Historic purchases without `c06-first-issue-v1` remain ineligible.
+2. Re-read target publication, active version, paid price, book owner and
+   availability under transaction-time locks. Require **a different book of the
+   same owner**, and reject a target already purchased by the reader. Recompute
+   the difference in integer minor units; never trust the earlier quote.
+3. Check the source buyer debit and full frozen platform/creator postings before
+   reversing. Require verified, immutable target split and an approved refund
+   policy for the newly acquired purchase. The policy catalog remains empty by
+   default: **do not infer a seven-day refund window from NEwBOO**.
+4. In a single PostgreSQL transaction, reverse source platform and creator
+   earnings, credit/debit the buyer by the exact price difference (no overdraft),
+   revoke source access, create one new immutable purchase and target access,
+   and post target platform and creator shares. Preserve the source purchase
+   for audit. Never implement swap as two separately committed refund/checkout
+   calls.
+5. Bind a durable idempotency key to buyer, source purchase, target chapter,
+   exact target version and prices; exact retries return the original receipt.
+   Conflicting retries fail closed. Serialize competing swap, refund, first
+   protected read and ordinary checkout; verify no double grant or double
+   ledger posting in PostgreSQL tests.
+6. Until those tests and all GitHub Actions pass, do not mount public swap
+   routes, enable a feature switch or deploy to any server.
+
+**Acceptance tests:** equal/positive/negative delta; insufficient balance;
+changed target price/version/owner; already owned or hidden target; source
+opened/expired/refunded; missing source/target split; duplicate and conflicting
+idempotency keys; concurrent refund/swap/grant/checkout; transaction rollback
+on an injected posting failure; invariant that buyer, platform and creator
+movements balance exactly. No HTTP execution is authorized by this document.

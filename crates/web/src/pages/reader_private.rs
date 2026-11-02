@@ -54,7 +54,7 @@ pub fn private_reader_with_demand(
             valid_text_place(place, &blocks).ok().map(|()| place)
         });
     let complete_form = if completed {
-        "<p class=\"reader-complete\" role=\"status\">Глава уже отмечена прочитанной.</p>"
+        "<p class=\"reader-complete\" role=\"status\">Глава уже отмечена прочитанной. <a class=\"text-link\" href=\"/me/rankings\">Мои рейтинги</a></p>"
             .to_owned()
     } else {
         finish.map_or_else(String::new, |place| {

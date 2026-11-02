@@ -1,0 +1,12 @@
+# Example only: dedicated WireGuard interface for TOR public ingress.
+# Never commit real keys or activate before reviewing interface/port conflicts.
+# Install as /etc/wireguard/wg0.conf with chmod 600 only after approval.
+[Interface]
+Address = 10.88.0.1/30
+ListenPort = 51820
+PrivateKey = <REPLACE_WITH_VPS_PRIVATE_KEY>
+
+[Peer]
+PublicKey = <REPLACE_WITH_HOME_PUBLIC_KEY>
+AllowedIPs = 10.88.0.2/32
+# No Endpoint: the home peer initiates traffic through router/NAT.

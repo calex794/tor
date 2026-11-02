@@ -39,3 +39,18 @@ Migration `202610310191_creator_follow_release_feed.sql` extends the canonical f
 ## S023 chapter import queue (2026-10-31)
 
 `202610310247_chapter_import_jobs.sql` adds the durable owner-scoped queue for already-reviewed canonical UTF-8 chapter text. Only private staging-object metadata and a SHA-256 are stored in PostgreSQL; the text body stays in private S3. One active job per book, idempotency key, bounded attempts, lease epoch and expiry, owner-scoped status, cancellation and terminal outcomes are enforced by schema and repository operations. The final job success and the existing all-or-nothing `import_draft_chapter_batch` writer must commit in the same transaction while holding the job row lock. A cancel that wins first leaves zero chapters; a finalizer that wins first makes cancellation a no-op. The worker is default-off and requires explicit `TOR_CHAPTER_IMPORT_WORKER_ENABLED=1`, authenticated PostgreSQL, and a configured private S3 bucket. The HTTP path stores only the author's reviewed canonical text; DOCX/ZIP extraction remains in the existing preview step. CI covers PostgreSQL lease recovery, owner privacy, cancellation/finalization races, HTTP status, worker completion, and loopback MinIO integrity/private access. Configure a private-bucket lifecycle rule to expire the `staging/chapters/` prefix after 1 day as a backstop for a process crash between S3 PUT and PostgreSQL enqueue; normal success, terminal failure and cancellation delete the object immediately.
+
+
+## D-06: moderator step-up for direct refunds (2026-10-31)
+
+Migration `202610310293_d06_refund_admin_step_up.sql` adds a short-lived,
+single-use, transaction-scoped proof to the existing opaque `sessions` row.
+The proof binds the active administrator session to the exact refund request,
+revision and normalized decision reason. A password-backed web handler must
+verify the current password through the bounded `PasswordJobs` worker and
+pass the resulting in-memory `VerifiedPassword` capability to the D repository.
+The proof expires after five minutes and is consumed in the same PostgreSQL
+transaction as the refund reversal. Session revocation, password rotation and
+administrator-role revocation invalidate the operation. No separate proof
+service/table, HTTP refund route, public refund switch or server deployment is
+introduced by this migration.

@@ -128,9 +128,11 @@ fn update_cards(
                     )
                 }
             } else {
+                // The private followed-books feed is for an authenticated reader:
+                // use the progress/completion-capable route, not the public preview.
                 (
                     "Бесплатная глава".to_owned(),
-                    format!("/reader/{}", item.chapter_id),
+                    format!("/read/{}", item.chapter_id),
                     "Читать",
                 )
             };
@@ -187,6 +189,30 @@ mod update_tests {
     use tor_reading::repositories::follow_updates::{
         FollowedRelease, FollowedReleasePage, UpdatesCursor,
     };
+
+    #[test]
+    fn free_update_opens_the_authenticated_completion_capable_reader() {
+        let page = FollowedReleasePage {
+            items: vec![FollowedRelease {
+                book_id: 9,
+                chapter_id: 12,
+                book_title: "Книга".into(),
+                chapter_title: "Новая бесплатная глава".into(),
+                chapter_number: 2,
+                is_paid: false,
+                price_minor: 0,
+                is_read: false,
+                released_micros: 123,
+            }],
+            next_cursor: None,
+        };
+        let html = update_cards(&page, false, false, &[], "csrf-token");
+        assert!(html.contains("href=\"/read/12\""));
+        assert!(!html.contains("href=\"/reader/12\""));
+        assert!(html.contains("action=\"/me/updates/12/read-state\""));
+        assert!(html.contains("Новая бесплатная глава"));
+        assert!(html.contains("Отметить прочитанной"));
+    }
 
     #[test]
     fn paid_update_is_escaped_and_points_to_enabled_checkout() {

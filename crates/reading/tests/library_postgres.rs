@@ -91,6 +91,14 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
         Some(LibraryError::Invalid)
     );
 
+    // Removing A's copy must not remove B's independently saved copy.
+    // Check while visible: a moderation hold would otherwise mask deletion.
+    bookmarks.remove_book(92001, 92010).await.unwrap();
+    let other = bookmarks.list_books(92002, 30, None).await.unwrap();
+    assert_eq!(other.items.len(), 1);
+    assert_eq!(other.items[0].book_id, 92010);
+    bookmarks.add_book(92001, 92010).await.unwrap();
+
     // A book withdrawn from publication must disappear even if saved.
     sqlx::query("UPDATE books SET admin_hold = true WHERE id = 92010")
         .execute(&pool)
