@@ -369,11 +369,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
 
     // Publishing a book must close the queued import route before any S3 PUT,
     // even if the caller is still the authenticated owner.
-    sqlx::query("UPDATE books SET visibility='public' WHERE id=$1")
-        .bind(book_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    authoring.release_book(owner, book_id).await.unwrap();
     let published_text = "Глава 2: После публикации\nНовая глава";
     let published_chapters = parse_text("published.txt", &published_text).unwrap();
     let published_fp = fingerprint(book_id, &published_chapters);
