@@ -101,10 +101,7 @@ pub(super) async fn submit(
         Ok(key) => key,
         Err(_) => return deny(StatusCode::UNPROCESSABLE_ENTITY),
     };
-    if chapter_id <= 0
-        || form.version_id <= 0
-        || form.parent_id.is_some_and(|id| id <= 0)
-    {
+    if chapter_id <= 0 || form.version_id <= 0 || form.parent_id.is_some_and(|id| id <= 0) {
         return deny(StatusCode::NOT_FOUND);
     }
     let anchor = match selected_anchor(&form) {
@@ -141,11 +138,15 @@ pub(super) async fn submit(
         .await;
     match result {
         CreateResult::Created(_) => private_response(
-            Redirect::to(&format!("/reader/{chapter_id}?comment=sent#chapter-comments")),
+            Redirect::to(&format!(
+                "/reader/{chapter_id}?comment=sent#chapter-comments"
+            )),
             &[],
         ),
         CreateResult::Replayed(_) => private_response(
-            Redirect::to(&format!("/reader/{chapter_id}?comment=repeat#chapter-comments")),
+            Redirect::to(&format!(
+                "/reader/{chapter_id}?comment=repeat#chapter-comments"
+            )),
             &[],
         ),
         CreateResult::Invalid => deny(StatusCode::UNPROCESSABLE_ENTITY),
@@ -178,10 +179,7 @@ mod tests {
         assert_ne!(hash, payload_hash(4, 6, None, Some(anchor), "hello"));
         assert_ne!(hash, payload_hash(4, 5, Some(9), Some(anchor), "hello"));
         assert_ne!(hash, payload_hash(4, 5, None, None, "hello"));
-        assert_ne!(
-            hash,
-            payload_hash(4, 5, None, Some(anchor), "different")
-        );
+        assert_ne!(hash, payload_hash(4, 5, None, Some(anchor), "different"));
         let mut reply = form;
         reply.parent_id = Some(9);
         assert!(selected_anchor(&reply).is_err());
