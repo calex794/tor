@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import taxonomy_import_csv as importer
 import taxonomy_review_export as reviewer
+import taxonomy_review_compile as review_compiler
 
 
 def scalar(url, sql):
@@ -190,7 +191,35 @@ def main():
             raise AssertionError("private draft leaked into variant diagnostics")
         if {v["label"] for v in variants("tag", raw_variant)} != {candidate, raw_variant}:
             raise AssertionError("variant search did not normalize fullwidth input")
-        reviewed = make_csv(root, "reviewed-candidate.csv", [("tag", candidate, "")])
+        # Simulate a human review: skip every other public candidate and
+        # explicitly approve only this one. The reviewed CSV cannot be used
+        # by the importer until the decision compiler validates all groups.
+        export_rows = reviewer.fetch_review(url)
+        exported = root / "unreviewed-queue.csv"
+        reviewer.export_review(export_rows, exported)
+        with exported.open(encoding="utf-8-sig", newline="") as stream:
+            decisions = list(csv.DictReader(stream))
+        approved_review_row = 0
+        for record in decisions:
+            record["decision"] = "skip"
+            if (record["kind"] == "tag" and record["term_id"] == str(candidate_id)
+                    and record["status"] == "candidate"):
+                record["decision"] = "approve"
+                record["approved_label"] = candidate
+                approved_review_row += 1
+        if approved_review_row != 1:
+            raise AssertionError("public review export lost candidate before approval")
+        reviewed_file = root / "editor-decisions.csv"
+        with reviewed_file.open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=reviewer.REVIEW_COLUMNS)
+            writer.writeheader()
+            writer.writerows(decisions)
+        reviewed = root / "approved-from-decisions.csv"
+        selected, total = review_compiler.compile_review(reviewed_file, reviewed)
+        if selected != 1 or total != len(export_rows):
+            raise AssertionError("explicit candidate decision was not compiled exactly")
+        if importer.checked_csv(reviewed) != [("tag", candidate, [])]:
+            raise AssertionError("compiler silently approved or renamed a public label")
         apply(reviewed)
         if any(candidate in entry for entry in unmapped()):
             raise AssertionError("approved candidate remained in review queue")

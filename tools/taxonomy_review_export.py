@@ -57,7 +57,7 @@ COMMIT;
 """
 
 REVIEW_COLUMNS = (
-    "kind", "normalized_key", "public_uses", "spelling_count",
+    "snapshot_total", "kind", "normalized_key", "public_uses", "spelling_count",
     "term_id", "status", "review_label", "raw_spellings_json",
     "decision", "approved_label", "approved_aliases",
 )
@@ -104,6 +104,7 @@ def export_review(rows: list[dict], dest: Path) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow({
+                "snapshot_total": len(rows),
                 "kind": row["kind"],
                 "normalized_key": safe_spreadsheet_text(row["normalized_key"]),
                 "public_uses": row["public_uses"],

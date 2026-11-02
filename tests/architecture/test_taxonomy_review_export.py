@@ -56,6 +56,7 @@ class TaxonomyReviewExportTests(unittest.TestCase):
             self.assertEqual(rows[0]["review_label"], "Система")
             self.assertEqual(rows[0]["status"], "candidate")
             self.assertEqual(rows[0]["term_id"], "23")
+            self.assertEqual(rows[0]["snapshot_total"], "1")
             self.assertEqual(rows[0]["decision"], "")
             self.assertEqual(rows[0]["approved_label"], "")
             self.assertEqual(rows[0]["approved_aliases"], "")
