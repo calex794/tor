@@ -20,13 +20,10 @@ use tor_accounts::{
     services::ril_pseudonym::RilSubjectSigner,
     services::security::{generate_session_token, session_token_digest},
 };
-use tor_books::services::book_registration::{source_identity, with_registration_metadata, RegistrationFields};
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
 use tor_books::{
     repositories::postgres::PgAuthoring,
-    services::authoring::{
-        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
-    },
+    services::authoring::AuthorError,
 };
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
@@ -55,9 +52,9 @@ mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
-mod book_registration_http;
 mod book_follow_actions;
 mod book_likes;
+mod book_registration_http;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
@@ -433,7 +430,9 @@ async fn create_book(
     Form(form): Form<NewBookForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
