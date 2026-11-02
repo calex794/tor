@@ -360,7 +360,7 @@ fn router_inner(
             "/api/v1/me/library/{id}",
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
-        .route("/me/books", get(author_books).post(book_registration_http::create_book))
+        .route("/me/books", get(author_books).post(create_book))
         .route("/me/books/new", get(new_author_book))
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
@@ -427,6 +427,25 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     let command_key = generate_session_token();
     private_response(author_pages::new_book(&csrf, &command_key), &cookies)
 }
+// RIL route-policy guard remains at the audited registration entrypoint.
+async fn create_book(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Form(form): Form<NewBookForm>,
+) -> Response {
+    if !state.cookies.same_origin(&headers)
+        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
+        return deny(StatusCode::FORBIDDEN);
+    }
+    match session_user(&state, &headers).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(status) => return deny(status),
+    }
+    book_registration_http::create_book(State(state), headers, Form(form)).await
+}
+
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
