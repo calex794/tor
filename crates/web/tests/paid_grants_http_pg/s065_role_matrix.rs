@@ -12,6 +12,26 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 
+// This disposable DB is shared with subsequent A-05 role invariant tests.
+// Always deactivate our synthetic administrator, including on test panic.
+struct AdminRoleCleanup<'a> {
+    url: &'a str,
+    user_id: i64,
+}
+
+impl Drop for AdminRoleCleanup<'_> {
+    fn drop(&mut self) {
+        pg(
+            self.url,
+            &format!(
+                "UPDATE account_roles SET is_active=FALSE \
+                 WHERE user_id={} AND role='administrator'",
+                self.user_id
+            ),
+        );
+    }
+}
+
 pub(super) async fn assert_administrator_and_guest_denied(
     url: &str,
     accounts: &PgAccounts,
@@ -31,6 +51,10 @@ pub(super) async fn assert_administrator_and_guest_denied(
              ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE"
         ),
     );
+    let _cleanup = AdminRoleCleanup {
+        url,
+        user_id: admin_id,
+    };
     let actor = accounts
         .session_actor(&session_token_digest(&admin_session))
         .await

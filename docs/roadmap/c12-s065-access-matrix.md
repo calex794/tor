@@ -20,7 +20,7 @@ Source: [S065 scenario](https://app.notion.com/p/40432a84beec8115b1f9f8567f855ce
 
 ## Reproducible acceptance evidence
 
-- Real PostgreSQL/Axum role checks, no mocked identity: `crates/web/tests/paid_grants_http_pg.rs` and `crates/web/tests/paid_grants_http_pg/s065_role_matrix.rs`. The latter inserts an actual active `account_roles.administrator` in **disposable `tor_ci`**, verifies it via `session_actor`, then sends valid-origin/CSRF requests.
+- Real PostgreSQL/Axum role checks, no mocked identity: `crates/web/tests/paid_grants_http_pg.rs` and `crates/web/tests/paid_grants_http_pg/s065_role_matrix.rs`. The latter inserts an actual active `account_roles.administrator` in **disposable `tor_ci`**, verifies it via `session_actor`, cleans up the temporary active role even on assertion failure (so subsequent A-05 last-admin checks remain isolated), then sends valid-origin/CSRF requests.
 - Exact image purchase/MinIO/WebCrypto: `crates/web/tests/paid_grants_s3_pg.rs` and `tools/s034_single_paid_browser.cjs`.
 - Historical aliases/progress/buyer/author: `s065_alternate_reader_access_matrix` in `paid_grants_http_pg.rs`.
 - Previous merged [PR #426](https://github.com/calex794/tor/pull/426): [post-merge integration 16/16 SUCCESS](https://github.com/calex794/tor/actions/runs/41510027811), [repository rules SUCCESS](https://github.com/calex794/tor/actions/runs/41510027954).
