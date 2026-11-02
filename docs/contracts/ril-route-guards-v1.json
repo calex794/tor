@@ -363,7 +363,7 @@
       "method": "GET",
       "template": "/me/books/{id}/chapters/{chapter_id}/release",
       "source": "crates/web/src/author_chapter_http.rs",
-      "handler": "confirm_release",
+      "handler": "schedule::confirm_release",
       "policy": "owner"
     },
     {

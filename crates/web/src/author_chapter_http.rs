@@ -124,7 +124,7 @@ pub(crate) fn router(
         )
         .route(
             "/me/books/{id}/chapters/{chapter_id}/release",
-            get(confirm_release).post(publish_chapter),
+            get(schedule::confirm_release).post(publish_chapter),
         )
         .route(
             "/me/books/{id}/chapters/{chapter_id}/schedule",
@@ -489,46 +489,6 @@ async fn update_chapter(
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn confirm_release(
-    State(state): State<AuthorChapterState>,
-    Path((id, chapter_id)): Path<(i64, i64)>,
-    headers: HeaderMap,
-) -> Response {
-    let actor = match session_actor(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    let pending = match state
-        .authoring
-        .pending_free_chapter(actor, id, chapter_id)
-        .await
-    {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let scheduled = match state
-        .authoring
-        .scheduled_free_chapter(actor, id, chapter_id)
-        .await
-    {
-        Ok(value) => value,
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        crate::author_chapter_pages::release_chapter(
-            id,
-            chapter_id,
-            &pending,
-            &csrf,
-            scheduled.as_ref(),
-        ),
-        &cookies,
-    )
 }
 
 async fn publish_chapter(
