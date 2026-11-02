@@ -104,7 +104,7 @@ async function readyCover(page, bookId, viewport, scheme) {
           await create.click();
         }
         await page.getByLabel('Название книги').fill(title);
-        await page.getByLabel('Язык').fill('ru');
+        await page.getByLabel('Язык', { exact: true }).fill('ru');
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
         const bookId = page.url().split('/').pop();
