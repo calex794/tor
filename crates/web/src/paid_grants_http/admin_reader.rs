@@ -27,10 +27,7 @@ pub(super) async fn admin_reader(
     let Ok(actor_id) = PositiveId::new(actor.actor.user_id.get()) else {
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     };
-    let authority = PgAdministratorReaderEntitlements::new(
-        state.accounts.pool().clone(),
-        digest,
-    );
+    let authority = PgAdministratorReaderEntitlements::new(state.accounts.pool().clone(), digest);
     match authority
         .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
         .await
@@ -71,7 +68,10 @@ pub(super) async fn admin_reader(
         origin = crate::pages::escape_html(s3_origin),
     );
     let html = include_str!("../../templates/reader_layout.html")
-        .replace("<!--PAGE_TITLE-->", &format!("Глава {} — Администратор", chapter_id.get()))
+        .replace(
+            "<!--PAGE_TITLE-->",
+            &format!("Глава {} — Администратор", chapter_id.get()),
+        )
         .replace(
             "<!--PAGE_DESCRIPTION-->",
             "Приватный административный просмотр главы.",
