@@ -54,7 +54,7 @@ async function screenshot(page, screen, step) {
         await owner.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
         await owner.waitForURL(base + '/me/books/new');
         await owner.getByLabel('Название книги').fill('Книга петли ' + nonce);
-        await owner.getByLabel('Язык').fill('ru');
+        await owner.getByLabel('Язык', { exact: true }).fill('ru');
         await owner.getByRole('button', { name: 'Создать книгу' }).click();
         await owner.waitForURL(/\/me\/books\/\d+$/);
         const bookId = owner.url().split('/').pop();
