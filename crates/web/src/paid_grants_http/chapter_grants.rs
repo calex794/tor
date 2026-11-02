@@ -127,4 +127,3 @@ pub(super) async fn grant(
         Err(error) => deny(status(error)),
     }
 }
-
