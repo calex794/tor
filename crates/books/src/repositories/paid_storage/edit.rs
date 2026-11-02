@@ -131,13 +131,17 @@ impl PgPaidStorage {
             .fetch_one(&mut *tx)
             .await
             .map_err(map_write)?;
-            let digest: Vec<u8> = existing.try_get("payload_hash")
+            let digest: Vec<u8> = existing
+                .try_get("payload_hash")
                 .map_err(|_| AuthorError::Unavailable)?;
-            let previous_chapter: Option<i64> = existing.try_get("chapter_id")
+            let previous_chapter: Option<i64> = existing
+                .try_get("chapter_id")
                 .map_err(|_| AuthorError::Unavailable)?;
-            let version_id: Option<i64> = existing.try_get("version_id")
+            let version_id: Option<i64> = existing
+                .try_get("version_id")
                 .map_err(|_| AuthorError::Unavailable)?;
-            let saved_revision: Option<i64> = existing.try_get("saved_revision")
+            let saved_revision: Option<i64> = existing
+                .try_get("saved_revision")
                 .map_err(|_| AuthorError::Unavailable)?;
             if digest != payload_hash
                 || previous_chapter != Some(chapter_id)

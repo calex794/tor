@@ -80,8 +80,7 @@ async fn ready_object(
 async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     let url = std::env::var("TEST_DATABASE_URL").expect("PG18 CI");
     assert_eq!(
-        url,
-        "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
+        url, "postgresql://tor_app:tor-ci-app@127.0.0.1:5432/tor_ci",
         "production database forbidden"
     );
     assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
@@ -131,7 +130,10 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     .await
     .unwrap();
     let object_v1 = ready_object(
-        &pool, chapter, v1, old_body,
+        &pool,
+        chapter,
+        v1,
+        old_body,
         "f034f034-0001-4001-8001-000000000341",
     )
     .await;
@@ -202,17 +204,26 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     assert_eq!(before, (v1, 1), "pending edits never change public pointer");
 
     let object_v2 = ready_object(
-        &pool, chapter, v2.version_id, "Новая V2 — 🦈",
+        &pool,
+        chapter,
+        v2.version_id,
+        "Новая V2 — 🦈",
         "f034f034-0002-4002-8002-000000000342",
     )
     .await;
     let object_rival = ready_object(
-        &pool, chapter, rival.version_id, "Конкурирующая V2",
+        &pool,
+        chapter,
+        rival.version_id,
+        "Конкурирующая V2",
         "f034f034-0003-4003-8003-000000000343",
     )
     .await;
     repo.attach_verified_and_publish(
-        owner, book, pinned(chapter, v2.version_id), &object_v2,
+        owner,
+        book,
+        pinned(chapter, v2.version_id),
+        &object_v2,
         PaidPublication::PublishEdit {
             expected_current: v1,
             expected_revision: 1,
@@ -230,9 +241,17 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     .unwrap();
     assert_eq!(after, (v2.version_id, 2));
     // Exact HTTP retry doesn't create V3 or bump revision a second time.
-    assert!(repo.prepare_published_paid_edit(owner, &first).await.unwrap().published);
+    assert!(
+        repo.prepare_published_paid_edit(owner, &first)
+            .await
+            .unwrap()
+            .published
+    );
     repo.attach_verified_and_publish(
-        owner, book, pinned(chapter, v2.version_id), &object_v2,
+        owner,
+        book,
+        pinned(chapter, v2.version_id),
+        &object_v2,
         PaidPublication::PublishEdit {
             expected_current: v1,
             expected_revision: 1,
@@ -242,12 +261,16 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     .unwrap();
     assert_eq!(
         repo.attach_verified_and_publish(
-            owner, book, pinned(chapter, rival.version_id), &object_rival,
+            owner,
+            book,
+            pinned(chapter, rival.version_id),
+            &object_rival,
             PaidPublication::PublishEdit {
                 expected_current: v1,
                 expected_revision: 1,
             },
-        ).await,
+        )
+        .await,
         Err(AuthorError::Conflict),
         "stale other tab may not replace the winning published edition"
     );
@@ -282,19 +305,22 @@ async fn paid_edit_keeps_purchased_v1_and_rejects_stale_race_and_reused_key() {
     .unwrap();
     assert_eq!(historical, original_version);
     assert_eq!(historical.0, old_body);
-    assert!(repo.encrypted_chapter(pinned(chapter, v1)).await.unwrap().is_some());
+    assert!(repo
+        .encrypted_chapter(pinned(chapter, v1))
+        .await
+        .unwrap()
+        .is_some());
     assert!(repo
         .encrypted_chapter(pinned(chapter, v2.version_id))
         .await
         .unwrap()
         .is_some());
-    let rival_state: String = sqlx::query_scalar(
-        "SELECT state FROM storage_objects WHERE id=$1::uuid",
-    )
-    .bind(object_rival.as_str())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let rival_state: String =
+        sqlx::query_scalar("SELECT state FROM storage_objects WHERE id=$1::uuid")
+            .bind(object_rival.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(rival_state, "ready", "failed CAS never attaches stale S3");
     pool.close().await;
 }

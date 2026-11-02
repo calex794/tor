@@ -117,11 +117,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
     /// bought V1 remains the published and readable edition. Only after
     /// authenticated G PUT+GET/hash may B move the current pointer by CAS.
     /// This method does not expose a new HTTP route or alter paid metadata.
-    pub async fn publish_edit(
-        &self,
-        actor: i64,
-        request: &SaveChapter,
-    ) -> Result<(), AuthorError> {
+    pub async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
         let prepared = self
             .paid
             .prepare_published_paid_edit(actor, request)
