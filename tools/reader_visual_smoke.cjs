@@ -355,6 +355,17 @@ async function inspect(page, name, where) {
         name + ': missing server-origin CSRF token');
       await page.waitForFunction(() =>
         document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
+      // Merely opening a chapter and leaving must NOT create ChapterStarted.
+      await page.goto(base + '/books/1', { waitUntil: 'networkidle' });
+      const unopened = await page.request.get(base +
+        '/api/v1/me/progress/free?chapter_id=101');
+      const untouched = await unopened.json();
+      assert(unopened.status() === 200 && untouched.revision === 0 &&
+        untouched.block_id === null,
+        name + ': GET/pagehide created progress without reading');
+      await page.goto(base + '/reader/101', { waitUntil: 'networkidle' });
+      await page.waitForFunction(() =>
+        document.querySelector('[data-free-progress-chapter]')?.dataset.freeProgressReady === '1');
       const progressPost = page.waitForResponse(response =>
         response.url().endsWith('/api/v1/me/progress/free') &&
         response.request().method() === 'PUT', { timeout: 12000 });
