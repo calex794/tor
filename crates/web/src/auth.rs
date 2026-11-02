@@ -298,7 +298,10 @@ fn router_inner(
             "/layers/{layer_id}/purchase",
             post(layer_storefront::buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
         )
-        .route("/api/v1/layers/{id}/purchase", post(layer_checkout_api::buy))
+        .route(
+            "/api/v1/layers/{id}/purchase",
+            post(layer_checkout_api::buy),
+        )
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),

@@ -34,8 +34,8 @@ pub use layer_storefront::{
     purchased_page as purchased_layers_page,
 };
 mod reader_paid;
-pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 pub use reader_layer::layer_reader_shell;
+pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
@@ -517,7 +517,10 @@ pub async fn free_reader_script() -> impl IntoResponse {
 pub async fn layer_reader_script() -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         include_str!("../assets/newboo-layer-reader.mjs"),

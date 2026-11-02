@@ -28,7 +28,14 @@ pub fn my_library_with_updates_layers(
     layers_available: bool,
 ) -> Html<String> {
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
-    my_library_inner(items, saved, csrf, purchased_available, &update_html, layers_available)
+    my_library_inner(
+        items,
+        saved,
+        csrf,
+        purchased_available,
+        &update_html,
+        layers_available,
+    )
 }
 
 fn my_library_inner(

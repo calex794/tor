@@ -1,7 +1,7 @@
 //! S031: explicit Layer wallet purchase, opt-in and never an external charge.
 //! No automatic renewal, creator posting, refund or withdrawable balances.
-use super::{deny, session_user, AuthState};
 use super::layer_routes::layer_books;
+use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, Query, State},
