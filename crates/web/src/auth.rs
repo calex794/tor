@@ -21,10 +21,7 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
-use tor_books::{
-    repositories::postgres::PgAuthoring,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
