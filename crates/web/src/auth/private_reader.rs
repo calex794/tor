@@ -2,16 +2,22 @@
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, Method, StatusCode},
     response::{Redirect, Response},
 };
 use tor_reading::{domain::renderer::valid_reader_length, services::PublicReadingRepository};
 
+#[derive(serde::Deserialize)]
+pub(super) struct IssueFeedbackQuery {
+    issue: Option<String>,
+}
+
 /// Private verified reader; public free chapters use /reader/{id}.
 pub(super) async fn page(
     State(state): State<AuthState>,
     Path(id): Path<u64>,
+    Query(query): Query<IssueFeedbackQuery>,
     headers: HeaderMap,
     method: Method,
 ) -> Response {
@@ -76,7 +82,18 @@ pub(super) async fn page(
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let mut response = private_response(
-        pages::private_reader_with_demand(id, &chapter, &csrf, saved, revision, completed, demand),
+        pages::private_reader_with_options(
+            id,
+            &chapter,
+            &csrf,
+            saved,
+            revision,
+            completed,
+            pages::PrivateReaderOptions {
+                demand,
+                issue: query.issue.as_deref(),
+            },
+        ),
         &cookies,
     );
     // E-12: the only new script is self-hosted and cannot run inline JS.

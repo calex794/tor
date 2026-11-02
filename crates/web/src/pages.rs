@@ -23,6 +23,7 @@ mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
 pub use reader_private::private_reader_with_demand;
+pub use reader_private::{private_reader_with_options, PrivateReaderOptions};
 mod paywall;
 pub use paywall::paid_chapter_paywall;
 mod reader_paid;

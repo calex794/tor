@@ -38,6 +38,44 @@ pub fn private_reader_with_demand(
     completed: bool,
     demand: Option<DemandState>,
 ) -> Html<String> {
+    private_reader_with_options(
+        chapter_id,
+        chapter,
+        csrf,
+        saved,
+        expected_revision,
+        completed,
+        PrivateReaderOptions {
+            demand,
+            issue: None,
+        },
+    )
+}
+
+pub struct PrivateReaderOptions<'a> {
+    pub demand: Option<DemandState>,
+    pub issue: Option<&'a str>,
+}
+
+pub fn private_reader_with_options(
+    chapter_id: u64,
+    chapter: &tor_reading::services::PublicChapterPage,
+    csrf: &str,
+    saved: SavedPlaceState,
+    expected_revision: i64,
+    completed: bool,
+    options: PrivateReaderOptions<'_>,
+) -> Html<String> {
+    let demand = options.demand;
+    let issue_feedback = match options.issue {
+        Some("sent") => {
+            "<p class=\"reader-issue-feedback\" role=\"status\">Сообщение об ошибке отправлено автору.</p>"
+        }
+        Some("repeat") => {
+            "<p class=\"reader-issue-feedback\" role=\"status\">Такое сообщение уже было отправлено автору.</p>"
+        }
+        _ => "",
+    };
     let blocks = reader_blocks(&chapter.body_markdown);
     // Do not infer completion from a GET or from a saved paragraph marker.
     // Only the final non-blank server-parsed block offers the explicit action.
@@ -160,6 +198,7 @@ pub fn private_reader_with_demand(
                 </article>
                 <section class="reader-issues" id="text-issues">
                   <h2>Предложить исправление</h2>
+                  {issue_feedback}
                   <p>Выделите цитату в одном фрагменте и укажите правильный вариант.</p>
                   <form method="post" action="/read/{chapter_id}/text-issues">
                     <input type="hidden" name="csrf_token" value="{csrf}">

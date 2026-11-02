@@ -385,7 +385,7 @@ async function inspect(page, viewport, name) {
           viewport + ': E-12 reader is not available');
         assert(await reader.locator('.reader-issues form').isVisible(),
           viewport + ': E-12 correction form is missing');
-        const selectedQuote = await reader.evaluate(() => {
+        const selectIssueQuote = async () => reader.evaluate(() => {
           const span = Array.from(document.querySelectorAll(
             '.reader-private__content [data-md-start]')).find(
               element => element.textContent.includes('PUBLIC'));
@@ -401,6 +401,7 @@ async function inspect(page, viewport, name) {
           document.dispatchEvent(new Event('selectionchange'));
           return true;
         });
+        const selectedQuote = await selectIssueQuote();
         assert(selectedQuote && await reader.locator('#issue-quote').inputValue() === 'PUBLIC',
           viewport + ': E-12 exact source quotation was not selected');
         assert(await reader.locator('#issue-block').inputValue() === '1',
@@ -408,6 +409,16 @@ async function inspect(page, viewport, name) {
         await reader.getByLabel('Предложение').fill('PUBLIC исправлено');
         await reader.getByRole('button', { name: 'Отправить автору' }).click();
         await reader.waitForURL(base + '/read/' + chapterId + '?issue=sent');
+        assert(await reader.locator('.reader-issue-feedback[role="status"]')
+          .getByText('Сообщение об ошибке отправлено автору.').isVisible(),
+          viewport + ': E-12 reader got no visible submission receipt');
+        assert(await selectIssueQuote(), viewport + ': E-12 repeat selection failed');
+        await reader.getByLabel('Предложение').fill('PUBLIC исправлено');
+        await reader.getByRole('button', { name: 'Отправить автору' }).click();
+        await reader.waitForURL(base + '/read/' + chapterId + '?issue=repeat');
+        assert(await reader.locator('.reader-issue-feedback[role="status"]')
+          .getByText('Такое сообщение уже было отправлено автору.').isVisible(),
+          viewport + ': E-12 duplicate submission had no visible result');
 
         const issueQueue = base + '/me/books/' + bookId + '/issues';
         const forbiddenReaderQueue = await reader.goto(issueQueue);
@@ -418,6 +429,8 @@ async function inspect(page, viewport, name) {
           viewport + ': E-12 owner cannot open the issue queue');
         assert(await page.locator('.auth-card blockquote').getByText('PUBLIC', { exact: true }).isVisible(),
           viewport + ': E-12 author cannot see the verified quote');
+        assert(await page.locator('.auth-card').count() === 1,
+          viewport + ': E-12 duplicate submission created two author tasks');
         await inspect(page, viewport, 'text-issue-author-queue');
 
         const editIssueChapter = '/me/books/' + bookId + '/chapters/' + chapterId + '/edit';
