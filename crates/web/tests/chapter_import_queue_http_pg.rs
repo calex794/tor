@@ -374,8 +374,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
         .execute(&pool)
         .await
         .unwrap();
-    let published_text = "Глава 2: После публикации\\nНовая глава";
-    let published_text = published_text.replace("\\n", "\n");
+    let published_text = "Глава 2: После публикации\nНовая глава";
     let published_chapters = parse_text("published.txt", &published_text).unwrap();
     let published_fp = fingerprint(book_id, &published_chapters);
     let published_response = call(
