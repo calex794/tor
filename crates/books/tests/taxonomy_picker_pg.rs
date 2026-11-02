@@ -119,16 +119,16 @@ async fn indexed_taxonomy_lookup_and_id_only_creation() {
         .await
         .unwrap();
     assert!(!before_approval.iter().any(|row| row.id == candidate_id));
-    assert_eq!(
-        author
-            .resolve_taxonomy_selection(&TaxonomySelection::parse(
-                None,
-                Some(&candidate_id.to_string()),
-                None,
-            )
-            .unwrap())
-            .await,
-        Err(AuthorError::Invalid),
+    assert!(
+        matches!(
+            author
+                .resolve_taxonomy_selection(
+                    &TaxonomySelection::parse(None, Some(&candidate_id.to_string()), None)
+                        .unwrap()
+                )
+                .await,
+            Err(AuthorError::Invalid)
+        ),
         "a pending candidate ID must not be accepted on author POST"
     );
     // B/TAX-01 verifies the visibility boundary; B/TAX-03 owns the audited
