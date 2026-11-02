@@ -11,7 +11,14 @@ use tor_books::{
     },
 };
 
-fn request(owner: i64, key: &str, language: &str, title: &str, original: &str, other: [&str; 2]) -> NewBook {
+fn request(
+    owner: i64,
+    key: &str,
+    language: &str,
+    title: &str,
+    original: &str,
+    other: [&str; 2],
+) -> NewBook {
     let identity = source_identity(original, owner, key).unwrap();
     let book = new_book(&identity, language, title, key).unwrap();
     let book = with_registration_metadata(
