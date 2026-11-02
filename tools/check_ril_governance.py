@@ -60,6 +60,7 @@ SCOPE_CALLS = {
     "active_role", "create_free", "create_paid",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove",
+    "purchased_terms",
 }
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",

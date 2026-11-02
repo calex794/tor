@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 226] = [
+const ROUTES: [RouteRegistration; 231] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -236,6 +236,11 @@ const ROUTES: [RouteRegistration; 226] = [
     RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 223
     RouteRegistration::new("/me/layers", "GET", "/me/", Exact, Page, Dashboard, Read), // 224
     RouteRegistration::new("/me/layers/{layer_id}/metadata", "POST", "/me/", Prefix, Page, Dashboard, Write), // 225
+    RouteRegistration::new("/layers/{layer_id}", "GET", "/layers/", Prefix, Page, Reading, Read), // 226
+    RouteRegistration::new("/layers/{layer_id}/buy", "POST", "/layers/", Prefix, Page, ProductArea::Billing, Write), // 227
+    RouteRegistration::new("/layers/{layer_id}/purchase", "POST", "/layers/", Prefix, Page, ProductArea::Billing, Write), // 228
+    RouteRegistration::new("/api/v1/layers/{id}/purchase", "POST", "/api/v1/layers/", Prefix, Api, ProductArea::Billing, Write), // 229
+    RouteRegistration::new("/me/library/layers", "GET", "/me/library/", Exact, Page, Reading, Read), // 230
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

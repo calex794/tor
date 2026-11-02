@@ -1597,6 +1597,41 @@
       "source": "crates/web/src/auth/layer_routes/layer_create.rs",
       "handler": "update_metadata",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/layers/{layer_id}",
+      "source": "crates/web/src/auth/layer_checkout.rs",
+      "handler": "layer_checkout::page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{layer_id}/buy",
+      "source": "crates/web/src/auth/layer_checkout.rs",
+      "handler": "layer_checkout::buy",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{layer_id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_storefront::buy_form",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/layers/{id}/purchase",
+      "source": "crates/web/src/auth.rs",
+      "handler": "layer_checkout_api::buy",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/layers",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "layer_storefront::my_terms",
+      "policy": "scoped"
     }
   ]
 }

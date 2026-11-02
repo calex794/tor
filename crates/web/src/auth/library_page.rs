@@ -52,7 +52,7 @@ pub(super) async fn my_library(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let page = pages::my_library_with_updates(
+    let page = pages::my_library_with_updates_layers(
         &books,
         &saved,
         &csrf,
@@ -60,6 +60,7 @@ pub(super) async fn my_library(
         state.paid_checkout_enabled,
         &updates,
         &owned,
+        state.layer_pages_enabled,
     );
     private_response(page, &cookies)
 }
