@@ -463,3 +463,10 @@ fn b_18_navigation_follows_books_in_catalog_layout() {
     assert!(navigation > card, "page navigation follows the book grid");
     assert!(html.contains("Страница 1"));
 }
+
+#[test]
+fn s019_header_has_book_registration_on_desktop_and_mobile() {
+    let html = layout("Каталог", "Книги", "").0;
+    assert_eq!(html.matches("href=\"/me/books/new\"").count(), 2);
+    assert!(html.contains("Создать книгу"));
+}
