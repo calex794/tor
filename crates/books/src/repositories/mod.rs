@@ -5,6 +5,7 @@ pub mod recommendation_policy;
 pub(crate) mod owner_transfer;
 // B-09d canonical Book tier, locked under caller-owned transfer transaction.
 pub(crate) mod owner_transfer_tier;
+pub mod admin_reading;
 pub mod paid_assets;
 pub mod paid_storage;
 pub mod postgres;
