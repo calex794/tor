@@ -220,6 +220,20 @@ impl PgBookRooms {
         let body = clean_body(body)?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
         public_book(&mut tx, book_id).await?;
+        // Sequence message IDs by book room, rather than by sender.
+        // Keep this lock through the insert/commit so a later ID cannot
+        // become visible before a delayed, lower-ID message.
+        // NO KEY UPDATE remains compatible with message FK KEY SHARE.
+        let room: Option<i64> = sqlx::query_scalar(
+            "SELECT book_id FROM social_book_rooms WHERE book_id=$1 FOR NO KEY UPDATE",
+        )
+        .bind(book_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if room.is_none() {
+            return Err(MailError::NotFound);
+        }
         active_membership(&mut tx, actor, book_id, true).await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock(hashtextextended(

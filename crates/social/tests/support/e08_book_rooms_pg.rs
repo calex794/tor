@@ -239,3 +239,132 @@ async fn e_08_book_room_send_cannot_race_leave_or_moderation_hold() {
     cleanup(&pool, &users).await;
     // Book fixture remains in disposable tor_ci for database teardown.
 }
+
+/// A blocked first sender must retain the book-room lock while a second
+/// sender tries to write. This detects commit-order inversions that break
+/// descending before-ID pagination for different room participants.
+async fn e08_book_room_wait_for_blocker(
+    pool: &PgPool,
+    waiting: i32,
+    blocker: i32,
+) -> bool {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let blocked: bool = sqlx::query_scalar("SELECT $2=ANY(pg_blocking_pids($1))")
+            .bind(waiting)
+            .bind(blocker)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        if blocked {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_book_room_commit_order_preserves_pagination() {
+    let (pool, users) = fixture().await;
+    let (a, b, reader) = (users[0], users[1], users[2]);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book_id: i64 = sqlx::query_scalar(
+        "INSERT INTO books(source_identity,target_language,title,visibility)
+         VALUES($1,'ru','Ordered book room','public') RETURNING id",
+    )
+    .bind(format!("ci:e08:room:ordered:{nonce}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let rooms = PgBookRooms::new(pool.clone());
+    for user in [a, b, reader] {
+        rooms.join(user, book_id).await.unwrap();
+    }
+
+    let url = std::env::var("TEST_DATABASE_URL").unwrap();
+    let first_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let second_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    let first_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&first_pool)
+        .await
+        .unwrap();
+    let second_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&second_pool)
+        .await
+        .unwrap();
+    let mut pause = pool.begin().await.unwrap();
+    let pause_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *pause)
+        .await
+        .unwrap();
+
+    // A SHARE table lock blocks the message INSERT, but allows the sender
+    // to obtain the book-room lock first. Without the new room lock, both
+    // senders merely wait on this table lock and the blocking edge B -> A
+    // below does not exist.
+    sqlx::query("LOCK TABLE social_book_room_messages IN SHARE MODE")
+        .execute(&mut *pause)
+        .await
+        .unwrap();
+    let first_store = PgBookRooms::new(first_pool.clone());
+    let first = tokio::spawn(async move {
+        first_store.send(a, book_id, "First book message", &key(920)).await
+    });
+    let first_paused = e08_book_room_wait_for_blocker(&pool, first_pid, pause_pid).await;
+    let second_store = PgBookRooms::new(second_pool.clone());
+    let second = tokio::spawn(async move {
+        second_store.send(b, book_id, "Second book message", &key(921)).await
+    });
+    let ordered = e08_book_room_wait_for_blocker(&pool, second_pid, first_pid).await;
+
+    // The barrier is always released before asserting the race result.
+    pause.rollback().await.unwrap();
+    let first = first.await.unwrap().unwrap();
+    let second = second.await.unwrap().unwrap();
+    assert!(first_paused, "first sender must reach the held message table");
+    assert!(ordered, "different senders must serialize on the book room");
+    assert!(first.id < second.id);
+    let latest = rooms.messages(reader, book_id, None, 1).await.unwrap();
+    assert_eq!(latest[0].id, second.id);
+    let older = rooms
+        .messages(reader, book_id, Some(second.id), 1)
+        .await
+        .unwrap();
+    assert_eq!(older[0].id, first.id);
+    assert!(rooms
+        .messages(reader, book_id, Some(first.id), 1)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(rooms
+        .send(a, book_id, "First book message", &key(920))
+        .await
+        .unwrap()
+        .replayed);
+    let written: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM social_book_room_messages WHERE book_id=$1")
+            .bind(book_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(written, 2, "the replay cannot create another message");
+    first_pool.close().await;
+    second_pool.close().await;
+    cleanup(&pool, &users).await;
+    // Book/room fixture rows remain only in the disposable tor_ci database.
+}
