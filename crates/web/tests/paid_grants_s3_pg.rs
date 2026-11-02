@@ -481,7 +481,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     pg(
         &url,
         &format!(
-            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \\
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
              VALUES({single_buyer},600,'RUB')"
         ),
     );
