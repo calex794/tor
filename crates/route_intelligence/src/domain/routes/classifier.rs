@@ -240,6 +240,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/layers/{layer_id}/purchase"), "POST") => Some(227),
         (Some("/api/v1/layers/{layer_id}/purchase"), "POST") => Some(228),
         (Some("/me/library/layers"), "GET") => Some(229),
+        (Some("/read/layer/{chapter_id}"), "GET") => Some(230),
+        (Some("/assets/newboo-layer-reader.mjs"), "GET") => Some(231),
         _ => None,
     };
     index

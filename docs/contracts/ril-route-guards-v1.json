@@ -1625,6 +1625,20 @@
       "source": "crates/web/src/auth/layer_storefront.rs",
       "handler": "my_terms",
       "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/read/layer/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "layer_reader::layer_reader",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-layer-reader.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "layer_reader_assets::script",
+      "policy": "public"
     }
   ]
 }

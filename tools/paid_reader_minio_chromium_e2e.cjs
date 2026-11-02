@@ -31,6 +31,7 @@ const orderedNewbooFiles = [
   "newboo-book-detail.css",
   "newboo-comments.css",
   "newboo-support-widget.css",
+  "newboo-layer-storefront.css",
   "newboo-reader.css",
   "newboo-cover-picker.css",
 ];

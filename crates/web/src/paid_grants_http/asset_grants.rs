@@ -46,6 +46,13 @@ pub(super) async fn grant_asset(
         },
         None => None,
     };
+    if body.source.is_some() && purchase_id.is_some() {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let authority: &dyn EntitlementPort = match body.source {
+        Some(GrantSource::Layer) => &state.layer,
+        None => &state.entitlement,
+    };
     if !state.rate_limits.lock().await.allow(actor, Instant::now()) {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -53,7 +60,7 @@ pub(super) async fn grant_asset(
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
     let result = issue_paid_asset_grant(
-        &state.entitlement,
+        authority,
         &state.assets,
         state.storage.as_ref(),
         Actor { user_id: actor_id },
@@ -67,18 +74,20 @@ pub(super) async fn grant_asset(
             let Some(version) = positive(&grant.version_id) else {
                 return deny(StatusCode::SERVICE_UNAVAILABLE);
             };
-            if let Err(error) = state
-                .first_direct_grant
-                .record(
-                    actor_id,
-                    chapter_id,
-                    version,
-                    purchase_id,
-                    DirectGrantKind::Asset,
-                )
-                .await
-            {
-                return deny(status(error));
+            if body.source.is_none() {
+                if let Err(error) = state
+                    .first_direct_grant
+                    .record(
+                        actor_id,
+                        chapter_id,
+                        version,
+                        purchase_id,
+                        DirectGrantKind::Asset,
+                    )
+                    .await
+                {
+                    return deny(status(error));
+                }
             }
             let mut response = private_response(Json(grant), &[]);
             response.headers_mut().insert(
