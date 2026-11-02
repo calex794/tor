@@ -227,3 +227,60 @@ impl PgPaidStorage {
         })
     }
 }
+
+impl PgPaidStorage {
+    /// Return the protected published Markdown only to the current book owner.
+    pub async fn owned_published_paid_chapter(
+        &self,
+        actor: i64,
+        book_id: i64,
+        chapter_id: i64,
+    ) -> Result<Option<crate::services::authoring::OwnedChapter>, AuthorError> {
+        use crate::services::authoring::OwnedChapter;
+        if actor <= 0 || book_id <= 0 || chapter_id <= 0 {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT c.chapter_no,c.title,c.price_amount,c.edit_revision,v.body_markdown
+             FROM chapters c
+             JOIN books b ON b.id=c.book_id
+             JOIN chapter_publications p ON p.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
+             JOIN chapter_encrypted_release_events e
+               ON e.chapter_id=c.id AND e.version_id=v.id
+              AND e.storage_object_id=v.storage_object_id
+             JOIN storage_objects o ON o.id=e.storage_object_id
+              AND o.state='attached' AND o.object_kind='chapter'
+             WHERE c.id=$1 AND c.book_id=$2 AND b.owner_user_id=$3
+               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND c.visibility='public' AND c.access_level='paid' AND c.price_amount>0
+               AND NOT c.admin_hold AND NOT c.is_deleted
+               AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())",
+        )
+        .bind(chapter_id)
+        .bind(book_id)
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        row.map(|row| {
+            Ok(OwnedChapter {
+                number: row
+                    .try_get("chapter_no")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
+                body: row
+                    .try_get("body_markdown")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                access: ChapterAccess::Paid,
+                price_amount: row
+                    .try_get("price_amount")
+                    .map_err(|_| AuthorError::Unavailable)?,
+                revision: row
+                    .try_get("edit_revision")
+                    .map_err(|_| AuthorError::Unavailable)?,
+            })
+        })
+        .transpose()
+    }
+}

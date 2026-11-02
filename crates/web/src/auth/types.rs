@@ -26,6 +26,7 @@ pub(super) struct AuthState {
     pub(super) paid_checkout_enabled: bool,
     pub(super) swap_browser_enabled: bool,
     pub(super) paid_reader_available: bool,
+    pub(super) paid_author_available: bool,
     pub(super) authoring: PgAuthoring,
     pub(super) progress: PgReadingProgress,
     pub(super) sync: PgReadingSync,
