@@ -295,7 +295,12 @@ jobs:
           cargo test -p tor-commerce --test slices_pg b_10_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test slices_pg d_06_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test layers_pg d_05_ -- --ignored --test-threads=1
-          cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
+          # Enable owner Layer management for exactly this isolated PG/HTTP suite.
+          # All other tests and the actual application retain the default OFF gate.
+          TOR_LAYER_MANAGEMENT_ENABLED=1 cargo test -p tor-web --test layer_picker_http_pg d_05_ -- --ignored --test-threads=1
+          # S031 Layer wallet + browser-form acceptance: explicit flags per disposable suite.
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_checkout_http_pg d_05_ -- --ignored --test-threads=1
+          TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_PAGES_ENABLED=1 TOR_LAYER_CHECKOUT_ENABLED=1 cargo test -p tor-web --test layer_storefront_http_pg d_05_ -- --ignored --test-threads=1
           cargo test -p tor-commerce --test direct_swap_pg d_06_swap_ -- --ignored --test-threads=1
            cargo test -p tor-commerce --test d08_finance_pg d_08_ -- --ignored --test-threads=1
           cargo test -p tor-support --test slices_pg e_11_ -- --ignored --test-threads=1
