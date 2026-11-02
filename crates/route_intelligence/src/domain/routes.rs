@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 222] = [
+const ROUTES: [RouteRegistration; 235] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -232,6 +232,19 @@ const ROUTES: [RouteRegistration; 222] = [
     RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/schedule", "POST", "/me/", Prefix, Page, Dashboard, Write), // 219
     RouteRegistration::new("/me/books/{id}/chapters/{chapter_id}/cancel-schedule", "POST", "/me/", Prefix, Page, Dashboard, Write), // 220
     RouteRegistration::new("/reader/{id}/comments", "POST", "/reader/", Prefix, Page, Reading, Write), // 221
+    RouteRegistration::new("/me/layers/{layer_id}/books", "GET", "/me/", Prefix, Page, Dashboard, Read), // 222
+    RouteRegistration::new("/me/layers/{layer_id}/books", "POST", "/me/", Prefix, Page, Dashboard, Write), // 223
+    RouteRegistration::new("/me/layers/new", "GET", "/me/", Prefix, Page, Dashboard, Read), // 224
+    RouteRegistration::new("/me/layers/new", "POST", "/me/", Prefix, Page, Dashboard, Write), // 225
+    RouteRegistration::new("/me/layers/{layer_id}/offer", "POST", "/me/", Prefix, Page, Dashboard, Write), // 226
+    RouteRegistration::new("/me/layers", "GET", "/me/", Exact, Page, Dashboard, Read), // 227
+    RouteRegistration::new("/me/layers/{layer_id}/metadata", "POST", "/me/", Prefix, Page, Dashboard, Write), // 228
+    RouteRegistration::new("/layers/{layer_id}", "GET", "/layers/", Prefix, Page, ProductArea::Billing, Read), // 229
+    RouteRegistration::new("/layers/{layer_id}/purchase", "POST", "/layers/", Prefix, Page, ProductArea::Billing, Write), // 230
+    RouteRegistration::new("/api/v1/layers/{layer_id}/purchase", "POST", "/api/v1/layers/", Prefix, Api, ProductArea::Billing, Write), // 231
+    RouteRegistration::new("/me/library/layers", "GET", "/me/library/", Exact, Page, Reading, Read), // 232
+    RouteRegistration::new("/read/layer/{chapter_id}", "GET", "/read/", Prefix, Page, Reading, Read), // 233
+    RouteRegistration::new("/assets/newboo-layer-reader.mjs", "GET", "/assets/", Exact, Static, System, Free), // 234
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

@@ -29,6 +29,8 @@ pub mod chapter_import_queue_http;
 pub mod chapter_import_worker;
 pub mod cover_delivery;
 mod cover_http;
+mod layer_reader_assets;
+mod layer_reader_pages;
 mod recommendation_http;
 pub mod recommendation_worker;
 mod referral_book_http;
@@ -512,6 +514,10 @@ fn make_router_with_paid_checkout(
         .route(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
+        )
+        .route(
+            "/assets/newboo-layer-reader.mjs",
+            get(layer_reader_assets::script),
         )
         .route(
             "/assets/newboo-cover-picker.js",
