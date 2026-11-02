@@ -31,7 +31,10 @@ impl PgRefundBuyerView {
     /// Every row is owned by the authenticated actor. Include historical
     /// purchases even when the purchased entitlement has been revoked.
     /// No arbitrary pagination can reveal another account's history.
-    pub async fn recent_for_buyer(&self, actor: i64) -> Result<Vec<BuyerRefundPurchase>, RefundBuyerViewError> {
+    pub async fn recent_for_buyer(
+        &self,
+        actor: i64,
+    ) -> Result<Vec<BuyerRefundPurchase>, RefundBuyerViewError> {
         if actor <= 0 {
             return Err(RefundBuyerViewError::InvalidActor);
         }
@@ -57,12 +60,24 @@ impl PgRefundBuyerView {
         rows.into_iter()
             .map(|row| {
                 Ok(BuyerRefundPurchase {
-                    purchase_id: row.try_get("purchase_id").map_err(|_| RefundBuyerViewError::Unavailable)?,
-                    book_title: row.try_get("book_title").map_err(|_| RefundBuyerViewError::Unavailable)?,
-                    chapter_title: row.try_get("chapter_title").map_err(|_| RefundBuyerViewError::Unavailable)?,
-                    amount_minor: row.try_get("amount_minor").map_err(|_| RefundBuyerViewError::Unavailable)?,
-                    request_id: row.try_get("request_id").map_err(|_| RefundBuyerViewError::Unavailable)?,
-                    request_state: row.try_get("request_state").map_err(|_| RefundBuyerViewError::Unavailable)?,
+                    purchase_id: row
+                        .try_get("purchase_id")
+                        .map_err(|_| RefundBuyerViewError::Unavailable)?,
+                    book_title: row
+                        .try_get("book_title")
+                        .map_err(|_| RefundBuyerViewError::Unavailable)?,
+                    chapter_title: row
+                        .try_get("chapter_title")
+                        .map_err(|_| RefundBuyerViewError::Unavailable)?,
+                    amount_minor: row
+                        .try_get("amount_minor")
+                        .map_err(|_| RefundBuyerViewError::Unavailable)?,
+                    request_id: row
+                        .try_get("request_id")
+                        .map_err(|_| RefundBuyerViewError::Unavailable)?,
+                    request_state: row
+                        .try_get("request_state")
+                        .map_err(|_| RefundBuyerViewError::Unavailable)?,
                 })
             })
             .collect()
