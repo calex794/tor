@@ -365,6 +365,7 @@ async function inspect(page, name, where) {
       assert(await page.evaluate(() => window.scrollY > 0),
         name + ': saved place not restored after reload');
       await inspect(page, name, 'free-resume');
+      await page.goto(base + '/me');
       await page.locator('#main').getByRole('link', { name: 'Моя библиотека' }).click();
       await page.waitForURL('**/me/library');
       assert(await page.getByText('Вы пока не сохраняли место чтения').isVisible(), name + ': empty library state missing');
