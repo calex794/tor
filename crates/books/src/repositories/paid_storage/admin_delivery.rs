@@ -1,8 +1,7 @@
 //! B: sealed private paid editions for a verified, live site-administrator session.
 //! Authorization belongs to C/D; this adapter resolves B objects only.
-use sqlx::PgPool;
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 use tor_contracts::paid_delivery::{
     ChapterVersionPort, ChapterVersionRef, ContentCodec, DeliveryError, EncryptedObjectKind,
     EncryptedObjectRef, ObjectId, ObjectRef,
