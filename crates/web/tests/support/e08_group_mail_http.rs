@@ -425,7 +425,13 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
 
     super::group_transfer_http::check_consent(
-        &app, &url, &path, group_id, &users, (&cookies, &tokens), &bell,
+        &app,
+        &url,
+        &path,
+        group_id,
+        &users,
+        (&cookies, &tokens),
+        &bell,
     )
     .await;
 
