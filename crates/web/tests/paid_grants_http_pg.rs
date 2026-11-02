@@ -441,6 +441,14 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         fake.clone(),
         None,
     );
+    // A wallet switch alone cannot expose a purchase form without the private reader.
+    let purchase_path = format!("/me/chapters/{chapter}/buy");
+    assert_eq!(
+        read_page(&app, &purchase_path, Some(&buyer_cookie))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+    );
     let path = route(chapter);
     let pre_purchase = send(
         &app,
