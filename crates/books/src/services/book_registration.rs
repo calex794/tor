@@ -60,7 +60,10 @@ pub fn source_identity(
     let host = host.strip_prefix("www.").unwrap_or(&host);
     let path = uri.path().trim_end_matches('/');
     let path = if path.is_empty() { "/" } else { path };
-    let query = uri.query().map(|value| format!("?{value}")).unwrap_or_default();
+    let query = uri
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
     // HTTP and HTTPS links to the same public work share one stable identity.
     let canonical = format!("https://{host}{path}{query}");
     let digest = Sha256::digest(canonical.as_bytes());
@@ -118,7 +121,7 @@ pub fn with_registration_metadata(
                 .all(|c| c.is_ascii_lowercase() || c == b'-'))
         || source_url.len() > 512
         || !matches!(status, "" | "ongoing" | "completed" | "paused" | "planned")
-        || (catalog != ""
+        || (!catalog.is_empty()
             && !matches!(
                 catalog,
                 "novels/chinese"
