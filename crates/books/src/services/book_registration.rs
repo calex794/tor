@@ -175,9 +175,7 @@ pub fn with_extra_source_links(
 }
 
 /// Primary and additional source links must make the same atomic claims.
-pub fn registration_link_claims(
-    book: &NewBook,
-) -> Result<Vec<(String, String)>, AuthorError> {
+pub fn registration_link_claims(book: &NewBook) -> Result<Vec<(String, String)>, AuthorError> {
     if book.extra_source_urls.len() > 2 {
         return Err(AuthorError::Invalid);
     }
