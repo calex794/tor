@@ -109,5 +109,12 @@ async fn e_08_group_mail_commit_order_preserves_pagination() {
     );
     first_pool.close().await;
     second_pool.close().await;
+    // E-08 prevents deleting the active group creator. Explicitly remove
+    // the disposable group before cleaning up its account fixtures.
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(group)
+        .execute(&pool)
+        .await
+        .unwrap();
     cleanup(&pool, &users).await;
 }
