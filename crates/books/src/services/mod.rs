@@ -140,3 +140,5 @@ pub mod chapter_file_import;
 pub mod docx_import;
 /// Bounded ZIP of numbered chapter files (TXT, MD or DOCX).
 pub mod zip_import;
+
+pub mod book_registration;

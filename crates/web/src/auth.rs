@@ -21,12 +21,7 @@ use tor_accounts::{
     services::security::{generate_session_token, session_token_digest},
 };
 use tor_books::repositories::cover_slots::{PgCoverSlots, PublicCoverKind};
-use tor_books::{
-    repositories::postgres::PgAuthoring,
-    services::authoring::{
-        new_book_with_taxonomy, with_book_description, AuthorError, TaxonomyFields,
-    },
-};
+use tor_books::{repositories::postgres::PgAuthoring, services::authoring::AuthorError};
 use tor_ingest::{repositories::cover_jobs::PgCoverJobs, services::cover_jobs::CoverObjectStore};
 use tor_reading::domain::renderer::valid_reader_length;
 use tor_reading::repositories::{
@@ -56,6 +51,7 @@ mod book_comments;
 mod book_description;
 mod book_follow_actions;
 mod book_likes;
+mod book_registration_http;
 mod book_rooms;
 mod book_stars;
 mod book_stats_http;
@@ -442,21 +438,7 @@ async fn create_book(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    let identity = format!("manual:{actor}:{}", form.command_key);
-    let request = match new_book_with_taxonomy(
-        &identity,
-        &form.target_language,
-        &form.title,
-        &form.command_key,
-        form.author_name.as_deref().unwrap_or(""),
-        form.genres.as_deref().unwrap_or(""),
-        TaxonomyFields {
-            tags: form.tags.as_deref().unwrap_or(""),
-            fandoms: form.fandoms.as_deref().unwrap_or(""),
-        },
-    )
-    .and_then(|book| with_book_description(book, form.description.as_deref().unwrap_or("")))
-    {
+    let request = match book_registration_http::request(actor, &form) {
         Ok(request) => request,
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };

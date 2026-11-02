@@ -277,7 +277,7 @@ async function draftBook(page, viewport) {
   await page.getByLabel('Жанры через запятую (до 8)').fill('Фэнтези, Приключения');
   await page.getByLabel('Теги через запятую (до 8)').fill('f02tag-' + viewport);
   await page.getByLabel('Фэндомы через запятую (до 8)').fill('f02fandom-' + viewport);
-  await page.getByLabel('Язык').fill('ru');
+  await page.getByLabel('Язык', { exact: true }).fill('ru');
   await page.getByRole('button', { name: 'Создать книгу' }).click();
   await page.waitForURL(/\/me\/books\/\d+$/);
   const id = page.url().split('/').pop();
