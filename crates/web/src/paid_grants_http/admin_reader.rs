@@ -34,7 +34,9 @@ pub(super) async fn read(
     // B repeats the live role check within its content SELECT. A forged
     // session, stale role or version_id cannot expose any chapter bytes.
     let repository = PgAdministratorReading::new(state.accounts.pool().clone());
-    let chapter = match repository.read(actor, chapter_id.get(), query.version_id).await
+    let chapter = match repository
+        .read(actor, chapter_id.get(), query.version_id)
+        .await
     {
         Ok(Some(chapter)) => chapter,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
