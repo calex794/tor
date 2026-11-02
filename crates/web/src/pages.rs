@@ -489,6 +489,17 @@ pub async fn paid_reader_script() -> impl IntoResponse {
     )
 }
 
+/// Static free-reader controls. No paid content or capabilities are embedded.
+pub async fn public_reader_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        include_str!("../assets/newboo-public-reader.js"),
+    )
+}
+
 /// Local cover-selection preview, based on NEwBOO book-settings.js.
 pub async fn cover_picker_script() -> impl IntoResponse {
     (
