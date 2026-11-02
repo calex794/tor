@@ -94,8 +94,8 @@ mod session_security;
 mod settings_routes;
 mod support_bundle;
 mod sync_actions;
-mod text_issues;
 mod taxonomy_picker;
+mod text_issues;
 mod types;
 use types::*;
 pub(crate) fn router(
