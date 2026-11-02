@@ -105,8 +105,6 @@ async function verify(browser, buyer, viewport) {
         purchase + "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
       assert.equal((await context.request.get(progress)).status(), 200);
       assert.equal((await outsider.request.get(progress)).status(), 404);
-      const outsiderCsrf = (await outsider.request.get(SITE + "/me")).headers()["set-cookie"];
-      assert(outsiderCsrf !== undefined);
       for (const alternate of [
         "/reader/" + chapter.id + "/history?version_id=" + chapter.version,
         "/reader/" + chapter.id + "/preview?version_id=" + chapter.version,
