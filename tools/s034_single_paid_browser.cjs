@@ -101,6 +101,19 @@ async function verify(browser, buyer, viewport) {
       const denied = await outsider.request.get(privateUrl);
       assert.equal(denied.status(), 403);
       assert(!(await denied.text()).includes(secret));
+      // Test the mounted grant API with valid Origin and CSRF, so any denial
+      // comes from purchase ownership rather than a missing route or CSRF.
+      const csrf = require("node:crypto").randomBytes(32).toString("base64url");
+      assert.equal(csrf.length, 43);
+      await outsider.addCookies([{ url: SITE, name: "tor-dev-csrf",
+        value: csrf, httpOnly: true, sameSite: "Strict" }]);
+      const deniedGrant = await outsider.request.post(
+        SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
+        { data: { purchase_id: String(purchase) },
+          headers: { origin: SITE, "x-csrf-token": csrf } });
+      assert.equal(deniedGrant.status(), 403);
+      assert.equal(deniedGrant.headers()["cache-control"], "no-store");
+      assert.equal((await deniedGrant.body()).length, 0);
       const progress = SITE + "/api/v1/me/progress/purchased?purchase_id=" +
         purchase + "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
       assert.equal((await context.request.get(progress)).status(), 200);
