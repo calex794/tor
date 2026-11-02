@@ -19,6 +19,8 @@ CREATE INDEX books_registration_rulate_work_idx
     ON books(target_language, book_registration_rulate_work_id(source_url))
     WHERE NOT is_deleted AND source_url <> '';
 
+-- Keep the normalization inline for the expression index: indexed SQL
+-- functions must not depend on an ambient search_path for nested lookups.
 -- Historical records can have original/alternate titles without a matching
 -- book_registration_titles claim. Preserve those records and check their
 -- normalized aliases through an indexed, bounded (at most four) array.
@@ -31,10 +33,10 @@ AS $legacy_aliases$
     SELECT array_remove(
         array_remove(
             ARRAY[
-                book_registration_legacy_title_key(old_original),
-                book_registration_legacy_title_key(old_alts[1]),
-                book_registration_legacy_title_key(old_alts[2]),
-                book_registration_legacy_title_key(old_alts[3])
+                btrim(regexp_replace(replace(lower(old_original), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g')),
+                btrim(regexp_replace(replace(lower(old_alts[1]), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g')),
+                btrim(regexp_replace(replace(lower(old_alts[2]), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g')),
+                btrim(regexp_replace(replace(lower(old_alts[3]), 'ё', 'е'), '[^[:alnum:]]+', ' ', 'g'))
             ]::text[],
             NULL
         ),
