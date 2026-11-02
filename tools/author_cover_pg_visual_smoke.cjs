@@ -210,9 +210,9 @@ async function readyCover(page, bookId, viewport, scheme) {
         // S019: pre-create hint uses published aliases without private leaks.
         await page.goto(base + '/me/books/new');
         await page.getByLabel('Название книги').fill(title);
-        await page.waitForFunction(() =>
-          document.querySelector('#book-title-suggestions a[href="/books/${bookId}"]') !== null,
-          { timeout: 10000 });
+        await page.waitForFunction(id =>
+          document.querySelector('#book-title-suggestions a[href="/books/' + id + '"]') !== null,
+          bookId, { timeout: 10000 });
         const hint = page.locator('#book-title-suggestions');
         assert(await hint.getByRole('link', { name: title }).isVisible(),
           'S019: public title hint must link to the already published book');
