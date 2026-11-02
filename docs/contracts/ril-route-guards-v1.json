@@ -1397,6 +1397,13 @@
     },
     {
       "method": "GET",
+      "template": "/assets/newboo-free-reader.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::free_reader_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/issues",
       "source": "crates/web/src/auth.rs",
       "handler": "text_issues::author_page",
