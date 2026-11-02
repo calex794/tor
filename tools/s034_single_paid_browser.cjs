@@ -96,10 +96,29 @@ async function verify(browser, buyer, viewport) {
     const frame = page.locator(".reader-paid__image-block .reader-content__image-frame");
     assert.equal(await frame.count(), 1, "exactly one B-attached V1 figure");
     await frame.scrollIntoViewIfNeeded();
-    await page.waitForFunction(() => {
-      const img = document.querySelector(".reader-paid__image-block img");
-      return img && img.complete && img.naturalWidth === 1 && img.naturalHeight === 1;
-    }, null, { timeout: 30000 });
+    try {
+      await page.waitForFunction(() => {
+        const frame = document.querySelector(".reader-paid__image-block .reader-content__image-frame");
+        const img = frame?.querySelector("img");
+        return frame?.classList.contains("is-error") ||
+          (img && img.complete && img.naturalWidth === 1 && img.naturalHeight === 1);
+      }, null, { timeout: 30000 });
+    } catch (error) {
+      // Never log ciphertext URLs, purchase/session IDs, DEKs or paid content.
+      const media = await frame.evaluate((node) => ({
+        failed: node.classList.contains("is-error"),
+        displayed: Boolean(node.querySelector("img")),
+        status: (node.textContent || "").slice(0, 120),
+      }));
+      throw new Error("S065 image did not settle: " + JSON.stringify({
+        media, assetGrants, assetCiphertexts,
+      }) + "; " + error.message);
+    }
+    const imageFailed = await frame.evaluate((node) => node.classList.contains("is-error"));
+    assert(!imageFailed, "S065 private image loader rejected: " + JSON.stringify({
+      status: (await frame.textContent()).slice(0, 120),
+      assetGrants, assetCiphertexts,
+    }));
     const image = await frame.locator("img").evaluate((img) => ({
       src: img.getAttribute("src"), alt: img.alt, policy: img.referrerPolicy,
     }));
