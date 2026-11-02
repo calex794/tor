@@ -426,6 +426,43 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
             .unwrap(),
         StatusMutation::NotFound
     );
+    // Paid issue provenance is immutable. If the public pricing mode changes,
+    // the old quote MUST NOT become readable or actionable to a translator.
+    sqlx::query("UPDATE chapters SET access_level='free',price_amount=0 WHERE id=$1")
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let after_reclassification = store
+        .author_page(moderator, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(after_reclassification
+        .issues
+        .iter()
+        .all(|item| item.id != paid_issue_id));
+    assert_eq!(
+        store
+            .update_status(moderator, book, paid_issue_id, "rejected", None)
+            .await
+            .unwrap(),
+        StatusMutation::NotFound
+    );
+    let paid_owner_queue = store
+        .author_page(author, book, None, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(paid_owner_queue
+        .issues
+        .iter()
+        .any(|item| item.id == paid_issue_id && item.is_paid));
+    sqlx::query("UPDATE chapters SET access_level='paid',price_amount=100 WHERE id=$1")
+        .bind(paid)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
          VALUES($1,$2,'refund')",
