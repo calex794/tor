@@ -32,8 +32,8 @@ mod paywall;
 pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod checkout_page;
 pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem};
-mod reader_paid;
 mod reader_layer;
+mod reader_paid;
 pub use reader_layer::layer_reader_shell;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
@@ -457,7 +457,7 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::{my_library_with_updates, my_library_with_updates_and_layers};
+pub use library::my_library_with_updates_and_layers;
 
 pub async fn stylesheet() -> impl IntoResponse {
     (

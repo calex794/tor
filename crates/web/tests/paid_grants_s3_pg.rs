@@ -42,12 +42,12 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
-#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
-mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]

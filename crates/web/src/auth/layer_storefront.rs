@@ -107,7 +107,7 @@ async fn my_terms(State(state): State<AuthState>, headers: HeaderMap) -> Respons
             let reader_enabled = state.paid_reader_available
                 && std::env::var("TOR_LAYER_READER_ENABLED").as_deref() == Ok("1");
             private_response(pages::purchased_layers_page(&terms, reader_enabled), &[])
-        },
+        }
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
