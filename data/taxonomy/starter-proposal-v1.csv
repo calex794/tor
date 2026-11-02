@@ -1,0 +1,145 @@
+kind,label,aliases
+genre,Фэнтези,
+genre,Фантастика,Speculative Fiction
+genre,Научная фантастика,Science Fiction|Sci-Fi
+genre,Приключения,
+genre,Романтика,Romance
+genre,Романтическая комедия,Romantic Comedy|RomCom
+genre,Повседневность,Slice of Life
+genre,Драма,Drama
+genre,Комедия,Comedy
+genre,Мистика,Supernatural Fiction
+genre,Ужасы,Horror
+genre,Триллер,Thriller
+genre,Детектив,Detective Fiction
+genre,Исторический роман,Historical Fiction
+genre,Альтернативная история,Alternate History
+genre,Городское фэнтези,Urban Fantasy
+genre,Тёмное фэнтези,Dark Fantasy
+genre,Героическое фэнтези,Heroic Fantasy
+genre,Эпическое фэнтези,Epic Fantasy
+genre,Постапокалипсис,Post-Apocalyptic Fiction
+genre,Киберпанк,Cyberpunk
+genre,Космическая опера,Space Opera
+genre,ЛитРПГ,LitRPG
+genre,Геймлит,GameLit
+genre,Культивационное фэнтези,Cultivation Fantasy
+genre,Сянься,Xianxia|仙侠
+genre,Сюаньхуань,Xuanhuan|玄幻
+genre,Уся,Wuxia|武侠
+genre,Исекай,Isekai|異世界
+genre,Боевые искусства,Martial Arts
+genre,Военная фантастика,Military Science Fiction
+genre,Спортивная проза,Sports Fiction
+genre,РеалРПГ,RealRPG
+genre,Современная проза,Contemporary Fiction
+tag,Система,System|系统
+tag,Попаданец,Otherworld Traveler
+tag,Перерождение,Reincarnation|転生
+tag,Путешествие во времени,Time Travel
+tag,Второй шанс,Second Chance
+tag,Регрессия,Regression
+tag,Перемещение в другой мир,Otherworld Transfer
+tag,Культивация,Cultivation|修仙
+tag,Бессмертие,Immortality
+tag,Боевые искусства,Martial Arts
+tag,Магия,Magic
+tag,Алхимия,Alchemy
+tag,Артефакты,Artifacts
+tag,Призыв,Summoning
+tag,Приручение монстров,Monster Taming
+tag,Подземелья,Dungeons
+tag,Башня испытаний,Tower Climbing
+tag,Уровни,Levels
+tag,Повышение уровня,Leveling
+tag,Игровой интерфейс,Game Interface
+tag,Прокачка навыков,Skill Progression
+tag,Навыки,Skills
+tag,Таланты,Talents
+tag,Квесты,Quests
+tag,Задания системы,System Quests
+tag,Награды системы,System Rewards
+tag,Проклятия,Curses
+tag,Благословения,Blessings
+tag,Откат времени,Time Rewind
+tag,Параллельные миры,Parallel Worlds
+tag,Петля времени,Time Loop
+tag,Память прошлой жизни,Past Life Memories
+tag,Смена тела,Body Swap
+tag,Потеря памяти,Amnesia
+tag,Скрытая личность,Hidden Identity
+tag,Тайна происхождения,Secret Origins
+tag,Заговор,Conspiracy
+tag,Тайная организация,Secret Society
+tag,Политические интриги,Political Intrigue
+tag,Дворцовые интриги,Court Intrigue
+tag,Кланы,Clans
+tag,Секты,Sects
+tag,Академия магии,Magic Academy
+tag,Школа,School
+tag,Университет,University
+tag,Ученик и наставник,Mentor and Disciple
+tag,Семья,Family
+tag,Найденная семья,Found Family
+tag,Дружба,Friendship
+tag,Соперничество,Rivalry
+tag,Месть,Revenge
+tag,Предательство,Betrayal
+tag,От врагов к влюблённым,Enemies to Lovers
+tag,Друзья становятся парой,Friends to Lovers
+tag,Медленное развитие отношений,Slow Burn
+tag,Любовный треугольник,Love Triangle
+tag,Гарем,Harem
+tag,Обратный гарем,Reverse Harem
+tag,Контрактные отношения,Contract Relationship
+tag,Фиктивный брак,Fake Marriage
+tag,Помолвка,Engagement
+tag,Свадьба,Wedding
+tag,Брак по расчёту,Arranged Marriage
+tag,Соседи,Neighbors
+tag,Совместное проживание,Cohabitation
+tag,Воссоединение,Reunion
+tag,Путешествие,Journey
+tag,Исследование мира,Exploration
+tag,Выживание,Survival
+tag,Война,War
+tag,Восстание,Rebellion
+tag,Стратегия,Strategy
+tag,Торговля,Trade
+tag,Ремесло,Crafting
+tag,Строительство,Building
+tag,Строительство города,City Building
+tag,Управление территорией,Territory Management
+tag,Фермерство,Farming
+tag,Кулинария,Cooking
+tag,Медицина,Medicine
+tag,Наука,Science
+tag,Технологии,Technology
+tag,Искусственный интеллект,Artificial Intelligence
+tag,Роботы,Robots
+tag,Космос,Space
+tag,Космический корабль,Spaceship
+tag,Зомби,Zombies
+tag,Монстры,Monsters
+tag,Драконы,Dragons
+tag,Демоны,Demons
+tag,Боги,Gods
+tag,Духи,Spirits
+tag,Нежить,Undead
+tag,Вампиры,Vampires
+tag,Оборотни,Werewolves
+tag,Эльфы,Elves
+tag,Тёмный герой,Dark Protagonist
+tag,Антигерой,Antihero
+tag,Главный герой — злодей,Villain Protagonist
+tag,Сильный герой,Overpowered Protagonist
+tag,Слабый герой,Weak Protagonist
+tag,Умный герой,Smart Protagonist
+tag,Скрытая сила,Hidden Power
+tag,Становление героя,Coming of Age
+tag,Повседневная жизнь,Everyday Life
+tag,Трагедия,Tragedy
+tag,Счастливый конец,Happy Ending
+tag,Открытый финал,Open Ending
+tag,Мрачная атмосфера,Dark Atmosphere
+tag,Ненадёжный рассказчик,Unreliable Narrator

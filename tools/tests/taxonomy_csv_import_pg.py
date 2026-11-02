@@ -237,6 +237,48 @@ def main():
         if audit_count() != initial_events + 1:
             raise AssertionError("alternative canonical spelling was accepted")
 
+        # Editorial proposal is never implicitly approved on a live system.
+        # In CI, exercise the ENTIRE pack only on ephemeral localhost tor_ci.
+        starter = (
+            Path(__file__).resolve().parents[2]
+            / "data" / "taxonomy" / "starter-proposal-v1.csv"
+        )
+        proposed = importer.checked_csv(starter)
+        if len(proposed) != 144:
+            raise AssertionError("unexpected changed starter-proposal row count")
+        apply(starter)
+        pairs = ",".join(
+            f"({quote(kind)},{quote(label)})" for kind, label, _ in proposed
+        )
+        approved = (
+            "SELECT count(*) FROM (VALUES " + pairs + ") AS p(kind,label)"
+            " JOIN book_taxonomy_terms t ON t.kind=p.kind AND t.label=p.label"
+            " WHERE t.status='active'"
+        )
+        if scalar(url, approved) != len(proposed):
+            raise AssertionError("starter proposal did not activate all local CI terms")
+        audit = (
+            "SELECT count(*) FROM book_taxonomy_curation_events e"
+            " JOIN book_taxonomy_terms t ON t.id=e.term_id"
+            " WHERE (t.kind,t.label) IN (" + pairs + ")"
+        )
+        before = scalar(url, audit)
+        apply(starter)
+        if scalar(url, audit) != before:
+            raise AssertionError("identical starter proposal replay created duplicate events")
+        matched = scalar(
+            url,
+            "SELECT count(*) FROM book_taxonomy_aliases a"
+            " JOIN book_taxonomy_terms t ON t.id=a.term_id"
+            " WHERE a.kind='tag' AND t.label='Система'"
+            " AND a.search_key=book_taxonomy_key('SYSTEM')"
+            " AND t.status='active'",
+        )
+        if matched != 1:
+            raise AssertionError("starter alias is not linked to approved canonical ID")
+        if "Система" not in lookup("tag", "System"):
+            raise AssertionError("curator could not search the imported starter alias")
+
     print("CSV PostgreSQL: identical replay, one new alias, rollback and collision PASS")
 
 

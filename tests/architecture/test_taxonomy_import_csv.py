@@ -77,6 +77,38 @@ class TaxonomyImportTests(unittest.TestCase):
         self.assertEqual(rows, [("genre", "Ｓｙｓｔｅｍ", ["ＳｙｓｔｅｍⅣ"])])
         self.assertEqual(importer.key("ＳｙｓｔｅｍⅣ"), "systemiv")
 
+    def test_starter_proposal_is_reviewable_not_a_claimed_newboo_export(self):
+        # This is explicitly a human-review *proposal*, not approved source data.
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "data" / "taxonomy" / "starter-proposal-v1.csv"
+        )
+        self.assertIn("proposal", source.name)
+        rows = importer.checked_csv(source)
+        self.assertEqual(len(rows), 144)
+        self.assertEqual(sum(kind == "genre" for kind, _, _ in rows), 34)
+        self.assertEqual(sum(kind == "tag" for kind, _, _ in rows), 110)
+        self.assertEqual(sum(len(aliases) for _, _, aliases in rows), 151)
+        self.assertFalse(any(kind == "fandom" for kind, _, _ in rows))
+        self.assertIn(("tag", "Система", ["System", "系统"]), rows)
+        self.assertIn(("genre", "Сянься", ["Xianxia", "仙侠"]), rows)
+        self.assertIn(("genre", "Фэнтези", []), rows)
+
+    def test_starter_proposal_preflight_never_requires_database(self):
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "data" / "taxonomy" / "starter-proposal-v1.csv"
+        )
+        # Review-only is the default, no credentials or database connection.
+        existing = os.environ.pop("TOR_TAXONOMY_ADMIN_URL", None)
+        try:
+            self.assertEqual(importer.main(
+                [str(source), "--curator", "ci-starter-review"]
+            ), 0)
+        finally:
+            if existing is not None:
+                os.environ["TOR_TAXONOMY_ADMIN_URL"] = existing
+
     def test_quote_is_data_not_executable_sql(self):
         transaction = importer.make_transaction(
             [("fandom", "Wizard's Tale", ["魔法师"])], "ci-review"
