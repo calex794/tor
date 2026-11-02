@@ -96,6 +96,7 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
+mod support_bundle;
 mod sync_actions;
 mod text_issues;
 mod types;
@@ -216,6 +217,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
         .route(

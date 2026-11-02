@@ -50,6 +50,17 @@ impl PgAccounts {
         Ok(if rows.len() == 1 { rows.pop() } else { None })
     }
 
+    /// Account-owned display-name projection for private support admin queues.
+    pub async fn user_display_names(&self, ids: &[i64]) -> Result<Vec<(i64, String)>, sqlx::Error> {
+        if ids.len() > 200 || ids.iter().any(|id| *id <= 0) {
+            return Err(sqlx::Error::Protocol("invalid public-name batch".into()));
+        }
+        sqlx::query_as("SELECT id,display_name FROM users WHERE id=ANY($1)")
+            .bind(ids)
+            .fetch_all(self.pool())
+            .await
+    }
+
     pub async fn profile(&self, user_id: i64) -> Result<Option<Profile>, sqlx::Error> {
         let row: Option<(i64, String, Option<String>, bool, i64)> = sqlx::query_as(
             "SELECT u.id,u.display_name,s.handle,u.adult_enabled,COALESCE(s.revision,0)

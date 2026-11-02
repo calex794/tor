@@ -486,3 +486,6 @@
 }
 .mail-book-preview img { width: 48px; max-height: 68px; object-fit: cover; flex: none; }
 
+
+/* Preserve line breaks in escaped, plain-text support responses. */
+.support-message-body { white-space: pre-wrap; overflow-wrap: anywhere; }

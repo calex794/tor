@@ -1,4 +1,5 @@
 mod social_notification_consumer;
+mod support_cleanup;
 
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 use tor_accounts::repositories::PgAccounts;
@@ -166,6 +167,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("attribution requires recommendations".into());
     }
     let mut pending_social_notifications = None;
+    let mut pending_support_cleanup = None;
     let app = match env::var("DATABASE_URL") {
         Ok(url) if !demo => {
             let catalog = PgCatalog::connect(&url).await?;
@@ -178,6 +180,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 );
             }
             if env::var("TOR_AUTH_ENABLED").as_deref() == Ok("1") {
+                pending_support_cleanup = Some(tor_support::repositories::postgres::PgSupport::new(pool.clone()));
                 pending_ranking_consumer = Some(tor_recommendations::repositories::PgRanking::new(
                     pool.clone(),
                 ));
@@ -393,6 +396,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _rec_worker = pending_rec_worker.and_then(tor_web::recommendation_worker::spawn);
     let _social_notification_consumer =
         pending_social_notifications.map(social_notification_consumer::start);
+    let _support_cleanup = pending_support_cleanup.map(support_cleanup::start);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
