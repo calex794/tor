@@ -1,7 +1,9 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
+mod admin_reader;
 mod asset_grants;
+mod chapter_grants;
 mod layer_reader;
 mod text_issues;
 
@@ -24,14 +26,19 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
+use tor_books::repositories::{
+    admin_paid_assets::PgAdminPaidAssets,
+    paid_assets::PgPaidAssets,
+    paid_storage::{PgAdminPaidStorage, PgPaidStorage},
+};
 use tor_commerce::repositories::{
+    admin_reader_entitlements::PgAdministratorReaderEntitlements,
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
     layer_entitlements::PgLayerChapterEntitlements,
 };
 use tor_contracts::paid_delivery::{
-    Actor, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
+    Actor, ChapterVersionPort, DeliveryError, EntitlementDecision, EntitlementPort, PositiveId,
     PrivateObjectDeliveryPort,
 };
 use tor_reading::services::paid_delivery::issue_paid_chapter_grant;
@@ -74,7 +81,9 @@ struct GrantState {
     layer: PgLayerChapterEntitlements,
     first_direct_grant: PgDirectFirstExposure,
     versions: PgPaidStorage,
+    admin_versions: PgAdminPaidStorage,
     assets: PgPaidAssets,
+    admin_assets: PgAdminPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
     cookies: CookiePolicy,
     rate_limits: Arc<Mutex<RateLimits>>,
@@ -124,6 +133,7 @@ pub(crate) fn valid_reader_s3_origin(origin: &str) -> bool {
 #[serde(rename_all = "snake_case")]
 enum GrantSource {
     Layer,
+    Administrator,
 }
 
 #[derive(Default, Deserialize)]
@@ -160,122 +170,6 @@ fn status(error: DeliveryError) -> StatusCode {
 
 fn deny(code: StatusCode) -> Response {
     private_response(code, &[])
-}
-
-async fn grant(
-    State(state): State<GrantState>,
-    Path(raw_chapter): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<GrantBody>,
-) -> Response {
-    let Some(session) = state.cookies.session_token(&headers) else {
-        return deny(StatusCode::UNAUTHORIZED);
-    };
-    let actor = match state
-        .accounts
-        .active_session_user(&session_token_digest(&session))
-        .await
-    {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    // Unlike ordinary HTML forms, this JSON grant requires a real same-origin
-    // browser Origin header as well as the double-submit CSRF cookie.
-    if headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-        != Some(state.cookies.origin.as_str())
-        || !state.cookies.same_origin(&headers)
-        || !headers
-            .get("x-csrf-token")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|csrf| state.cookies.valid_csrf(&headers, csrf))
-    {
-        return deny(StatusCode::FORBIDDEN);
-    }
-    let Some(chapter_id) = positive(&raw_chapter) else {
-        return deny(StatusCode::NOT_FOUND);
-    };
-    let purchase_id = match body.purchase_id.as_deref() {
-        Some(value) => match positive(value) {
-            Some(id) => Some(id),
-            None => return deny(StatusCode::UNPROCESSABLE_ENTITY),
-        },
-        None => None,
-    };
-    let Ok(actor_id) = PositiveId::new(actor) else {
-        return deny(StatusCode::SERVICE_UNAVAILABLE);
-    };
-    if !state.rate_limits.lock().await.allow(actor, Instant::now()) {
-        return deny(StatusCode::TOO_MANY_REQUESTS);
-    }
-
-    let Ok(_permit) = state.concurrent.clone().try_acquire_owned() else {
-        return deny(StatusCode::TOO_MANY_REQUESTS);
-    };
-
-    // The paid S3 reader must not silently activate Layer subscriptions.
-    // Direct V1 buyers retain their original grant path when Layer is off.
-    if body.source.is_some() && !state.layer_reader_enabled {
-        return deny(StatusCode::NOT_FOUND);
-    }
-    // A Layer term uses a distinct D authority. Explicit direct purchase IDs
-    // cannot be combined with Layer rights, preventing provenance confusion.
-    if body.source.is_some() && purchase_id.is_some() {
-        return deny(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let authority: &dyn EntitlementPort = match body.source {
-        Some(GrantSource::Layer) => &state.layer,
-        None => &state.entitlement,
-    };
-    // C rechecks the same D authority after signing; the browser never sees
-    // plaintext or a raw object key.
-    let result = issue_paid_chapter_grant(
-        authority,
-        &state.versions,
-        state.storage.as_ref(),
-        Actor { user_id: actor_id },
-        chapter_id,
-        purchase_id,
-    )
-    .await;
-    match result {
-        Ok(grant) => {
-            let Some(version) = positive(&grant.version_id) else {
-                return deny(StatusCode::SERVICE_UNAVAILABLE);
-            };
-            // First exposure belongs to a *direct* pinned purchase only.
-            // Layer CURRENT grants have no direct purchase fact to expose.
-            if body.source.is_none() {
-                if let Err(error) = state
-                    .first_direct_grant
-                    .record(
-                        actor_id,
-                        chapter_id,
-                        version,
-                        purchase_id,
-                        DirectGrantKind::Chapter,
-                    )
-                    .await
-                {
-                    return deny(status(error));
-                }
-            }
-            let mut response = private_response(Json(grant), &[]);
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("private, no-store"),
-            );
-            response.headers_mut().insert(
-                header::REFERRER_POLICY,
-                HeaderValue::from_static("no-referrer"),
-            );
-            response
-                .headers_mut()
-                .insert("x-robots-tag", HeaderValue::from_static("noindex"));
-            response
-        }
-        Err(error) => deny(status(error)),
-    }
 }
 
 /// The page contains only a generic reader shell. D is checked here and
@@ -477,7 +371,9 @@ fn router_inner(
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
-        assets: PgPaidAssets::new(pool),
+        admin_versions: PgAdminPaidStorage::new(pool.clone()),
+        assets: PgPaidAssets::new(pool.clone()),
+        admin_assets: PgAdminPaidAssets::new(pool),
         storage,
         cookies,
         rate_limits: Arc::new(Mutex::new(RateLimits::default())),
@@ -488,7 +384,7 @@ fn router_inner(
     let mut app = Router::new()
         .route(
             "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
-            post(grant),
+            post(chapter_grants::grant),
         )
         .route(
             "/api/v1/reader/chapters/{chapter_id}/assets/{object_id}/delivery-grants",
@@ -499,6 +395,8 @@ fn router_inner(
     }
     if state.reader_s3_origin.is_some() {
         app = app
+            .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+            .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route(
                 "/api/v1/reader/chapters/{chapter_id}/text-issues",

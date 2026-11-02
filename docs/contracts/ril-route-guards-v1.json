@@ -685,7 +685,7 @@
       "method": "POST",
       "template": "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
-      "handler": "grant",
+      "handler": "chapter_grants::grant",
       "policy": "session"
     },
     {
@@ -1674,6 +1674,20 @@
       "source": "crates/web/src/auth.rs",
       "handler": "chapter_comments::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/read/admin/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_reader::admin_reader",
+      "policy": "admin_reader"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-admin-reader.mjs",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_reader::script",
+      "policy": "public"
     }
   ]
 }

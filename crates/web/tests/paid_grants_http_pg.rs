@@ -613,21 +613,23 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &author_csrf,
     )
     .await;
-    s065_role_matrix::assert_administrator_and_guest_denied(
+    s065_role_matrix::assert_administrator_can_read_without_purchase(
         &url,
         &accounts,
         &browser,
         &app,
-        chapter,
-        version,
-        purchase_id,
+        &fake,
+        (book, chapter, version, purchase_id),
     )
     .await;
     assert_eq!(
         fake.signed.load(Ordering::SeqCst),
-        0,
-        "alternate reader or progress routes must not sign G objects"
+        3,
+        "only three verified administrator read/image grants may reach G"
     );
+    // Preserve the independent fake-signer counter expected by the existing
+    // direct buyer tests below. No production signer state is ever reset.
+    fake.signed.store(0, Ordering::SeqCst);
     // A chapter ciphertext UUID is not an image B membership, even for
     // its valid buyer. No fallback to public media or generic G signing.
     let asset_route = format!("/api/v1/reader/chapters/{chapter}/assets/{UUID}/delivery-grants");
