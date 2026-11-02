@@ -239,7 +239,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "if actor.administrator" in evidence
             and "StatusCode::FORBIDDEN" in evidence
             and "PgAdministratorReading::new" in evidence
-            and "repository.read(" in evidence
+            and re.search(r"\brepository\s*\.\s*read\s*\(", evidence)
         ):
             errors.append(f"{label}: missing reviewed live admin-reader role and B guard")
     if policy == "admin_mail":
