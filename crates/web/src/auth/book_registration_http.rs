@@ -1,5 +1,9 @@
 //! Build the S019 author request; PostgreSQL writes stay in the audited HTTP entry.
 use super::*;
+use tor_books::services::{
+    authoring::{new_book_with_taxonomy, with_book_description, TaxonomyFields},
+    book_registration::{source_identity, with_registration_metadata, RegistrationFields},
+};
 
 pub(super) fn request(
     actor: i64,
@@ -26,16 +30,16 @@ pub(super) fn request(
     with_registration_metadata(
         book,
         RegistrationFields {
-        source_url: form.source_url.as_deref().unwrap_or(""),
-        original_title: form.original_title.as_deref().unwrap_or(""),
-        original_language: form.original_language.as_deref().unwrap_or(""),
-        release_year: form.release_year.as_deref().unwrap_or(""),
-        project_status: form.project_status.as_deref().unwrap_or(""),
-        catalog_section: form.catalog_section.as_deref().unwrap_or(""),
-        alt_titles: [
-            form.alt_title_1.as_deref().unwrap_or(""),
-            form.alt_title_2.as_deref().unwrap_or(""),
-            form.alt_title_3.as_deref().unwrap_or(""),
+            source_url: form.source_url.as_deref().unwrap_or(""),
+            original_title: form.original_title.as_deref().unwrap_or(""),
+            original_language: form.original_language.as_deref().unwrap_or(""),
+            release_year: form.release_year.as_deref().unwrap_or(""),
+            project_status: form.project_status.as_deref().unwrap_or(""),
+            catalog_section: form.catalog_section.as_deref().unwrap_or(""),
+            alt_titles: [
+                form.alt_title_1.as_deref().unwrap_or(""),
+                form.alt_title_2.as_deref().unwrap_or(""),
+                form.alt_title_3.as_deref().unwrap_or(""),
             ],
         },
     )
