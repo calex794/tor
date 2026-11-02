@@ -28,6 +28,7 @@ pub(super) struct IssueForm {
 pub(super) struct IssuesQuery {
     status: Option<String>,
     after: Option<i64>,
+    error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -168,9 +169,14 @@ pub(super) async fn author_page(
     } else {
         String::new()
     };
+    let revision_warning = if query.error.as_deref() == Some("revision") {
+        "<p role=\"alert\">Сначала опубликуйте исправленную редакцию главы. До этого обращение нельзя закрыть как исправленное.</p>"
+    } else {
+        ""
+    };
     let body = format!(
         r#"<section class="section auth-section"><div class="container">
-        <h1>Ошибки текста — {title}</h1>
+        <h1>Ошибки текста — {title}</h1>{revision_warning}
         <nav><a href="/me/books/{book_id}">К книге</a> ·
         <a href="/me/books/{book_id}/issues">Все</a> ·
         <a href="/me/books/{book_id}/issues?status=new">Новые</a> ·
@@ -222,6 +228,10 @@ pub(super) async fn change_status(
             private_response(Redirect::to(&format!("/me/books/{book_id}/issues")), &[])
         }
         Ok(StatusMutation::NotFound) => deny(StatusCode::NOT_FOUND),
+        Err(IssueError::Conflict) => private_response(
+            Redirect::to(&format!("/me/books/{book_id}/issues?error=revision")),
+            &[],
+        ),
         Err(err) => deny(status(err)),
     }
 }

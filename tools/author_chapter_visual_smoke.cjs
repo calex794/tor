@@ -432,6 +432,12 @@ async function inspect(page, viewport, name) {
         assert(await page.locator('.auth-card').count() === 1,
           viewport + ': E-12 duplicate submission created two author tasks');
         await inspect(page, viewport, 'text-issue-author-queue');
+        await page.locator('.auth-card select[name="status"]').selectOption('fixed');
+        await page.getByRole('button', { name: 'Сохранить состояние' }).click();
+        await page.waitForURL(issueQueue + '?error=revision');
+        assert(await page.getByRole('alert').getByText(/Сначала опубликуйте исправленную редакцию/).isVisible(),
+          viewport + ': E-12 premature fixed status was not rejected');
+        await page.goto(issueQueue);
 
         const editIssueChapter = '/me/books/' + bookId + '/chapters/' + chapterId + '/edit';
         const issueEditorLink = page.locator('a[href="' + editIssueChapter + '"]');
