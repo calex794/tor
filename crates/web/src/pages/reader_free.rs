@@ -126,7 +126,10 @@ pub fn reader_with_public_features(
     let issues = reader_free_issues::panel(chapter_id, chapter.version_id, csrf, issue_feedback);
     let html = include_str!("../../templates/reader.html")
         .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
-        .replace("<!--CHAPTER_ID-->", &chapter_id.map_or_else(String::new, |id| id.to_string()))
+        .replace(
+            "<!--CHAPTER_ID-->",
+            &chapter_id.map_or_else(String::new, |id| id.to_string()),
+        )
         .replace("<!--FREE_ISSUES_PANEL-->", &issues)
         .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
