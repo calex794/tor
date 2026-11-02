@@ -220,6 +220,57 @@ async function verify(browser, buyer, viewport) {
           "blocked/delete states must never issue a signed bearer URL");
       }
     };
+    // S065: while moderation or hard deletion blocks a purchased V1, legacy
+    // history, preview, asset and progress URLs must never bypass D/B/G.
+    // These requests use the actual buyer session, not an anonymous denial.
+    const assertAlternateSurfacesClosed = async () => {
+      const secret = "Оплаченная V1: кириллица";
+      const oldRoutes = [
+        "/read/" + chapter.id + "?preview=1&version_id=" + chapter.version +
+          "&purchase_id=" + purchase,
+        "/api/v1/chapters/" + chapter.id + "/read?preview=1&purchase_id=" + purchase,
+        "/reader/" + chapter.id + "/toc-fragment?limit=100",
+        "/reader/" + chapter.id + "/history?version_id=" + chapter.version,
+        "/reader/" + chapter.id + "/preview?version_id=" + chapter.version,
+        "/api/v1/chapters/" + chapter.id + "/history",
+        "/api/v1/chapters/" + chapter.id + "/versions/" + chapter.version,
+        "/api/v1/chapters/" + chapter.id + "/preview",
+        "/cdn/chapters/" + chapter.id + "/" + chapter.version + ".html",
+        "/media/chapters/" + chapter.id + "/" + chapter.version,
+      ];
+      for (const route of oldRoutes) {
+        const reply = await context.request.get(SITE + route, { maxRedirects: 0 });
+        assert.equal(reply.status(), 404, "disabled alternate route " + route);
+        const body = await reply.text();
+        assert(!body.includes(secret), "paid text in alternate route " + route);
+        assert(!body.includes("X-Amz-Signature"),
+          "S3 bearer data in alternate route " + route);
+        assert(!body.includes("ciphertext_url"),
+          "private object metadata in alternate route " + route);
+      }
+      // A forged public preview may show a paywall, but never an owned edition.
+      const publicPreview = await context.request.get(SITE + "/reader/" + chapter.id +
+        "?preview=1&version_id=" + chapter.version + "&purchase_id=" + purchase,
+        { maxRedirects: 0 });
+      assert([200, 403, 404].includes(publicPreview.status()));
+      assert.equal(publicPreview.headers()["cache-control"], "no-store");
+      const paywall = await publicPreview.text();
+      assert(!paywall.includes(secret));
+      assert(!paywall.includes("X-Amz-Signature"));
+      assert(!paywall.includes("purchase_id=" + purchase),
+        "forged purchase token was reflected in public reader");
+      // Stored progress may remain visible after access is blocked, but it must
+      // never contain a paid body or a reusable signed object URL.
+      const progress = await context.request.get(SITE +
+        "/api/v1/me/progress/purchased?purchase_id=" + purchase +
+        "&chapter_id=" + chapter.id + "&version_id=" + chapter.version);
+      assert([200, 403, 404].includes(progress.status()));
+      assert.equal(progress.headers()["cache-control"], "no-store");
+      const position = await progress.text();
+      assert(!position.includes(secret));
+      assert(!position.includes("X-Amz-Signature"));
+      assert(!position.includes("ciphertext_url"));
+    };
     assert(Number.isSafeInteger(fixture.book_id) && fixture.book_id > 0);
     for (const [table, id] of [["books", fixture.book_id], ["chapters", chapter.id]]) {
       for (const [column, changed, original, expected] of [
@@ -231,6 +282,7 @@ async function verify(browser, buyer, viewport) {
         pg("UPDATE " + table + " SET " + column + "=" + changed + " WHERE id=" + id);
         try {
           await assertPaidState(expected);
+          if (expected !== 200) await assertAlternateSurfacesClosed();
         } finally {
           pg("UPDATE " + table + " SET " + column + "=" + original + " WHERE id=" + id);
         }
@@ -250,6 +302,7 @@ async function verify(browser, buyer, viewport) {
     const grant = await context.request.post(SITE + "/api/v1/reader/chapters/" + chapter.id + "/delivery-grants",
       { data: {}, headers: { origin: SITE, "x-csrf-token": csrf } });
     assert.equal(grant.status(), 403);
+    await assertAlternateSurfacesClosed();
     const rejectedIssue = await context.request.post(
       SITE + "/api/v1/reader/chapters/" + chapter.id + "/text-issues", {
         data: {
