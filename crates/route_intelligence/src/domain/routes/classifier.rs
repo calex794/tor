@@ -200,10 +200,12 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/mail/groups/{id}"), "GET") => Some(187),
         (Some("/admin/mail/book-rooms"), "GET") => Some(188),
         (Some("/admin/mail/book-rooms/{id}"), "GET") => Some(189),
-        (Some("/assets/newboo-text-issues.js"), "GET") => Some(190),
-        (Some("/me/books/{id}/issues"), "GET") => Some(191),
-        (Some("/me/books/{id}/issues/{issue_id}/status"), "POST") => Some(192),
-        (Some("/read/{id}/text-issues"), "POST") => Some(193),
+        (Some("/me/chapters/{id}/buy"), "GET") => Some(190),
+        (Some("/me/chapters/{id}/buy"), "POST") => Some(191),
+        (Some("/assets/newboo-text-issues.js"), "GET") => Some(192),
+        (Some("/me/books/{id}/issues"), "GET") => Some(193),
+        (Some("/me/books/{id}/issues/{issue_id}/status"), "POST") => Some(194),
+        (Some("/read/{id}/text-issues"), "POST") => Some(195),
         _ => None,
     };
     index
