@@ -104,7 +104,7 @@ async fn e_08_book_room_join_read_send_leave_private_and_csrf() {
     let html = text(first).await;
     assert!(html.contains("Вступить в чат"));
     assert!(html.contains("Room &lt;script&gt;title&lt;/script&gt;"));
-    assert!(!html.contains("Отправить</button>"));
+    // The global support widget may have its own Send button; do not expose\n    // the *book-room* send form to an account that has not joined.\n    assert!(!html.contains(&format!("action=\"{page}/messages\"")));\n    assert!(!html.contains("name=\"command_key\""));
     let join_path = format!("{page}/join");
     let join_form = format!("csrf_token={}", tokens[0]);
     assert_eq!(

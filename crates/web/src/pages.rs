@@ -55,6 +55,19 @@ pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
     layout_with_seo(title, description, content, seo_head::default_head())
 }
 
+/// Public homepage widget; all private page CSP rules remain unchanged.
+pub(super) fn layout_with_support_widget(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
+    Html(html.0.replace(
+        "</body>",
+        "<script src=\"/assets/newboo-support-widget.js\" defer></script>\n</body>",
+    ))
+}
+
 fn layout_with_seo(
     title: &str,
     description: &str,
@@ -460,6 +473,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-book-detail.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-comments.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-support-widget.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');
