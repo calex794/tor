@@ -91,7 +91,11 @@ pub(super) async fn page(
         Ok(false) => {}
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let offer = match state.checkout.published_chapter_offer(actor, chapter_id).await {
+    let offer = match state
+        .checkout
+        .published_chapter_offer(actor, chapter_id)
+        .await
+    {
         Ok(Some(offer)) => offer,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -123,7 +127,10 @@ pub(super) async fn submit(
     }
     let (Ok(chapter), Some(version), Ok(actor_id), Ok(wallet), Ok(price), Ok(key)) = (
         PositiveId::new(chapter_id),
-        form.expected_version_id.parse::<i64>().ok().and_then(|v| PositiveId::new(v).ok()),
+        form.expected_version_id
+            .parse::<i64>()
+            .ok()
+            .and_then(|v| PositiveId::new(v).ok()),
         PositiveId::new(actor),
         WalletId::new(actor),
         MoneyMinor::new(form.expected_price_minor),
@@ -131,18 +138,17 @@ pub(super) async fn submit(
     ) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
-    if price.get() <= 0 || form.expected_version_id.len() > 19
+    if price.get() <= 0
+        || form.expected_version_id.len() > 19
         || !form.expected_version_id.bytes().all(|b| b.is_ascii_digit())
     {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let ready = match state.checkout.browser_offer_ready_or_replay(
-        actor,
-        chapter_id,
-        version.get(),
-        price.get(),
-        key.as_str(),
-    ).await {
+    let ready = match state
+        .checkout
+        .browser_offer_ready_or_replay(actor, chapter_id, version.get(), price.get(), key.as_str())
+        .await
+    {
         Ok(ready) => ready,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
@@ -156,7 +162,10 @@ pub(super) async fn submit(
     let command = match PurchaseCommand::new(
         actor_id,
         wallet,
-        ChapterVersionRef { chapter_id: chapter, version_id: version },
+        ChapterVersionRef {
+            chapter_id: chapter,
+            version_id: version,
+        },
         price,
         key,
     ) {
