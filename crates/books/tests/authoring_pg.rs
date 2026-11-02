@@ -773,23 +773,25 @@ async fn b_02_legacy_book_titles_block_new_registration_without_rewriting_old_ro
     .fetch_one(&pool)
     .await
     .unwrap();
-    let old_claims: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM book_registration_titles WHERE book_id=$1",
-    )
-    .bind(old_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let old_claims: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM book_registration_titles WHERE book_id=$1")
+            .bind(old_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(old_claims, 0, "historical book has no registration claims");
 
     for title in [&old_title, "Ёж — и кот", "中文 — 作品", "Test... Book"] {
-        let sql_key: String =
-            sqlx::query_scalar("SELECT book_registration_legacy_title_key($1)")
-                .bind(title)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(sql_key, normalized_title(title), "PG / Rust title-key parity");
+        let sql_key: String = sqlx::query_scalar("SELECT book_registration_legacy_title_key($1)")
+            .bind(title)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sql_key,
+            normalized_title(title),
+            "PG / Rust title-key parity"
+        );
     }
 
     let key = "l".repeat(43);
@@ -805,14 +807,18 @@ async fn b_02_legacy_book_titles_block_new_registration_without_rewriting_old_ro
         Err(AuthorError::Conflict),
         "legacy private drafts must also block duplicates"
     );
-    let command_rows: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM book_create_commands WHERE user_id=$1 AND command_key=$2")
-            .bind(owner)
-            .bind(&key)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(command_rows, 0, "rejected create must roll back its command");
+    let command_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM book_create_commands WHERE user_id=$1 AND command_key=$2",
+    )
+    .bind(owner)
+    .bind(&key)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        command_rows, 0,
+        "rejected create must roll back its command"
+    );
 
     let old_still_draft: String = sqlx::query_scalar("SELECT visibility FROM books WHERE id=$1")
         .bind(old_id)
@@ -830,7 +836,10 @@ async fn b_02_legacy_book_titles_block_new_registration_without_rewriting_old_ro
     )
     .unwrap();
     assert!(
-        author.create_owned_book(owner, &other_language).await.is_ok(),
+        author
+            .create_owned_book(owner, &other_language)
+            .await
+            .is_ok(),
         "a different target language remains a different edition"
     );
 
