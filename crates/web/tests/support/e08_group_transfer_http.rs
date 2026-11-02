@@ -11,6 +11,7 @@ pub(super) async fn check_consent(
     users: &[i64],
     cookies: &[String],
     tokens: &[String],
+    bell: &PgNotifications,
 ) {
     // Only the creator can propose management. The roles stay unchanged until
     // the named recipient explicitly accepts; old offers are single-use.
@@ -235,8 +236,6 @@ pub(super) async fn check_consent(
     assert!(second_offer > first_offer);
     // Drive the durable outbox and verify the actual recipient HTML before
     // and after the creator revokes an already delivered offer.
-    let bell_pool = sqlx::PgPool::connect(url).await.unwrap();
-    let bell = PgNotifications::new(bell_pool);
     for _ in 0..12 {
         if bell.deliver_pending(100).await.unwrap() < 100 {
             break;
