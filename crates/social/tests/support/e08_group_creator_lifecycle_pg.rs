@@ -356,3 +356,100 @@ async fn e_08_creator_transfer_bell_notifies_only_for_live_proposals() {
         .unwrap();
     cleanup(&pool, &users).await;
 }
+
+/// If delivery has already read the source event and is blocked on the group,
+/// a concurrent revoked offer must not become a late bell notification.
+/// Rechecking the transfer in a fresh snapshot after the group lock is key.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_transfer_notice_rechecks_offer_after_concurrent_revocation() {
+    let (pool, users) = fixture().await;
+    let (owner, recipient) = (users[0], users[1]);
+    let groups = PgGroupMail::new(pool.clone());
+    let notifications = PgNotifications::new(pool.clone());
+    // Existing unrelated events cannot be mistaken for this offer.
+    for _ in 0..10 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    let group_id = groups.create(owner, &[recipient], "Race-safe transfer").await.unwrap();
+    let offer_id = groups.propose_transfer(owner, group_id, recipient).await.unwrap();
+    let event_id: String = sqlx::query_scalar(
+        "SELECT id::text FROM outbox_events
+         WHERE event_type='social.group_creator_transfer.proposed'
+           AND aggregate_id=$1",
+    )
+    .bind(offer_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // The source transaction owns the group before notification delivery
+    // starts. The consumer must block on it, after claiming the outbox event.
+    let mut owner_tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM social_group_conversations WHERE id=$1 FOR UPDATE")
+        .bind(group_id)
+        .execute(&mut *owner_tx)
+        .await
+        .unwrap();
+    let worker_repo = notifications.clone();
+    let worker = tokio::spawn(async move { worker_repo.deliver_pending(1).await });
+
+    // Query own database sessions to synchronize the race without a fragile
+    // sleep; both old joined-lock and new group-first code wait on this row.
+    let start = std::time::Instant::now();
+    let mut waiting_for_group = false;
+    while start.elapsed() < std::time::Duration::from_secs(10) {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE pid<>pg_backend_pid() AND usename=current_user
+               AND datname=current_database() AND state='active'
+               AND wait_event_type='Lock'
+               AND query LIKE '%social_group_conversations%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            waiting_for_group = true;
+            break;
+        }
+        if worker.is_finished() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(waiting_for_group, "notification worker must reach the held group");
+    let revoked = sqlx::query(
+        "UPDATE social_group_creator_transfers
+         SET state='revoked',resolved_at=clock_timestamp()
+         WHERE id=$1 AND state='pending'",
+    )
+    .bind(offer_id)
+    .execute(&mut *owner_tx)
+    .await
+    .unwrap();
+    assert_eq!(revoked.rows_affected(), 1);
+    owner_tx.commit().await.unwrap();
+
+    assert_eq!(worker.await.unwrap(), Ok(1));
+    assert!(notifications.list(recipient, None, 50).await.unwrap().is_empty());
+    let receipts: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM event_deliveries
+         WHERE consumer='user_notifications' AND event_id=$1::uuid",
+    )
+    .bind(&event_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipts, 1, "a suppressed event is still acknowledged once");
+    assert_eq!(notifications.deliver_pending(1).await.unwrap(), 0);
+
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(group_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup(&pool, &users).await;
+}
