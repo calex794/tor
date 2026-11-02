@@ -101,6 +101,7 @@ TEST_SUITES = {
     "tools/operator_trace_visual_smoke.cjs": {"visual"},
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
+    "tools/mail_browser_pg.cjs": {"reader_browser"},
     "tools/referral_share_browser_smoke.cjs": {"reader_browser"},
     "tools/author_chapter_visual_smoke.cjs": {"reader_browser"},
     "tools/loop_01_browser_smoke.cjs": {"reader_browser"},

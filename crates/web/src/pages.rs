@@ -24,7 +24,7 @@ mod reader_private;
 pub use reader_private::private_reader;
 pub use reader_private::private_reader_with_demand;
 mod paywall;
-#[allow(unused_imports)] // Legacy rendering is still exercised by page tests.
+#[allow(unused_imports)]
 pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
@@ -304,8 +304,8 @@ fn book_detail_body(
     };
     let discussion = if toc.is_some() {
         format!(
-            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a></section>",
-            book.id
+            "<section class=\"book-section-card\" aria-label=\"Комментарии\"><h2>Обсуждение книги</h2><a class=\"text-link\" href=\"/books/{}/comments\">Читать и оставить комментарий</a> · <a class=\"text-link\" href=\"/books/{}/room\">Книжный чат</a></section>",
+            book.id, book.id
         )
     } else {
         String::new()

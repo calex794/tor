@@ -12,8 +12,8 @@ s3-paid = ["dep:tor-storage", "dep:aws-config", "dep:aws-sdk-s3"]
 axum = { workspace = true, features = ["multipart"] }
 tokio = { workspace = true, features = ["time"] }
 tor-books = { path = "../books" }
-tor-discussions = { path = "../discussions" }
 tor-social = { path = "../social" }
+tor-discussions = { path = "../discussions" }
 tor-commerce = { path = "../commerce" }
 tor-contracts = { path = "../contracts" }
 tor-storage = { path = "../storage", features = ["pg", "s3"], optional = true }
@@ -29,6 +29,7 @@ tor-referrals = { path = "../referrals" }
 tor-route_intelligence = { path = "../route_intelligence" }
 tor-traffic_behavior = { path = "../traffic_behavior" }
 tor-observability = { path = "../observability" }
+serde_json = "1"
 serde.workspace = true
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -36,7 +37,6 @@ base64 = "0.22"
 sha2 = "0.10"
 
 [dev-dependencies]
-serde_json = "1"
 hex = "0.4"
 tower = { version = "0.5", features = ["util"] }
 
