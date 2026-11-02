@@ -136,14 +136,13 @@ impl PgAuthoring {
             .map_err(|_| AuthorError::Unavailable)?;
         // Lock book before schedule, the same order as schedule/reschedule.
         // This avoids deadlocks when cancellation races with the author.
-        let owned: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM books WHERE id=$1 AND owner_user_id=$2 FOR UPDATE",
-        )
-        .bind(book)
-        .bind(actor)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
+        let owned: Option<i64> =
+            sqlx::query_scalar("SELECT id FROM books WHERE id=$1 AND owner_user_id=$2 FOR UPDATE")
+                .bind(book)
+                .bind(actor)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| AuthorError::Unavailable)?;
         if owned.is_none() {
             return Err(AuthorError::Missing);
         }
