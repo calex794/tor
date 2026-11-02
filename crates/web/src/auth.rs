@@ -162,7 +162,8 @@ fn router_inner(
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
-    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
+    let chapter_routes =
+        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
