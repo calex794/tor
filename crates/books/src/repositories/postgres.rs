@@ -14,7 +14,7 @@ mod owned_chapter_pages;
 mod source_alias_guard;
 use crate::{
     domain::{Book, BookKey, Visibility},
-    services::book_registration::{registration_titles, rulate_work_id},
+    services::book_registration::{normalized_source_url, registration_titles},
     services::{
         authoring::{
             valid_command_key, AuthorError, ChapterAccess, NewBook, OwnedBook, SaveChapter,
@@ -213,8 +213,9 @@ impl PgAuthoring {
             return previous_id.ok_or(AuthorError::Unavailable);
         }
 
-        if let Some(work_id) = rulate_work_id(&book.source_url) {
-            if source_alias_guard::rulate_work_exists(&mut tx, &book.target_language, &work_id)
+        if !book.source_url.is_empty() {
+            let canonical_url = normalized_source_url(&book.source_url)?;
+            if source_alias_guard::source_url_exists(&mut tx, &book.target_language, &canonical_url)
                 .await?
             {
                 return Err(AuthorError::Conflict);

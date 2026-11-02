@@ -24,11 +24,20 @@ pub fn source_identity(
     if actor <= 0 || !valid_command_key(command_key) {
         return Err(AuthorError::Invalid);
     }
-    let source_url = source_url.trim();
-    if source_url.is_empty() {
+    if source_url.trim().is_empty() {
         return Ok(format!("manual:{actor}:{command_key}"));
     }
-    if source_url.len() > 512
+    let canonical = normalized_source_url(source_url)?;
+    let digest = Sha256::digest(canonical.as_bytes());
+    Ok(format!("url:{digest:x}"))
+}
+
+/// Stable identity for any accepted HTTP(S) source URL. Do not infer that
+/// distinct links identify the same original work or treat Rulate specially.
+pub fn normalized_source_url(source_url: &str) -> Result<String, AuthorError> {
+    let source_url = source_url.trim();
+    if source_url.is_empty()
+        || source_url.len() > 512
         || source_url.contains('#')
         || source_url
             .chars()
@@ -64,56 +73,7 @@ pub fn source_identity(
         .query()
         .map(|value| format!("?{value}"))
         .unwrap_or_default();
-    // Only a proven work-page ID may ignore the source's optional query.
-    // Other sites retain their exact existing URL identity contract.
-    if let Some(work_id) = rulate_work_id(source_url) {
-        return Ok(format!("rulate:book:{work_id}"));
-    }
-    // HTTP and HTTPS links to the same public work share one stable identity.
-    let canonical = format!("https://{host}{path}{query}");
-    let digest = Sha256::digest(canonical.as_bytes());
-    Ok(format!("url:{digest:x}"))
-}
-
-/// Stable public work number shared by the provider's canonical book links.
-/// Never infer identity from fuzzy titles, chapter links or unrelated hosts.
-pub fn rulate_work_id(url: &str) -> Option<String> {
-    if url.contains('#')
-        || url
-            .chars()
-            .any(|ch| ch.is_control() || ch.is_whitespace() || ch == '\\')
-    {
-        return None;
-    }
-    let uri: Uri = url.parse().ok()?;
-    if !matches!(uri.scheme_str()?, "http" | "https") {
-        return None;
-    }
-    let authority = uri.authority()?;
-    if authority.as_str().contains('@')
-        || authority
-            .port_u16()
-            .is_some_and(|port| port != 80 && port != 443)
-    {
-        return None;
-    }
-    let host = authority.host().to_ascii_lowercase();
-    if !matches!(
-        host.as_str(),
-        "rulate.ru" | "tl.rulate.ru" | "www.rulate.ru" | "www.tl.rulate.ru"
-    ) {
-        return None;
-    }
-    let path = uri.path().strip_prefix("/book/")?;
-    let raw_id = path.strip_suffix('/').unwrap_or(path);
-    if raw_id.is_empty() || raw_id.len() > 18 || !raw_id.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let id = raw_id.trim_start_matches('0');
-    if id.is_empty() {
-        return None;
-    }
-    Some(id.to_owned())
+    Ok(format!("https://{host}{path}{query}"))
 }
 
 /// Match exact title aliases after case, punctuation, spacing and ё/е cleanup.
@@ -250,37 +210,54 @@ mod tests {
     }
 
     #[test]
-    fn s019_rulate_url_aliases_share_one_proven_work_id() {
-        let variants = [
-            "https://tl.rulate.ru/book/268849",
-            "http://rulate.ru/book/000268849/?utm_source=share",
-            "https://www.tl.rulate.ru/book/268849?ref=example",
-        ];
-        for (i, link) in variants.iter().enumerate() {
-            assert_eq!(rulate_work_id(link).as_deref(), Some("268849"));
+    fn s019_source_url_identity_is_provider_neutral() {
+        for (first, second) in [
+            (
+                "http://www.qidian.com/book/268849/",
+                "https://qidian.com/book/268849",
+            ),
+            (
+                "https://www.example.org/story/12?chapter=1",
+                "http://example.org/story/12/?chapter=1",
+            ),
+            (
+                "http://tl.rulate.ru/book/268849",
+                "https://tl.rulate.ru/book/268849/",
+            ),
+        ] {
             assert_eq!(
-                source_identity(link, 10 + i as i64, KEY).unwrap(),
-                "rulate:book:268849"
+                normalized_source_url(first).unwrap(),
+                normalized_source_url(second).unwrap(),
+            );
+            assert_eq!(
+                source_identity(first, 5, KEY).unwrap(),
+                source_identity(second, 6, &"b".repeat(43)).unwrap(),
             );
         }
-        assert_eq!(
-            source_identity("https://tl.rulate.ru/book/268850", 10, KEY).unwrap(),
-            "rulate:book:268850"
-        );
-        for unrelated in [
-            "https://notrulate.ru/book/268849",
-            "https://tl.rulate.ru/book/268849/chapter/1",
-            "https://tl.rulate.ru/book/0",
-            "https://tl.rulate.ru/books/268849",
-            "https://tl.rulate.ru/book/268849#chapters",
+        // These may be different works or chapters: never assume otherwise.
+        for (first, second) in [
+            (
+                "https://tl.rulate.ru/book/268849?ref=one",
+                "https://tl.rulate.ru/book/268849?ref=two",
+            ),
+            (
+                "https://tl.rulate.ru/book/268849",
+                "https://rulate.ru/book/268849",
+            ),
+            (
+                "https://qidian.com/book/268849",
+                "https://qidian.com/book/268850",
+            ),
+            (
+                "https://example.org/story?chapter=1",
+                "https://example.org/story?chapter=2",
+            ),
         ] {
-            assert!(rulate_work_id(unrelated).is_none(), "{unrelated}");
+            assert_ne!(
+                source_identity(first, 5, KEY).unwrap(),
+                source_identity(second, 5, KEY).unwrap(),
+            );
         }
-        assert_ne!(
-            source_identity("https://example.org/a?chapter=1", 12, KEY).unwrap(),
-            source_identity("https://example.org/a?chapter=2", 12, KEY).unwrap(),
-            "other providers retain semantic query parameters"
-        );
     }
 
     #[test]
