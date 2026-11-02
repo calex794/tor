@@ -293,6 +293,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let (author, _author_cookie) = user(&accounts, "s034-minio-author@tor-ci.example").await;
     let (buyer, buyer_cookie) = user(&accounts, "s034-minio-buyer@tor-ci.example").await;
     let (_stranger, stranger_cookie) = user(&accounts, "s034-minio-stranger@tor-ci.example").await;
+    let (s005_chromium_buyer, _s005_chromium_cookie) =
+        user(&accounts, "s005-real-browser@tor-ci.example").await;
     let (live_desktop, live_desktop_session) =
         user(&accounts, "s035-private-desktop@tor-ci.example").await;
     let (live_mobile, live_mobile_session) =
@@ -301,7 +303,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!(
             "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
-             VALUES({live_desktop},600,'RUB'),({live_mobile},600,'RUB')"
+             VALUES({live_desktop},600,'RUB'),({live_mobile},600,'RUB'),({s005_chromium_buyer},500,'RUB')"
         ),
     );
     let csrf = generate_session_token();
@@ -510,6 +512,8 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
                 (live_desktop, &live_desktop_session),
                 (live_mobile, &live_mobile_session),
             ],
+            single_buyer_id: s005_chromium_buyer,
+            outsider_session: &stranger_cookie,
         },
     )
     .await;

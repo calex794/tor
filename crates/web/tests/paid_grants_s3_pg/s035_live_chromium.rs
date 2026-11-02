@@ -7,6 +7,8 @@ pub(super) struct Fixture<'a> {
     pub book: i64,
     pub chapters: [(i64, i64); 2],
     pub buyers: [(i64, &'a str); 2],
+    pub single_buyer_id: i64,
+    pub outsider_session: &'a str,
 }
 
 pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
@@ -27,6 +29,8 @@ pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
         "book_id": fixture.book,
         "chapters": chapter_rows,
         "buyers": buyer_rows,
+        "single_buyer_id": fixture.single_buyer_id,
+        "outsider_session": fixture.outsider_session,
     });
     // No cookies or bearer credentials in source control, artifacts or logs.
     let mut options = OpenOptions::new();
@@ -81,7 +85,8 @@ pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("S035 contiguous Chromium PASS: desktop")
-            && stdout.contains("S035 contiguous Chromium PASS: mobile"),
+            && stdout.contains("S035 contiguous Chromium PASS: mobile")
+            && stdout.contains("S005 single-chapter Chromium PASS"),
         "both viewport acceptance runs must reach the second decrypted reader"
     );
 }

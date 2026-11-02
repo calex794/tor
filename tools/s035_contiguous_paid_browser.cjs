@@ -279,6 +279,155 @@ async function testViewport(browser, buyer, viewport) {
     await context.close();
   }
 }
+
+// S005/S065: complete native one-chapter purchase in a real browser. The
+// separate 500-minor buyer keeps S035's two-chapter buyers untouched.
+async function testSingleChapter(browser) {
+  assert(Number.isSafeInteger(fixture.single_buyer_id));
+  assert.match(fixture.outsider_session, /^[a-zA-Z0-9_-]{43}$/);
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  const chapter = fixture.chapters[0];
+  const buyPath = "/me/chapters/" + chapter.id + "/buy";
+  const marker = contentMarkers[0];
+  const paidGrants = [];
+  const encryptedGets = [];
+  page.on("response", (res) => {
+    const uri = new URL(res.url());
+    if (uri.origin === SITE && uri.pathname.endsWith("/delivery-grants")) {
+      paidGrants.push(res.status());
+    }
+    if (uri.origin === S3 && uri.pathname.endsWith(".enc") && res.status() === 200) {
+      encryptedGets.push(uri.pathname);
+    }
+  });
+  try {
+    assert.equal(count("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=" +
+      fixture.single_buyer_id), 500);
+    assert.equal(count("SELECT count(*) FROM chapter_purchase_facts WHERE user_id=" +
+      fixture.single_buyer_id), 0);
+    const paywall = await page.goto(SITE + "/reader/" + chapter.id);
+    assert.equal(paywall.status(), 200);
+    assert.equal(paywall.headers()["cache-control"], "no-store");
+    assert.equal(paywall.headers()["x-robots-tag"], "noindex, nofollow");
+    assert(!(await paywall.text()).includes(marker));
+    const buyLink = page.locator('a[href="' + buyPath + '"]');
+    assert.equal(await buyLink.count(), 1);
+    await buyLink.click();
+    await page.waitForURL("**/login");
+    await page.getByLabel("Электронная почта")
+      .fill("s005-real-browser@tor-ci.example");
+    await page.getByLabel("Пароль", { exact: true })
+      .fill("S034RealStorageE2EPassword2026");
+    const login = page.waitForResponse((res) =>
+      new URL(res.url()).pathname === "/login" &&
+      res.request().method() === "POST");
+    await page.getByRole("button", { name: "Войти", exact: true }).click();
+    assert.equal((await login).status(), 303);
+    await page.waitForURL("**/me");
+
+    await page.goto(SITE + "/reader/" + chapter.id);
+    await page.locator('a[href="' + buyPath + '"]').click();
+    await page.waitForURL((url) => url.pathname === buyPath);
+    assert(await page.getByRole("heading", { name: "Подтвердить покупку" })
+      .isVisible());
+    assert((await page.content()).includes("1,75 ₽"));
+    assert(!(await page.content()).includes(marker));
+    assert(!(await page.content()).includes("<img src=x onerror="));
+    const form = await page.locator('form[action="' + buyPath + '"]')
+      .evaluate((element) => Object.fromEntries(new FormData(element)));
+    assert.equal(form.expected_version_id, String(chapter.version));
+    assert.equal(form.expected_price_minor, "175");
+    assert.match(form.command_key, /^[a-zA-Z0-9_-]{43}$/);
+    assert.match(form.csrf_token, /^[a-zA-Z0-9_-]{43}$/);
+    assert((await context.cookies(SITE)).some((cookie) =>
+      cookie.name === "tor-dev-csrf" && cookie.value === form.csrf_token));
+    const post = (fields, origin = SITE) => context.request.post(SITE + buyPath, {
+      form: fields, headers: { Origin: origin }, maxRedirects: 0,
+    });
+    assert.equal((await post({ ...form, csrf_token: "forged" })).status(), 403);
+    assert.equal((await post(form, "https://evil.invalid")).status(), 403);
+    assert.equal((await post({
+      ...form, expected_version_id: String(chapter.version + 1),
+    })).status(), 409);
+    assert.equal((await post({ ...form, expected_price_minor: "176" })).status(), 409);
+    assert.equal(count("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=" +
+      fixture.single_buyer_id), 500);
+
+    const buy = page.waitForResponse((res) =>
+      new URL(res.url()).pathname === buyPath && res.request().method() === "POST");
+    const reader = page.waitForResponse((res) =>
+      new URL(res.url()).pathname === "/read/paid/" + chapter.id &&
+      res.request().method() === "GET");
+    await page.getByRole("button",
+      { name: "Подтвердить покупку за 1,75 ₽" }).click();
+    assert.equal((await buy).status(), 303);
+    const shell = await reader;
+    assert.equal(shell.status(), 200);
+    assert(!(await shell.text()).includes(marker),
+      "Rust must not return protected plaintext in reader HTML");
+    await page.waitForFunction((text) => [...document.querySelectorAll(
+      "[data-paid-content] .reader-piece__text")].some((piece) =>
+      (piece.textContent || "").includes(text)), marker, { timeout: 30000 });
+    const purchase = count("SELECT id FROM chapter_purchase_facts WHERE user_id=" +
+      fixture.single_buyer_id);
+    assert.equal(new URL(page.url()).searchParams.get("purchase_id"), String(purchase));
+    assert(paidGrants.includes(200), "private grant must be authorized");
+    assert(encryptedGets.length > 0, "reader must fetch encrypted bytes from MinIO");
+    assert.equal(count("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=" +
+      fixture.single_buyer_id), 325);
+    assert.equal(count("SELECT count(*) FROM reader_wallet_entries WHERE user_id=" +
+      fixture.single_buyer_id + " AND kind='chapter_purchase'"), 1);
+    const replay = await post(form);
+    assert.equal(replay.status(), 303);
+    assert.equal(new URL(replay.headers().location, SITE).searchParams.get("purchase_id"),
+      String(purchase));
+    assert.equal((await post({ ...form, command_key: "A".repeat(42) + "8" }))
+      .status(), 409);
+    assert.equal(count("SELECT balance_minor FROM reader_wallet_accounts WHERE user_id=" +
+      fixture.single_buyer_id), 325);
+    assert.equal(count("SELECT count(*) FROM chapter_purchase_facts WHERE user_id=" +
+      fixture.single_buyer_id), 1);
+    const repurchase = await context.request.get(SITE + buyPath, { maxRedirects: 0 });
+    assert.equal(repurchase.status(), 303);
+    assert.equal(new URL(repurchase.headers().location, SITE).pathname, "/me/purchases");
+
+    const outsider = await browser.newContext();
+    try {
+      await outsider.addCookies([{
+        url: SITE, name: "tor-dev-session",
+        value: fixture.outsider_session, httpOnly: true, sameSite: "Strict",
+      }]);
+      const denied = await outsider.request.get(SITE + "/read/paid/" +
+        chapter.id + "?purchase_id=" + purchase);
+      assert.equal(denied.status(), 404);
+      assert(!(await denied.text()).includes(marker));
+      const progress = "/api/v1/me/progress/purchased?purchase_id=" + purchase +
+        "&chapter_id=" + chapter.id + "&version_id=" + chapter.version;
+      assert.equal((await context.request.get(SITE + progress)).status(), 200);
+      assert.equal((await outsider.request.get(SITE + progress)).status(), 404);
+      for (const alternate of [
+        "/reader/" + chapter.id + "/history?version_id=" + chapter.version,
+        "/reader/" + chapter.id + "/preview?version_id=" + chapter.version,
+        "/api/v1/chapters/" + chapter.id + "/history",
+        "/api/v1/chapters/" + chapter.id + "/versions/" + chapter.version,
+        "/cdn/chapters/" + chapter.id + "/" + chapter.version + ".html",
+      ]) {
+        const response = await outsider.request.get(SITE + alternate);
+        assert.equal(response.status(), 404, "unregistered paid alternate path");
+        assert(!(await response.text()).includes(marker));
+      }
+    } finally {
+      await outsider.close();
+    }
+    console.log("S005 single-chapter Chromium PASS");
+  } finally {
+    await context.close();
+  }
+}
+
 async function run() {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -288,6 +437,7 @@ async function run() {
     ].entries()) {
       await testViewport(browser, fixture.buyers[index], viewport);
     }
+    await testSingleChapter(browser);
   } finally {
     await browser.close();
   }
