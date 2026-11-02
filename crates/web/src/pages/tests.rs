@@ -465,10 +465,14 @@ fn b_18_navigation_follows_books_in_catalog_layout() {
 #[test]
 fn c_public_reader_has_no_paid_access_control_or_inline_executable_script() {
     let chapter = tor_reading::services::PublicChapterPage {
-        version_id: 10, book_id: 20, book_title: "Книга".into(),
-        chapter_title: "Глава".into(), version_no: 1,
+        version_id: 10,
+        book_id: 20,
+        book_title: "Книга".into(),
+        chapter_title: "Глава".into(),
+        version_no: 1,
         body_markdown: "Бесплатный текст".into(),
-        previous_chapter_id: None, next_chapter_id: None,
+        previous_chapter_id: None,
+        next_chapter_id: None,
         next_chapter_is_paid: false,
     };
     let html = reader(&chapter).0;
