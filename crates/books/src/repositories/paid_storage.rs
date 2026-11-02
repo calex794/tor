@@ -466,83 +466,83 @@ impl PgPaidStorage {
             return Err(AuthorError::Conflict);
         }
 
-        if !matches!(publication, PaidPublication::KeepCurrent) {
-            if current != Some(version_id) {
-                match current {
-                    Some(old_version) => {
-                        let changed = sqlx::query(
-                            "UPDATE chapter_publications
-                             SET version_id=$3,published_at=now()
-                             WHERE chapter_id=$1 AND version_id=$2",
-                        )
-                        .bind(chapter_id)
-                        .bind(old_version)
-                        .bind(version_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
-                        if changed.rows_affected() != 1 {
-                            return Err(AuthorError::Conflict);
-                        }
-                    }
-                    None => {
-                        sqlx::query(
-                            "INSERT INTO chapter_publications(chapter_id,version_id)
-                             VALUES($1,$2)",
-                        )
-                        .bind(chapter_id)
-                        .bind(version_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
-                        sqlx::query(
-                            "INSERT INTO chapter_first_release_events
-                             (chapter_id,version_id,creator_user_id)
-                             VALUES($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
-                        )
-                        .bind(chapter_id)
-                        .bind(version_id)
-                        .bind(actor)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
-                    }
-                }
-                if let PaidPublication::PublishEdit {
-                    expected_revision, ..
-                } = publication
-                {
+        if !matches!(publication, PaidPublication::KeepCurrent)
+            && current != Some(version_id)
+        {
+            match current {
+                Some(old_version) => {
                     let changed = sqlx::query(
-                        "UPDATE chapters SET edit_revision=edit_revision+1
-                         WHERE id=$1 AND edit_revision=$2 AND visibility='public'",
+                        "UPDATE chapter_publications
+                         SET version_id=$3,published_at=now()
+                         WHERE chapter_id=$1 AND version_id=$2",
                     )
                     .bind(chapter_id)
-                    .bind(expected_revision)
+                    .bind(old_version)
+                    .bind(version_id)
                     .execute(&mut *tx)
                     .await
                     .map_err(map_write)?;
                     if changed.rows_affected() != 1 {
                         return Err(AuthorError::Conflict);
                     }
-                } else {
-                    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
-                        .bind(chapter_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(map_write)?;
                 }
-                sqlx::query(
-                    "INSERT INTO chapter_encrypted_release_events
-                       (chapter_id,version_id,storage_object_id)
-                     VALUES($1,$2,$3::uuid) ON CONFLICT(chapter_id,version_id) DO NOTHING",
+                None => {
+                    sqlx::query(
+                        "INSERT INTO chapter_publications(chapter_id,version_id)
+                         VALUES($1,$2)",
+                    )
+                    .bind(chapter_id)
+                    .bind(version_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_write)?;
+                    sqlx::query(
+                        "INSERT INTO chapter_first_release_events
+                         (chapter_id,version_id,creator_user_id)
+                         VALUES($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
+                    )
+                    .bind(chapter_id)
+                    .bind(version_id)
+                    .bind(actor)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_write)?;
+                }
+            }
+            if let PaidPublication::PublishEdit {
+                expected_revision, ..
+            } = publication
+            {
+                let changed = sqlx::query(
+                    "UPDATE chapters SET edit_revision=edit_revision+1
+                     WHERE id=$1 AND edit_revision=$2 AND visibility='public'",
                 )
                 .bind(chapter_id)
-                .bind(version_id)
-                .bind(object_id.as_str())
+                .bind(expected_revision)
                 .execute(&mut *tx)
                 .await
                 .map_err(map_write)?;
+                if changed.rows_affected() != 1 {
+                    return Err(AuthorError::Conflict);
+                }
+            } else {
+                sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
+                    .bind(chapter_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_write)?;
             }
+            sqlx::query(
+                "INSERT INTO chapter_encrypted_release_events
+                   (chapter_id,version_id,storage_object_id)
+                 VALUES($1,$2,$3::uuid) ON CONFLICT(chapter_id,version_id) DO NOTHING",
+            )
+            .bind(chapter_id)
+            .bind(version_id)
+            .bind(object_id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(map_write)?;
         }
         tx.commit().await.map_err(map_write)?;
         Ok(())
