@@ -51,7 +51,7 @@ pub(super) async fn reader_page(
                 Some(control) => match control.verified_reader(&headers).await {
                     Ok(actor) => actor,
                     Err(_) => {
-                        return free_reader_response(&chapter, id)
+                        return free_reader_response(&chapter, id);
                     }
                 },
                 None => None,
