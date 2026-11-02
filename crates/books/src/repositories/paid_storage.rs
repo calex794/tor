@@ -466,9 +466,7 @@ impl PgPaidStorage {
             return Err(AuthorError::Conflict);
         }
 
-        if !matches!(publication, PaidPublication::KeepCurrent)
-            && current != Some(version_id)
-        {
+        if !matches!(publication, PaidPublication::KeepCurrent) && current != Some(version_id) {
             match current {
                 Some(old_version) => {
                     let changed = sqlx::query(
