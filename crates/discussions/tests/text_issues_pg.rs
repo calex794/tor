@@ -287,53 +287,8 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
         .try_get("body_markdown")
         .unwrap();
     assert_eq!(unmodified, "Слово слово😀 слово");
-    // Clear pinned issue references before deleting the version/chapter tree.
-    // B-09 seeds the owner row with a RESTRICT foreign key on the Book.
-    sqlx::query("DELETE FROM text_issues WHERE book_id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM chapter_publications WHERE chapter_id=$1 OR chapter_id=$2")
-        .bind(free)
-        .bind(paid)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM chapters WHERE book_id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    // B-10 automatically seeds a share schedule for every owned Book; its
-    // restrictive FKs must be cleared before removing the seeded member.
-    for table in [
-        "revenue_share_assignments",
-        "revenue_share_states",
-        "revenue_share_versions",
-    ] {
-        let statement = format!("DELETE FROM {table} WHERE book_id=$1");
-        sqlx::query(&statement)
-            .bind(book)
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
-    sqlx::query("DELETE FROM book_members WHERE book_id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM books WHERE id=$1")
-        .bind(book)
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM users WHERE id=$1 OR id=$2")
-        .bind(reader)
-        .bind(author)
-        .execute(&pool)
-        .await
-        .unwrap();
+    // CI uses a disposable tor_ci database. Keep its fixture until the entire
+    // database is dropped: B-10 intentionally prohibits deleting immutable
+    // revenue-share history, even when its owner/book was test-created.
     pool.close().await;
 }
