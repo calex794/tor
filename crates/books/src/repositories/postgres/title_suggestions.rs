@@ -58,9 +58,7 @@ impl PgAuthoring {
             .map(|row| {
                 Ok(PublicTitleSuggestion {
                     id: row.try_get("id").map_err(|_| AuthorError::Unavailable)?,
-                    title: row
-                        .try_get("title")
-                        .map_err(|_| AuthorError::Unavailable)?,
+                    title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                     language: row
                         .try_get("target_language")
                         .map_err(|_| AuthorError::Unavailable)?,
