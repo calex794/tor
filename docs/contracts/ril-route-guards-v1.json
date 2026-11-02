@@ -368,6 +368,13 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{id}/settings/sources",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_sources::edit",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}/description",
       "source": "crates/web/src/auth.rs",
       "handler": "book_description::edit",
@@ -798,6 +805,13 @@
       "template": "/me/books/{id}/cover",
       "source": "crates/web/src/author_cover_http.rs",
       "handler": "upload_cover",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/sources",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_sources::save",
       "policy": "owner"
     },
     {
