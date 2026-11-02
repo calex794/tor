@@ -59,7 +59,7 @@ class RilExposureTests(unittest.TestCase):
         self.assertEqual(check_repository(self.root), [])
         report = fingerprint(self.root)
         self.assertEqual(report["route_bindings"], 224)  # Includes S058 commands and S011 chapter comments.
-        self.assertEqual(report["route_pairs"], 221)  # Includes the two owner-only S058 commands.
+        self.assertEqual(report["route_pairs"], 222)  # S058 commands and S011 free-chapter comments.
         self.assertEqual(len(report["sha256"]), 64)
         audit, issues = run(self.root)
         self.assertEqual(issues, [])
