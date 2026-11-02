@@ -30,6 +30,11 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
+      # Many integration binaries share this runner; omit DWARF and incremental caches.
+      # Debug assertions and overflow checks retain the default dev/test settings.
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_INCREMENTAL: '0'
       PGHOST: 127.0.0.1
       PGUSER: postgres
       PGDATABASE: postgres
@@ -44,6 +49,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: postgres-runtime-no-debug-v1
+      - name: Disk usage after cache restore
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
       - name: PostgreSQL client
         run: |
           sudo apt-get update -qq
@@ -233,6 +244,10 @@ jobs:
           TOR_RIL_SINGLE_INSTANCE=1 TOR_RIL_HMAC_KEY="$(printf '4f%.0s' {1..32})" \
             cargo test -p tor-web --test ril_behavior_consent_pg -- --ignored --test-threads=1
 
+      - name: Disk usage after database and HTTP integration
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
       - name: D-04 real HTTP and PostgreSQL sessions (flag off then on)
         env:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
@@ -296,3 +311,8 @@ jobs:
         run: |
           tail -n 100 "$RUNNER_TEMP/tor-d04-disabled.log" 2>/dev/null || true
           tail -n 100 "$RUNNER_TEMP/tor-d04-enabled.log" 2>/dev/null || true
+      - name: Final PostgreSQL runner disk usage
+        if: ${{ always() }}
+        run: |
+          df -h . "$RUNNER_TEMP"
+          du -sh target target/debug/deps target/debug/incremental 2>/dev/null || true
