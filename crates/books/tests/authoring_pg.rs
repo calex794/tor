@@ -874,3 +874,6 @@ mod registration_source_alias_pg;
 
 #[path = "registration_links_pg.rs"]
 mod registration_links_pg;
+
+#[path = "title_suggestions_pg.rs"]
+mod title_suggestions_pg;
