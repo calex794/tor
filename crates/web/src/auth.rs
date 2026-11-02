@@ -167,6 +167,7 @@ fn router_inner(
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
+    let paid_author_available = paid_author.is_some();
     let chapter_routes =
         author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
@@ -197,6 +198,7 @@ fn router_inner(
         paid_checkout_enabled,
         swap_browser_enabled,
         paid_reader_available,
+        paid_author_available,
         authoring,
         progress,
         sync,

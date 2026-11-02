@@ -232,6 +232,10 @@ impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublish
         self.publish(actor, request).await
     }
 
+    async fn publish_edit(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
+        PgPaidAuthorPublisher::publish_edit(self, actor, request).await
+    }
+
     async fn publish_with_image(
         &self,
         actor: i64,
