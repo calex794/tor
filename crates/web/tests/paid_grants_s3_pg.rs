@@ -225,11 +225,13 @@ fn save_ephemeral_fixture(
     grant: Value,
     version: i64,
     purchase: i64,
-    reader_html: String,
-    reader_csp: String,
+    direct_reader: (String, String),
+    layer_reader: (String, Value, String),
     expiry_probe_url: Value,
     toc_target: (i64, i64, i64, i64, i64),
 ) {
+    let (reader_html, reader_csp) = direct_reader;
+    let (layer_reader_html, layer_grant, layer_reader_csp) = layer_reader;
     let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
     let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
     assert!(
@@ -247,6 +249,9 @@ fn save_ephemeral_fixture(
         "purchase_id": purchase.to_string(),
         "reader_html": reader_html,
         "reader_csp": reader_csp,
+        "layer_reader_html": layer_reader_html,
+        "layer_grant": layer_grant,
+        "layer_reader_csp": layer_reader_csp,
         "expiry_probe_url": expiry_probe_url,
         "expected_markdown": MARKDOWN,
         "expected_book_title": BOOK_TITLE,
@@ -890,12 +895,25 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .unwrap(),
     )
     .unwrap();
+    // Capture a genuine D-authorized Layer grant separately from the direct
+    // purchase. The disposable Chromium fixture must never reuse V1 evidence.
+    let (layer_buyer, layer_cookie) =
+        user(&accounts, "s031-layer-minio-reader@tor-ci.example").await;
+    let layer_evidence = layer_fixtures::assert_layer_s3_grants(
+        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
+        &app,
+        &url,
+        (author, layer_buyer),
+        (book, chapter, v1),
+        (&layer_cookie, &csrf),
+    )
+    .await;
     save_ephemeral_fixture(
         still_v1,
         v1,
         purchase_id,
-        visible_html,
-        reader_csp,
+        (visible_html, reader_csp),
+        layer_evidence,
         expiry_probe_url,
         (
             chapter_two,
@@ -905,20 +923,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             draft_chapter,
         ),
     );
-
-    // End-to-end S031/C/G: Layer purchaser receives signed S3 CURRENT grant
-    // independently from direct ChapterPurchase, including revocation.
-    let (layer_buyer, layer_cookie) =
-        user(&accounts, "s031-layer-minio-reader@tor-ci.example").await;
-    let _layer_shell = layer_fixtures::assert_layer_s3_grants(
-        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
-        &app,
-        &url,
-        (author, layer_buyer),
-        (book, chapter, v1),
-        (&layer_cookie, &csrf),
-    )
-    .await;
 
     pg(
         &url,

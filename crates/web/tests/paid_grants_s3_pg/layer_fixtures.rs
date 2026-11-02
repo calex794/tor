@@ -15,7 +15,7 @@ pub(super) async fn assert_layer_s3_grants(
     users: (i64, i64),
     edition: (i64, i64, i64),
     credentials: (&str, &str),
-) -> String {
+) -> (String, Value, String) {
     let (author, subscriber) = users;
     let (book, chapter, published) = edition;
     let (cookie, csrf) = credentials;
@@ -84,7 +84,10 @@ pub(super) async fn assert_layer_s3_grants(
     let shell = private_get(app, &layer_page, Some(cookie)).await;
     assert_eq!(shell.status(), StatusCode::OK);
     assert_eq!(shell.headers()[header::CACHE_CONTROL], "no-store");
-    let csp = shell.headers()["content-security-policy"].to_str().unwrap();
+    let csp = shell.headers()["content-security-policy"]
+        .to_str()
+        .unwrap()
+        .to_owned();
     assert!(csp.contains("connect-src 'self' http://127.0.0.1:9000"));
     assert!(csp.contains("frame-ancestors 'none'"));
     let body = html_body(shell).await;
@@ -178,5 +181,5 @@ pub(super) async fn assert_layer_s3_grants(
         StatusCode::FORBIDDEN,
         "revoked Layer must never receive a fresh browser reader shell"
     );
-    body
+    (body, payload, csp)
 }
