@@ -86,7 +86,10 @@ async fn starter_csv_ids_are_selectable_and_persist_as_book_links() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(links, vec![("genre".to_owned(), genre), ("tag".to_owned(), tag)]);
+    assert_eq!(
+        links,
+        vec![("genre".to_owned(), genre), ("tag".to_owned(), tag)]
+    );
     let persisted: (Vec<String>, Vec<String>) =
         sqlx::query_as("SELECT genres,tags FROM books WHERE id=$1")
             .bind(book_id)
