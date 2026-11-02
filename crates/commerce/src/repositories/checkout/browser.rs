@@ -111,8 +111,6 @@ impl PgCheckout {
             return Ok(true);
         }
         let quote = self.published_chapter_offer(actor, chapter).await?;
-        Ok(quote.is_some_and(|offer| {
-            offer.version_id == version && offer.price_minor == price
-        }))
+        Ok(quote.is_some_and(|offer| offer.version_id == version && offer.price_minor == price))
     }
 }
