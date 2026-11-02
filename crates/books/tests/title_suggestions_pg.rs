@@ -9,7 +9,9 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
     assert!(url.ends_with("/tor_ci"));
     let pool = PgPool::connect(&url).await.unwrap();
     let suffix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let zh = format!("修仙之路{suffix}");
     let en = format!("The Path to Immortality {suffix}");
     let title = format!("Путь бессмертного {suffix}");
@@ -23,21 +25,34 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,visibility)
          VALUES($1,'ru',$2,'draft')"
-    ).bind(format!("s019:private:{suffix}")).bind(&hidden)
-     .execute(&pool).await.unwrap();
+    )
+    .bind(format!("s019:private:{suffix}"))
+    .bind(&hidden)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let repo = PgAuthoring::new(pool.clone());
     for candidate in [&zh, &en, &title] {
-        let found = repo.public_title_suggestions("ru", &[candidate]).await.unwrap();
+        let found = repo
+            .public_title_suggestions("ru", &[candidate])
+            .await
+            .unwrap();
         assert!(found.iter().any(|book| book.id == id), "{candidate}");
         assert!(found.iter().all(|book| book.id > 0));
     }
     let other = repo.public_title_suggestions("en", &[&zh]).await.unwrap();
     assert!(!other.iter().any(|book| book.id == id));
-    let forbidden = repo.public_title_suggestions("ru", &[&hidden]).await.unwrap();
+    let forbidden = repo
+        .public_title_suggestions("ru", &[&hidden])
+        .await
+        .unwrap();
     assert!(!forbidden.iter().any(|book| book.title == hidden));
     let empty = repo.public_title_suggestions("ru", &["ab"]).await.unwrap();
     assert!(empty.is_empty());
-    assert!(repo.public_title_suggestions("ru;DROP", &[&zh]).await.is_err());
+    assert!(repo
+        .public_title_suggestions("ru;DROP", &[&zh])
+        .await
+        .is_err());
     pool.close().await;
 }
