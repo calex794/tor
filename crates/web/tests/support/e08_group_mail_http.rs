@@ -11,6 +11,7 @@ use tor_accounts::{
 };
 use tor_books::repositories::PgCatalog;
 use tor_reading::repositories::PgReader;
+use tor_social::repositories::notifications::PgNotifications;
 
 #[tokio::test]
 #[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
@@ -45,6 +46,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
         cookies.push(format!("tor-dev-session={session}; tor-dev-csrf={csrf}"));
         tokens.push(csrf);
     }
+    let bell = PgNotifications::new(pool.clone());
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool),
@@ -423,7 +425,7 @@ async fn e_08_groups_create_read_send_replay_leave_and_csrf() {
     );
 
     super::group_transfer_http::check_consent(
-        &app, &url, &path, group_id, &users, &cookies, &tokens,
+        &app, &url, &path, group_id, &users, &cookies, &tokens, &bell,
     )
     .await;
 
