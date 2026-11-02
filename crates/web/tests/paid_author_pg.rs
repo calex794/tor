@@ -25,8 +25,8 @@ use tor_contracts::paid_delivery::{
     ChapterVersionPort, ChapterVersionRef, EncryptedObjectKind, ObjectRef, PositiveId,
     PrivateObjectDeliveryPort, SecretValue,
 };
-use tor_reading::repositories::PgReader;
 use tor_discussions::repositories::text_issues::{CreatedIssue, NewTextIssue, PgTextIssues};
+use tor_reading::repositories::PgReader;
 use tor_storage::{
     domain::provider::StorageError,
     repositories::{paid_delivery::PgPrivateDelivery, s3::S3PrivateStore},
