@@ -103,20 +103,18 @@ async fn s019_historical_original_and_alternative_titles_block_new_claims() {
         Err(AuthorError::Conflict),
         "legacy original title must block a new registration"
     );
-    let claimed: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM book_registration_titles WHERE book_id=$1",
-    )
-    .bind(old_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(claimed, 0, "historical drafts must remain unchanged");
-    let visibility: String =
-        sqlx::query_scalar("SELECT visibility FROM books WHERE id=$1")
+    let claimed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM book_registration_titles WHERE book_id=$1")
             .bind(old_id)
             .fetch_one(&pool)
             .await
             .unwrap();
+    assert_eq!(claimed, 0, "historical drafts must remain unchanged");
+    let visibility: String = sqlx::query_scalar("SELECT visibility FROM books WHERE id=$1")
+        .bind(old_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(visibility, "draft");
     pool.close().await;
 }
@@ -128,16 +126,12 @@ async fn s019_known_provider_work_id_links_block_different_titles() {
     let number = nonce % 9_000_000_000 + 100_000;
     let old_link = format!("http://tl.rulate.ru/book/000{number}/?utm_source=legacy");
     let new_link = format!("https://www.rulate.ru/book/{number}?utm_campaign=sharing");
-    assert_eq!(
-        rulate_work_id(&old_link),
-        rulate_work_id(&new_link)
-    );
-    let db_key: Option<String> =
-        sqlx::query_scalar("SELECT book_registration_rulate_work_id($1)")
-            .bind(&old_link)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    assert_eq!(rulate_work_id(&old_link), rulate_work_id(&new_link));
+    let db_key: Option<String> = sqlx::query_scalar("SELECT book_registration_rulate_work_id($1)")
+        .bind(&old_link)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(db_key, rulate_work_id(&new_link));
 
     sqlx::query(
