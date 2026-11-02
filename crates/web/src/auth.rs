@@ -60,6 +60,7 @@ mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
 mod checkout;
+mod checkout_browser;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
@@ -311,6 +312,7 @@ fn router_inner(
             get(direct_swap_browser::page).post(direct_swap_browser::submit),
         )
         .route("/api/v1/purchases", post(checkout::buy))
+        .merge(checkout_browser::router())
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
             "/me/books/{id}/buy-chapters",

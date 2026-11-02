@@ -200,8 +200,10 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/admin/mail/groups/{id}"), "GET") => Some(187),
         (Some("/admin/mail/book-rooms"), "GET") => Some(188),
         (Some("/admin/mail/book-rooms/{id}"), "GET") => Some(189),
-        (Some("/me/refunds/swap"), "GET") => Some(190),
-        (Some("/me/refunds/swap"), "POST") => Some(191),
+        (Some("/me/chapters/{id}/buy"), "GET") => Some(190),
+        (Some("/me/chapters/{id}/buy"), "POST") => Some(191),
+        (Some("/me/refunds/swap"), "GET") => Some(192),
+        (Some("/me/refunds/swap"), "POST") => Some(193),
         _ => None,
     };
     index
