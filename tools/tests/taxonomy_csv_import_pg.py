@@ -126,6 +126,12 @@ def main():
         # not. This verifies the ID and status before the explicit review.
         if f"{candidate_id}|tag|{candidate}|candidate" not in lookup("tag", candidate):
             raise AssertionError("review candidate missing from curator diagnostics")
+        audit_preview = importer.audit_terms([("tag", candidate, [])], url)
+        if (len(audit_preview) != 1
+                or audit_preview[0]["action"] != "approve_candidate"
+                or audit_preview[0]["term_id"] != candidate_id
+                or not audit_preview[0]["can_apply"]):
+            raise AssertionError("read-only audit must offer exact candidate approval")
         # Only a public, non-held label can enter the review queue.
         hidden = f"PrivateOnly{suffix}"
         scalar(
@@ -179,6 +185,9 @@ def main():
         apply(reviewed)
         if scalar(url, f"SELECT count(*) FROM book_taxonomy_curation_events WHERE term_id={candidate_id} AND action='approve_term'") != 1:
             raise AssertionError("CSV candidate approval was not audited once")
+        approved_preview = importer.audit_terms([("tag", candidate, [])], url)
+        if approved_preview[0]["action"] != "unchanged":
+            raise AssertionError("replayed approved candidate was not marked unchanged")
         approved = make_csv(root, "approved.csv", [
             ("tag", tag, f"{synonym}|{synonym_zh}"),
             ("genre", genre, ""),
@@ -213,6 +222,15 @@ def main():
             ("tag", rollback_first, ""),
             ("tag", rollback_second, synonym),  # Existing alias owned by tag.
         ])
+        prior_audit = audit_count()
+        conflict_preview = importer.audit_terms(importer.checked_csv(conflicting), url)
+        if (conflict_preview[0]["action"] != "create"
+                or not conflict_preview[0]["can_apply"]
+                or conflict_preview[1]["can_apply"]
+                or not conflict_preview[1]["alias_conflicts"]):
+            raise AssertionError("read-only audit did not catch existing alias conflict")
+        if audit_count() != prior_audit:
+            raise AssertionError("read-only audit wrote curation events")
         apply(conflicting, expected_success=False)
         sql = (
             "SELECT count(*) FROM book_taxonomy_terms WHERE label IN "
@@ -246,7 +264,21 @@ def main():
         proposed = importer.checked_csv(starter)
         if len(proposed) != 144:
             raise AssertionError("unexpected changed starter-proposal row count")
+        preflight = importer.audit_terms(proposed, url)
+        if len(preflight) != len(proposed) or any(
+            not record["can_apply"] for record in preflight
+        ):
+            raise AssertionError("starter CSV has a live collision in disposable tor_ci")
+        if any(record["action"] not in ("create", "approve_candidate", "unchanged")
+               for record in preflight):
+            raise AssertionError("starter preview reported an unsupported action")
         apply(starter)
+        replay = importer.audit_terms(proposed, url)
+        if len(replay) != len(proposed) or any(
+            record["action"] != "unchanged" or not record["can_apply"]
+            for record in replay
+        ):
+            raise AssertionError("read-only audit did not see the approved starter")
         pairs = ",".join(
             f"({quote(kind)},{quote(label)})" for kind, label, _ in proposed
         )

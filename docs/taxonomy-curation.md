@@ -155,7 +155,29 @@ NEwBOO**. Синонимы и деление на жанры/теги нужно
 # Проверка всего черновика без подключения к базе:
 python3 tools/taxonomy_import_csv.py \
   data/taxonomy/starter-proposal-v1.csv --curator starter-review
+
+# Сверка с уже существующими каноническими ID/алиасами и
+# публичными метками на локальной копии tor_ci, БЕЗ ЗАПИСИ:
+TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci' \
+  python3 tools/taxonomy_import_csv.py \
+  data/taxonomy/starter-proposal-v1.csv --curator starter-review --audit-db
 ```
+
+
+Опция `--audit-db` в CSV-импортёре выполняет только
+`BEGIN TRANSACTION READ ONLY` с ролью `tor_migrator` и возвращает JSON Lines
+по каждому термину: `action` (`create`, `approve_candidate`,
+`unchanged`, `canonical_conflict`, `canonical_is_alias`),
+существующие `term_id` и `db_status`, число употреблений и написаний в
+публичном каталоге, а также `alias_conflicts`.
+`can_apply=false` и ненулевой код завершения означают, что пакет
+**не готов к импорту**, хотя сам аудит не меняет ни книги, ни словарь,
+ни журнал решений. Даже `can_apply=true` означает только отсутствие
+технических конфликтов, а **не редакторское одобрение терминов**.
+Аудит нельзя совмещать с `--apply` или `--confirm-db`; новый пакет
+сравнивается с реальными данными лишь в той базе, к которой подключён
+`TOR_TAXONOMY_ADMIN_URL`. В CI это одноразовая локальная `tor_ci`,
+а не действующий каталог. Доступа к production и выгрузки YDB не требуется.
 
 Файл **не применяется** при обычном запуске сервера или выполнении
 миграций. CI проверяет его полностью и дважды импортирует только в
