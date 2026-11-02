@@ -13,7 +13,12 @@
         <input id="book-original-title" name="original_title" type="text" maxlength="200">
         <label for="book-source">Ссылка на первоисточник</label>
         <input id="book-source" name="source_url" type="url" maxlength="512" placeholder="https://example.org/book/123">
-        <p>Если это перевод, укажите ссылку: она помогает не создавать повторно то же произведение.</p>
+        <p>Здесь укажите первоисточник на языке автора (например, китайский роман). Ссылки на переводы и каталоги добавьте ниже.</p>
+        <label for="book-extra-source-1">Дополнительная ссылка на это произведение</label>
+        <input id="book-extra-source-1" name="extra_source_1" type="url" maxlength="512" placeholder="https://tl.rulate.ru/book/123">
+        <label for="book-extra-source-2">Ещё одна ссылка (необязательно)</label>
+        <input id="book-extra-source-2" name="extra_source_2" type="url" maxlength="512" placeholder="https://other.example/book/123">
+        <p>Можно указать адреса с любых сайтов. Система проверяет точные совпадения ссылок и известные варианты адресов, но не объединяет произведения лишь по похожему названию.</p>
         <label for="book-original-language">Язык оригинала</label>
         <select id="book-original-language" name="original_language"><option value="">Не указан</option><option value="zh">Китайский</option><option value="ko">Корейский</option><option value="ja">Японский</option><option value="en">Английский</option><option value="ru">Русский</option><option value="vi">Вьетнамский</option></select>
         <label for="book-release-year">Год выпуска</label>
