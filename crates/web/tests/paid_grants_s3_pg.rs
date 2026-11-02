@@ -358,20 +358,17 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     registry.mark_ready(&receipt).await.unwrap();
     assert!(MARKDOWN.contains(asset_fixture::ASSET_OBJECT_ID));
     asset_fixture::upload_exact_v1_image(&catalog, &s3, kek.clone(), author, pinned).await;
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO chapter_publications(chapter_id,version_id) \
-             VALUES({chapter},{v1})"
-        ),
-    );
+    // Publish the first immutable edition through B, which atomically
+    // records the public pointer and encrypted release event required by G.
     PgPaidStorage::new(pool.clone())
         .attach_verified_and_publish(
             author,
             book,
             pinned,
             &object_id,
-            PaidPublication::KeepCurrent,
+            PaidPublication::Publish {
+                expected_current: None,
+            }
         )
         .await
         .unwrap();
