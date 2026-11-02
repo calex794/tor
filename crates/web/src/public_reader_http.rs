@@ -70,5 +70,13 @@ pub(super) async fn reader_page(
             }
         }
     }
-    auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[])
+    let mut response = auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[]);
+    // Never enable scripts for paid, hidden or denied content.
+    response.headers_mut().insert(
+        "content-security-policy",
+        axum::http::HeaderValue::from_static(
+            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ),
+    );
+    response
 }
