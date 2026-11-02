@@ -305,6 +305,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     }
     if route_key in e12_team and policy != "scoped":
         errors.append(f"{label}: E-12 team triage must remain actor-scoped")
+    if route_key == (
+        "POST", "/api/v1/reader/chapters/{chapter_id}/text-issues",
+        "text_issues::submit",
+    ) and policy != "scoped":
+        errors.append(f"{label}: E-12 paid correction must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "administrator":

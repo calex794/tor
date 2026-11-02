@@ -37,6 +37,7 @@ pub struct AuthorIssue {
     pub version_id: i64,
     pub block_index: i32,
     pub issue_type: String,
+    pub is_paid: bool,
     pub quote: String,
     pub suggested_text: String,
     pub status: String,
@@ -86,39 +87,28 @@ impl PgTextIssues {
 
     /// The published, free and currently accessible ChapterVersion is locked
     /// until the insert commits. A concurrent publication cannot retarget it.
+    fn valid_request(actor: i64, issue: &NewTextIssue<'_>) -> bool {
+        actor > 0
+            && issue.chapter_id > 0
+            && issue.version_id > 0
+            && (1..=200).contains(&issue.block_index)
+            && issue.selection_start >= 0
+            && issue.selection_end > issue.selection_start
+            && issue.selection_end <= 100_000
+            && bounded(issue.quote, 1, 500)
+            && bounded(issue.suggestion, 1, 1000)
+            && ISSUE_TYPES.contains(&issue.issue_type)
+    }
+
     pub async fn create_free(
         &self,
         actor: i64,
-        new_issue: NewTextIssue<'_>,
+        issue: NewTextIssue<'_>,
     ) -> Result<CreatedIssue, IssueError> {
-        let NewTextIssue {
-            chapter_id,
-            version_id,
-            block_index,
-            selection_start,
-            selection_end,
-            quote,
-            suggestion,
-            issue_type,
-        } = new_issue;
-        if actor <= 0
-            || chapter_id <= 0
-            || version_id <= 0
-            || !(1..=200).contains(&block_index)
-            || selection_start < 0
-            || selection_end <= selection_start
-            || selection_end > 100_000
-            || !bounded(quote, 1, 500)
-            || !bounded(suggestion, 1, 1000)
-            || !ISSUE_TYPES.contains(&issue_type)
-        {
+        if !Self::valid_request(actor, &issue) {
             return Err(IssueError::Invalid);
         }
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| IssueError::Unavailable)?;
+        let mut tx = self.pool.begin().await.map_err(|_| IssueError::Unavailable)?;
         let selected = sqlx::query_as::<_, (i64, String)>(
             "SELECT c.book_id,v.body_markdown
              FROM chapters c JOIN books b ON b.id=c.book_id
@@ -131,13 +121,71 @@ impl PgTextIssues {
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
              FOR SHARE OF b,c,p,v",
         )
-        .bind(chapter_id)
-        .bind(version_id)
+        .bind(issue.chapter_id)
+        .bind(issue.version_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| IssueError::Unavailable)?
         .ok_or(IssueError::NotVisible)?;
         let (book_id, source) = selected;
+        Self::insert_verified(tx, actor, issue, book_id, &source, None).await
+    }
+
+    /// Paid text is already stored as immutable B Markdown. Only canonical
+    /// non-revoked D purchase entitlement may authorize an exact paid quote.
+    pub async fn create_paid(
+        &self,
+        actor: i64,
+        purchase_id: i64,
+        issue: NewTextIssue<'_>,
+    ) -> Result<CreatedIssue, IssueError> {
+        if !Self::valid_request(actor, &issue) || purchase_id <= 0 {
+            return Err(IssueError::Invalid);
+        }
+        let mut tx = self.pool.begin().await.map_err(|_| IssueError::Unavailable)?;
+        let selected = sqlx::query_as::<_, (i64, String)>(
+            "SELECT c.book_id,v.body_markdown
+             FROM chapter_purchase_facts p
+             JOIN library_purchased_chapters l
+               ON l.purchase_id=p.id AND l.user_id=p.user_id
+              AND l.chapter_id=p.chapter_id AND l.active_version_id=p.version_id
+             JOIN chapters c ON c.id=p.chapter_id AND c.access_level='paid'
+             JOIN books b ON b.id=c.book_id
+             JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
+             WHERE p.id=$1 AND p.user_id=$2 AND p.chapter_id=$3 AND p.version_id=$4
+               AND tor_purchase_version_readable($2,p.id,c.id,v.id)
+             FOR SHARE OF p,l,b,c,v",
+        )
+        .bind(purchase_id)
+        .bind(actor)
+        .bind(issue.chapter_id)
+        .bind(issue.version_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| IssueError::Unavailable)?
+        .ok_or(IssueError::NotVisible)?;
+        let (book_id, source) = selected;
+        Self::insert_verified(tx, actor, issue, book_id, &source, Some(purchase_id)).await
+    }
+
+    async fn insert_verified(
+        mut tx: sqlx::Transaction<'_, sqlx::Postgres>,
+        actor: i64,
+        issue: NewTextIssue<'_>,
+        book_id: i64,
+        source: &str,
+        purchase_id: Option<i64>,
+    ) -> Result<CreatedIssue, IssueError> {
+        let NewTextIssue {
+            chapter_id,
+            version_id,
+            block_index,
+            selection_start,
+            selection_end,
+            quote,
+            suggestion,
+            issue_type,
+        } = issue;
         let blocks = reader_blocks(&source);
         let Some(block) = usize::try_from(block_index - 1)
             .ok()
@@ -159,8 +207,8 @@ impl PgTextIssues {
         let created = sqlx::query_scalar::<_, i64>(
             "INSERT INTO text_issues
              (book_id,chapter_id,version_id,reporter_user_id,block_index,
-              selection_start,selection_end,issue_type,quote,suggested_text,request_hash)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,sha256(convert_to($11,'UTF8')))
+              selection_start,selection_end,issue_type,quote,suggested_text,request_hash,purchase_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,sha256(convert_to($11,'UTF8')),$12)
              ON CONFLICT (reporter_user_id,chapter_id,version_id,block_index,
                           selection_start,selection_end,request_hash) DO NOTHING
              RETURNING id",
@@ -176,6 +224,7 @@ impl PgTextIssues {
         .bind(quote)
         .bind(suggestion)
         .bind(&hash_input)
+        .bind(purchase_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| IssueError::Unavailable)?;
@@ -240,15 +289,19 @@ impl PgTextIssues {
         };
         let rows = sqlx::query(
             "SELECT i.id,i.chapter_id,i.version_id,i.block_index,i.issue_type,
+                    (c.access_level='paid') AS is_paid,
                     i.quote,i.suggested_text,i.status,i.resolution_note,i.resolved_version_id
              FROM text_issues i
+             JOIN chapters c ON c.id=i.chapter_id AND c.book_id=i.book_id
              WHERE i.book_id=$1
                AND EXISTS (SELECT 1 FROM book_members m
                            JOIN books b ON b.id=m.book_id
                            WHERE m.book_id=i.book_id AND m.user_id=$4
                              AND m.is_active AND m.role IN ('owner','translator','moderator')
                              AND NOT b.admin_hold AND NOT b.is_deleted
-                             AND (m.role<>'owner' OR b.owner_user_id=m.user_id))
+                             AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
+                             AND (c.access_level='free' OR
+                                  (m.role='owner' AND b.owner_user_id=m.user_id)))
                AND ($2::text IS NULL OR i.status=$2)
                AND ($3::bigint IS NULL OR i.id<$3)
              ORDER BY i.id DESC LIMIT 26",
@@ -277,6 +330,7 @@ impl PgTextIssues {
                 issue_type: row
                     .try_get("issue_type")
                     .map_err(|_| IssueError::Unavailable)?,
+                is_paid: row.try_get("is_paid").map_err(|_| IssueError::Unavailable)?,
                 quote: row.try_get("quote").map_err(|_| IssueError::Unavailable)?,
                 suggested_text: row
                     .try_get("suggested_text")
@@ -329,11 +383,14 @@ impl PgTextIssues {
         let current = sqlx::query_scalar::<_, String>(
             "SELECT i.status FROM text_issues i
              JOIN books b ON b.id=i.book_id
+             JOIN chapters c ON c.id=i.chapter_id AND c.book_id=i.book_id
              JOIN book_members m ON m.book_id=i.book_id
              WHERE i.id=$1 AND i.book_id=$2 AND m.user_id=$3
                AND m.is_active AND m.role IN ('owner','translator','moderator')
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (m.role<>'owner' OR b.owner_user_id=m.user_id)
+               AND (c.access_level='free' OR
+                    (m.role='owner' AND b.owner_user_id=m.user_id))
              FOR UPDATE OF i,m",
         )
         .bind(issue_id)
