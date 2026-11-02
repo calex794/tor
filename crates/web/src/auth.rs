@@ -71,6 +71,7 @@ mod followed_purchase_links;
 mod friendship;
 mod group_mail;
 mod inbox;
+mod layer_routes;
 mod library_actions;
 mod library_page;
 mod login_limiter;
@@ -217,6 +218,7 @@ fn router_inner(
     let observation_state = state.clone();
     let app = Router::new()
         .merge(settings_routes::router())
+        .merge(layer_routes::routes())
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
@@ -409,7 +411,7 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Err(status) => return deny(status),
     };
     match state.authoring.list_owned_books(actor).await {
-        Ok(books) => private_response(author_pages::index(&books), &[]),
+        Ok(books) => layer_routes::author_index(&state, actor, &books).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
