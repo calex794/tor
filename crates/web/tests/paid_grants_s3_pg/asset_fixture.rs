@@ -7,7 +7,7 @@ use tor_storage::services::crypto::{seal_asset_with_keyring, ContentKeyring};
 pub(super) const ASSET_OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000036";
 
 pub(super) async fn upload_exact_v1_image(
-    pool: &sqlx::PgPool,
+    catalog: &PgCatalog,
     s3: &S3PrivateStore,
     kek: Arc<ContentKek>,
     author: i64,
@@ -18,6 +18,7 @@ pub(super) async fn upload_exact_v1_image(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154",
         "789c63f8cfc0f01f00050001ff89993d1d0000000049454e44ae426082"
     );
+    let pool = catalog.pool();
     let png = hex::decode(PNG_HEX).expect("fixed one-pixel CI PNG");
     let ring = Arc::new(ContentKeyring::v1_only(kek));
     let id = ObjectId::parse(ASSET_OBJECT_ID).unwrap();
