@@ -21,7 +21,7 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 200);
+    assert_eq!(unique.len(), 201);
 }
 
 #[test]
@@ -32,6 +32,11 @@ fn public_private_and_write_routes_are_distinct() {
     );
     let organic_post = classify(Some("/api/v1/discovery/activate"), "POST");
     let organic_asset = classify(Some("/assets/organic_discovery.js"), "GET");
+    let free_reader_asset = classify(Some("/assets/newboo-free-reader.js"), "GET");
+    assert!(free_reader_asset.route_known);
+    assert_eq!(free_reader_asset.traffic_surface, TrafficSurface::Static);
+    assert_eq!(free_reader_asset.cost_class, CostClass::Free);
+    assert!(!classify(Some("/assets/newboo-free-reader.js"), "POST").route_known);
     assert!(organic_post.route_known && organic_asset.route_known);
     assert_eq!(organic_post.cost_class, CostClass::Write);
     assert_eq!(organic_post.product_area, ProductArea::Recommendations);
