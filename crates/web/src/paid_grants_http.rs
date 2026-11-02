@@ -241,11 +241,12 @@ async fn grant(
         Some(GrantSource::Administrator) => &admin,
         None => &state.entitlement,
     };
-    let versions: &dyn ChapterVersionPort = if matches!(body.source, Some(GrantSource::Administrator)) {
-        &state.admin_versions
-    } else {
-        &state.versions
-    };
+    let versions: &dyn ChapterVersionPort =
+        if matches!(body.source, Some(GrantSource::Administrator)) {
+            &state.admin_versions
+        } else {
+            &state.versions
+        };
     // C rechecks the same D authority after signing; the browser never sees
     // plaintext or a raw object key.
     let result = issue_paid_chapter_grant(
