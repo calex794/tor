@@ -7,7 +7,11 @@ use axum::{
     response::Response,
     Router,
 };
-use std::{num::NonZeroU32, process::Command, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    num::NonZeroU32,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -27,8 +31,22 @@ const PATH: &str = "/me/refunds";
 fn pg(url: &str, sql: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "never use a retained database");
     let result = Command::new("psql")
-        .env("PGOPTIONS", "-c statement_timeout=15000 -c lock_timeout=5000")
-        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .env(
+            "PGOPTIONS",
+            "-c statement_timeout=15000 -c lock_timeout=5000",
+        )
+        .args([
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            sql,
+        ])
         .output()
         .expect("psql is required for disposable financial acceptance");
     assert!(
@@ -84,9 +102,14 @@ async fn s036_refund_browser_disabled_by_default() {
     let catalog = PgCatalog::connect(&url).await.unwrap();
     let accounts = PgAccounts::from_pool(catalog.pool().clone());
     let site = app(accounts, catalog);
-    assert_eq!(send(&site, "GET", "", ORIGIN, "").await.status(), StatusCode::NOT_FOUND);
     assert_eq!(
-        send(&site, "POST", "", ORIGIN, "purchase_id=1").await.status(),
+        send(&site, "GET", "", ORIGIN, "").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        send(&site, "POST", "", ORIGIN, "purchase_id=1")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 }
@@ -110,7 +133,10 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
     let token = generate_session_token();
     let outsider_token = generate_session_token();
     let csrf = generate_session_token();
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let buyer = accounts
         .register_with_session(
             &format!("s036-buyer-{nonce}@example.invalid"),
@@ -174,7 +200,9 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
     .unwrap();
     pg(
         &url,
-        &format!("INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"),
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
     );
     // This policy is a test-only fixture. It is never installed for actual users.
     let legal = format!("ci:s036:legal:{nonce}");
@@ -226,7 +254,10 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
     let buyer_cookie = format!("tor-dev-session={token}; tor-dev-csrf={csrf}");
     let outsider_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
     assert_ne!(buyer, outsider);
-    assert_eq!(send(&site, "GET", "", ORIGIN, "").await.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        send(&site, "GET", "", ORIGIN, "").await.status(),
+        StatusCode::SEE_OTHER
+    );
     let response = send(&site, "GET", &buyer_cookie, ORIGIN, "").await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
@@ -246,23 +277,39 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        send(&site, "POST", &buyer_cookie, "https://evil.invalid", &post).await.status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        send(&site, "POST", &buyer_cookie, ORIGIN, &post.replace(&csrf, "invalid"))
+        send(&site, "POST", &buyer_cookie, "https://evil.invalid", &post)
             .await
             .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        send(&site, "POST", &buyer_cookie, ORIGIN, &format!("{post}&user_id={outsider}"))
-            .await
-            .status(),
+        send(
+            &site,
+            "POST",
+            &buyer_cookie,
+            ORIGIN,
+            &post.replace(&csrf, "invalid")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            &site,
+            "POST",
+            &buyer_cookie,
+            ORIGIN,
+            &format!("{post}&user_id={outsider}")
+        )
+        .await
+        .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
-        send(&site, "POST", &outsider_cookie, ORIGIN, &post).await.status(),
+        send(&site, "POST", &outsider_cookie, ORIGIN, &post)
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     let created = send(&site, "POST", &buyer_cookie, ORIGIN, &post).await;
@@ -272,9 +319,15 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
     assert_eq!(replay.status(), StatusCode::OK);
     assert!(html(replay).await.contains("Заявка уже существовала"));
     assert_eq!(
-        send(&site, "POST", &buyer_cookie, ORIGIN, &post.replace("Buyer+request", "Changed+reason"))
-            .await
-            .status(),
+        send(
+            &site,
+            "POST",
+            &buyer_cookie,
+            ORIGIN,
+            &post.replace("Buyer+request", "Changed+reason")
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT
     );
     let after = html(send(&site, "GET", &buyer_cookie, ORIGIN, "").await).await;
@@ -299,7 +352,9 @@ async fn s036_buyer_http_owner_csrf_policy_submit_replay_and_history() {
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(*) FROM chapter_purchase_revocations WHERE purchase_id={purchase}"),
+            &format!(
+                "SELECT count(*) FROM chapter_purchase_revocations WHERE purchase_id={purchase}"
+            ),
         ),
         "0"
     );

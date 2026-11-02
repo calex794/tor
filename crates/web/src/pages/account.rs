@@ -161,7 +161,13 @@ pub fn my_account_with_achievements_and_swap(
     swap_enabled: bool,
 ) -> Html<String> {
     my_account_with_achievements_refunds_and_swap(
-        name, csrf, replies, unread, achievements, swap_enabled, false,
+        name,
+        csrf,
+        replies,
+        unread,
+        achievements,
+        swap_enabled,
+        false,
     )
 }
 
@@ -451,8 +457,15 @@ mod tests {
         assert!(enabled.contains("href=\"/me/refunds/swap\""));
 
         let refund_only = my_account_with_achievements_refunds_and_swap(
-            "Reader", "csrf", &[], 0, &achievements, false, true,
-        ).0;
+            "Reader",
+            "csrf",
+            &[],
+            0,
+            &achievements,
+            false,
+            true,
+        )
+        .0;
         assert!(refund_only.contains("href=\"/me/refunds\""));
         assert!(!refund_only.contains("href=\"/me/refunds/swap\""));
         assert!(!hidden.contains("href=\"/me/refunds\""));

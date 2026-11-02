@@ -33,9 +33,7 @@ pub(super) struct RefundForm {
 pub(super) fn router() -> Router<AuthState> {
     Router::new().route(
         "/me/refunds",
-        get(page)
-            .post(submit)
-            .layer(DefaultBodyLimit::max(4096)),
+        get(page).post(submit).layer(DefaultBodyLimit::max(4096)),
     )
 }
 
@@ -218,8 +216,7 @@ pub(super) async fn submit(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -273,7 +270,10 @@ mod tests {
         assert_eq!(positive_id("-1"), None);
         assert_eq!(positive_id("3x"), None);
         assert_eq!(positive_id("0"), None);
-        assert_eq!(state_label("approved"), "Одобрена: внутренний возврат завершён");
+        assert_eq!(
+            state_label("approved"),
+            "Одобрена: внутренний возврат завершён"
+        );
         let purchase = BuyerRefundPurchase {
             purchase_id: 12,
             book_title: "Книга <script>x</script>".into(),
