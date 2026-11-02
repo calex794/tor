@@ -1,6 +1,7 @@
 //! S034 / C-06: authenticated, fail-closed HTTP grant for a purchased V1.
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
+mod admin_reader;
 mod asset_grants;
 mod layer_reader;
 mod text_issues;
@@ -24,7 +25,9 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
-use tor_books::repositories::{paid_assets::PgPaidAssets, paid_storage::PgPaidStorage};
+use tor_books::repositories::{
+    admin_reading::PgAdministratorReading, paid_assets::PgPaidAssets, paid_storage::PgPaidStorage,
+};
 use tor_commerce::repositories::{
     direct_exposure::{DirectGrantKind, PgDirectFirstExposure},
     entitlements::PgDirectEntitlements,
@@ -70,6 +73,7 @@ impl RateLimits {
 #[derive(Clone)]
 struct GrantState {
     accounts: PgAccounts,
+    admin_reading: PgAdministratorReading,
     entitlement: PgDirectEntitlements,
     layer: PgLayerChapterEntitlements,
     first_direct_grant: PgDirectFirstExposure,
@@ -473,6 +477,7 @@ fn router_inner(
     );
     let state = GrantState {
         accounts,
+        admin_reading: PgAdministratorReading::new(pool.clone()),
         entitlement: PgDirectEntitlements::new(pool.clone()),
         layer: PgLayerChapterEntitlements::new(pool.clone()),
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
@@ -486,6 +491,7 @@ fn router_inner(
         layer_reader_enabled,
     };
     let mut app = Router::new()
+        .route("/admin/reader/chapters/{chapter_id}", get(admin_reader::read))
         .route(
             "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
             post(grant),
