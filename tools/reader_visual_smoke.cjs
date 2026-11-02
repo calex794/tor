@@ -256,7 +256,10 @@ async function inspect(page, name, where) {
     }
     // Exercise real PostgreSQL account forms on both target viewport sizes.
     for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
-      const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+      const context = await browser.newContext({
+        viewport: { width, height }, deviceScaleFactor: 1
+      });
+      const page = await context.newPage();
       await page.goto(base + '/register');
       assert(await page.getByRole('heading', { name: 'Регистрация' }).isVisible(), name + ': registration form hidden');
       assert(await page.locator('.auth-card--newboo .auth-panda__svg').isVisible(),
@@ -501,7 +504,7 @@ async function inspect(page, name, where) {
       assert(errorStyle.text === 'rgb(248, 250, 252)',
         name + ': registration error has unreadable foreground in dark mode');
       await inspect(page, name + '-dark', 'registration-error');
-      await page.close();
+      await context.close();
     }
     await require('./comment_spoilers_browser.cjs')(browser, base, out);
     await require('./mail_browser_pg.cjs')(browser, base, out);
