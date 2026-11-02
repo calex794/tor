@@ -25,5 +25,26 @@ pub(super) async fn exists(
     .fetch_optional(&mut **tx)
     .await
     .map_err(|_| AuthorError::Unavailable)?;
-    Ok(found.is_some())
+    if found.is_some() {
+        return Ok(true);
+    }
+    let old_alias: Option<i32> = sqlx::query_scalar(
+        "SELECT 1 FROM books AS b
+         WHERE b.target_language=$1
+           AND NOT b.is_deleted
+           AND (b.original_title <> '' OR cardinality(b.alt_titles) > 0)
+           AND book_registration_legacy_alias_keys(b.original_title, b.alt_titles)
+               && $2::text[]
+           AND NOT EXISTS (
+               SELECT 1 FROM book_registration_titles AS claimed
+               WHERE claimed.book_id = b.id
+           )
+         LIMIT 1",
+    )
+    .bind(target_language)
+    .bind(normalized_titles)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?;
+    Ok(old_alias.is_some())
 }
