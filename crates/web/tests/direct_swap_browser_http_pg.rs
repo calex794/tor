@@ -34,6 +34,7 @@ fn pg(url: &str, statement: &str) -> String {
         "financial tests require disposable tor_ci"
     );
     let result = Command::new("psql")
+        .env("PGOPTIONS", "-c statement_timeout=15000 -c lock_timeout=5000")
         .args([
             "-X",
             "-A",
@@ -114,11 +115,15 @@ async fn d_06_swap_http_disabled_by_default() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires disposable PostgreSQL 18 tor_ci with both browser flags enabled"]
 async fn d_06_swap_http_preview_csrf_actor_stale_quote_commit_and_replay() {
     for width in [390, 1440] {
-        swap_journey(width).await;
+        eprintln!("S037 width={width}: beginning PostgreSQL + browser journey");
+        tokio::time::timeout(std::time::Duration::from_secs(150), swap_journey(width))
+            .await
+            .unwrap_or_else(|_| panic!("S037 width={width}: journey exceeded 150 seconds"));
+        eprintln!("S037 width={width}: verified");
     }
 }
 
@@ -164,6 +169,7 @@ async fn swap_journey(width: u32) {
         .await
         .unwrap();
     assert_ne!(buyer, other);
+    eprintln!("S037 width={width}: buyer and outsider registered");
     pg(
         &url,
         &format!(
@@ -279,6 +285,7 @@ async fn swap_journey(width: u32) {
         .unwrap()
         .purchase_id
         .get();
+    eprintln!("S037 width={width}: source purchased");
     let site = app(&url, accounts, catalog);
     let cookie = format!("tor-dev-session={session}; tor-dev-csrf={csrf}");
     let foreign_cookie = format!("tor-dev-session={other_session}; tor-dev-csrf={csrf}");
@@ -338,6 +345,7 @@ async fn swap_journey(width: u32) {
     let preview = send(&site, "POST", &cookie, ORIGIN, &choose).await;
     assert_eq!(preview.status(), StatusCode::OK);
     let preview_html = html(preview).await;
+    eprintln!("S037 width={width}: quote prepared");
     assert!(preview_html.contains("Доплата"));
     assert_eq!(hidden(&preview_html, "version"), target_version.to_string());
     assert_eq!(hidden(&preview_html, "source_price"), "300");
@@ -408,6 +416,7 @@ async fn swap_journey(width: u32) {
     );
     // Complete the form in real Chromium over TCP, then replay its exact
     // confirmation through HTTP and verify the persisted accounting below.
+    eprintln!("S037 width={width}: HTTP security and stale quote passed; launching Chromium");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3098")
         .await
         .unwrap();
@@ -421,7 +430,8 @@ async fn swap_journey(width: u32) {
         .unwrap();
     });
     let browser = tokio::task::spawn_blocking(move || {
-        Command::new("node")
+        Command::new("timeout")
+            .args(["--signal=TERM", "--kill-after=5s", "90s", "node"])
             .arg(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../tools/direct_swap_browser_pg.cjs"
@@ -437,9 +447,10 @@ async fn swap_journey(width: u32) {
     .unwrap();
     server.abort();
     let _ = server.await;
+    eprintln!("S037 width={width}: Chromium process returned {:?}", browser.status.code());
     assert!(
         browser.status.success(),
-        "Chromium: {}",
+        "Chromium (exit {:?}): {}", browser.status.code(),
         String::from_utf8_lossy(&browser.stderr)
     );
     let submit = String::from_utf8(browser.stdout).unwrap();
@@ -483,5 +494,6 @@ async fn swap_journey(width: u32) {
         ),
         "2"
     );
+    eprintln!("S037 width={width}: accounting assertions passed; closing pool");
     pool.close().await;
 }
