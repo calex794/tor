@@ -23,6 +23,28 @@ pub(super) fn chat(data: &MessagePage, csrf: &str, admin: bool) -> Html<String> 
     } else {
         body.push_str("<p>Вы пишете из своей учётной записи.</p>");
     }
+    if data.chat.is_closed {
+        body.push_str("<p data-support-status>Статус: закрыто.</p>");
+    } else {
+        body.push_str("<p data-support-status>Статус: открыто.</p>");
+    }
+    if admin {
+        let (action, title) = if data.chat.is_closed {
+            ("reopen", "Повторно открыть обращение")
+        } else {
+            ("close", "Закрыть обращение")
+        };
+        write!(
+            body,
+            "<form method=\"post\" action=\"{base}/{action}\"><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><button type=\"submit\" class=\"ui-button\">{title}</button></form>",
+            escape_html(csrf), data.chat.status_revision
+        ).expect("support lifecycle");
+        if data.chat.is_closed {
+            body.push_str("<p>Чтобы отправить ответ, сначала откройте обращение.</p>");
+        }
+    } else if data.chat.is_closed {
+        body.push_str("<p>Обращение закрыто. Новое сообщение автоматически откроет его снова.</p>");
+    }
     if admin {
         write!(body,"<div id=\"support-messages\" data-admin-support-thread data-poll-url=\"{base}/messages\" aria-live=\"polite\">").expect("support admin thread");
     } else {
@@ -54,7 +76,11 @@ pub(super) fn chat(data: &MessagePage, csrf: &str, admin: bool) -> Html<String> 
             .expect("support cursor");
         }
     }
+    if !admin || !data.chat.is_closed {
     write!(body,"<form method=\"post\" action=\"{base}/messages\" class=\"auth-form\" data-admin-support-form><label for=\"support-body\">Ваше сообщение</label><textarea class=\"ui-textarea\" id=\"support-body\" name=\"body\" data-admin-support-input rows=\"4\" required></textarea><input type=\"hidden\" name=\"csrf_token\" value=\"{}\"><input type=\"hidden\" name=\"client_message_id\" data-admin-support-client-id value=\"{}\"><input type=\"hidden\" name=\"website\" value=\"\"><button class=\"ui-button ui-button--primary\" data-admin-support-submit>Отправить сообщение</button></form><p><a href=\"{base}\">Обновить переписку</a></p></div></section>",escape_html(csrf),tor_accounts::services::security::generate_session_token()).expect("support form");
+    } else {
+        write!(body, "<p><a href=\"{base}\">Обновить переписку</a></p></div></section>").expect("closed support admin page");
+    }
     if admin {
         body.push_str("<p data-admin-support-error role=\"alert\" hidden></p><script src=\"/assets/newboo-admin-support.js\" defer></script>");
     }
@@ -74,7 +100,8 @@ pub(super) fn index(chats: &[(Chat, String)]) -> Html<String> {
         } else {
             "Прочитано"
         };
-        write!(body,"<article class=\"me-now-card\"><h2><a href=\"/admin/support/{}\">{}</a></h2><p>{}</p><p>{unread}</p></article>",chat.id,escape_html(name),escape_html(&chat.last_message_preview)).expect("support list");
+        let lifecycle = if chat.is_closed { "Закрыто" } else { "Открыто" };
+        write!(body,"<article class=\"me-now-card\"><h2><a href=\"/admin/support/{}\">{}</a></h2><p>{}</p><p>{unread}</p><p>{lifecycle}</p></article>",chat.id,escape_html(name),escape_html(&chat.last_message_preview)).expect("support list");
     }
     if chats.len() == 100 {
         if let Some((last, _)) = chats.last() {

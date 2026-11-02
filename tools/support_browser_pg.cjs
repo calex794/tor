@@ -63,6 +63,13 @@ module.exports = async (browser, base, out) => {
       await operator.goto(base + '/admin/support');
       await operator.getByRole('link',{name:'Поддержка читатель ' + name,exact:true}).click();
       assert((await operator.locator('#support-messages').innerText()).includes(marker));
+      await operator.getByRole('button',{name:'Закрыть обращение',exact:true}).click();
+      await operator.waitForURL(/\/admin\/support\/\d+$/);
+      assert((await operator.locator('[data-support-status]').innerText()).includes('закрыто'));
+      assert.equal(await operator.locator('[data-admin-support-form]').count(),0);
+      await operator.getByRole('button',{name:'Повторно открыть обращение',exact:true}).click();
+      await operator.waitForURL(/\/admin\/support\/\d+$/);
+      assert((await operator.locator('[data-support-status]').innerText()).includes('открыто'));
       await operator.getByLabel('Ваше сообщение',{exact:true}).fill('Ответ поддержки ' + name);
       await operator.getByRole('button',{name:'Отправить сообщение',exact:true}).click();
       await operator.locator('#support-messages').getByText('Ответ поддержки ' + name,{exact:true}).waitFor();
