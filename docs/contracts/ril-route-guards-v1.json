@@ -1702,6 +1702,20 @@
       "source": "crates/web/src/auth/refund_browser.rs",
       "handler": "submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/book-title-suggestions.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_title_suggestions::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/title-suggestions",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_title_suggestions::find",
+      "policy": "session"
     }
   ]
 }
