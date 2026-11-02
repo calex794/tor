@@ -29,6 +29,7 @@ pub fn source_identity(
         return Ok(format!("manual:{actor}:{command_key}"));
     }
     if source_url.len() > 512
+        || source_url.contains('#')
         || source_url
             .chars()
             .any(|ch| ch.is_control() || ch.is_whitespace() || ch == '\\')
