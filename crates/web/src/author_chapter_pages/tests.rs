@@ -104,7 +104,7 @@ fn release_form_escapes_chapter_body_and_pins_version() {
         revision: 3,
         version_id: 86,
     };
-    let page = release_chapter(2, 5, &chapter, "token");
+    let page = release_chapter(2, 5, &chapter, "token", None);
     assert!(page.0.contains("name=\"version_id\" value=\"86\""));
     assert!(page.0.contains("name=\"expected_revision\" value=\"3\""));
     assert!(page.0.contains("&lt;/pre&gt;"));
