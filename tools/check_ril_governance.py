@@ -67,6 +67,7 @@ OWNER_CALLS = {
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
+    "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",

@@ -1,6 +1,7 @@
 //! Actual author book/chapter pages: no placeholder books or fabricated chapters.
 use axum::response::Html;
 use std::fmt::Write;
+use tor_books::repositories::postgres::ScheduledChapter;
 use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
@@ -299,6 +300,7 @@ pub fn new_chapter(
     csrf: &str,
     command_key: &str,
     paid_enabled: bool,
+    is_public: bool,
 ) -> Html<String> {
     // No paid-control is presented unless the private S3 writer and
     // owner-only publishing flow are explicitly enabled for this book.
@@ -327,6 +329,17 @@ pub fn new_chapter(
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
         .replace("<!--CHAPTER_ACCESS-->", access_fields)
+        .replace(
+            "<!--SCHEDULE_OPTION-->",
+            if is_public {
+                r#"<label><input type="checkbox" name="save_as_draft" value="1">
+                   Сохранить бесплатную главу закрытым черновиком для отложенного выпуска</label>
+                   <p class="account-profile__hint">После сохранения откроется подтверждение,
+                   где можно назначить время публикации в UTC.</p>"#
+            } else {
+                ""
+            },
+        )
         .replace(
             "<!--CHAPTER_HEADING-->",
             if paid_enabled { "Новая глава" } else { "Новая бесплатная глава" },
@@ -488,7 +501,27 @@ pub fn release_chapter(
     chapter_id: i64,
     chapter: &PendingChapter,
     csrf: &str,
+    schedule: Option<&ScheduledChapter>,
 ) -> Html<String> {
+    let schedule_status = match schedule {
+        Some(s) => format!(
+            "<p>Расписание: {} UTC · статус: {}</p>",
+            escape_html(&s.scheduled_utc),
+            escape_html(&s.status)
+        ),
+        None => String::new(),
+    };
+    let cancel_form = if schedule.is_some_and(|s| s.status == "pending" || s.status == "stale") {
+        format!(
+            r#"<form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/cancel-schedule">
+               <input type="hidden" name="csrf_token" value="{}">
+               <button class="button" type="submit">Отменить отложенный выпуск</button>
+               </form>"#,
+            escape_html(csrf)
+        )
+    } else {
+        String::new()
+    };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
         <div class="auth-card author-chapter-card">
@@ -503,6 +536,18 @@ pub fn release_chapter(
           <input type="hidden" name="version_id" value="{}">
           <button class="button" type="submit">Опубликовать эту главу</button>
         </form>
+        <h3>Отложенный выпуск</h3>
+        <p>Время указывается в UTC, а не в часовом поясе браузера.</p>
+        {schedule_status}
+        <form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/schedule">
+          <input type="hidden" name="csrf_token" value="{}">
+          <input type="hidden" name="expected_revision" value="{}">
+          <input type="hidden" name="version_id" value="{}">
+          <label for="scheduled_utc">Дата и время (UTC)</label>
+          <input id="scheduled_utc" type="datetime-local" name="scheduled_utc" required>
+          <button class="button" type="submit">Запланировать или перенести выпуск</button>
+        </form>
+        {cancel_form}
         <p><a href="/me/books/{book_id}">Вернуться к черновикам</a></p>
         </div></div></section>"#,
         chapter.number,
@@ -510,6 +555,9 @@ pub fn release_chapter(
         chapter.revision,
         chapter.version_id,
         escape_html(&chapter.body),
+        escape_html(csrf),
+        chapter.revision,
+        chapter.version_id,
         escape_html(csrf),
         chapter.revision,
         chapter.version_id,
