@@ -59,7 +59,7 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
 const OBJECT_ID_SECOND: &str = "f0c0e034-2026-4034-8034-000000000035";
 const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <script>опасно</script>";
-const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
+const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
 
