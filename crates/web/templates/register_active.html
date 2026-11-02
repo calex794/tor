@@ -10,6 +10,10 @@
       <form class="auth-form" method="post" action="/register" autocomplete="on" novalidate>
         <!--FORM_ERROR-->
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <div class="auth-form__website-trap" aria-hidden="true">
+          <label for="register-website">Сайт</label>
+          <input id="register-website" name="website" type="text" autocomplete="off" tabindex="-1" value="">
+        </div>
         <!--AUTH_RETURN_FIELD-->
         <label for="register-name">Отображаемое имя</label>
         <input id="register-name" name="display_name" type="text" autocomplete="nickname" required maxlength="80" value="<!--DISPLAY_NAME-->">

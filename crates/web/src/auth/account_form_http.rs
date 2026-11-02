@@ -1,5 +1,5 @@
 //! Standalone account forms and error responses; browser-only, no SQL in HTTP.
-use super::{access_audit, auth_observation, login_limiter, AuthState};
+use super::{access_audit, auth_observation, honeypot, login_limiter, AuthState};
 use crate::{
     auth_cookies::{private_response, SESSION_AGE},
     observability, pages,
@@ -25,6 +25,7 @@ pub(super) struct RegisterForm {
     email: String,
     display_name: String,
     password: String,
+    website: Option<String>,
     csrf_token: Option<String>,
     manual_invite_code: Option<String>,
     next: Option<String>,
@@ -34,6 +35,7 @@ pub(super) struct RegisterForm {
 pub(super) struct LoginForm {
     email: String,
     password: String,
+    website: Option<String>,
     csrf_token: Option<String>,
     next: Option<String>,
 }
@@ -186,6 +188,16 @@ pub(super) async fn register(
             StatusCode::FORBIDDEN,
             "Форма устарела",
             "Откройте регистрацию заново и повторите отправку.",
+            true,
+        );
+    }
+    // Filled decoys are rejected before account lookup, Argon2 and any write.
+    if honeypot::filled(form.website.as_deref()) {
+        honeypot::record(honeypot::TrapKind::Register);
+        return auth_problem(
+            StatusCode::BAD_REQUEST,
+            "Не удалось завершить регистрацию",
+            "Откройте страницу регистрации заново и повторите отправку.",
             true,
         );
     }
@@ -355,6 +367,12 @@ pub(super) async fn login(
             "Откройте страницу входа заново и повторите отправку.",
             false,
         );
+    }
+    // A filled hidden field is a signal, never evidence to ban an IP or user.
+    if honeypot::filled(form.website.as_deref()) {
+        honeypot::record(honeypot::TrapKind::Login);
+        observed.report(auth_observation::Outcome::InvalidForm, None);
+        return invalid_credentials();
     }
     let email = match rules::login(&form.email, &form.password) {
         Ok(email) => email,

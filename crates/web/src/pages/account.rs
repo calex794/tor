@@ -321,6 +321,8 @@ mod tests {
             assert!(html.contains("auth-panda__svg"));
             assert!(html.contains("viewBox=\"0 0 260 190\""));
             assert!(html.contains("auth-panda__cover-arms"));
+            assert!(html.contains("name=\"website\""));
+            assert!(html.contains("auth-form__website-trap"));
             assert!(!html.contains("<!--AUTH_PANDA-->"));
             assert!(!html.contains("<script"));
         }

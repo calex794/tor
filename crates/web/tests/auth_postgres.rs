@@ -115,6 +115,31 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert!(page_body.contains("Создать учётную запись"));
     assert!(page_body.contains("action=\"/register\" autocomplete=\"on\" novalidate"));
     assert!(page_body.contains("register-password-hint"));
+    assert!(page_body.contains("name=\"website\""));
+    let trap = send(
+        &app,
+        request("GET", "/__bp_honeypot/admin/private", "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(trap.status(), StatusCode::NOT_FOUND);
+    assert_eq!(trap.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(trap.headers()["x-robots-tag"], "noindex, nofollow, noarchive");
+    assert_eq!(body_of(trap).await, "");
+    let trap_register = format!(
+        "email=tor_ci_honeypot%40example.com&display_name=Trap&password=LongSecurePassword2026&csrf_token={csrf}&website=filled"
+    );
+    let rejected = send(
+        &app,
+        request("POST", "/register", &trap_register, &csrf_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+    assert!(rejected.headers().get(header::SET_COOKIE).is_none());
+    assert!(lookup
+        .find_user("tor_ci_honeypot@example.com")
+        .await
+        .unwrap()
+        .is_none());
     h_account_cases::invalid_registration(&app, csrf, &csrf_cookie).await;
 
     let form = "email=tor_ci_account%40example.com&display_name=CIReader&password=LongSecurePassword2026&csrf_token=".to_owned() + csrf;
@@ -944,6 +969,16 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         format!("email=tor_ci_account%40example.com&password=badpass&csrf_token={login_csrf}");
     h_account_cases::rejected_login(&app, &bad_login, &login_csrf_cookie).await;
     h_account_cases::seed_exhausted_proxy_counter(&lookup).await;
+    let trap_login = format!(
+        "email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}&website=filled"
+    );
+    let blocked = send(
+        &app,
+        request("POST", "/login", &trap_login, &login_csrf_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::UNAUTHORIZED);
+    assert!(blocked.headers().get(header::SET_COOKIE).is_none());
     let good_login = format!("email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={login_csrf}");
     let logged = send(
         &app,

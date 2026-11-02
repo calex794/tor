@@ -43,8 +43,13 @@ mod access_audit;
 mod admin_mail;
 mod admin_mail_routes;
 mod auth_observation;
+mod honeypot;
 pub(crate) fn auth_observation_dropped() -> u64 {
     auth_observation::dropped_count()
+}
+
+pub(crate) fn honeypot_counts() -> (u64, u64, u64) {
+    honeypot::counts()
 }
 mod account_form_http;
 mod author_book_page;
@@ -219,6 +224,7 @@ fn router_inner(
             "/login",
             get(account_form_http::show_login).post(account_form_http::login),
         )
+        .route("/__bp_honeypot/{*trap_name}", get(honeypot::trap))
         .route("/me", get(me))
         .route("/me/creators", get(creator_follows::page))
         .route(

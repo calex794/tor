@@ -148,6 +148,8 @@ button:disabled, input:disabled { cursor: not-allowed; }
 }
 .auth-form { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; }
 .auth-form label { font-size: 13px; font-weight: 700; }
+/* AB-03: decoy has a real text input for automated form fillers, but is neither visible nor focusable. */
+.auth-form__website-trap { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); pointer-events: none; }
 .auth-form input {
   width: 100%; height: 45px; margin-bottom: 12px; padding: 10px 12px;
   border: 1px solid #d2dcd1; border-radius: 9px; background: #f4f6f3;
