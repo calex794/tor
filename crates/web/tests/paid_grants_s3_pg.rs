@@ -589,7 +589,13 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .unwrap();
     registry.mark_ready(&receipt_v2).await.unwrap();
     PgPaidStorage::new(pool.clone())
-        .attach_verified_and_publish(author, book, pinned_v2, &v2_object, PaidPublication::KeepCurrent)
+        .attach_verified_and_publish(
+            author,
+            book,
+            pinned_v2,
+            &v2_object,
+            PaidPublication::KeepCurrent,
+        )
         .await
         .unwrap();
     // Capture the actual Rust HTML before the author hides the book. CI
