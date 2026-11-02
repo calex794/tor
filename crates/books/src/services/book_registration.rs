@@ -377,12 +377,9 @@ mod tests {
     fn s019_owner_link_edits_validate_and_deduplicate() {
         let old = "https://original.example.cn/novel/23";
         let rulate = "https://tl.rulate.ru/book/268849";
-        let claims = edited_link_claims([
-            old,
-            rulate,
-            "http://www.rulate.ru/book/000268849?ref=other",
-        ])
-        .unwrap();
+        let claims =
+            edited_link_claims([old, rulate, "http://www.rulate.ru/book/000268849?ref=other"])
+                .unwrap();
         assert_eq!(claims.len(), 2, "Rulate work IDs collapse exact aliases");
         assert!(claims.iter().any(|(_, url)| url == old));
         assert!(edited_link_claims(["", "", ""]).unwrap().is_empty());
