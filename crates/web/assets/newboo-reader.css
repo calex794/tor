@@ -923,3 +923,42 @@ body.reader-standalone[data-paid-reader-theme="sepia"] {
   line-height: 1.6;
 }
 .reader-private .reader-continuation h2 { color: var(--text-main); }
+
+/* Free reader controls are isolated from paid WebCrypto and other pages. */
+.reader-public .reader-width { width: min(calc(100% - 28px), var(--public-reader-width, 860px)); max-width: var(--public-reader-width, 860px); }
+.reader-public .reader-markdown, .reader-public .reader-markdown p {
+  font-family: var(--public-font-family, Georgia, "Times New Roman", serif);
+  font-size: var(--public-font-size, clamp(17px, 2.3vw, 20px));
+  line-height: var(--public-line-height, 1.85);
+}
+.reader-public .reader-topbar { grid-template-columns: minmax(100px,auto) minmax(0,1fr) auto; }
+.reader-public .reader-public__settings { display: none; position: relative; }
+.reader-public[data-public-ready] .reader-public__settings { display: block; }
+.reader-public__settings > summary {
+  list-style: none; display: grid; place-items: center; min-width: 44px;
+  min-height: 44px; cursor: pointer; border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm); background: var(--bg-surface); font-weight: 800;
+}
+.reader-public__settings > summary::-webkit-details-marker { display: none; }
+.reader-public__settings-panel {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 100;
+  width: min(330px, calc(100vw - 30px)); max-height: min(75dvh, 590px);
+  overflow-y: auto; box-sizing: border-box; display: grid; gap: 12px;
+  padding: 16px; background: var(--bg-surface); border: 1px solid var(--border-color);
+  color: var(--text-main); border-radius: var(--radius-md); box-shadow: 0 12px 30px #0002;
+}
+.reader-public__settings-panel label { display: grid; gap: 5px; font-size: 13px; font-weight: 700; }
+.reader-public__settings-panel input { width: 100%; accent-color: var(--primary-color); }
+.reader-public__settings-panel select, .reader-public__settings-panel button {
+  min-height: 44px; padding: 8px; border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm); color: var(--text-main); background: var(--bg-secondary);
+}
+.reader-public__settings-panel output { font-size: 12px; font-weight: 400; }
+.reader-public__settings :focus-visible { outline: 3px solid var(--primary-color); outline-offset: 2px; }
+.reader-public[data-public-theme="light"] { color-scheme: light; --bg-main:#f7f7f8; --bg-surface:#fff; --bg-secondary:#f9fafb; --text-main:#111827; --text-muted:#6b7280; --border-color:#e5e7eb; --primary-color:#4f46e5; }
+.reader-public[data-public-theme="dark"] { color-scheme: dark; --bg-main:#0b1120; --bg-surface:#111827; --bg-secondary:#172033; --text-main:#f8fafc; --text-muted:#9ca3af; --border-color:#263348; --primary-color:#8b9cff; }
+.reader-public[data-public-theme="sepia"] { color-scheme: light; --bg-main:#efe5d3; --bg-surface:#fbf3e4; --bg-secondary:#f5e8d3; --text-main:#44301f; --text-muted:#735d44; --border-color:#d5c5ab; --primary-color:#84582e; }
+.reader-public[data-public-theme] { background: var(--bg-main); color: var(--text-main); }
+@media (max-width: 640px) {
+  .reader-public .reader-topbar { grid-template-columns: auto minmax(0,1fr) auto; }
+}
