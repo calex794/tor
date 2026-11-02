@@ -17,7 +17,7 @@ use tor_discussions::repositories::text_issues::{
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PaidIssueBody {
+pub(super) struct PaidIssueBody {
     purchase_id: String,
     version_id: String,
     block_index: i32,
