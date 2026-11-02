@@ -215,12 +215,8 @@ impl PgAuthoring {
 
         if !book.source_url.is_empty() {
             let canonical_url = normalized_source_url(&book.source_url)?;
-            if source_alias_guard::source_url_exists(
-                &mut tx,
-                &book.target_language,
-                &canonical_url,
-            )
-            .await?
+            if source_alias_guard::source_url_exists(&mut tx, &book.target_language, &canonical_url)
+                .await?
             {
                 return Err(AuthorError::Conflict);
             }
