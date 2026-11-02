@@ -22,8 +22,7 @@ pub(super) async fn assert_administrator_and_guest_denied(
     purchase: i64,
 ) {
     // A genuine A session-backed role, not a client-supplied role claim.
-    let (admin_id, admin_session) =
-        account(accounts, "s065-c12-admin@tor-ci.example").await;
+    let (admin_id, admin_session) = account(accounts, "s065-c12-admin@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -37,7 +36,10 @@ pub(super) async fn assert_administrator_and_guest_denied(
         .await
         .unwrap()
         .expect("site administrator must have a live session");
-    assert!(actor.administrator, "fixture must exercise an active administrator");
+    assert!(
+        actor.administrator,
+        "fixture must exercise an active administrator"
+    );
 
     let csrf = generate_session_token();
     let payload = json!({ "purchase_id": purchase.to_string() }).to_string();
@@ -106,5 +108,8 @@ pub(super) async fn assert_administrator_and_guest_denied(
     let response = read_page(reader, &progress, Some(&admin_session)).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-    assert!(to_bytes(response.into_body(), 8192).await.unwrap().is_empty());
+    assert!(to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
 }
