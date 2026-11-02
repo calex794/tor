@@ -64,10 +64,59 @@ pub fn source_identity(
         .query()
         .map(|value| format!("?{value}"))
         .unwrap_or_default();
+    // Only a proven work-page ID may ignore the source's optional query.
+    // Other sites retain their exact existing URL identity contract.
+    if let Some(work_id) = rulate_work_id(source_url) {
+        return Ok(format!("rulate:book:{work_id}"));
+    }
     // HTTP and HTTPS links to the same public work share one stable identity.
     let canonical = format!("https://{host}{path}{query}");
     let digest = Sha256::digest(canonical.as_bytes());
     Ok(format!("url:{digest:x}"))
+}
+
+/// Stable public work number shared by the provider's canonical book links.
+/// Never infer identity from fuzzy titles, chapter links or unrelated hosts.
+pub fn rulate_work_id(url: &str) -> Option<String> {
+    if url.contains('#')
+        || url
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace() || ch == '\\')
+    {
+        return None;
+    }
+    let uri: Uri = url.parse().ok()?;
+    if !matches!(uri.scheme_str()?, "http" | "https") {
+        return None;
+    }
+    let authority = uri.authority()?;
+    if authority.as_str().contains('@')
+        || authority
+            .port_u16()
+            .is_some_and(|port| port != 80 && port != 443)
+    {
+        return None;
+    }
+    let host = authority.host().to_ascii_lowercase();
+    if !matches!(
+        host.as_str(),
+        "rulate.ru" | "tl.rulate.ru" | "www.rulate.ru" | "www.tl.rulate.ru"
+    ) {
+        return None;
+    }
+    let path = uri.path().strip_prefix("/book/")?;
+    let raw_id = path.strip_suffix('/').unwrap_or(path);
+    if raw_id.is_empty()
+        || raw_id.len() > 18
+        || !raw_id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let id = raw_id.trim_start_matches('0');
+    if id.is_empty() {
+        return None;
+    }
+    Some(id.to_owned())
 }
 
 /// Match exact title aliases after case, punctuation, spacing and ё/е cleanup.
@@ -201,6 +250,40 @@ mod tests {
         ] {
             assert!(source_identity(invalid, 5, KEY).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn s019_rulate_url_aliases_share_one_proven_work_id() {
+        let variants = [
+            "https://tl.rulate.ru/book/268849",
+            "http://rulate.ru/book/000268849/?utm_source=share",
+            "https://www.tl.rulate.ru/book/268849?ref=example",
+        ];
+        for (i, link) in variants.iter().enumerate() {
+            assert_eq!(rulate_work_id(link).as_deref(), Some("268849"));
+            assert_eq!(
+                source_identity(link, 10 + i as i64, KEY).unwrap(),
+                "rulate:book:268849"
+            );
+        }
+        assert_eq!(
+            source_identity("https://tl.rulate.ru/book/268850", 10, KEY).unwrap(),
+            "rulate:book:268850"
+        );
+        for unrelated in [
+            "https://notrulate.ru/book/268849",
+            "https://tl.rulate.ru/book/268849/chapter/1",
+            "https://tl.rulate.ru/book/0",
+            "https://tl.rulate.ru/books/268849",
+            "https://tl.rulate.ru/book/268849#chapters",
+        ] {
+            assert!(rulate_work_id(unrelated).is_none(), "{unrelated}");
+        }
+        assert_ne!(
+            source_identity("https://example.org/a?chapter=1", 12, KEY).unwrap(),
+            source_identity("https://example.org/a?chapter=2", 12, KEY).unwrap(),
+            "other providers retain semantic query parameters"
+        );
     }
 
     #[test]
