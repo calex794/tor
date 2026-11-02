@@ -302,8 +302,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     pg(
         &url,
         &format!(
-            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) \
-             VALUES({live_desktop},600,'RUB'),({live_mobile},600,'RUB'),({s005_chromium_buyer},500,'RUB')"
+            "INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES({live_desktop},600,'RUB'),({live_mobile},600,'RUB'),({s005_chromium_buyer},500,'RUB')"
         ),
     );
     let csrf = generate_session_token();
