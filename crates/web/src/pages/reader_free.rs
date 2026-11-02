@@ -24,7 +24,8 @@ fn progress_view(
         return ProgressView {
             html,
             attributes: String::new(),
-            subtitle: "Читайте без регистрации. Чтобы сохранять место чтения, войдите в личный кабинет.",
+            subtitle:
+                "Читайте без регистрации. Чтобы сохранять место чтения, войдите в личный кабинет.",
         };
     };
     let mut offsets = String::new();
@@ -65,10 +66,19 @@ mod progress_tests {
         let rendered = progress_view(source, Some(101), 607, Some("safe"));
         assert!(rendered.html.contains("data-md-start=\""));
         assert!(rendered.html.contains("т😀a"));
-        assert!(rendered.attributes.contains("data-free-progress-chapter=\"101\""));
-        assert!(rendered.attributes.contains("data-free-progress-version=\"607\""));
-        assert!(rendered.attributes.contains("data-free-progress-blocks=\"0:4,6:15,23:5\""),
-            "reader_blocks must use the same UTF-16 boundaries as the renderer: {}", rendered.attributes);
+        assert!(rendered
+            .attributes
+            .contains("data-free-progress-chapter=\"101\""));
+        assert!(rendered
+            .attributes
+            .contains("data-free-progress-version=\"607\""));
+        assert!(
+            rendered
+                .attributes
+                .contains("data-free-progress-blocks=\"0:4,6:15,23:5\""),
+            "reader_blocks must use the same UTF-16 boundaries as the renderer: {}",
+            rendered.attributes
+        );
     }
 
     #[test]
@@ -86,11 +96,19 @@ mod progress_tests {
 
     #[test]
     fn h_05_offsets_remain_bounded_for_more_than_200_paragraphs() {
-        let source = (0..205).map(|i| format!("абзац {i}"))
-            .collect::<Vec<_>>().join("\n\n");
+        let source = (0..205)
+            .map(|i| format!("абзац {i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
         let view = progress_view(&source, Some(2), 9, Some("token"));
-        let raw = view.attributes.split("data-free-progress-blocks=\"").nth(1).unwrap()
-            .split('"').next().unwrap();
+        let raw = view
+            .attributes
+            .split("data-free-progress-blocks=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
         let blocks: Vec<_> = raw.split(',').collect();
         assert!(blocks.len() <= 200 && blocks.len() > 1);
         let mut next = 0;
@@ -179,4 +197,3 @@ pub fn reader_with_optional_progress(
         &html,
     )
 }
-
