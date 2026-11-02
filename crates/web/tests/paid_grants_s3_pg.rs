@@ -368,7 +368,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             &object_id,
             PaidPublication::Publish {
                 expected_current: None,
-            }
+            },
         )
         .await
         .unwrap();
