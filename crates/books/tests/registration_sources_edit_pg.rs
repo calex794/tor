@@ -71,12 +71,24 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
     let book = with_extra_source_links(book, [&mirror, &rulate]).unwrap();
     let id = author.create_owned_book(owner, &book).await.unwrap();
 
-    let read = author.owned_book_source_links(owner, id).await.unwrap().unwrap();
+    let read = author
+        .owned_book_source_links(owner, id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(read.primary, original);
     assert_eq!(read.extra.len(), 2);
     assert_eq!(read.revision, 1);
-    assert!(author.owned_book_source_links(outsider, id).await.unwrap().is_none());
-    assert!(author.owned_book_source_links(owner, -1).await.unwrap().is_none());
+    assert!(author
+        .owned_book_source_links(outsider, id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(author
+        .owned_book_source_links(owner, -1)
+        .await
+        .unwrap()
+        .is_none());
 
     assert_eq!(
         author
@@ -95,7 +107,11 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
             .await,
         Ok(2)
     );
-    let after = author.owned_book_source_links(owner, id).await.unwrap().unwrap();
+    let after = author
+        .owned_book_source_links(owner, id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(after.primary, updated_original);
     assert_eq!(after.revision, 2);
     assert_eq!(after.extra.len(), 2);
@@ -120,7 +136,10 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(preserved, identity, "stable book identity must never be rewritten");
+    assert_eq!(
+        preserved, identity,
+        "stable book identity must never be rewritten"
+    );
 
     let other_key = "q".repeat(43);
     let other_url = format!("https://owned-by-another.example.org/story/{marker}");
@@ -145,7 +164,10 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         },
     )
     .unwrap();
-    let other_id = author.create_owned_book(outsider, &other_book).await.unwrap();
+    let other_id = author
+        .create_owned_book(outsider, &other_book)
+        .await
+        .unwrap();
 
     assert_eq!(
         author
@@ -154,9 +176,17 @@ async fn s019_owner_can_edit_original_and_mirrors_without_claiming_other_books()
         Err(AuthorError::Conflict),
         "a link claimed by another owner must not be stolen"
     );
-    let after_failed = author.owned_book_source_links(owner, id).await.unwrap().unwrap();
+    let after_failed = author
+        .owned_book_source_links(owner, id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(after_failed.revision, 2);
-    assert_eq!(after_failed.extra.len(), 2, "conflict rolls back every claim");
+    assert_eq!(
+        after_failed.extra.len(),
+        2,
+        "conflict rolls back every claim"
+    );
     assert_eq!(after_failed.primary, updated_original);
 
     let own_links: i64 =
