@@ -371,7 +371,7 @@ async fn s023_queue_http_worker_status_and_cancel_are_owner_scoped() {
     // even if the caller is still the authenticated owner.
     authoring.release_book(owner, book_id).await.unwrap();
     let published_text = "Глава 2: После публикации\nНовая глава";
-    let published_chapters = parse_text("published.txt", &published_text).unwrap();
+    let published_chapters = parse_text("published.txt", published_text).unwrap();
     let published_fp = fingerprint(book_id, &published_chapters);
     let published_response = call(
         &app,
