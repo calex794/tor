@@ -7,10 +7,7 @@ use axum::{
     response::{Html, Redirect, Response},
 };
 use serde::Deserialize;
-use tor_books::{
-    repositories::postgres::OwnedBookSourceLinks,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::OwnedBookSourceLinks, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 pub(super) struct EditSourcesForm {
@@ -50,7 +47,11 @@ fn render(book_id: i64, book: &OwnedBookSourceLinks, csrf: &str) -> Html<String>
         pages::escape_html(extra1),
         pages::escape_html(extra2),
     );
-    pages::layout("Ссылки книги", "Редактирование известных источников книги.", &content)
+    pages::layout(
+        "Ссылки книги",
+        "Редактирование известных источников книги.",
+        &content,
+    )
 }
 
 fn problem(book_id: i64, code: StatusCode) -> Response {
@@ -93,7 +94,11 @@ pub(super) async fn edit(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.owned_book_source_links(actor, book_id).await {
+    let book = match state
+        .authoring
+        .owned_book_source_links(actor, book_id)
+        .await
+    {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
