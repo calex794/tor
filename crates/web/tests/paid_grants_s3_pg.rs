@@ -570,6 +570,28 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
+    // Direct purchases stay pinned to encrypted V1. Layer CURRENT access
+    // instead follows V2, which must be independently verified and attached
+    // before B/G may sign it; a bare publication pointer is insufficient.
+    let pinned_v2 = ChapterVersionRef {
+        chapter_id: PositiveId::new(chapter).unwrap(),
+        version_id: PositiveId::new(v2).unwrap(),
+    };
+    let v2_object = ObjectId::parse("f0c0e034-2026-4034-8034-000000000036").unwrap();
+    let sealed_v2 =
+        seal_chapter(pinned_v2, v2_object.clone(), "New V2, not purchased", &kek).unwrap();
+    let reference_v2 = registry
+        .reserve_pending(&sealed_v2, &kek, BUCKET)
+        .await
+        .unwrap();
+    let receipt_v2 = upload_and_verify(&short_store, &reference_v2, &sealed_v2.ciphertext)
+        .await
+        .unwrap();
+    registry.mark_ready(&receipt_v2).await.unwrap();
+    PgPaidStorage::new(pool.clone())
+        .attach_verified_and_publish(author, book, pinned_v2, &v2_object, PaidPublication::KeepCurrent)
+        .await
+        .unwrap();
     // Capture the actual Rust HTML before the author hides the book. CI
     // screenshots exercise the mixed original NEwBOO-style free/paid/locked
     // design while preserving a separate hidden-book entitlement check.
@@ -858,7 +880,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &app,
         &url,
         (author, layer_buyer),
-        (book, chapter, v1),
+        (book, chapter, v2),
         (&layer_cookie, &csrf),
     )
     .await;
