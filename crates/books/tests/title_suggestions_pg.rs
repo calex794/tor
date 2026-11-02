@@ -24,7 +24,7 @@ async fn s019_preflight_matches_public_aliases_but_never_private_drafts() {
     .bind(&title).bind(&zh).bind(&en).fetch_one(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,visibility)
-         VALUES($1,'ru',$2,'draft')"
+         VALUES($1,'ru',$2,'draft')",
     )
     .bind(format!("s019:private:{suffix}"))
     .bind(&hidden)
