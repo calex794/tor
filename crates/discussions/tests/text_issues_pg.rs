@@ -451,18 +451,23 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
         .unwrap();
     assert_eq!(
         store
-            .update_status(author, book, paid_issue_id, "fixed", Some("Новая платная редакция"))
+            .update_status(
+                author,
+                book,
+                paid_issue_id,
+                "fixed",
+                Some("Новая платная редакция")
+            )
             .await,
         Err(IssueError::Conflict),
         "unsealed paid V2 cannot satisfy correction acceptance"
     );
-    let state: (String, Option<i64>) = sqlx::query_as(
-        "SELECT status,resolved_version_id FROM text_issues WHERE id=$1",
-    )
-    .bind(paid_issue_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let state: (String, Option<i64>) =
+        sqlx::query_as("SELECT status,resolved_version_id FROM text_issues WHERE id=$1")
+            .bind(paid_issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(state, ("new".to_owned(), None));
     let paid_events: i64 =
         sqlx::query_scalar("SELECT count(*) FROM text_issue_status_events WHERE issue_id=$1")
@@ -470,7 +475,10 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(paid_events, 0, "failed closure must not create an audit fact");
+    assert_eq!(
+        paid_events, 0,
+        "failed closure must not create an audit fact"
+    );
 
     // Paid issue provenance is immutable. If the public pricing mode changes,
     // the old quote MUST NOT become readable or actionable to a translator.
