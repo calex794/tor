@@ -1527,6 +1527,20 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "text_issues::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/close",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "close",
+      "policy": "support_admin"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/reopen",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "reopen",
+      "policy": "support_admin"
     }
   ]
 }

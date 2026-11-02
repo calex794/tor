@@ -41,6 +41,14 @@ pub trait SupportRepository: Send + Sync {
         key: Option<&str>,
         request_id: &str,
     ) -> Result<Message, SupportError>;
+    async fn change_status(
+        &self,
+        admin: i64,
+        chat: i64,
+        closed: bool,
+        expected_revision: i64,
+        request_id: &str,
+    ) -> Result<(), SupportError>;
     async fn mark_admin_read(
         &self,
         admin: i64,
@@ -165,6 +173,29 @@ impl<R: SupportRepository> SupportService<R> {
         let key = client_key(key);
         self.repo
             .send_admin(Self::admin(actor)?, chat, &body, key.as_deref(), request_id)
+            .await
+    }
+    /// The caller must be the current global site administrator. This
+    /// operation never grants book-level moderators support privileges.
+    pub async fn admin_set_closed(
+        &self,
+        actor: SessionActor,
+        chat: i64,
+        closed: bool,
+        expected_revision: i64,
+        request_id: &str,
+    ) -> Result<(), SupportError> {
+        if chat <= 0 || expected_revision < 0 || request_id.is_empty() || request_id.len() > 128 {
+            return Err(SupportError::Invalid);
+        }
+        self.repo
+            .change_status(
+                Self::admin(actor)?,
+                chat,
+                closed,
+                expected_revision,
+                request_id,
+            )
             .await
     }
     pub async fn admin_mark_read(

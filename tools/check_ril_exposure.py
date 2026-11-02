@@ -36,6 +36,8 @@ AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support/{id}/messages", "messages", "support_admin"),
     ("POST", "/admin/support/{id}/messages", "submit", "support_admin"),
     ("POST", "/admin/support/{id}/read", "mark_read", "support_admin"),
+    ("POST", "/admin/support/{id}/close", "close", "support_admin"),
+    ("POST", "/admin/support/{id}/reopen", "reopen", "support_admin"),
 }
 PRIVATE_PROBES = (
     ("/me", {301, 302, 303, 307, 308, 401, 403, 404}),

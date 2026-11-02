@@ -232,6 +232,109 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
     let path = format!("/admin/support/{chat}");
     let detail = text(call(&app, "GET", &path, &sessions[2], "", ORIGIN).await).await;
     assert!(detail.contains("PRIVATE &lt;script&gt;"));
+    assert!(detail.contains("Статус: открыто."));
+    let close_path = format!("{path}/close");
+    let reopen_path = format!("{path}/reopen");
+    let close_form = format!("csrf_token={}&expected_revision=0", tokens[2]);
+    assert_eq!(
+        call(&app, "GET", &close_path, &sessions[2], "", ORIGIN)
+            .await
+            .status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    assert_eq!(
+        call(&app, "POST", &close_path, &sessions[0], &close_form, ORIGIN)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &close_path,
+            &sessions[2],
+            &close_form,
+            "https://evil.invalid"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &close_path,
+            &sessions[2],
+            "csrf_token=invalid&expected_revision=0",
+            ORIGIN
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    // Repeating a close is harmless; GET remains read-only.
+    assert_eq!(
+        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN)
+            .await
+            .status(),
+        StatusCode::SEE_OTHER
+    );
+    let closed_html = text(call(&app, "GET", &path, &sessions[2], "", ORIGIN).await).await;
+    assert!(closed_html.contains("Статус: закрыто."));
+    assert!(closed_html.contains(&reopen_path));
+    assert!(!closed_html.contains("data-admin-support-form"));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{path}/messages"),
+            &sessions[2],
+            &format!(
+                "csrf_token={}&body=FORBIDDEN%20CLOSED&client_message_id=closed",
+                tokens[2]
+            ),
+            ORIGIN
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let reopen_form = format!("csrf_token={}&expected_revision=1", tokens[2]);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &reopen_path,
+            &sessions[2],
+            &reopen_form,
+            ORIGIN
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        call(&app, "POST", &close_path, &sessions[2], &close_form, ORIGIN)
+            .await
+            .status(),
+        StatusCode::CONFLICT,
+        "stale close cannot hide a newer open"
+    );
+    let open_html = text(call(&app, "GET", &path, &sessions[2], "", ORIGIN).await).await;
+    assert!(open_html.contains("Статус: открыто."));
+    let audit_count = pg(&url, format!(
+        "SELECT count(*) FROM admin_action_audit WHERE actor_id={} AND resource_id={} AND action IN ('support.close','support.reopen')",
+        users[2], chat
+    )).await;
+    assert_eq!(audit_count, "2");
     let reply = format!(
         "csrf_token={}&body=ADMIN%20ANSWER&client_message_id=one",
         tokens[2]
@@ -435,6 +538,22 @@ async fn e_11_http_guest_claim_and_live_admin_boundaries() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    for endpoint in [&close_path, &reopen_path] {
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                endpoint,
+                &sessions[2],
+                &format!("csrf_token={}&expected_revision=2", tokens[2]),
+                ORIGIN
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN,
+            "revoked administrator cannot change support state"
+        );
+    }
     // Disposable tor_ci is dropped after the suite. Deleting referenced users
     // here would violate account_roles/support foreign keys.
 }

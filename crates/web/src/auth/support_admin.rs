@@ -18,6 +18,8 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/admin/support", get(index))
         .route("/admin/support/{id}", get(page))
         .route("/admin/support/{id}/read", axum::routing::post(mark_read))
+        .route("/admin/support/{id}/close", axum::routing::post(close))
+        .route("/admin/support/{id}/reopen", axum::routing::post(reopen))
         .route("/admin/support/{id}/messages", get(messages).post(submit))
 }
 
@@ -233,6 +235,71 @@ pub(super) async fn mark_read(
             actor,
             id,
             form.message_id,
+            &tor_accounts::services::security::generate_session_token(),
+        )
+        .await
+    {
+        Ok(()) => private_response(Redirect::to(&format!("/admin/support/{id}")), &[]),
+        Err(e) => denied(status(e)),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StatusForm {
+    csrf_token: String,
+    expected_revision: i64,
+}
+
+pub(super) async fn close(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Form(form): Form<StatusForm>,
+) -> Response {
+    let actor = match administrator(&state, &headers).await {
+        Ok(a) => a,
+        Err(s) => return denied(s),
+    };
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
+        return denied(StatusCode::FORBIDDEN);
+    }
+    match service(&state)
+        .admin_set_closed(
+            actor,
+            id,
+            true,
+            form.expected_revision,
+            &tor_accounts::services::security::generate_session_token(),
+        )
+        .await
+    {
+        Ok(()) => private_response(Redirect::to(&format!("/admin/support/{id}")), &[]),
+        Err(e) => denied(status(e)),
+    }
+}
+
+pub(super) async fn reopen(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Form(form): Form<StatusForm>,
+) -> Response {
+    let actor = match administrator(&state, &headers).await {
+        Ok(a) => a,
+        Err(s) => return denied(s),
+    };
+    if !state.cookies.same_origin(&headers) || !state.cookies.valid_csrf(&headers, &form.csrf_token)
+    {
+        return denied(StatusCode::FORBIDDEN);
+    }
+    match service(&state)
+        .admin_set_closed(
+            actor,
+            id,
+            false,
+            form.expected_revision,
             &tor_accounts::services::security::generate_session_token(),
         )
         .await

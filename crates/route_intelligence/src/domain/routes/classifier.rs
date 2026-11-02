@@ -226,6 +226,8 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/newboo-support-widget.js"), "GET") => Some(213),
         (Some("/assets/newboo-admin-support.js"), "GET") => Some(214),
         (Some("/api/v1/reader/chapters/{chapter_id}/text-issues"), "POST") => Some(215),
+        (Some("/admin/support/{id}/close"), "POST") => Some(216),
+        (Some("/admin/support/{id}/reopen"), "POST") => Some(217),
         _ => None,
     };
     index
