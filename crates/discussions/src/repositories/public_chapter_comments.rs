@@ -20,7 +20,6 @@ pub struct NewAnchor<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct NewChapterComment<'a> {
-    pub actor_id: i64,
     pub chapter_id: i64,
     pub version_id: i64,
     pub body: &'a str,
@@ -95,8 +94,8 @@ fn valid_anchor(source: &str, anchor: NewAnchor<'_>) -> bool {
         .is_some_and(|text| text == anchor.quote)
 }
 
-fn valid_request(comment: &NewChapterComment<'_>) -> bool {
-    comment.actor_id > 0
+fn valid_request(actor_id: i64, comment: &NewChapterComment<'_>) -> bool {
+    actor_id > 0
         && comment.chapter_id > 0
         && comment.version_id > 0
         && comment.parent_id.is_none_or(|id| id > 0)
@@ -119,8 +118,8 @@ impl PgPublicChapterComments {
 
     /// Exact author + edition + command identity, transactional publication and
     /// moderation checks, no inferred paid grants or cross-edition parents.
-    pub async fn create_free(&self, comment: NewChapterComment<'_>) -> CreateResult {
-        if !valid_request(&comment) {
+    pub async fn create_free(&self, actor_id: i64, comment: NewChapterComment<'_>) -> CreateResult {
+        if !valid_request(actor_id, &comment) {
             return CreateResult::Invalid;
         }
         let mut tx = match self.pool.begin().await {
@@ -174,7 +173,7 @@ impl PgPublicChapterComments {
              VALUES($1,$2,$3,$4,$5,$6,'visible',$7)
              ON CONFLICT (author_user_id,command_key) DO NOTHING RETURNING id",
         )
-        .bind(comment.actor_id)
+        .bind(actor_id)
         .bind(comment.chapter_id)
         .bind(comment.version_id)
         .bind(comment.body)
@@ -206,18 +205,18 @@ impl PgPublicChapterComments {
                 CreateResult::Created(id)
             }
             Ok(None) => {
-                let original = sqlx::query_as::<_, (i64, i64, i64, Vec<u8>, Option<i64>, String)>(
+                let original = sqlx::query_as::<_, (i64, Option<i64>, Option<i64>, Vec<u8>, Option<i64>, String)>(
                     "SELECT id,chapter_id,version_id,command_hash,parent_id,body
                      FROM discussion_comments WHERE author_user_id=$1 AND command_key=$2",
                 )
-                .bind(comment.actor_id)
+                .bind(actor_id)
                 .bind(comment.command_key)
                 .fetch_optional(&mut *tx)
                 .await;
                 match original {
                     Ok(Some((id, chapter_id, version_id, hash, parent_id, body)))
-                        if chapter_id == comment.chapter_id
-                            && version_id == comment.version_id
+                        if chapter_id == Some(comment.chapter_id)
+                            && version_id == Some(comment.version_id)
                             && hash == comment.payload_hash
                             && parent_id == comment.parent_id
                             && body == comment.body =>
