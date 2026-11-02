@@ -238,8 +238,14 @@ async fn d_05_c12_direct_pin_and_layer_current_rights_are_independent() {
     let layer = PgLayerChapterEntitlements::new(pool.clone());
     let combined = PgReaderEntitlements::new(pool.clone());
 
-    assert_eq!(decision(&direct, buyer, chapter, Some(purchase_id)).await, allow(chapter, v1));
-    assert_eq!(decision(&combined, buyer, chapter, None).await, allow(chapter, v1));
+    assert_eq!(
+        decision(&direct, buyer, chapter, Some(purchase_id)).await,
+        allow(chapter, v1)
+    );
+    assert_eq!(
+        decision(&combined, buyer, chapter, None).await,
+        allow(chapter, v1)
+    );
     assert_eq!(
         decision(&layer, buyer, chapter, None).await,
         EntitlementDecision::Denied {
@@ -274,7 +280,10 @@ async fn d_05_c12_direct_pin_and_layer_current_rights_are_independent() {
         .await
         .unwrap();
     assert_eq!(term.balance_after_minor, 1175);
-    assert_eq!(decision(&layer, buyer, chapter, None).await, allow(chapter, v2));
+    assert_eq!(
+        decision(&layer, buyer, chapter, None).await,
+        allow(chapter, v2)
+    );
     assert_eq!(
         decision(&direct, buyer, chapter, Some(purchase_id)).await,
         allow(chapter, v1)
