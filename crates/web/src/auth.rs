@@ -447,7 +447,9 @@ async fn create_book(
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
-        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+        Err(AuthorError::Conflict) => {
+            private_response((StatusCode::CONFLICT, author_pages::create_conflict()), &[])
+        },
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
