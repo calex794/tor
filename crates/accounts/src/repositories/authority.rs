@@ -64,10 +64,32 @@ impl PgAccounts {
         }
         let live: Option<i64> = sqlx::query_scalar("SELECT user_id FROM sessions WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now() FOR SHARE")
             .bind(session.as_slice()).fetch_optional(&mut *tx).await?;
-        let admin: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_roles WHERE user_id=$1 AND role='administrator' AND is_active)")
-            .bind(actor).fetch_one(&mut *tx).await?;
-        if live != Some(actor) || !admin {
+        // Lock the actor's active admin grant as well as the session.
+        // Revoking the role must not race with a new privileged grant.
+        let admin: Option<i64> = sqlx::query_scalar(
+            "SELECT user_id FROM account_roles
+             WHERE user_id=$1 AND role='administrator' AND is_active
+             FOR SHARE",
+        )
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if live != Some(actor) || admin != Some(actor) {
             return Err(AuthorityError::Denied);
+        }
+        // Never pre-grant privileges to suspended or closed accounts.
+        // FOR SHARE serializes this check with a concurrent state change.
+        // Revocations remain permitted even when a target is inactive.
+        if enabled {
+            let target_active: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM users WHERE id=$1 AND account_state='active' FOR SHARE",
+            )
+            .bind(target.get())
+            .fetch_optional(&mut *tx)
+            .await?;
+            if target_active.is_none() {
+                return Err(AuthorityError::Denied);
+            }
         }
         if role == AccountRole::Administrator && !enabled {
             let others: i64=sqlx::query_scalar("SELECT count(*) FROM account_roles r JOIN users u ON u.id=r.user_id WHERE r.role='administrator' AND r.is_active AND u.account_state='active' AND r.user_id<>$1")

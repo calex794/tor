@@ -9,7 +9,7 @@ use TrafficSurface::{Api, PublicPage as Page, Service, Static};
 
 // Fixed-index route registry: keep compact entries stable for review.
 #[rustfmt::skip]
-const ROUTES: [RouteRegistration; 194] = [
+const ROUTES: [RouteRegistration; 200] = [
     RouteRegistration::new("/", "GET", "/", Exact, Page, Catalog, Read), // 0
     RouteRegistration::new("/catalog", "GET", "/catalog/", Exact, Page, Catalog, Read), // 1
     RouteRegistration::new("/books/{id}", "GET", "/books/", Prefix, Page, Reading, Read), // 2
@@ -200,10 +200,16 @@ const ROUTES: [RouteRegistration; 194] = [
     RouteRegistration::new("/admin/mail/groups/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 187
     RouteRegistration::new("/admin/mail/book-rooms", "GET", "/admin/", Exact, TrafficSurface::Admin, ProductArea::Admin, Read), // 188
     RouteRegistration::new("/admin/mail/book-rooms/{id}", "GET", "/admin/", Prefix, TrafficSurface::Admin, ProductArea::Admin, Read), // 189
-    RouteRegistration::new("/api/v1/taxonomies/suggest", "GET", "/api/v1/taxonomies/", Exact, Api, Catalog, Read), // 190
-    RouteRegistration::new("/assets/taxonomy-picker.js", "GET", "/assets/", Exact, Static, System, Free), // 191
-    RouteRegistration::new("/me/books/{id}/taxonomy", "GET", "/me/", Prefix, Page, Dashboard, Read), // 192
-    RouteRegistration::new("/me/books/{id}/taxonomy", "POST", "/me/", Prefix, Page, Dashboard, Write), // 193
+    RouteRegistration::new("/me/chapters/{id}/buy", "GET", "/me/", Prefix, Page, ProductArea::Billing, Read), // 190
+    RouteRegistration::new("/me/chapters/{id}/buy", "POST", "/me/", Prefix, Page, ProductArea::Billing, Write), // 191
+    RouteRegistration::new("/me/books/{book_id}/chapters/import-queue", "POST", "/me/", Prefix, Page, Dashboard, Write), // 192
+    RouteRegistration::new("/me/books/{book_id}/chapters/import-jobs/latest", "GET", "/me/", Prefix, Page, Dashboard, Read), // 193
+    RouteRegistration::new("/me/books/{book_id}/chapters/import-jobs/{job_id}", "GET", "/me/", Prefix, Page, Dashboard, Read), // 194
+    RouteRegistration::new("/me/books/{book_id}/chapters/import-jobs/{job_id}/cancel", "POST", "/me/", Prefix, Page, Dashboard, Write), // 195
+    RouteRegistration::new("/api/v1/taxonomies/suggest", "GET", "/api/v1/taxonomies/", Exact, Api, Catalog, Read), // 196
+    RouteRegistration::new("/assets/taxonomy-picker.js", "GET", "/assets/", Exact, Static, System, Free), // 197
+    RouteRegistration::new("/me/books/{id}/taxonomy", "GET", "/me/", Prefix, Page, Dashboard, Read), // 198
+    RouteRegistration::new("/me/books/{id}/taxonomy", "POST", "/me/", Prefix, Page, Dashboard, Write), // 199
 ];
 
 pub const fn registry() -> &'static [RouteRegistration] {

@@ -466,6 +466,20 @@
     },
     {
       "method": "GET",
+      "template": "/me/books/{book_id}/chapters/import-jobs/latest",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "latest",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{book_id}/chapters/import-jobs/{job_id}",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "status",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
       "template": "/me/books/{id}",
       "source": "crates/web/src/auth.rs",
       "handler": "author_book_page::page",
@@ -554,6 +568,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_taxonomy::edit",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth/checkout_browser.rs",
+      "handler": "browser_offer",
+      "policy": "session"
     },
     {
       "method": "GET",
@@ -1054,6 +1075,20 @@
     },
     {
       "method": "POST",
+      "template": "/me/books/{book_id}/chapters/import-jobs/{job_id}/cancel",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "cancel",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{book_id}/chapters/import-queue",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "enqueue",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/buy-chapters",
       "source": "crates/web/src/auth.rs",
       "handler": "batch_checkout_browser::submit",
@@ -1163,6 +1198,13 @@
       "source": "crates/web/src/auth.rs",
       "handler": "book_follow_actions::unfollow",
       "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth/checkout_browser.rs",
+      "handler": "browser_buy",
+      "policy": "session"
     },
     {
       "method": "POST",
