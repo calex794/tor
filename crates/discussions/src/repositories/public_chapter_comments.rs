@@ -205,7 +205,10 @@ impl PgPublicChapterComments {
                 CreateResult::Created(id)
             }
             Ok(None) => {
-                let original = sqlx::query_as::<_, (i64, Option<i64>, Option<i64>, Vec<u8>, Option<i64>, String)>(
+                let original = sqlx::query_as::<
+                    _,
+                    (i64, Option<i64>, Option<i64>, Vec<u8>, Option<i64>, String),
+                >(
                     "SELECT id,chapter_id,version_id,command_hash,parent_id,body
                      FROM discussion_comments WHERE author_user_id=$1 AND command_key=$2",
                 )
