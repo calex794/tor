@@ -213,10 +213,52 @@ async fn e_12_pg_reader_submission_owner_queue_and_status_audit() {
                 "fixed",
                 Some("Создана новая редакция")
             )
+            .await,
+        Err(IssueError::Conflict)
+    );
+    let revised_version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown)
+         VALUES($1,2,'Слово исправлено😀 слово') RETURNING id",
+    )
+    .bind(free)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE chapter_publications SET version_id=$2 WHERE chapter_id=$1")
+        .bind(free)
+        .bind(revised_version)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .update_status(
+                author,
+                book,
+                issue_id,
+                "fixed",
+                Some("Создана новая редакция")
+            )
             .await
             .unwrap(),
         StatusMutation::Changed
     );
+    let resolved: Option<i64> =
+        sqlx::query_scalar("SELECT resolved_version_id FROM text_issues WHERE id=$1")
+            .bind(issue_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(resolved, Some(revised_version));
+    let audited: Option<i64> = sqlx::query_scalar(
+        "SELECT resolved_version_id FROM text_issue_status_events
+         WHERE issue_id=$1 AND new_status='fixed'",
+    )
+    .bind(issue_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audited, Some(revised_version));
     assert_eq!(
         store
             .update_status(

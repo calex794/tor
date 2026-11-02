@@ -41,6 +41,7 @@ fn status(error: IssueError) -> StatusCode {
     match error {
         IssueError::Invalid => StatusCode::BAD_REQUEST,
         IssueError::NotVisible => StatusCode::NOT_FOUND,
+        IssueError::Conflict => StatusCode::CONFLICT,
         IssueError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
@@ -129,10 +130,13 @@ pub(super) async fn author_page(
         let quote = pages::escape_html(&issue.quote);
         let suggestion = pages::escape_html(&issue.suggested_text);
         let old_note = issue.resolution_note.as_deref().unwrap_or("");
+        let resolution = issue.resolved_version_id.map_or_else(String::new, |id| {
+            format!("<p>Исправлено в опубликованной редакции №{id}</p>")
+        });
         cards.push_str(&format!(
             r#"<section class="auth-card"><p>Глава №{chapter}, версия №{version}, фрагмент №{block}</p>
             <p>Тип: {name}. Состояние: {status_name}</p>
-            <blockquote>{quote}</blockquote><p>Предложение: {suggestion}</p>
+            <blockquote>{quote}</blockquote><p>Предложение: {suggestion}</p>{resolution}
             <p><a href="/me/books/{book_id}/chapters/{chapter}/edit">Открыть редактор</a></p>
             <form method="post" action="/me/books/{book_id}/issues/{id}/status">
             <input type="hidden" name="csrf_token" value="{csrf}">

@@ -13,6 +13,7 @@ pub struct PgTextIssues {
 pub enum IssueError {
     Invalid,
     NotVisible,
+    Conflict,
     Unavailable,
 }
 
@@ -40,6 +41,7 @@ pub struct AuthorIssue {
     pub suggested_text: String,
     pub status: String,
     pub resolution_note: Option<String>,
+    pub resolved_version_id: Option<i64>,
 }
 
 pub struct AuthorIssuePage {
@@ -232,7 +234,7 @@ impl PgTextIssues {
         };
         let rows = sqlx::query(
             "SELECT i.id,i.chapter_id,i.version_id,i.block_index,i.issue_type,
-                    i.quote,i.suggested_text,i.status,i.resolution_note
+                    i.quote,i.suggested_text,i.status,i.resolution_note,i.resolved_version_id
              FROM text_issues i
              WHERE i.book_id=$1
                AND EXISTS (SELECT 1 FROM book_members m
@@ -273,6 +275,9 @@ impl PgTextIssues {
                 status: row.try_get("status").map_err(|_| IssueError::Unavailable)?,
                 resolution_note: row
                     .try_get("resolution_note")
+                    .map_err(|_| IssueError::Unavailable)?,
+                resolved_version_id: row
+                    .try_get("resolved_version_id")
                     .map_err(|_| IssueError::Unavailable)?,
             });
         }
@@ -330,12 +335,43 @@ impl PgTextIssues {
         if current == status {
             return Ok(StatusMutation::Replayed);
         }
+        // A fixed task must point to an actually published, changed edition.
+        // Pin the publication row until our status event commits; the earlier
+        // immutable edition remains available for purchase/history references.
+        let resolved_version_id = if status == "fixed" {
+            Some(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT published.id
+                     FROM text_issues issue
+                     JOIN chapter_versions reported
+                       ON reported.chapter_id=issue.chapter_id
+                      AND reported.id=issue.version_id
+                     JOIN chapter_publications p ON p.chapter_id=issue.chapter_id
+                     JOIN chapter_versions published
+                       ON published.chapter_id=issue.chapter_id
+                      AND published.id=p.version_id
+                     WHERE issue.id=$1 AND issue.book_id=$2
+                       AND published.version_no>reported.version_no
+                       AND published.body_markdown<>reported.body_markdown
+                     FOR SHARE OF p",
+                )
+                .bind(issue_id)
+                .bind(book_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| IssueError::Unavailable)?
+                .ok_or(IssueError::Conflict)?,
+            )
+        } else {
+            None
+        };
         let terminal = matches!(status, "fixed" | "rejected");
         sqlx::query(
             "UPDATE text_issues SET status=$2,
                resolution_note=CASE WHEN $3 THEN $4 ELSE NULL END,
                resolved_at=CASE WHEN $3 THEN now() ELSE NULL END,
                resolved_by_user_id=CASE WHEN $3 THEN $5 ELSE NULL END,
+               resolved_version_id=$6,
                updated_at=now() WHERE id=$1",
         )
         .bind(issue_id)
@@ -343,19 +379,21 @@ impl PgTextIssues {
         .bind(terminal)
         .bind(note)
         .bind(actor)
+        .bind(resolved_version_id)
         .execute(&mut *tx)
         .await
         .map_err(|_| IssueError::Unavailable)?;
         sqlx::query(
             "INSERT INTO text_issue_status_events
-             (issue_id,actor_user_id,old_status,new_status,resolution_note)
-             VALUES ($1,$2,$3,$4,$5)",
+             (issue_id,actor_user_id,old_status,new_status,resolution_note,resolved_version_id)
+             VALUES ($1,$2,$3,$4,$5,$6)",
         )
         .bind(issue_id)
         .bind(actor)
         .bind(&current)
         .bind(status)
         .bind(note)
+        .bind(resolved_version_id)
         .execute(&mut *tx)
         .await
         .map_err(|_| IssueError::Unavailable)?;

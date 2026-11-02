@@ -18,10 +18,13 @@ CREATE TABLE text_issues (
         CHECK (status IN ('new', 'in_review', 'fixed', 'rejected')),
     resolution_note TEXT CHECK (resolution_note IS NULL OR char_length(resolution_note) <= 1000),
     resolved_by_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    resolved_version_id BIGINT,
     resolved_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     FOREIGN KEY (chapter_id, version_id)
+        REFERENCES chapter_versions(chapter_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (chapter_id, resolved_version_id)
         REFERENCES chapter_versions(chapter_id, id) ON DELETE RESTRICT,
     UNIQUE (reporter_user_id, chapter_id, version_id, block_index,
             selection_start, selection_end, request_hash)
@@ -38,6 +41,7 @@ CREATE TABLE text_issue_status_events (
     old_status TEXT NOT NULL,
     new_status TEXT NOT NULL,
     resolution_note TEXT,
+    resolved_version_id BIGINT REFERENCES chapter_versions(id) ON DELETE RESTRICT,
     changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX text_issue_status_events_issue_idx

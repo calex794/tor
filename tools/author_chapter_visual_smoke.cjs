@@ -458,6 +458,8 @@ async function inspect(page, viewport, name) {
           viewport + ': E-12 old immutable quote lost after chapter update');
         assert(await page.getByText(/Состояние: fixed/).isVisible(),
           viewport + ': E-12 fixed status and author decision not durable');
+        assert(await page.getByText(/Исправлено в опубликованной редакции №/).isVisible(),
+          viewport + ': E-12 fixed issue is not linked to a published revision');
         const anonymousQueue = await guest.goto(issueQueue);
         assert(anonymousQueue && new URL(guest.url()).pathname === '/login',
           viewport + ': E-12 guest gained access to private author issues');
