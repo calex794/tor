@@ -43,10 +43,10 @@ async function inspect(page, viewport, name) {
 
       await page.getByRole('link', { name: 'Мои книги' }).click();
       await page.waitForURL('**/me/books');
-      await page.getByRole('link', { name: 'Создать книгу' }).click();
+      await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
       await page.waitForURL('**/me/books/new');
       await page.getByLabel('Название книги').fill('Новая книга ' + viewport);
-      await page.getByLabel('Язык').fill('ru');
+      await page.getByLabel('Язык', { exact: true }).fill('ru');
       await page.getByRole('button', { name: 'Создать книгу' }).click();
       await page.waitForURL(/\/me\/books\/\d+$/);
 
