@@ -1,5 +1,5 @@
 <!-- NEwBOO reader/detail.html: public free chapter, without unavailable JS settings. -->
-<section class="section reader-page reader-public" aria-labelledby="reader-title">
+<section class="section reader-page reader-public" data-free-reader aria-labelledby="reader-title">
   <div class="container reader-width">
     <header class="reader-topbar" aria-label="Панель чтения">
       <a class="reader-topbar__back" href="/books/<!--BOOK_ID-->">
@@ -9,7 +9,33 @@
         <span class="reader-topbar__book"><!--BOOK_TITLE--></span>
         <span class="reader-topbar__chapter"><!--CHAPTER_TITLE--></span>
       </div>
+      <div class="reader-topbar__actions free-reader-actions">
+        <button class="reader-topbar__settings" type="button" data-free-settings-open aria-controls="free-reader-settings" aria-expanded="false" aria-label="Настройки чтения">Aa</button>
+        <button class="reader-topbar__theme" type="button" data-free-theme-cycle aria-label="Сменить тему">☾</button>
+      </div>
     </header>
+    <div class="reader-free-settings" id="free-reader-settings" data-free-reader-settings hidden>
+      <button type="button" class="reader-free-settings__backdrop" data-free-settings-backdrop aria-label="Закрыть настройки чтения"></button>
+      <section class="reader-free-settings__panel" role="dialog" aria-modal="true" aria-labelledby="free-reader-settings-title" tabindex="-1">
+        <div class="reader-free-settings__head"><h2 id="free-reader-settings-title">Настройки чтения</h2><button type="button" data-free-settings-close>Закрыть</button></div>
+        <div class="reader-free-settings__field" role="group" aria-label="Тема чтения"><span>Тема</span>
+          <div class="reader-free-settings__choices">
+            <button type="button" data-free-theme="system" aria-pressed="true">Системная</button>
+            <button type="button" data-free-theme="light" aria-pressed="false">Светлая</button>
+            <button type="button" data-free-theme="sepia" aria-pressed="false">Сепия</button>
+            <button type="button" data-free-theme="dark" aria-pressed="false">Тёмная</button>
+          </div>
+        </div>
+        <div class="reader-free-settings__field" role="group" aria-label="Шрифт чтения"><span>Шрифт</span>
+          <div class="reader-free-settings__choices"><button type="button" data-free-font-family="serif" aria-pressed="true">С засечками</button><button type="button" data-free-font-family="sans" aria-pressed="false">Без засечек</button></div>
+        </div>
+        <label class="reader-free-settings__field">Размер текста<input type="range" min="80" max="140" step="5" value="100" data-free-font-scale><output data-free-font-output>100%</output></label>
+        <label class="reader-free-settings__field">Межстрочный интервал<input type="range" min="150" max="220" step="5" value="185" data-free-line-height><output data-free-line-output>1.85</output></label>
+        <label class="reader-free-settings__field">Ширина текста<input type="range" min="620" max="980" step="20" value="860" data-free-reader-width><output data-free-width-output>860 px</output></label>
+        <button type="button" data-free-settings-reset>Сбросить настройки</button>
+        <script src="/assets/newboo-free-reader.js" defer></script>
+</section>
+    </div>
     <div class="reader-page__header">
       <p class="reader-page__meta">Бесплатная глава · Версия <!--CHAPTER_VERSION--></p>
       <h1 class="reader-page__title" id="reader-title"><!--CHAPTER_TITLE--></h1>
