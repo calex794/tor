@@ -887,7 +887,7 @@ async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
              (source_identity,target_language,title,genres,tags,fandoms,visibility)
          VALUES ('ci:perf233:live-taxonomy','ru','PERF 233 Facet Test',
                  ARRAY['aaa-perf233-genre','aaa-perf233-genre'],
-                 ARRAY['aaa-perf233-tag'],
+                 ARRAY['aaa-perf233-tag','ZZZ-perf233-case'],
                  ARRAY['aaa-perf233-fandom'],'public')
          ON CONFLICT (source_identity,target_language)
          DO UPDATE SET visibility='public',admin_hold=FALSE,is_deleted=FALSE,
@@ -910,6 +910,12 @@ async fn f_02_taxonomy_one_pass_revocation_and_dedup() {
         "duplicates must not affect the taxonomy selector"
     );
     assert!(initial.tags.contains(&"aaa-perf233-tag".to_owned()));
+    assert!(initial.tags.contains(&"ZZZ-perf233-case".to_owned()));
+    // SQL locale collation can put lowercase "aaa" before uppercase "ZZZ";
+    // the public facet selector guarantees Rust/UTF-8 byte ordering instead.
+    let upper = initial.tags.iter().position(|x| x == "ZZZ-perf233-case");
+    let lower = initial.tags.iter().position(|x| x == "aaa-perf233-tag");
+    assert!(upper < lower);
     assert!(initial.fandoms.contains(&"aaa-perf233-fandom".to_owned()));
     assert!(initial.genres.len() <= 100);
     assert!(initial.tags.len() <= 100);
