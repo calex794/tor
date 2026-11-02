@@ -46,10 +46,15 @@ WITH prefix AS (
 ), matches AS (
  SELECT t.id,0 AS match_rank FROM book_taxonomy_terms t CROSS JOIN prefix p
  WHERE t.kind=:'kind' AND t.search_key LIKE p.k || '%'
+   -- NFKC converts fullwidth punctuation into LIKE wildcard characters.
+   AND strpos(p.k,'%')=0 AND strpos(p.k,'_')=0
+   AND strpos(p.k,chr(92))=0
  UNION ALL
  SELECT a.term_id AS id,1 AS match_rank
  FROM book_taxonomy_aliases a CROSS JOIN prefix p
  WHERE a.kind=:'kind' AND a.search_key LIKE p.k || '%'
+   AND strpos(p.k,'%')=0 AND strpos(p.k,'_')=0
+   AND strpos(p.k,chr(92))=0
 ), ranked AS (
  SELECT id,min(match_rank) AS match_rank FROM matches GROUP BY id
 )

@@ -32,6 +32,18 @@ def make_csv(root, name, rows):
     return path
 
 
+def lookup(kind, value):
+    script = Path(__file__).resolve().parents[1] / "taxonomy_admin.py"
+    done = subprocess.run(
+        [sys.executable, str(script), "lookup", kind, value],
+        env=os.environ.copy(), text=True, capture_output=True,
+        timeout=30, check=False,
+    )
+    if done.returncode:
+        raise AssertionError(f"curator lookup failed: {done.stderr[-400:]}")
+    return done.stdout.strip()
+
+
 def apply(path, expected_success=True):
     status = importer.main([
         str(path), "--curator", "ci-smoke", "--confirm-db", "tor_ci", "--apply",
@@ -78,6 +90,14 @@ def main():
             ("genre", genre, ""),
         ])
         apply(approved)
+        # The CLI must look up fullwidth alphabetical prefixes correctly.
+        if genre not in lookup("genre", f"ＦａｎｔａｓｙＣｓｖ{suffix}"):
+            raise AssertionError("NFKC-equivalent prefix could not find approved genre")
+        # Unicode NFKC turns these characters into LIKE wildcards.
+        # They must never enumerate the whole canonical/alias dictionary.
+        for wildcard in ("％", "＿", "＼"):
+            if lookup("genre", wildcard):
+                raise AssertionError("normalized wildcard expanded curator lookup")
         initial_events = audit_count()
         if initial_events != 4:
             raise AssertionError(f"expected 2 creates + 2 aliases: {initial_events}")

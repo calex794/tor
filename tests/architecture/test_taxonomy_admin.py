@@ -31,6 +31,21 @@ class TaxonomyAdminReadTests(unittest.TestCase):
         )
         self.assertIn("admin_taxonomy_key(:'query')", admin.LOOKUP_SQL)
         self.assertIn("book_taxonomy_aliases", admin.LOOKUP_SQL)
+        # The normalized prefix, not only raw input, must be checked.
+        self.assertEqual(admin.LOOKUP_SQL.count("strpos(p.k,'%')=0"), 2)
+        self.assertEqual(admin.LOOKUP_SQL.count("strpos(p.k,'_')=0"), 2)
+        self.assertEqual(admin.LOOKUP_SQL.count("strpos(p.k,chr(92))=0"), 2)
+
+    def test_nfkc_wildcards_are_rejected_by_query_not_mistaken_for_masks(self):
+        # Fullwidth characters are valid raw input; SQL rejects their NFKC keys.
+        for raw in ["％", "＿", "＼"]:
+            with self.subTest(raw=raw):
+                result, _, query = self.call(["lookup", "genre", raw])
+                self.assertEqual(result, 0)
+                query.assert_called_once_with(
+                    self.URL, admin.LOOKUP_SQL,
+                    kind="genre", query=raw, limit="40"
+                )
 
     def test_lookup_rejects_wildcards_and_control_characters(self):
         for value in ["", "  ", "a%b", "a_b", "a" + chr(92) + "b", "a\nb", "x" * 81]:
