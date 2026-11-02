@@ -427,7 +427,6 @@ async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> 
     let command_key = generate_session_token();
     private_response(author_pages::new_book(&csrf, &command_key), &cookies)
 }
-// RIL route-policy guard remains at the audited registration entrypoint.
 async fn create_book(
     State(state): State<AuthState>,
     headers: HeaderMap,
@@ -438,14 +437,24 @@ async fn create_book(
     {
         return deny(StatusCode::FORBIDDEN);
     }
-    match session_user(&state, &headers).await {
-        Ok(Some(_)) => (),
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
+    };
+    let request = match book_registration_http::request(actor, &form) {
+        Ok(request) => request,
+        Err(_) => return deny(StatusCode::BAD_REQUEST),
+    };
+    match state.authoring.create_owned_book(actor, &request).await {
+        Ok(id) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
+        Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+        Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+        Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+        Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
+        Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    book_registration_http::create_book(State(state), headers, Form(form)).await
 }
-
 async fn cover_settings(
     State(state): State<AuthState>,
     Path(id): Path<i64>,
