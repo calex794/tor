@@ -20,6 +20,7 @@ pub use account::{
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
 mod layer_storefront;
+mod reader_layer;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -34,6 +35,7 @@ pub use layer_storefront::{
 };
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
+pub use reader_layer::layer_reader_shell;
 mod public_catalog;
 mod seo_head;
 pub use public_catalog::{
@@ -512,6 +514,16 @@ pub async fn free_reader_script() -> impl IntoResponse {
 }
 
 /// Public static runtime only; no signed URL or scoped key is embedded here.
+pub async fn layer_reader_script() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        include_str!("../assets/newboo-layer-reader.mjs"),
+    )
+}
+
 pub async fn paid_reader_script() -> impl IntoResponse {
     (
         [
