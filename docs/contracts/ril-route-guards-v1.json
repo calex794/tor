@@ -1436,6 +1436,13 @@
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "text_issues::submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-public-reader.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::public_reader_script",
+      "policy": "public"
     }
   ]
 }
