@@ -768,5 +768,110 @@ async fn paid_author_post_creates_only_verified_v2_and_replays_without_second_re
         Err(AuthorError::Conflict),
         "another tab cannot overwrite new paid V2 or purchased V1"
     );
+
+    // S048 browser loop: B must return paid body ONLY to owner and only
+    // while the verified encrypted V2 is the published edition.
+    let route = format!("/me/books/{book}/chapters/{chapter_id}/edit");
+    let (status, owner_form) = browse(&app, &route, &owner_session, &csrf).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(owner_form.contains("Paid text V2 after edit"));
+    assert!(owner_form.contains("name=\"expected_revision\" value=\"2\""));
+    assert!(owner_form.contains("readonly"));
+    assert!(owner_form.contains("100 копеек"));
+    assert!(owner_form.contains("Старая купленная редакция"));
+    let (status, _) = browse(&app, &route, &other_session, &csrf).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = browse(&grants_only, &route, &owner_session, &csrf).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let key = generate_session_token();
+    let payload = format!(
+        "number=1&title=Paid&body=Owner%20correction%20V3&expected_revision=2&command_key={key}&csrf_token={csrf}"
+    );
+    let wrong_csrf = payload.replace(&format!("csrf_token={csrf}"), "csrf_token=wrong");
+    for (session, origin, form, expected) in [
+        (
+            owner_session.as_str(),
+            "https://evil.invalid",
+            payload.as_str(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            owner_session.as_str(),
+            ORIGIN,
+            wrong_csrf.as_str(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            other_session.as_str(),
+            ORIGIN,
+            payload.as_str(),
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            owner_session.as_str(),
+            ORIGIN,
+            payload.as_str(),
+            StatusCode::SEE_OTHER,
+        ),
+        (
+            owner_session.as_str(),
+            ORIGIN,
+            payload.as_str(),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let result = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&route)
+                    .method("POST")
+                    .header(header::ORIGIN, origin)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(header::COOKIE, cookie(session, &csrf))
+                    .body(Body::from(form.to_owned()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.status(), expected);
+    }
+    let paid_v3: i64 = pg(
+        &url,
+        &format!("SELECT version_id FROM chapter_publications WHERE chapter_id={chapter_id}"),
+    )
+    .parse()
+    .unwrap();
+    assert_ne!(paid_v3, current);
+    assert_ne!(paid_v3, version_id);
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT edit_revision FROM chapters WHERE id={chapter_id}"),
+        ),
+        "3",
+        "identical browser POST must publish only once"
+    );
+    let old_grant = after.encrypted_chapter(pinned).await.unwrap().unwrap();
+    assert_eq!(old_grant.object.object_id, old.object.object_id);
+    assert!(signer
+        .grant_verified_object(&old_grant, Duration::from_secs(90))
+        .await
+        .is_ok());
+    let newest = after
+        .encrypted_chapter(ChapterVersionRef {
+            chapter_id: PositiveId::new(chapter_id).unwrap(),
+            version_id: PositiveId::new(paid_v3).unwrap(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(newest.object.object_id, old_grant.object.object_id);
+    assert!(store.get_verified(&newest.object).await.is_ok());
+    let (status, refreshed) = browse(&app, &route, &owner_session, &csrf).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(refreshed.contains("Owner correction V3"));
+    assert!(refreshed.contains("name=\"expected_revision\" value=\"3\""));
     pool.close().await;
 }
