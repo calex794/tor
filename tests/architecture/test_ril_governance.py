@@ -84,6 +84,33 @@ class RilGovernanceTests(unittest.TestCase):
         )
         self.assert_detected("missing Origin+CSRF rejection")
 
+    def test_layer_browser_form_must_charge_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/layer_storefront.rs",
+            "layer_checkout_api::charge(\n        &state,\n        actor,",
+            "layer_checkout_api::charge(\n        &state,\n        7,",
+            start="pub(super) async fn buy_form(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_layer_json_api_must_charge_authenticated_actor(self):
+        self.mutate(
+            "crates/web/src/auth/layer_checkout_api.rs",
+            "match charge(\n        &state,\n        actor,",
+            "match charge(\n        &state,\n        7,",
+            start="pub(super) async fn buy(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_layer_shared_checkout_must_bind_wallet_and_authoritative_transaction(self):
+        self.mutate(
+            "crates/web/src/auth/layer_checkout_api.rs",
+            "WalletId::new(actor.get())",
+            "WalletId::new(7)",
+            start="pub(super) async fn charge(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
     def test_unknown_route_requires_explicit_security_review(self):
         self.mutate(
             "crates/web/src/lib.rs",

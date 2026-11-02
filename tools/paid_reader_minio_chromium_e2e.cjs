@@ -32,6 +32,7 @@ const orderedNewbooFiles = [
   "newboo-comments.css",
   "newboo-support-widget.css",
   "newboo-reader.css",
+  "newboo-layer-storefront.css",
   "newboo-cover-picker.css",
 ];
 // Extract the actual Rust handler's include_str! order, so future changes
