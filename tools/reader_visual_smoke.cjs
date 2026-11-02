@@ -109,6 +109,8 @@ async function inspect(page, name, where) {
       const freeResponse = await page.request.get(base + '/reader/101');
       assert((freeResponse.headers()['content-security-policy'] || '').includes("script-src 'self'"),
         name + ': free reader script blocked');
+      assert((freeResponse.headers()['content-security-policy'] || '').includes("connect-src 'self'"),
+        name + ': authenticated reader cannot reach its own progress API');
       const lockedResponse = await page.request.get(base + '/reader/103');
       assert((lockedResponse.headers()['content-security-policy'] || '').includes("script-src 'none'"),
         name + ': paid reader CSP relaxed');
