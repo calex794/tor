@@ -19,6 +19,7 @@ pub use account::{
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
+mod layer_storefront;
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -27,6 +28,10 @@ mod paywall;
 pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod checkout_page;
 pub use checkout_page::{chapter_purchase_form, chapter_purchase_problem};
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
 mod reader_paid;
 pub use reader_paid::{paid_reader_shell, purchased_chapters_page};
 mod public_catalog;
@@ -475,6 +480,8 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-support-widget.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
         css.push('\n');

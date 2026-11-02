@@ -71,7 +71,10 @@ mod followed_purchase_links;
 mod friendship;
 mod group_mail;
 mod inbox;
+mod layer_checkout;
+mod layer_checkout_api;
 mod layer_routes;
+mod layer_storefront;
 mod library_actions;
 mod library_page;
 mod login_limiter;
@@ -196,6 +199,8 @@ fn router_inner(
         accounts,
         checkout,
         paid_checkout_enabled,
+        layer_checkout_enabled: paid_checkout_enabled && layer_checkout_api::configured(),
+        layer_pages_enabled: std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1"),
         swap_browser_enabled,
         paid_reader_available,
         authoring,
@@ -219,6 +224,8 @@ fn router_inner(
     let app = Router::new()
         .merge(settings_routes::router())
         .merge(layer_routes::routes())
+        .merge(layer_checkout::routes())
+        .merge(layer_storefront::router())
         .merge(support_bundle::router())
         .merge(referral_routes::router())
         .merge(notifications::router().merge(group_mail::invitations::router()))
@@ -287,6 +294,11 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
+        .route(
+            "/layers/{layer_id}/purchase",
+            post(layer_storefront::buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route("/api/v1/layers/{id}/purchase", post(layer_checkout_api::buy))
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
