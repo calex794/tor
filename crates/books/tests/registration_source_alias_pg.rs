@@ -126,12 +126,16 @@ async fn s019_any_source_url_aliases_block_different_titles() {
     let number = nonce % 9_000_000_000 + 100_000;
     let old_link = format!("http://www.qidian.com/book/{number}/");
     let new_link = format!("https://qidian.com/book/{number}");
-    assert_eq!(normalized_source_url(&old_link).unwrap(), normalized_source_url(&new_link).unwrap());
-    let db_key: Option<String> = sqlx::query_scalar("SELECT book_registration_normalized_source_url($1)")
-        .bind(&old_link)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    assert_eq!(
+        normalized_source_url(&old_link).unwrap(),
+        normalized_source_url(&new_link).unwrap()
+    );
+    let db_key: Option<String> =
+        sqlx::query_scalar("SELECT book_registration_normalized_source_url($1)")
+            .bind(&old_link)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(db_key, Some(normalized_source_url(&new_link).unwrap()));
 
     sqlx::query(
