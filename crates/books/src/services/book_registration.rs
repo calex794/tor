@@ -106,10 +106,7 @@ pub fn rulate_work_id(url: &str) -> Option<String> {
     }
     let path = uri.path().strip_prefix("/book/")?;
     let raw_id = path.strip_suffix('/').unwrap_or(path);
-    if raw_id.is_empty()
-        || raw_id.len() > 18
-        || !raw_id.bytes().all(|byte| byte.is_ascii_digit())
-    {
+    if raw_id.is_empty() || raw_id.len() > 18 || !raw_id.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
     let id = raw_id.trim_start_matches('0');
