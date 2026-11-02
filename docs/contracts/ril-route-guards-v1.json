@@ -678,7 +678,7 @@
       "method": "POST",
       "template": "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
-      "handler": "grant",
+      "handler": "chapter_grants::grant",
       "policy": "session"
     },
     {
@@ -1666,7 +1666,7 @@
       "template": "/read/admin/{chapter_id}",
       "source": "crates/web/src/paid_grants_http.rs",
       "handler": "admin_reader::admin_reader",
-      "policy": "administrator"
+      "policy": "admin_reader"
     },
     {
       "method": "GET",
