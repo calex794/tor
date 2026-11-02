@@ -351,7 +351,10 @@ async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privi
             .fetch_one(accounts.pool())
             .await
             .unwrap();
-    assert_eq!(denied_events, 0, "denied grant must not be audited as success");
+    assert_eq!(
+        denied_events, 0,
+        "denied grant must not be audited as success"
+    );
 
     sqlx::query("UPDATE users SET account_state='active' WHERE id=$1")
         .bind(recipient)
@@ -363,38 +366,43 @@ async fn a_05_role_grants_reject_inactive_targets_without_audit_or_dormant_privi
         .insert_session(recipient, &new_session, NonZeroU32::new(3600).unwrap())
         .await
         .unwrap();
-    assert!(!accounts
-        .session_actor(&new_session)
-        .await
-        .unwrap()
-        .unwrap()
-        .administrator);
+    assert!(
+        !accounts
+            .session_actor(&new_session)
+            .await
+            .unwrap()
+            .unwrap()
+            .administrator
+    );
     accounts
         .change_account_role(&admin_session, target, AccountRole::Administrator, true)
         .await
         .unwrap();
-    assert!(accounts
-        .session_actor(&new_session)
-        .await
-        .unwrap()
-        .unwrap()
-        .administrator);
+    assert!(
+        accounts
+            .session_actor(&new_session)
+            .await
+            .unwrap()
+            .unwrap()
+            .administrator
+    );
     accounts
         .change_account_role(&admin_session, target, AccountRole::Administrator, false)
         .await
         .unwrap();
-    assert!(!accounts
-        .session_actor(&new_session)
-        .await
-        .unwrap()
-        .unwrap()
-        .administrator);
-    let events: Vec<String> = sqlx::query_scalar(
-        "SELECT value FROM account_role_events WHERE user_id=$1 ORDER BY id",
-    )
-    .bind(recipient)
-    .fetch_all(accounts.pool())
-    .await
-    .unwrap();
+    assert!(
+        !accounts
+            .session_actor(&new_session)
+            .await
+            .unwrap()
+            .unwrap()
+            .administrator
+    );
+    let events: Vec<String> =
+        sqlx::query_scalar("SELECT value FROM account_role_events WHERE user_id=$1 ORDER BY id")
+            .bind(recipient)
+            .fetch_all(accounts.pool())
+            .await
+            .unwrap();
     assert_eq!(events, vec!["granted", "revoked"]);
 }
