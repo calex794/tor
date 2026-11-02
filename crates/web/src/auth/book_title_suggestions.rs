@@ -65,18 +65,18 @@ pub(super) async fn find(
             }),
             &[],
         ),
-        Err(tor_books::services::authoring::AuthorError::Invalid) => {
-            deny(StatusCode::BAD_REQUEST)
-        }
+        Err(tor_books::services::authoring::AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
 
 pub(super) async fn script() -> Response {
     (
-        [("content-type", "text/javascript; charset=utf-8"),
-         ("cache-control", "public, max-age=300"),
-         ("x-content-type-options", "nosniff")],
+        [
+            ("content-type", "text/javascript; charset=utf-8"),
+            ("cache-control", "public, max-age=300"),
+            ("x-content-type-options", "nosniff"),
+        ],
         include_str!("../../assets/book_title_suggestions.js"),
     ).into_response()
 }
