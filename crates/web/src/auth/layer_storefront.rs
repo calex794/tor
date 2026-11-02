@@ -2,10 +2,10 @@
 use super::{deny, layer_checkout_api, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{rejection::FormRejection, Form, Path, Query, State},
+    extract::{rejection::FormRejection, DefaultBodyLimit, Form, Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::Deserialize;
@@ -13,7 +13,17 @@ use tor_accounts::services::security::generate_session_token;
 use tor_commerce::{domain::layers::LayerError, repositories::layer_storefront};
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/me/library/layers", get(my_terms))
+    Router::new()
+        .route("/me/library/layers", get(my_terms))
+        .route("/layers/{layer_id}", get(page))
+        .route(
+            "/layers/{layer_id}/purchase",
+            post(buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/api/v1/layers/{layer_id}/purchase",
+            post(layer_checkout_api::buy),
+        )
 }
 
 #[derive(Default, Deserialize)]

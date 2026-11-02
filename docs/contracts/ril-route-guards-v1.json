@@ -1601,21 +1601,21 @@
     {
       "method": "GET",
       "template": "/layers/{layer_id}",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_storefront::page",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "page",
       "policy": "public"
     },
     {
       "method": "POST",
       "template": "/layers/{layer_id}/purchase",
-      "source": "crates/web/src/auth.rs",
-      "handler": "layer_storefront::buy_form",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "buy_form",
       "policy": "scoped"
     },
     {
       "method": "POST",
       "template": "/api/v1/layers/{layer_id}/purchase",
-      "source": "crates/web/src/auth.rs",
+      "source": "crates/web/src/auth/layer_storefront.rs",
       "handler": "layer_checkout_api::buy",
       "policy": "scoped"
     },

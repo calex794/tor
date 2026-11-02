@@ -296,15 +296,6 @@ fn router_inner(
             post(reply_read_state::submit),
         )
         .route("/me/library", get(library_page::my_library))
-        .route("/layers/{layer_id}", get(layer_storefront::page))
-        .route(
-            "/layers/{layer_id}/purchase",
-            post(layer_storefront::buy_form).layer(DefaultBodyLimit::max(16 * 1024)),
-        )
-        .route(
-            "/api/v1/layers/{layer_id}/purchase",
-            post(layer_checkout_api::buy),
-        )
         .route(
             "/me/updates/{id}/read-state",
             post(follow_read_state::submit),
