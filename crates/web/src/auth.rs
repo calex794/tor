@@ -59,7 +59,6 @@ mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
 mod checkout;
-mod single_checkout_browser;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
@@ -93,6 +92,7 @@ mod reset_delivery;
 mod security_retention;
 mod session_security;
 mod settings_routes;
+mod single_checkout_browser;
 mod sync_actions;
 mod types;
 use types::*;
@@ -162,8 +162,7 @@ fn router_inner(
     let cookies = CookiePolicy { secure, origin };
     let pool = accounts.pool().clone();
     let rec_runtime = crate::recommendation_http::Runtime::new(accounts.clone(), cookies.clone());
-    let chapter_routes =
-        author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
+    let chapter_routes = author_chapter_http::router(accounts.clone(), cookies.clone(), paid_author);
     let cover_routes = storage
         .as_ref()
         .map(|store| author_cover_http::router(accounts.clone(), cookies.clone(), store.clone()));
@@ -367,9 +366,7 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = cover_routes
-        .into_iter()
-        .fold(app, |app, cover| app.merge(cover));
+    let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
