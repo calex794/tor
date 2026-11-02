@@ -1,4 +1,5 @@
 use super::*;
+use super::reader_free::reader_with_public_features;
 
 #[test]
 fn s035_book_detail_only_links_batch_when_enabled_and_two_paid_chapters_exist() {
