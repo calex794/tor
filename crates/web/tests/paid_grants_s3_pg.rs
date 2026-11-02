@@ -357,7 +357,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .unwrap();
     registry.mark_ready(&receipt).await.unwrap();
     assert!(MARKDOWN.contains(asset_fixture::ASSET_OBJECT_ID));
-    asset_fixture::upload_exact_v1_image(&pool, &s3, kek.clone(), author, pinned).await;
+    asset_fixture::upload_exact_v1_image(&catalog, &s3, kek.clone(), author, pinned).await;
     pg(
         &url,
         &format!(
