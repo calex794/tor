@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import taxonomy_import_csv as importer
+import taxonomy_review_export as reviewer
 
 
 def scalar(url, sql):
@@ -165,6 +166,19 @@ def main():
         expected_merged = f"tag|{candidate}|{importer.key(candidate)}|2|2|{candidate_id}|candidate"
         if expected_merged not in unmapped():
             raise AssertionError("normalization did not group two public spellings")
+        # This is one complete read-only snapshot of PUBLIC facet variants.
+        review_rows = reviewer.fetch_review(url)
+        matching = [r for r in review_rows
+                    if r["kind"] == "tag" and r["normalized_key"] == importer.key(candidate)]
+        if len(matching) != 1:
+            raise AssertionError("review export lost or duplicated normalized candidate")
+        item = matching[0]
+        if (item["term_id"] != candidate_id or item["status"] != "candidate"
+                or item["public_uses"] != 2 or item["spelling_count"] != 2
+                or {v["label"] for v in item["raw_spellings"]} != {candidate, raw_variant}):
+            raise AssertionError("review export lacks public variants and candidate identity")
+        if any(hidden in str(entry) for entry in review_rows):
+            raise AssertionError("review export leaked private-draft metadata")
         spellings = variants("tag", candidate)
         if {v["label"] for v in spellings} != {candidate, raw_variant}:
             raise AssertionError("variants did not reveal exact public spellings")
@@ -180,6 +194,11 @@ def main():
         apply(reviewed)
         if any(candidate in entry for entry in unmapped()):
             raise AssertionError("approved candidate remained in review queue")
+        if any(
+            r["kind"] == "tag" and r["normalized_key"] == importer.key(candidate)
+            for r in reviewer.fetch_review(url)
+        ):
+            raise AssertionError("approved candidate remained in public review export")
         if scalar(url, f"SELECT id FROM book_taxonomy_terms WHERE label={quote(candidate)} AND status='active'") != candidate_id:
             raise AssertionError("CSV approval failed or changed the candidate ID")
         apply(reviewed)
