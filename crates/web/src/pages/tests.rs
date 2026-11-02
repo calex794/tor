@@ -313,6 +313,8 @@ fn ne_wboo_reader_shell_uses_live_chapter_data_and_free_preferences() {
     assert!(template.contains("reader-topbar"));
     assert!(template.contains("reader-page__title"));
     assert!(template.contains("<!--CHAPTER_CONTENT-->"));
+    assert!(template.contains("<!--FREE_PROGRESS_ATTRS-->"));
+    assert!(template.contains("<!--READER_SUBTITLE-->"));
     assert!(template.contains("href=\"/books/<!--BOOK_ID-->\""));
     assert!(template.contains("data-free-theme-cycle"));
     assert!(template.contains("data-free-settings-open"));
