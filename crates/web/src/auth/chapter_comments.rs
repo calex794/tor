@@ -129,8 +129,7 @@ pub(super) async fn submit(
     );
     let store = PgPublicChapterComments::new(state.accounts.pool().clone());
     let result = store
-        .create_free(NewChapterComment {
-            actor_id: actor,
+        .create_free(actor, NewChapterComment {
             chapter_id,
             version_id: form.version_id,
             body: body.as_str(),
