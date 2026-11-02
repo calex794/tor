@@ -437,16 +437,16 @@ impl PgTextIssues {
                          issue.purchase_id IS NULL
                          OR EXISTS (
                            SELECT 1
-                           FROM chapter_encrypted_release_events release
-                           JOIN storage_objects object
-                             ON object.id=release.storage_object_id
+                           FROM chapter_encrypted_release_events e
+                           JOIN storage_objects s
+                             ON s.id=e.storage_object_id
                            JOIN chapters paid
-                             ON paid.id=release.chapter_id
-                           WHERE release.chapter_id=issue.chapter_id
-                             AND release.version_id=published.id
-                             AND published.storage_object_id=release.storage_object_id
+                             ON paid.id=e.chapter_id
+                           WHERE e.chapter_id=issue.chapter_id
+                             AND e.version_id=published.id
+                             AND published.storage_object_id=e.storage_object_id
                              AND paid.access_level='paid' AND paid.price_amount>0
-                             AND object.object_kind='chapter' AND object.state='attached'
+                             AND s.object_kind='chapter' AND s.state='attached'
                          )
                        )
                      FOR SHARE OF p",
