@@ -22,6 +22,7 @@ pub(super) struct IssueForm {
     quote: String,
     suggested_text: String,
     issue_type: String,
+    return_to_public: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -44,6 +45,15 @@ fn status(error: IssueError) -> StatusCode {
         IssueError::NotVisible => StatusCode::NOT_FOUND,
         IssueError::Conflict => StatusCode::CONFLICT,
         IssueError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+fn issue_destination(chapter_id: i64, result: &str, from_public: Option<&str>) -> String {
+    // Only the literal 1 selects our internal public reader. No redirect URLs.
+    if from_public == Some("1") {
+        format!("/reader/{chapter_id}?issue={result}#text-issues")
+    } else {
+        format!("/read/{chapter_id}?issue={result}")
     }
 }
 
@@ -92,11 +102,20 @@ pub(super) async fn submit(
         )
         .await
     {
-        Ok(CreatedIssue::Added(_)) => {
-            private_response(Redirect::to(&format!("/read/{chapter_id}?issue=sent")), &[])
-        }
+        Ok(CreatedIssue::Added(_)) => private_response(
+            Redirect::to(&issue_destination(
+                chapter_id,
+                "sent",
+                form.return_to_public.as_deref(),
+            )),
+            &[],
+        ),
         Ok(CreatedIssue::Replayed(_)) => private_response(
-            Redirect::to(&format!("/read/{chapter_id}?issue=repeat")),
+            Redirect::to(&issue_destination(
+                chapter_id,
+                "repeat",
+                form.return_to_public.as_deref(),
+            )),
             &[],
         ),
         Err(err) => deny(status(err)),
@@ -253,5 +272,27 @@ pub(super) async fn change_status(
             &[],
         ),
         Err(err) => deny(status(err)),
+    }
+}
+
+#[cfg(test)]
+mod destination_tests {
+    use super::issue_destination;
+
+    #[test]
+    fn s047_public_return_is_strict_without_open_redirect() {
+        assert_eq!(
+            issue_destination(101, "sent", Some("1")),
+            "/reader/101?issue=sent#text-issues"
+        );
+        assert_eq!(
+            issue_destination(101, "repeat", Some("1")),
+            "/reader/101?issue=repeat#text-issues"
+        );
+        assert_eq!(issue_destination(101, "sent", None), "/read/101?issue=sent");
+        assert_eq!(
+            issue_destination(101, "sent", Some("//external.example")),
+            "/read/101?issue=sent"
+        );
     }
 }

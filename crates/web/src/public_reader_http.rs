@@ -1,16 +1,23 @@
 //! Public chapter reading and the S005 paid metadata paywall.
 use super::{auth_cookies, pages, AppState};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, Method, StatusCode},
     response::Response,
 };
 use tor_reading::services::PublicReadingRepository;
 
+/// E-12: non-authoritative display-only issue result; no persistence on GET.
+#[derive(Default, serde::Deserialize)]
+pub(super) struct PublicIssueQuery {
+    pub issue: Option<String>,
+}
+
 /// C-10: successful and denied reading both use no-store and strict CSP.
 pub(super) async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    Query(query): Query<PublicIssueQuery>,
     headers: HeaderMap,
     method: Method,
 ) -> Response {
@@ -83,7 +90,12 @@ pub(super) async fn reader_page(
         }
     }
     let mut response = auth_cookies::private_response(
-        pages::reader_with_optional_progress(&chapter, Some(id), progress_csrf.as_deref()),
+        pages::reader_with_public_features(
+            &chapter,
+            Some(id),
+            progress_csrf.as_deref(),
+            query.issue.as_deref(),
+        ),
         &progress_cookies,
     );
     // Never enable scripts for paid, hidden or denied content.
