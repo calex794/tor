@@ -33,6 +33,8 @@ SUPPORT_ADMIN_HANDLERS = {
     ("GET", "/admin/support/{id}/messages", "messages"),
     ("POST", "/admin/support/{id}/messages", "submit"),
     ("POST", "/admin/support/{id}/read", "mark_read"),
+    ("POST", "/admin/support/{id}/close", "close"),
+    ("POST", "/admin/support/{id}/reopen", "reopen"),
 }
 SUPPORT_REQUESTER_HANDLERS = {
     ("GET", "/support", "page"),
@@ -235,7 +237,7 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "if !actor.administrator" in evidence
                 and "StatusCode::FORBIDDEN" in evidence):
             errors.append(f"{label}: missing live support administrator role guard")
-        if not _contains_scoped_call(evidence, {"admin_chats", "admin_messages", "admin_send", "admin_mark_read"}):
+        if not _contains_scoped_call(evidence, {"admin_chats", "admin_messages", "admin_send", "admin_mark_read", "admin_set_closed"}):
             errors.append(f"{label}: missing actor-bound support administrator operation")
     if policy == "support_requester":
         allowed = (entry["source"] == "crates/web/src/auth/support.rs"
