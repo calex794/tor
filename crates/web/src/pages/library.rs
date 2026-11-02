@@ -12,16 +12,8 @@ pub fn my_library_with_updates(
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
-    my_library_with_updates_and_layers(
-        items,
-        saved,
-        csrf,
-        purchased_available,
-        false,
-        checkout_enabled,
-        updates,
-        owned,
-    )
+    let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
+    my_library_inner(items, saved, csrf, purchased_available, false, &update_html)
 }
 
 /// The purchased-Layer navigation only appears with explicit storefront opt-in.
@@ -29,12 +21,17 @@ pub fn my_library_with_updates_and_layers(
     items: &[tor_reading::services::progress::ContinueReading],
     saved: &tor_reading::services::library::SavedBookPage,
     csrf: &str,
-    purchased_available: bool,
-    layers_available: bool,
+    availability: (bool, bool),
     checkout_enabled: bool,
     updates: &tor_reading::repositories::follow_updates::FollowedReleasePage,
     owned: &[tor_commerce::repositories::entitlements::ReadablePurchaseLink],
 ) -> Html<String> {
+    let (purchased_available, layers_available) = availability;
+    if !layers_available {
+        return my_library_with_updates(
+            items, saved, csrf, purchased_available, checkout_enabled, updates, owned,
+        );
+    }
     let update_html = update_cards(updates, checkout_enabled, purchased_available, owned, csrf);
     my_library_inner(
         items,
