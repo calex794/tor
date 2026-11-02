@@ -12,32 +12,41 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 READ_ONLY = """
-WITH existing AS (
- SELECT b.id AS book_id,x.kind,admin_taxonomy_key(item.label) AS k
- FROM books b
- CROSS JOIN LATERAL (
-  VALUES ('genre'::text,b.genres),
-         ('tag'::text,b.tags),
-         ('fandom'::text,b.fandoms)
- ) AS x(kind,labels)
- CROSS JOIN LATERAL unnest(x.labels) AS item(label)
- WHERE b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+-- This queue uses PERF-233's transactionally maintained *public* projection.
+-- "uses" sums per-spelling references; multiple equivalent spellings on one
+-- book can make it larger than the count of distinct books.
+WITH facets AS (
+ SELECT kind,name,admin_taxonomy_key(name) AS k,reference_count
+ FROM public_catalog_facets
+ WHERE reference_count>0
 ), unmatched AS (
- SELECT x.kind,x.k,count(DISTINCT x.book_id) AS books
- FROM existing x
- WHERE NOT EXISTS(
+ SELECT f.kind,f.k,
+        sum(f.reference_count)::bigint AS uses,
+        count(*)::bigint AS spellings,
+        min(f.name) AS example_label
+ FROM facets f
+ WHERE NOT EXISTS (
   SELECT 1 FROM book_taxonomy_terms t
-  WHERE t.kind=x.kind AND t.status='active'
-   AND (t.search_key=x.k OR EXISTS (
-    SELECT 1 FROM book_taxonomy_aliases a
-    WHERE a.kind=x.kind AND a.search_key=x.k AND a.term_id=t.id
-   ))
+  WHERE t.kind=f.kind AND t.status='active'
+    AND (t.search_key=f.k OR EXISTS (
+     SELECT 1 FROM book_taxonomy_aliases a
+     WHERE a.kind=f.kind AND a.search_key=f.k AND a.term_id=t.id
+    ))
  )
- GROUP BY x.kind,x.k
+ GROUP BY f.kind,f.k
 )
-SELECT kind,k,books FROM unmatched ORDER BY books DESC,kind,k LIMIT :'limit'::integer OFFSET :'offset'::integer;
+SELECT u.kind,
+       coalesce(t.label,u.example_label) AS review_label,
+       u.k AS normalized_key,
+       u.uses,u.spellings,
+       t.id AS term_id,
+       coalesce(t.status,'not_staged') AS status
+FROM unmatched u
+LEFT JOIN book_taxonomy_terms t
+  ON t.kind=u.kind AND t.search_key=u.k
+ORDER BY u.uses DESC,u.kind,u.k
+LIMIT :'limit'::integer OFFSET :'offset'::integer;
 """
-
 
 LOOKUP_SQL = """
 -- Read-only indexed prefix lookup of canonical terms and approved aliases.

@@ -33,10 +33,19 @@ idempotent. The same spelling cannot belong to a different canonical term
 or collide with another canonical name. Both operations have migration-owner
 audit entries; app role has no write or function-execution permissions.
 
-`unmapped` reports **only public-book** labels that have no active canonical
-or alias match. Use `--offset` with `--limit` to review more than 500
-rows; order is by book count, kind and name. Avoid dictionary edits between
-pages if a stable multi-page review is needed. `lookup kind prefix` searches
+`unmapped` reads **only public** labels from the transactionally maintained
+`public_catalog_facets` projection, never private books. It returns
+`kind | review_label | normalized_key | label_uses | spellings | term_id | status`.
+`review_label` is the exact existing candidate label when an ID is known;
+`status` is `candidate`, `blocked`, `merged`, or `not_staged` for a label
+not yet inserted into the canonical table. Only approved active terms
+are excluded. `label_uses` sums per-spelling reference counts; it may be
+greater than the count of distinct books if one book used several
+Unicode-equivalent spellings. `spellings` is the number of raw variants.
+Use `--offset` with `--limit` for pagination; ordering is by descending
+label uses, kind and normalized key. Avoid edits between pages if a
+stable multi-page review is needed. This view does not approve terms.
+`lookup kind prefix` searches
 canonical names and approved aliases and returns canonical ID, label,
 status and match type (including blocked entries). It is read-only; SQL
 wildcards are not accepted. Neither command exposes private draft metadata.
@@ -82,6 +91,15 @@ TOR_TAXONOMY_ADMIN_URL='postgresql://tor_migrator:...@127.0.0.1:5432/tor_ci' \
 названием. Одобрение существующего кандидата сохраняет ID и журналируется;
 новому термину назначается новый ID. Старые книги сопоставляются только
 через явный `reconcile` по одной, без удаления неизвестных тегов.
+
+Для проверки кандидатов без сканирования приватных книг используйте
+`python3 tools/taxonomy_admin.py unmapped --limit 40 --offset 0`.
+Вывод: `kind|review_label|normalized_key|label_uses|spellings|term_id|status`.
+Если запись была создана при миграции, `review_label` — её исходное
+написание, которое можно одобрить без изменения ID. Для `not_staged`
+пока нет ID. `label_uses` — сумма употреблений разных написаний,
+а не обязательно количество уникальных книг.
+
 Поэтому пустой новый словарь нельзя считать готовой базой терминов:
 до проверки и импорта реальных данных подсказки могут быть пустыми.
 

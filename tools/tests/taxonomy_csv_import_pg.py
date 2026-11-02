@@ -44,6 +44,18 @@ def lookup(kind, value):
     return done.stdout.strip()
 
 
+def unmapped():
+    script = Path(__file__).resolve().parents[1] / "taxonomy_admin.py"
+    done = subprocess.run(
+        [sys.executable, str(script), "unmapped", "--limit", "500"],
+        env=os.environ.copy(), text=True, capture_output=True,
+        timeout=30, check=False,
+    )
+    if done.returncode:
+        raise AssertionError(f"curator review queue failed: {done.stderr[-400:]}")
+    return done.stdout.splitlines()
+
+
 def apply(path, expected_success=True):
     status = importer.main([
         str(path), "--curator", "ci-smoke", "--confirm-db", "tor_ci", "--apply",
@@ -101,8 +113,32 @@ def main():
         # not. This verifies the ID and status before the explicit review.
         if f"{candidate_id}|tag|{candidate}|candidate" not in lookup("tag", candidate):
             raise AssertionError("review candidate missing from curator diagnostics")
+        # Only a public, non-held label can enter the review queue.
+        hidden = f"PrivateOnly{suffix}"
+        scalar(
+            url,
+            "WITH created AS (INSERT INTO books"
+            "(source_identity,target_language,title,visibility,tags) "
+            f"VALUES({quote('ci-public:'+suffix)},'ru','Review public','public',ARRAY[{quote(candidate)}]) "
+            "RETURNING id) SELECT id FROM created",
+        )
+        scalar(
+            url,
+            "WITH created AS (INSERT INTO books"
+            "(source_identity,target_language,title,visibility,tags) "
+            f"VALUES({quote('ci-private:'+suffix)},'ru','Review draft','draft',ARRAY[{quote(hidden)}]) "
+            "RETURNING id) SELECT id FROM created",
+        )
+        expected = f"tag|{candidate}|{importer.key(candidate)}|1|1|{candidate_id}|candidate"
+        entries = unmapped()
+        if expected not in entries:
+            raise AssertionError("review queue omitted candidate label, count or ID")
+        if any(hidden in entry for entry in entries):
+            raise AssertionError("private draft leaked into public review queue")
         reviewed = make_csv(root, "reviewed-candidate.csv", [("tag", candidate, "")])
         apply(reviewed)
+        if any(candidate in entry for entry in unmapped()):
+            raise AssertionError("approved candidate remained in review queue")
         if scalar(url, f"SELECT id FROM book_taxonomy_terms WHERE label={quote(candidate)} AND status='active'") != candidate_id:
             raise AssertionError("CSV approval failed or changed the candidate ID")
         apply(reviewed)

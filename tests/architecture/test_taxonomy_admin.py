@@ -62,6 +62,17 @@ class TaxonomyAdminReadTests(unittest.TestCase):
         )
         self.assertIn("OFFSET :'offset'::integer", admin.READ_ONLY)
 
+    def test_unmapped_uses_public_projection_and_review_identity(self):
+        sql = admin.READ_ONLY
+        self.assertIn("FROM public_catalog_facets", sql)
+        self.assertNotIn("FROM books", sql)
+        self.assertIn("sum(f.reference_count)::bigint AS uses", sql)
+        self.assertIn("count(*)::bigint AS spellings", sql)
+        self.assertIn("coalesce(t.label,u.example_label) AS review_label", sql)
+        self.assertIn("t.id AS term_id", sql)
+        self.assertIn("coalesce(t.status,'not_staged') AS status", sql)
+        self.assertIn("t.status='active'", sql)
+
     def test_invalid_pagination_does_not_touch_db(self):
         for offset in ["-1", "1000001"]:
             with self.subTest(offset=offset):
