@@ -7,6 +7,7 @@ pub(super) struct Fixture<'a> {
     pub book: i64,
     pub chapters: [(i64, i64); 2],
     pub buyers: [(i64, &'a str); 2],
+    pub outsider_session: &'a str,
 }
 
 pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
@@ -27,6 +28,7 @@ pub(super) async fn verify(app: &Router, fixture: Fixture<'_>) {
         "book_id": fixture.book,
         "chapters": chapter_rows,
         "buyers": buyer_rows,
+        "outsider_session": fixture.outsider_session,
     });
     // No cookies or bearer credentials in source control, artifacts or logs.
     let mut options = OpenOptions::new();
@@ -95,6 +97,7 @@ pub(super) async fn verify_new_buyers(
 ) {
     let (desktop, desktop_session) = user(accounts, "s034-single-desktop@tor-ci.example").await;
     let (mobile, mobile_session) = user(accounts, "s034-single-mobile@tor-ci.example").await;
+    let (_, outsider_session) = user(accounts, "s065-outsider@tor-ci.example").await;
     pg(url, &format!("INSERT INTO reader_wallet_accounts(user_id,balance_minor,currency) VALUES({desktop},600,'RUB'),({mobile},600,'RUB')"));
     verify(
         app,
@@ -102,6 +105,7 @@ pub(super) async fn verify_new_buyers(
             book,
             chapters,
             buyers: [(desktop, &desktop_session), (mobile, &mobile_session)],
+            outsider_session: &outsider_session,
         },
     )
     .await;
