@@ -70,7 +70,8 @@ pub(super) async fn reader_page(
             }
         }
     }
-    let mut response = auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[]);
+    let mut response =
+        auth_cookies::private_response(pages::reader_with_login_link(&chapter, Some(id)), &[]);
     // Never enable scripts for paid, hidden or denied content.
     response.headers_mut().insert(
         "content-security-policy",
