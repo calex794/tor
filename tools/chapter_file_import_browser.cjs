@@ -84,7 +84,7 @@ function makeDocxXml(xml) {
         await page.getByRole('button', { name: 'Создать учётную запись' }).click();
         await page.waitForURL('**/me');
         await page.getByRole('link', { name: 'Мои книги' }).click();
-        await page.getByRole('link', { name: 'Создать книгу' }).click();
+        await page.locator('#main').getByRole('link', { name: 'Создать книгу' }).click();
         await page.getByLabel('Название книги').fill('Импортированный сборник ' + name);
         await page.getByLabel('Язык').fill('ru');
         await page.getByRole('button', { name: 'Создать книгу' }).click();
