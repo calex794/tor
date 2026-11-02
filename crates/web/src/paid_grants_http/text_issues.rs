@@ -63,7 +63,9 @@ pub(super) async fn submit(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    if headers.get(header::ORIGIN).and_then(|value| value.to_str().ok())
+    if headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
         != Some(state.cookies.origin.as_str())
         || !state.cookies.same_origin(&headers)
         || !headers

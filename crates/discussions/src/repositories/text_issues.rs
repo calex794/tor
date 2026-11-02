@@ -108,7 +108,11 @@ impl PgTextIssues {
         if !Self::valid_request(actor, &issue) {
             return Err(IssueError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| IssueError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| IssueError::Unavailable)?;
         let selected = sqlx::query_as::<_, (i64, String)>(
             "SELECT c.book_id,v.body_markdown
              FROM chapters c JOIN books b ON b.id=c.book_id
@@ -142,7 +146,11 @@ impl PgTextIssues {
         if !Self::valid_request(actor, &issue) || purchase_id <= 0 {
             return Err(IssueError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| IssueError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| IssueError::Unavailable)?;
         let selected = sqlx::query_as::<_, (i64, String)>(
             "SELECT c.book_id,v.body_markdown
              FROM chapter_purchase_facts p
@@ -330,7 +338,9 @@ impl PgTextIssues {
                 issue_type: row
                     .try_get("issue_type")
                     .map_err(|_| IssueError::Unavailable)?,
-                is_paid: row.try_get("is_paid").map_err(|_| IssueError::Unavailable)?,
+                is_paid: row
+                    .try_get("is_paid")
+                    .map_err(|_| IssueError::Unavailable)?,
                 quote: row.try_get("quote").map_err(|_| IssueError::Unavailable)?,
                 suggested_text: row
                     .try_get("suggested_text")
