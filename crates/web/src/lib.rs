@@ -502,7 +502,10 @@ fn make_router_with_paid_checkout(
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
         .route("/assets/newboo-text-issues.js", get(text_issue_script))
-        .route("/assets/newboo-free-reader.js", get(pages::free_reader_script))
+        .route(
+            "/assets/newboo-free-reader.js",
+            get(pages::free_reader_script),
+        )
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
