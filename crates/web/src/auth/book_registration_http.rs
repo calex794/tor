@@ -1,8 +1,15 @@
 //! Build the S019 author request; PostgreSQL writes stay in the audited HTTP entry.
 use super::*;
 
-pub(super) fn request(actor: i64, form: &NewBookForm) -> Result<tor_books::services::authoring::NewBook, AuthorError> {
-    let identity = source_identity(form.source_url.as_deref().unwrap_or(""), actor, &form.command_key)?;
+pub(super) fn request(
+    actor: i64,
+    form: &NewBookForm,
+) -> Result<tor_books::services::authoring::NewBook, AuthorError> {
+    let identity = source_identity(
+        form.source_url.as_deref().unwrap_or(""),
+        actor,
+        &form.command_key,
+    )?;
     let book = new_book_with_taxonomy(
         &identity,
         &form.target_language,
@@ -16,7 +23,9 @@ pub(super) fn request(actor: i64, form: &NewBookForm) -> Result<tor_books::servi
         },
     )?;
     let book = with_book_description(book, form.description.as_deref().unwrap_or(""))?;
-    with_registration_metadata(book, RegistrationFields {
+    with_registration_metadata(
+        book,
+        RegistrationFields {
         source_url: form.source_url.as_deref().unwrap_or(""),
         original_title: form.original_title.as_deref().unwrap_or(""),
         original_language: form.original_language.as_deref().unwrap_or(""),
@@ -27,6 +36,7 @@ pub(super) fn request(actor: i64, form: &NewBookForm) -> Result<tor_books::servi
             form.alt_title_1.as_deref().unwrap_or(""),
             form.alt_title_2.as_deref().unwrap_or(""),
             form.alt_title_3.as_deref().unwrap_or(""),
-        ],
-    })
+            ],
+        },
+    )
 }
