@@ -1345,6 +1345,20 @@
       "source": "crates/web/src/auth/admin_mail_routes.rs",
       "handler": "admin_mail::book_room",
       "policy": "admin_mail"
+    },
+    {
+      "method": "GET",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth/checkout_browser.rs",
+      "handler": "browser_offer",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/chapters/{id}/buy",
+      "source": "crates/web/src/auth/checkout_browser.rs",
+      "handler": "browser_buy",
+      "policy": "session"
     }
   ]
 }

@@ -59,6 +59,7 @@ mod book_stars;
 mod book_stats_http;
 mod chapter_thanks;
 mod checkout;
+mod checkout_browser;
 mod complete_chapter;
 mod continuation_demand;
 mod creator_follows;
@@ -302,6 +303,7 @@ fn router_inner(
         .route("/api/v1/me/rankings/choice", post(rankings::api_choice))
         .route("/api/v1/me/rankings/resume", post(rankings::api_resume))
         .route("/api/v1/purchases", post(checkout::buy))
+        .merge(checkout_browser::router())
         .route("/api/v1/purchases/batch", post(checkout::buy_batch))
         .route(
             "/me/books/{id}/buy-chapters",

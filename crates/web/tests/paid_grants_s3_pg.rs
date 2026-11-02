@@ -42,6 +42,8 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
+mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
@@ -375,7 +377,7 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser(
         catalog,
         reader,
-        accounts,
+        accounts.clone(),
         false,
         ORIGIN.to_owned(),
         (Arc::new(signer), ENDPOINT.to_owned()),
@@ -488,6 +490,14 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
                 (live_mobile, &live_mobile_session),
             ],
         },
+    )
+    .await;
+    s034_live_chromium::verify_new_buyers(
+        &app,
+        &accounts,
+        &url,
+        book,
+        [(chapter, v1), (chapter_two, version_two)],
     )
     .await;
     let second_reader = paid_page(&app, chapter_two, purchase_two_id, &buyer_cookie).await;
