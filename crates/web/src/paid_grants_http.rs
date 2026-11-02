@@ -491,7 +491,10 @@ fn router_inner(
         layer_reader_enabled,
     };
     let mut app = Router::new()
-        .route("/admin/reader/chapters/{chapter_id}", get(admin_reader::read))
+        .route(
+            "/admin/reader/chapters/{chapter_id}",
+            get(admin_reader::read),
+        )
         .route(
             "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
             post(grant),
