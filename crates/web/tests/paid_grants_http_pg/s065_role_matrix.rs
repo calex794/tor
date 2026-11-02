@@ -98,7 +98,12 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     );
     for (label, session, token, denial) in [
         ("guest", None, None, StatusCode::UNAUTHORIZED),
-        ("user without administrator role", Some(outsider.as_str()), Some(csrf.as_str()), StatusCode::FORBIDDEN),
+        (
+            "user without administrator role",
+            Some(outsider.as_str()),
+            Some(csrf.as_str()),
+            StatusCode::FORBIDDEN,
+        ),
     ] {
         assert_eq!(read_page(reader, &page, session).await.status(), denial, "{label}");
         for target in [&path, &asset_path] {
@@ -182,11 +187,17 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
     assert_eq!(value["object_id"], ASSET_UUID);
     assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
     assert_eq!(
-        scalar(url, &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={admin_id}")),
+        scalar(
+            url,
+            &format!("SELECT count(*) FROM chapter_purchase_facts WHERE user_id={admin_id}")
+        ),
         0
     );
     assert_eq!(
-        scalar(url, &format!("SELECT count(*) FROM reader_wallet_entries WHERE user_id={admin_id}")),
+        scalar(
+            url,
+            &format!("SELECT count(*) FROM reader_wallet_entries WHERE user_id={admin_id}")
+        ),
         0
     );
 
