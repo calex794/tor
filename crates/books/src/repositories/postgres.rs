@@ -13,6 +13,7 @@ mod owned_book_hash;
 mod owned_chapter_pages;
 mod registration_links;
 mod source_alias_guard;
+mod title_suggestions;
 use crate::{
     domain::{Book, BookKey, Visibility},
     services::book_registration::registration_titles,
