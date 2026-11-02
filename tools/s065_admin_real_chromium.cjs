@@ -191,6 +191,42 @@ async function main() {
       pg("UPDATE books SET visibility='public',admin_hold=FALSE WHERE id=" + bookId);
     }
 
+    // The REAL active admin still has to present a valid same-origin CSRF
+    // command. A purchase ID cannot be smuggled through the admin source.
+    stage = "administrator CSRF, Origin and purchase spoofing denial";
+    const privileged = await contextFor(browser, admin_session);
+    try {
+      const csrf = crypto.randomBytes(32).toString("base64url");
+      await privileged.addCookies([{ url: SITE, name: "tor-dev-csrf",
+        value: csrf, httpOnly: true, sameSite: "Strict" }]);
+      const attempt = (data, origin, token) => privileged.request.post(
+        SITE + chapterGrant, {
+          data,
+          headers: { origin, "x-csrf-token": token },
+        });
+      for (const endpoint of [chapterGrant, assetGrant]) {
+        const forbiddenOrigin = await privileged.request.post(SITE + endpoint, {
+          data: { source: "administrator" },
+          headers: { origin: "https://foreign.invalid", "x-csrf-token": csrf },
+        });
+        assert.equal(forbiddenOrigin.status(), 403);
+        assert.equal((await forbiddenOrigin.body()).length, 0);
+        const invalidCsrf = await privileged.request.post(SITE + endpoint, {
+          data: { source: "administrator" },
+          headers: { origin: SITE, "x-csrf-token": "invalid" },
+        });
+        assert.equal(invalidCsrf.status(), 403);
+        assert.equal((await invalidCsrf.body()).length, 0);
+      }
+      const forgedPurchase = await attempt({
+        source: "administrator", purchase_id: "1",
+      }, SITE, csrf);
+      assert.equal(forgedPurchase.status(), 422);
+      assert.equal((await forgedPurchase.body()).length, 0);
+    } finally {
+      await privileged.close();
+    }
+
     stage = "revoked admin denial";
     pg("UPDATE account_roles SET is_active=FALSE WHERE user_id=" +
       admin_id + " AND role='administrator'");
