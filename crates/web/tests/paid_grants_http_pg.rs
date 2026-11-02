@@ -126,7 +126,7 @@ impl PrivateObjectDeliveryPort for FakeG {
             .unwrap(),
             object_sha256: hex(&object.object.sha256_ciphertext),
             cipher: "AES-256-GCM",
-            codec: object.codec.wire().to_owned(),
+            codec: object.codec.wire(),
             nonce_b64u: URL_SAFE_NO_PAD.encode(object.nonce),
             aad_b64u: URL_SAFE_NO_PAD.encode(&object.aad),
             dek_b64u: SecretValue::new(URL_SAFE_NO_PAD.encode([0x11_u8; 32])).unwrap(),
