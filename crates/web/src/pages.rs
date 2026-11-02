@@ -438,8 +438,7 @@ pub async fn free_reader_script() -> impl IntoResponse {
         {
             static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
                 let mut js = String::from(include_str!("../assets/newboo-free-reader.js"));
-                js.push('
-');
+                js.push('\n');
                 js.push_str(include_str!("../assets/newboo-free-progress.js"));
                 js
             });
