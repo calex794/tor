@@ -713,10 +713,13 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     );
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                body: "Другая запись",
-                ..message
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    body: "Другая запись",
+                    ..message
+                }
+            )
             .await,
         ChapterCreate::Conflict
     );
@@ -739,25 +742,31 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     assert_eq!(page.next_cursor, None);
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                anchor: Some(NewAnchor {
-                    quote: "Z",
-                    ..anchor
-                }),
-                command_key: &"k".repeat(43),
-                ..message
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    anchor: Some(NewAnchor {
+                        quote: "Z",
+                        ..anchor
+                    }),
+                    command_key: &"k".repeat(43),
+                    ..message
+                }
+            )
             .await,
         ChapterCreate::Invalid
     );
     assert_eq!(store.create_free(0, message).await, ChapterCreate::Invalid);
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                chapter_id: paid,
-                version_id: paid_version,
-                ..message
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    chapter_id: paid,
+                    version_id: paid_version,
+                    ..message
+                }
+            )
             .await,
         ChapterCreate::NotFound
     );
@@ -780,11 +789,14 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     );
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                parent_id: Some(i64::MAX),
-                command_key: &"c".repeat(43),
-                ..reply
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    parent_id: Some(i64::MAX),
+                    command_key: &"c".repeat(43),
+                    ..reply
+                }
+            )
             .await,
         ChapterCreate::NotFound
     );
@@ -817,10 +829,13 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         .is_empty());
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                command_key: &"d".repeat(43),
-                ..reply
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"d".repeat(43),
+                    ..reply
+                }
+            )
             .await,
         ChapterCreate::NotFound
     );
@@ -835,10 +850,13 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
     );
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                command_key: &"e".repeat(43),
-                ..message
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"e".repeat(43),
+                    ..message
+                }
+            )
             .await,
         ChapterCreate::NotFound
     );
@@ -874,10 +892,13 @@ async fn e_02_free_chapter_comments_edition_acl_and_replay() {
         .is_empty());
     assert_eq!(
         store
-            .create_free(actor, NewChapterComment {
-                command_key: &"f".repeat(43),
-                ..message
-            })
+            .create_free(
+                actor,
+                NewChapterComment {
+                    command_key: &"f".repeat(43),
+                    ..message
+                }
+            )
             .await,
         ChapterCreate::NotFound
     );
