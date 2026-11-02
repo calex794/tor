@@ -55,9 +55,7 @@ impl PgAuthoring {
             return Err(AuthorError::Unavailable);
         }
         Ok(Some(OwnedBookSourceLinks {
-            title: row
-                .try_get("title")
-                .map_err(|_| AuthorError::Unavailable)?,
+            title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
             primary,
             extra,
             revision: row
@@ -81,7 +79,11 @@ impl PgAuthoring {
         if expected_revision <= 0 {
             return Err(AuthorError::Invalid);
         }
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         let book = sqlx::query(
             "SELECT target_language, registration_links_revision
              FROM books WHERE id=$1 AND owner_user_id=$2
