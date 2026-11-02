@@ -68,6 +68,7 @@ struct AppState {
     reader: Option<PgReader>,
     search: Option<tor_search::PgSearch>,
     paid_batch_browser_enabled: bool,
+    paid_checkout_browser: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
@@ -441,6 +442,26 @@ fn make_router(
     objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
     follow_control: Option<book_follow_page::FollowBookControl>,
 ) -> Router {
+    make_router_with_paid_checkout(
+        repo,
+        postgres,
+        reader,
+        active_auth,
+        objects,
+        follow_control,
+        false,
+    )
+}
+
+fn make_router_with_paid_checkout(
+    repo: Arc<dyn PublicBookRepository>,
+    postgres: Option<PgCatalog>,
+    reader: Option<PgReader>,
+    active_auth: bool,
+    objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    follow_control: Option<book_follow_page::FollowBookControl>,
+    paid_browser_enabled: bool,
+) -> Router {
     let api = tor_books::api::router(repo.clone());
     // Only real authenticated PG routers may capture referral book query links.
     // This layer runs *after* book_detail has accepted public visibility.
@@ -516,6 +537,9 @@ fn make_router(
             postgres,
             reader,
             search,
+            paid_checkout_browser: active_auth
+                && paid_browser_enabled
+                && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
