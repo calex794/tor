@@ -788,6 +788,20 @@
     },
     {
       "method": "POST",
+      "template": "/me/books/{id}/chapters/{chapter_id}/cancel-schedule",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "cancel_schedule",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/{chapter_id}/schedule",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "schedule_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
       "template": "/me/books/{id}/chapters/{chapter_id}/release",
       "source": "crates/web/src/author_chapter_http.rs",
       "handler": "publish_chapter",
