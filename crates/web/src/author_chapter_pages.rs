@@ -203,6 +203,7 @@ pub fn detail_with_covers_with_demand_page(
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
         <p><a href="/books/{id}/stats">Статистика книги</a></p>
+        <p><a href="/me/books/{id}/issues">Ошибки текста</a></p>
         <h2>Главы</h2>{items}
         {add_action}
         {import_action}

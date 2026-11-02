@@ -40,7 +40,7 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
-    "active_role",
+    "active_role", "create_free",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove",
 }
@@ -259,6 +259,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        # E-12 is book-team triage, not owner-only chapter publishing.
+        if policy == "scoped" and entry["handler"] == "text_issues::author_page":
+            proof = {"author_page"}
+        elif policy == "scoped" and entry["handler"] == "text_issues::change_status":
+            proof = {"update_status"}
         if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
             proof = {
                 "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
@@ -294,6 +299,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
     route_key = (entry["method"], entry["template"], entry["handler"])
+    e12_team = {
+        ("GET", "/me/books/{id}/issues", "text_issues::author_page"),
+        ("POST", "/me/books/{id}/issues/{issue_id}/status", "text_issues::change_status"),
+    }
+    if route_key in e12_team and policy != "scoped":
+        errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "administrator":
