@@ -228,8 +228,9 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/api/v1/reader/chapters/{chapter_id}/text-issues"), "POST") => Some(215),
         (Some("/admin/support/{id}/close"), "POST") => Some(216),
         (Some("/admin/support/{id}/reopen"), "POST") => Some(217),
-        (Some("/me/books/{id}/chapters/{chapter_id}/schedule"), "POST") => Some(218),
-        (Some("/me/books/{id}/chapters/{chapter_id}/cancel-schedule"), "POST") => Some(219),
+        (Some("/assets/newboo-free-reader.js"), "GET") => Some(218),
+        (Some("/me/books/{id}/chapters/{chapter_id}/schedule"), "POST") => Some(219),
+        (Some("/me/books/{id}/chapters/{chapter_id}/cancel-schedule"), "POST") => Some(220),
         _ => None,
     };
     index
