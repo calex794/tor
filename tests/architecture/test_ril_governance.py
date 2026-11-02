@@ -232,6 +232,36 @@ class RilGovernanceTests(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         self.assert_detected("protected route downgraded to public/entry")
 
+    def test_e12_team_queue_must_remain_scoped_not_session_only(self):
+        target = self.root / INVENTORY
+        data = json.loads(target.read_text(encoding="utf-8"))
+        issue_queue = next(
+            item for item in data["routes"]
+            if item["template"] == "/me/books/{id}/issues"
+            and item["method"] == "GET"
+        )
+        issue_queue["policy"] = "session"
+        target.write_text(json.dumps(data), encoding="utf-8")
+        self.assert_detected("E-12 team triage must remain actor-scoped")
+
+    def test_e12_status_mutation_requires_actor_scoped_membership(self):
+        self.mutate(
+            "crates/web/src/auth/text_issues.rs",
+            "            actor,\n            book_id,\n            issue_id,",
+            "            book_id,\n            issue_id,",
+            start="pub(super) async fn change_status(",
+        )
+        self.assert_detected("missing actor-bound scoped repository call")
+
+    def test_e12_status_mutation_still_requires_origin_and_csrf(self):
+        self.mutate(
+            "crates/web/src/auth/text_issues.rs",
+            "state.cookies.same_origin(&headers)",
+            "state.cookies.skip_origin(&headers)",
+            start="pub(super) async fn change_status(",
+        )
+        self.assert_detected("missing Origin+CSRF rejection")
+
     def test_duplicate_reviewed_binding_fails(self):
         path = self.root / INVENTORY
         data = json.loads(path.read_text(encoding="utf-8"))

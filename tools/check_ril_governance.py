@@ -51,7 +51,6 @@ OWNER_CALLS = {
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
-    "author_page", "update_status",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -259,6 +258,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        # E-12 is book-team triage, not owner-only chapter publishing.
+        if policy == "scoped" and entry["handler"] == "text_issues::author_page":
+            proof = {"author_page"}
+        elif policy == "scoped" and entry["handler"] == "text_issues::change_status":
+            proof = {"update_status"}
         if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
             proof = {
                 "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
@@ -294,6 +298,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
     route_key = (entry["method"], entry["template"], entry["handler"])
+    e12_team = {
+        ("GET", "/me/books/{id}/issues", "text_issues::author_page"),
+        ("POST", "/me/books/{id}/issues/{issue_id}/status", "text_issues::change_status"),
+    }
+    if route_key in e12_team and policy != "scoped":
+        errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
     if policy == "administrator":

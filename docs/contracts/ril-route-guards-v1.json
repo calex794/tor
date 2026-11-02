@@ -1372,14 +1372,14 @@
       "template": "/me/books/{id}/issues",
       "source": "crates/web/src/auth.rs",
       "handler": "text_issues::author_page",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "POST",
       "template": "/me/books/{id}/issues/{issue_id}/status",
       "source": "crates/web/src/auth.rs",
       "handler": "text_issues::change_status",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "POST",
