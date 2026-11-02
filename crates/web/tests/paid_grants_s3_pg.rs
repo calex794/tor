@@ -763,12 +763,15 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(state["available"], true);
     assert_eq!(state["completed"], false);
     let sha = hex::encode(sealed.plaintext_sha256);
+    // A separate protected image paragraph is a separate reader block;
+    // completion must target the true last text block of the pinned edition.
     let final_block = MARKDOWN.split("\n\n").last().unwrap();
+    let last_block_id = MARKDOWN.split("\n\n").count();
     let command = json!({
         "purchase_id": purchase_id.to_string(),
         "chapter_id": chapter.to_string(),
         "version_id": v1.to_string(),
-        "block_id": 2,
+        "block_id": last_block_id,
         "char_offset": final_block.encode_utf16().count(),
         "expected_revision": 0,
         "plaintext_sha256": sha,
