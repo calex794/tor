@@ -231,6 +231,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/assets/newboo-free-reader.js"), "GET") => Some(218),
         (Some("/me/books/{id}/chapters/{chapter_id}/schedule"), "POST") => Some(219),
         (Some("/me/books/{id}/chapters/{chapter_id}/cancel-schedule"), "POST") => Some(220),
+        (Some("/reader/{id}/comments"), "POST") => Some(221),
         _ => None,
     };
     index

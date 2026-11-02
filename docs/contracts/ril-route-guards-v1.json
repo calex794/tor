@@ -1562,6 +1562,13 @@
       "source": "crates/web/src/lib.rs",
       "handler": "pages::free_reader_script",
       "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_comments::submit",
+      "policy": "scoped"
     }
   ]
 }

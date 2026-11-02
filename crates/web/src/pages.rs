@@ -20,8 +20,9 @@ pub use account::{
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
 mod reader_free;
+mod reader_free_comments;
 mod reader_free_issues;
-pub use reader_free::{reader_with_login_link, reader_with_public_features};
+pub use reader_free::{reader_with_login_link, reader_with_public_discussions};
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
@@ -445,6 +446,8 @@ pub async fn free_reader_script() -> impl IntoResponse {
                 js.push_str(include_str!("../assets/newboo-free-toc.js"));
                 js.push('\n');
                 js.push_str(include_str!("../assets/newboo-free-issues.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-comments.js"));
                 js
             });
             JS.as_str()

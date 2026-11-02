@@ -1,3 +1,4 @@
+use super::reader_free::reader_with_public_features;
 use super::*;
 
 #[test]

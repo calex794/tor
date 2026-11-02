@@ -121,6 +121,13 @@ async function inspect(page, name, where) {
       await page.locator('[data-free-toc] > summary').click();
       assert(await page.locator('[data-free-issue-form]').count() === 0,
         name + ': guest must not receive issue submission form');
+      assert(await page.locator('[data-chapter-comments]').count() === 1,
+        name + ': guest cannot read public chapter discussion');
+      assert(await page.locator('[data-chapter-comment-form]').count() === 0,
+        name + ': guest received chapter comment form or CSRF');
+      assert(await page.locator('[data-chapter-comments]')
+        .getByRole('link', { name: 'Войти, чтобы оставить комментарий' }).isVisible(),
+        name + ': guest missing chapter-only login action');
       assert(await page.getByRole('link', { name: 'Войти, чтобы сообщить автору' }).isVisible(),
         name + ': guest lacks account-only report entrypoint');
       assert(await page.locator('[data-free-progress-chapter]').count() === 0,
@@ -470,6 +477,97 @@ async function inspect(page, name, where) {
       assert(await page.locator('[data-free-issues] .reader-issues__feedback')
         .getByText('Такое сообщение уже было отправлено автору.').isVisible(),
         name + ': repeated report was not deduplicated');
+      // E/S011: no book-level comments are recycled as chapter comments.
+      // The selected quotation must have the immutable edition's UTF-16
+      // offset; submission and replies use real PostgreSQL + the same CSRF.
+      const chapterComments = page.locator('[data-chapter-comments]');
+      assert(await chapterComments.count() === 1 &&
+        await chapterComments.locator('[data-chapter-comment-form]').count() >= 1,
+        name + ': signed free reader missing chapter discussion form');
+      assert((await chapterComments.getAttribute('data-reader-comment-blocks') || '')
+        .startsWith('0:'), name + ': missing canonical source offset map');
+      await selectIssueQuote();
+      assert(await chapterComments.locator('[data-chapter-comment-block]').inputValue() === '1' &&
+        await chapterComments.locator('[data-chapter-comment-block]').getAttribute('name') === 'anchor_block',
+        name + ': selected quote did not bind to E-01 canonical chapter anchor');
+      const rootCommentBody = 'Сценарий ' + name + ': текст <script> ||секрет автора||';
+      await chapterComments.locator('textarea[name="body"]').first().fill(rootCommentBody);
+      const commentPost = page.waitForResponse(response =>
+        response.url().endsWith('/reader/101/comments') &&
+        response.request().method() === 'POST');
+      await chapterComments.getByRole('button', { name: 'Отправить комментарий' }).click();
+      const commentReply = await commentPost;
+      assert(commentReply.status() === 303,
+        name + ': real S011 chapter POST failed ' + commentReply.status());
+      const postedForm = commentReply.request().postData();
+      assert(postedForm.includes('anchor_block=1') && postedForm.includes('anchor_quote='),
+        name + ': source-bound chapter comment was sent without its anchor');
+      await page.waitForURL(/\/reader\/101\?comment=sent#chapter-comments$/);
+      assert(await chapterComments.getByText('Комментарий опубликован.').isVisible(),
+        name + ': S011 chapter submission did not return to public reader');
+      assert(await chapterComments.locator('.comment-card').filter({ hasText: 'Сценарий ' + name }).count() >= 1,
+        name + ': new chapter comment missing after redirect');
+      assert((await chapterComments.locator('.comment-card').first().innerHTML()).includes('&lt;script&gt;'),
+        name + ': comment body was not escaped');
+      assert(await chapterComments.locator('.comment-spoiler').count() >= 1,
+        name + ': chapter comment spoilers not masked');
+      assert(await chapterComments.locator('[data-chapter-comment-goto]').count() >= 1,
+        name + ': text-bound comment lacks source navigation');
+      await chapterComments.locator('[data-chapter-comment-goto]').first().click();
+      assert(await page.locator('span.reader-chapter-comments__source-highlight').count() > 0,
+        name + ': click to UTF-16 source fragment failed');
+      // Same command key+payload must not produce another row. Different
+      // version, quote and paid target must be denied without leaking text.
+      const sameOriginHeaders = {
+        Origin: base, 'Content-Type': 'application/x-www-form-urlencoded'
+      };
+      const replay = await page.request.post(base + '/reader/101/comments', {
+        data: postedForm, headers: sameOriginHeaders, maxRedirects: 0
+      });
+      assert(replay.status() === 303 &&
+        (replay.headers().location || '').includes('comment=repeat'),
+        name + ': chapter comment replay was not idempotent');
+      const wrongQuote = new URLSearchParams(postedForm);
+      wrongQuote.set('command_key', 'z'.repeat(43));
+      wrongQuote.set('anchor_quote', 'несуществующая цитата');
+      const rejectedQuote = await page.request.post(base + '/reader/101/comments', {
+        data: wrongQuote.toString(), headers: sameOriginHeaders, maxRedirects: 0
+      });
+      assert(rejectedQuote.status() === 422,
+        name + ': fabricated quote reached canonical chapter storage');
+      const wrongVersion = new URLSearchParams(postedForm);
+      wrongVersion.set('version_id', '99999999');
+      const rejectedVersion = await page.request.post(base + '/reader/101/comments', {
+        data: wrongVersion.toString(), headers: sameOriginHeaders, maxRedirects: 0
+      });
+      assert(rejectedVersion.status() === 404,
+        name + ': wrong chapter edition accepted for discussion');
+      const rejectedPaid = await page.request.post(base + '/reader/103/comments', {
+        data: postedForm, headers: sameOriginHeaders, maxRedirects: 0
+      });
+      assert(rejectedPaid.status() === 404,
+        name + ': paid chapter comment accepted from public free endpoint');
+      const rejectedOrigin = await page.request.post(base + '/reader/101/comments', {
+        data: postedForm,
+        headers: { Origin: 'https://evil.invalid',
+          'Content-Type': 'application/x-www-form-urlencoded' },
+        maxRedirects: 0
+      });
+      assert(rejectedOrigin.status() === 403,
+        name + ': cross-origin chapter comment forgery not blocked');
+      const replyDetails = chapterComments.locator('.comment-reply').first();
+      await replyDetails.locator('summary').click();
+      await replyDetails.locator('textarea[name="body"]').fill('Ответ ' + name);
+      const replyPost = page.waitForResponse(response =>
+        response.url().endsWith('/reader/101/comments') &&
+        response.request().method() === 'POST');
+      await replyDetails.getByRole('button', { name: 'Отправить ответ' }).click();
+      assert((await replyPost).status() === 303,
+        name + ': same-edition comment reply rejected');
+      await page.waitForURL(/\/reader\/101\?comment=sent#chapter-comments$/);
+      assert(await chapterComments.getByText('Ответ ' + name, { exact: true }).count() === 1,
+        name + ': chapter reply not visible after posting');
+      await inspect(page, name, 'chapter-discussion');
       // Real browser: server-rendered chapter, CSRF POST, private library resume.
       await page.goto(base + '/read/101');
       assert(await page.getByRole('heading', { name: 'Начало истории' }).isVisible(), name + ': private reader heading missing');

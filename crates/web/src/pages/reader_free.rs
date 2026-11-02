@@ -1,6 +1,6 @@
 //! H-05 / S006: keep published free reading HTML intact, expose only
 //! server-verified source offsets to the authenticated reader.
-use super::{escape_html, layout, reader_free_issues};
+use super::{escape_html, layout, reader_free_comments, reader_free_issues};
 use axum::response::Html;
 use std::fmt::Write;
 
@@ -80,6 +80,18 @@ pub fn reader_with_public_features(
     csrf: Option<&str>,
     issue_feedback: Option<&str>,
 ) -> Html<String> {
+    reader_with_public_discussions(chapter, chapter_id, csrf, issue_feedback, None, None)
+}
+
+/// HTML includes only E-02 database rows verified against this free edition.
+pub fn reader_with_public_discussions(
+    chapter: &tor_reading::services::PublicChapterPage,
+    chapter_id: Option<u64>,
+    csrf: Option<&str>,
+    issue_feedback: Option<&str>,
+    comments: Option<&tor_discussions::repositories::public_chapter_comments::ChapterCommentPage>,
+    comment_feedback: Option<&str>,
+) -> Html<String> {
     let previous = chapter
         .previous_chapter_id
         .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
@@ -124,6 +136,14 @@ pub fn reader_with_public_features(
         .unwrap_or_default();
     let progress = progress_view(&chapter.body_markdown, chapter_id, chapter.version_id, csrf);
     let issues = reader_free_issues::panel(chapter_id, chapter.version_id, csrf, issue_feedback);
+    let discussion = reader_free_comments::panel(
+        chapter_id,
+        chapter.version_id,
+        csrf,
+        comments,
+        comment_feedback,
+        &chapter.body_markdown,
+    );
     let html = include_str!("../../templates/reader.html")
         .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
         .replace(
@@ -131,6 +151,7 @@ pub fn reader_with_public_features(
             &chapter_id.map_or_else(String::new, |id| id.to_string()),
         )
         .replace("<!--FREE_ISSUES_PANEL-->", &issues)
+        .replace("<!--FREE_CHAPTER_COMMENTS-->", &discussion)
         .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
         .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
         .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
