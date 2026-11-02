@@ -7,6 +7,7 @@ mod chapter_published_edit;
 mod chapter_release;
 mod chapter_schedule;
 pub use chapter_schedule::{DueReleaseOutcome, ScheduledChapter};
+mod legacy_title_guard;
 mod mail_aliases;
 mod owned_book_hash;
 mod owned_chapter_pages;
@@ -211,6 +212,9 @@ impl PgAuthoring {
             return previous_id.ok_or(AuthorError::Unavailable);
         }
 
+        if legacy_title_guard::exists(&mut tx, &book.target_language, &title_claims).await? {
+            return Err(AuthorError::Conflict);
+        }
         let book_id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO books (source_identity, target_language, title, visibility, owner_user_id, author_name, genres, tags, fandoms, description, access_level,
                  original_title, original_language, source_url, release_year, project_status, catalog_section, alt_titles)
