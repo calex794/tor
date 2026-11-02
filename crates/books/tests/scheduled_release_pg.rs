@@ -276,5 +276,131 @@ async fn scheduled_free_release_is_owner_only_cancelable_and_exactly_once() {
         none.is_none(),
         "edited version cannot be released by old schedule"
     );
+
+    // A manual first release before the deadline must not create a second
+    // first-release event when the delayed worker later observes the schedule.
+    let fourth = save_chapter(SaveChapterRequest {
+        book_id: book_id as u64,
+        chapter_id: None,
+        number: 4,
+        expected_revision: 0,
+        title: "Четвертая глава",
+        body: "Ручной выпуск до назначенного срока",
+        access: "free",
+        price_amount: 0,
+        command_key: &"f".repeat(43),
+    })
+    .unwrap();
+    let saved4 = author
+        .create_pending_free_chapter(owner, &fourth)
+        .await
+        .unwrap();
+    author
+        .schedule_pending_free_chapter(
+            owner,
+            book_id,
+            saved4.chapter_id,
+            1,
+            saved4.version_id,
+            &utc,
+        )
+        .await
+        .unwrap();
+    author
+        .release_pending_free_chapter(owner, book_id, saved4.chapter_id, 1, saved4.version_id)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE chapter_scheduled_releases
+         SET scheduled_at=now()-interval '1 second' WHERE chapter_id=$1",
+    )
+    .bind(saved4.chapter_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        author.process_one_due_scheduled_release().await.unwrap(),
+        Some((saved4.chapter_id, DueReleaseOutcome::Published))
+    );
+    let manual_release_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(saved4.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        manual_release_events, 1,
+        "manual release plus worker replay must emit only one event"
+    );
+
+    // Simulate a worker crash after claiming a due schedule. Cancellation
+    // cannot pretend to succeed during a live lease, and expiry permits retry.
+    let fifth = save_chapter(SaveChapterRequest {
+        book_id: book_id as u64,
+        chapter_id: None,
+        number: 5,
+        expected_revision: 0,
+        title: "Пятая глава",
+        body: "Восстановление после прерванного задания",
+        access: "free",
+        price_amount: 0,
+        command_key: &"g".repeat(43),
+    })
+    .unwrap();
+    let saved5 = author
+        .create_pending_free_chapter(owner, &fifth)
+        .await
+        .unwrap();
+    author
+        .schedule_pending_free_chapter(
+            owner,
+            book_id,
+            saved5.chapter_id,
+            1,
+            saved5.version_id,
+            &utc,
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE chapter_scheduled_releases
+         SET status='claimed',claim_generation=1,
+             lease_until=now()+interval '5 minutes',
+             scheduled_at=now()-interval '1 second'
+         WHERE chapter_id=$1",
+    )
+    .bind(saved5.chapter_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        author
+            .cancel_scheduled_free_chapter(owner, book_id, saved5.chapter_id)
+            .await,
+        Err(AuthorError::Conflict)
+    );
+    assert_eq!(author.process_one_due_scheduled_release().await.unwrap(), None);
+    sqlx::query(
+        "UPDATE chapter_scheduled_releases
+         SET lease_until=now()-interval '1 second' WHERE chapter_id=$1",
+    )
+    .bind(saved5.chapter_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        author.process_one_due_scheduled_release().await.unwrap(),
+        Some((saved5.chapter_id, DueReleaseOutcome::Published))
+    );
+    let recovered_release_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(saved5.chapter_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        recovered_release_events, 1,
+        "expired lease must recover exactly one publication event"
+    );
     pool.close().await;
 }
