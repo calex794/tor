@@ -265,7 +265,10 @@ async fn s058_release_fanout_is_bounded_idempotent_and_respects_preferences() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(receipt_count, 1, "denied events still get a durable receipt");
+        assert_eq!(
+            receipt_count, 1,
+            "denied events still get a durable receipt"
+        );
     }
     pool.close().await;
 }
