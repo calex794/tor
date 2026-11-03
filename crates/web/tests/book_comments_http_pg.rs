@@ -701,16 +701,17 @@ async fn e_02_http_comment_session_csrf_replay_and_hold() {
 
     // A-06 / E-03: the profile's current handle, not the legacy mention
     // registry, is the single identity for lookup and canonicalisation.
-    let handle = format!("e03reader{writer_id}");
+    let handle = format!("e03_reader{writer_id}");
     pg(
         &url,
         &format!("INSERT INTO account_settings(user_id,handle) VALUES({writer_id},'{handle}')"),
     )
     .await;
-    let handle_discovery = format!("/api/v1/social/mentions/discover?book_id={book}&q=e03");
+    let handle_discovery = format!("/api/v1/social/mentions/discover?book_id={book}&q=e03_");
     let found = html(call(&app, "GET", &handle_discovery, &cookies, ORIGIN, "").await).await;
     assert!(found.contains(&format!("\"user_id\":{writer_id}")));
-    assert!(found.contains(&handle));
+    assert!(found.contains("Other reader"));
+    assert!(!found.contains(&handle)); // Search only returns display names, not saved handles.
     let handle_key = generate_session_token();
     let handle_form =
         format!("body=Hello%20%40{handle}&command_key={handle_key}&csrf_token={csrf}");
