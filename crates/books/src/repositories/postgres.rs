@@ -8,7 +8,7 @@ pub use book_titles::OwnedBookTitles;
 pub use project_status::OwnedProjectStatus;
 mod project_status;
 pub use book_source_links::OwnedBookSourceLinks;
-mod book_delayed_schedule;
+pub mod book_delayed_schedule;
 mod chapter_batch_import;
 mod chapter_edit;
 mod chapter_publish_free;
