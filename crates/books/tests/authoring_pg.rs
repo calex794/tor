@@ -891,6 +891,8 @@ mod book_titles_pg;
 mod book_delayed_schedule_pg;
 #[path = "book_related_pg.rs"]
 mod book_related_pg;
+#[path = "book_slot_occurrences_pg.rs"]
+mod book_slot_occurrences_pg;
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
