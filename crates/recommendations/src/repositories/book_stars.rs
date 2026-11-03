@@ -98,7 +98,7 @@ impl PgBookStars {
                     (WHERE r.rating_kind='translation')::bigint AS translation_votes
              FROM books b
              LEFT JOIN user_book_star_ratings r ON r.book_id=b.id
-             WHERE b.id=$1 AND b.visibility='public'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
              GROUP BY b.id,b.title",
         )
@@ -153,7 +153,7 @@ impl PgBookStars {
              FROM user_book_star_ratings r
              JOIN books b ON b.id=r.book_id
              WHERE r.user_id=$1 AND r.book_id=$2
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted",
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(actor)
         .bind(book_id)
@@ -188,7 +188,7 @@ impl PgBookStars {
         sqlx::query_scalar(
             "SELECT EXISTS(
                 SELECT 1 FROM books b
-                WHERE b.id=$2 AND b.visibility='public'
+                WHERE b.id=$2 AND b.visibility='public' AND b.visibility_status='active'
                   AND NOT b.admin_hold AND NOT b.is_deleted
                   AND EXISTS(
                     SELECT 1 FROM reader_chapter_completions c
@@ -222,7 +222,7 @@ impl PgBookStars {
              SELECT $1,$2,$3,$4
              WHERE EXISTS (
                  SELECT 1 FROM books b WHERE b.id=$2
-                   AND b.visibility='public' AND NOT b.admin_hold
+                   AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold
                    AND NOT b.is_deleted
              ) AND EXISTS (
                  SELECT 1 FROM reader_chapter_completions c

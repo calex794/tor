@@ -74,10 +74,10 @@ SET search_path = pg_catalog,public,pg_temp AS $$
 DECLARE total BIGINT; facet RECORD;
 BEGIN
     SELECT
-      (SELECT COUNT(*) FROM new_rows WHERE visibility='public'
+      (SELECT COUNT(*) FROM new_rows WHERE visibility='public' AND visibility_status='active'
           AND NOT admin_hold AND NOT is_deleted)
       -
-      (SELECT COUNT(*) FROM old_rows WHERE visibility='public'
+      (SELECT COUNT(*) FROM old_rows WHERE visibility='public' AND visibility_status='active'
           AND NOT admin_hold AND NOT is_deleted)
     INTO total;
     PERFORM public.perf233_adjust_count(total);
@@ -135,6 +135,95 @@ FROM books b LEFT JOIN book_recommendation_audiences a ON a.book_id=b.id
 WHERE b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
   AND b.access_level='basic'
   AND COALESCE(a.audience,'general')='general';
+
+-- Following a book or creator must not reveal hidden moderation-state titles.
+-- Both UNION branches retain their original release and entitlement predicates.
+CREATE OR REPLACE VIEW reader_followed_release_candidates AS
+SELECT follow.user_id,
+       book.id AS book_id,
+       book.title AS book_title,
+       chapter.id AS chapter_id,
+       chapter.title AS chapter_title,
+       chapter.chapter_no AS chapter_number,
+       chapter.access_level,
+       chapter.price_amount AS price_minor,
+       release.created_at AS released_at,
+       (EXTRACT(EPOCH FROM release.created_at) * 1000000)::bigint AS released_micros
+FROM reader_book_follows AS follow
+JOIN books AS book ON book.id=follow.book_id
+JOIN chapters AS chapter ON chapter.book_id=book.id
+JOIN chapter_first_release_events AS release ON release.chapter_id=chapter.id
+JOIN chapter_publications AS publication ON publication.chapter_id=chapter.id
+WHERE release.created_at>=follow.created_at
+  AND book.visibility='public' AND book.visibility_status='active'
+  AND NOT book.admin_hold AND NOT book.is_deleted
+  AND chapter.visibility='public'
+  AND NOT chapter.admin_hold AND NOT chapter.is_deleted
+  AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at<=now())
+  AND (
+      (chapter.access_level='free' AND chapter.price_amount=0)
+      OR (
+          chapter.access_level='paid' AND chapter.price_amount>0
+          AND EXISTS (
+              SELECT 1
+              FROM chapter_encrypted_release_events AS encrypted
+              JOIN chapter_versions AS current_version
+                ON current_version.id=encrypted.version_id
+               AND current_version.chapter_id=encrypted.chapter_id
+              JOIN storage_objects AS object
+                ON object.id=encrypted.storage_object_id
+               AND object.id=current_version.storage_object_id
+              WHERE encrypted.chapter_id=chapter.id
+                AND encrypted.version_id=publication.version_id
+                AND object.state='attached'
+                AND object.object_kind='chapter'
+          )
+      )
+  )
+UNION
+SELECT follow.follower_user_id AS user_id,
+       book.id AS book_id,
+       book.title AS book_title,
+       chapter.id AS chapter_id,
+       chapter.title AS chapter_title,
+       chapter.chapter_no AS chapter_number,
+       chapter.access_level,
+       chapter.price_amount AS price_minor,
+       release.created_at AS released_at,
+       (EXTRACT(EPOCH FROM release.created_at) * 1000000)::bigint AS released_micros
+FROM creator_follow_periods AS follow
+JOIN chapter_first_release_events AS release
+  ON release.creator_user_id=follow.creator_user_id
+ AND release.created_at>=follow.started_at
+ AND (follow.ended_at IS NULL OR release.created_at<follow.ended_at)
+JOIN chapters AS chapter ON chapter.id=release.chapter_id
+JOIN books AS book ON book.id=chapter.book_id
+JOIN chapter_publications AS publication ON publication.chapter_id=chapter.id
+WHERE book.visibility='public' AND book.visibility_status='active'
+  AND NOT book.admin_hold AND NOT book.is_deleted
+  AND chapter.visibility='public'
+  AND NOT chapter.admin_hold AND NOT chapter.is_deleted
+  AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at<=now())
+  AND (
+      (chapter.access_level='free' AND chapter.price_amount=0)
+      OR (
+          chapter.access_level='paid' AND chapter.price_amount>0
+          AND EXISTS (
+              SELECT 1
+              FROM chapter_encrypted_release_events AS encrypted
+              JOIN chapter_versions AS current_version
+                ON current_version.id=encrypted.version_id
+               AND current_version.chapter_id=encrypted.chapter_id
+              JOIN storage_objects AS object
+                ON object.id=encrypted.storage_object_id
+               AND object.id=current_version.storage_object_id
+              WHERE encrypted.chapter_id=chapter.id
+                AND encrypted.version_id=publication.version_id
+                AND object.state='attached'
+                AND object.object_kind='chapter'
+          )
+      )
+  );
 
 CREATE TABLE moderation_book_visibility_events (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

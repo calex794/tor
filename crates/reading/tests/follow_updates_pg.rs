@@ -116,6 +116,21 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .unwrap()
         .items
         .is_empty());
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(!releases
+        .set_read_state(reader, chapter_ids[1], true)
+        .await
+        .unwrap());
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     let second = releases.latest(reader, first.next_cursor).await.unwrap();
     assert_eq!(second.items.len(), 2);
     assert_eq!(second.next_cursor, None);

@@ -76,7 +76,7 @@ impl PgReadingProgress {
              JOIN chapter_publications AS publication ON publication.chapter_id = c.id \
              JOIN chapter_versions AS v \
                ON v.id = publication.version_id AND v.chapter_id = c.id \
-             WHERE progress.user_id = $1 AND b.visibility = 'public' \
+             WHERE progress.user_id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
                AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
@@ -141,7 +141,7 @@ impl PgReadingProgress {
              JOIN chapter_versions AS v \
                  ON v.id = published.version_id AND v.chapter_id = c.id \
              WHERE c.id = $2 AND published.version_id = $3 \
-               AND b.visibility = 'public' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
                AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
                AND (c.reader_released_at IS NULL OR c.reader_released_at <= now()) \
@@ -178,7 +178,7 @@ impl PgReadingProgress {
             "SELECT published.version_id FROM chapters c \
              JOIN books b ON b.id = c.book_id \
              JOIN chapter_publications published ON published.chapter_id = c.id \
-             WHERE c.id = $1 AND b.visibility = 'public' \
+             WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
                AND c.visibility = 'public' AND c.access_level = 'free' \
                AND NOT c.admin_hold AND NOT c.is_deleted \
