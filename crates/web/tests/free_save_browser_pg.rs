@@ -96,8 +96,8 @@ async fn browser_save_free_publishes_without_separate_release_and_replay_is_safe
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:free-browser-save','ru','Free Browser','public',{owner}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:free-browser-save','ru','Free Browser','public',{owner},'basic') RETURNING id"
         ),
     )
     .parse()
