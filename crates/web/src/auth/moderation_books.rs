@@ -6,7 +6,7 @@ use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::Deserialize;
@@ -32,7 +32,7 @@ pub(super) struct HoldForm {
 pub(super) fn router() -> Router<AuthState> {
     Router::new()
         .route("/moderation/books", get(page))
-        .route("/moderation/books/{id}/hold", axum::routing::post(submit))
+        .route("/moderation/books/{id}/hold", post(submit))
 }
 
 fn error_code(error: ModerationBooksError) -> StatusCode {
@@ -108,6 +108,12 @@ pub(super) async fn page(
         return deny(StatusCode::UNAUTHORIZED);
     };
     let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let rows = match state.accounts.moderation_books(&digest, query.before).await {
         Ok(rows) => rows,
         Err(error) => return deny(error_code(error)),
@@ -135,6 +141,12 @@ pub(super) async fn submit(
         return deny(StatusCode::UNAUTHORIZED);
     };
     let digest = session_token_digest(&token);
+    match state.accounts.session_actor(&digest).await {
+        Ok(Some(actor)) if actor.moderator || actor.administrator => {}
+        Ok(Some(_)) => return deny(StatusCode::FORBIDDEN),
+        Ok(None) => return deny(StatusCode::UNAUTHORIZED),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     match state
         .accounts
         .moderate_book_hold(&digest, id, form.expected_hold, form.new_hold)
