@@ -89,6 +89,9 @@ impl PgAccounts {
         sqlx::query("SELECT source_key FROM auth_spray_windows LIMIT 0")
             .execute(&self.pool)
             .await?;
+        sqlx::query("SELECT scope FROM scoped_action_windows LIMIT 0")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

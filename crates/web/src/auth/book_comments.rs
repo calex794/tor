@@ -11,7 +11,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
-use tor_accounts::services::security::generate_session_token;
+use tor_accounts::{
+    repositories::scoped_actions::ScopedActionAdmission, services::security::generate_session_token,
+};
 use tor_discussions::{
     domain::{
         comments::{CommentBody, CommentIntentKey},
@@ -255,6 +257,16 @@ pub(super) async fn page(
     response
 }
 
+/// Shared 429 representation for book and free-chapter comment mutations.
+pub(super) fn comment_rate_denial(seconds: u32) -> Response {
+    let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
+    response.headers_mut().insert(
+        axum::http::header::RETRY_AFTER,
+        axum::http::HeaderValue::from_str(&seconds.to_string()).expect("positive seconds"),
+    );
+    response
+}
+
 pub(super) async fn submit(
     State(state): State<AuthState>,
     Path(book_id): Path<i64>,
@@ -301,6 +313,18 @@ pub(super) async fn submit(
         None => format!("book:{book_id}\n{}", body.as_str()),
     };
     let digest = Sha256::digest(payload.as_bytes());
+    let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
+    match state
+        .accounts
+        .permit_comment_action(actor, &command_digest)
+        .await
+    {
+        Ok(ScopedActionAdmission::Allowed) => {}
+        Ok(ScopedActionAdmission::Limited { retry_after }) => {
+            return comment_rate_denial(retry_after);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
     match store
         .create_with_parent(

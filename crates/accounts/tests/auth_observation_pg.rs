@@ -288,3 +288,6 @@ mod risk_load;
 
 #[path = "auth_spray_pg.rs"]
 mod auth_spray;
+
+#[path = "scoped_actions_pg.rs"]
+mod scoped_actions;

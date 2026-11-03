@@ -3,6 +3,7 @@ pub mod auth_observations;
 pub mod auth_risk_signals;
 pub mod auth_spray;
 pub mod postgres;
+pub mod scoped_actions;
 pub use postgres::PgAccounts;
 pub mod authority;
 mod credentials;
