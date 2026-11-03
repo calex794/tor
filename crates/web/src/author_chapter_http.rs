@@ -32,6 +32,11 @@ mod schedule;
 pub(crate) trait PaidChapterPublisher: Send + Sync {
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
 
+    /// Keep the encrypted paid edition private for the book-level scheduler.
+    async fn stage_new(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
+        Err(AuthorError::Unavailable)
+    }
+
     /// No paid edit without a separately configured, verified S3 writer.
     async fn publish_edit(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
         Err(AuthorError::Unavailable)
@@ -244,9 +249,6 @@ async fn create_chapter(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     if request.access == ChapterAccess::Paid {
-        if delayed_publication {
-            return deny(StatusCode::BAD_REQUEST);
-        }
         let Some(publisher) = &state.paid_author else {
             return private_response(
                 (
@@ -256,8 +258,16 @@ async fn create_chapter(
                 &[],
             );
         };
-        return match publisher.publish_new(actor, &request).await {
-            Ok(()) => private_response(Redirect::to(&format!("/books/{id}")), &[]),
+        let paid_result = if delayed_publication {
+            publisher.stage_new(actor, &request).await
+        } else {
+            publisher.publish_new(actor, &request).await
+        };
+        return match paid_result {
+            Ok(()) => private_response(
+                Redirect::to(&format!("/me/books/{id}")),
+                &[],
+            ),
             Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
             Err(AuthorError::Conflict) => private_response(
                 (
