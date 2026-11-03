@@ -22,6 +22,7 @@ mod author_chapter_pages;
 mod author_cover_http;
 mod author_pages;
 mod book_error_pages;
+mod book_related_public;
 mod book_follow_page;
 mod catalog_http;
 mod chapter_import_assets;
@@ -291,10 +292,10 @@ async fn book_detail(
             } else {
                 pages::book_detail_with_chapters_cover_stars(&book, limit, has_cover, &stars)
             };
-            let html = Html(html.0.replace(
-                "<!--BOOK_LIKES-->",
-                &pages::book_likes_strip(book.id, count),
-            ));
+            let html = match book_related_public::attach(catalog, book.id, count, html).await {
+                Ok(html) => html,
+                Err(status) => return book_error(&state, status).await,
+            };
             return book_follow_page::attach(&state.follow_control, &headers, book.id, html).await;
         }
         let html = pages::book_detail_with_chapters_cover(&book, limit, has_cover);
