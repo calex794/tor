@@ -28,7 +28,12 @@ pub(super) fn router() -> Router<AuthState> {
 }
 
 fn render(id: i64, book: &OwnedBookTitles, csrf: &str) -> Html<String> {
-    let alt = |index: usize| book.alternatives.get(index).map(String::as_str).unwrap_or("");
+    let alt = |index: usize| {
+        book.alternatives
+            .get(index)
+            .map(String::as_str)
+            .unwrap_or("")
+    };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
         <div class="auth-card author-card">
@@ -90,7 +95,9 @@ pub(super) async fn save(
     Form(form): Form<TitlesForm>,
 ) -> Response {
     if !state.cookies.same_origin(&headers)
-        || !state.cookies.valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
     {
         return deny(StatusCode::FORBIDDEN);
     }
@@ -99,10 +106,18 @@ pub(super) async fn save(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    match state.authoring.update_book_titles(
-        actor, id, form.expected_revision, &form.title, &form.original_title,
-        [&form.alt_title_1, &form.alt_title_2, &form.alt_title_3],
-    ).await {
+    match state
+        .authoring
+        .update_book_titles(
+            actor,
+            id,
+            form.expected_revision,
+            &form.title,
+            &form.original_title,
+            [&form.alt_title_1, &form.alt_title_2, &form.alt_title_3],
+        )
+        .await
+    {
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
@@ -117,7 +132,8 @@ mod tests {
     #[test]
     fn s020_names_form_escapes_injection_and_keeps_purchases_untouched() {
         let b = OwnedBookTitles {
-            title: "<script>bad</script>".into(), original_title: "修仙之路".into(),
+            title: "<script>bad</script>".into(),
+            original_title: "修仙之路".into(),
             alternatives: vec!["<img onerror=alert(1)>".into()],
             revision: 3,
         };
