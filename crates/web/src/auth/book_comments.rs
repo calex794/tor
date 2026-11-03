@@ -11,7 +11,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
-use tor_accounts::services::security::generate_session_token;
+use tor_accounts::{
+    repositories::scoped_actions::ScopedActionAdmission,
+    services::security::generate_session_token,
+};
 use tor_discussions::{
     domain::{
         comments::{CommentBody, CommentIntentKey},
@@ -226,6 +229,18 @@ pub(super) async fn page(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
+    match state
+        .accounts
+        .permit_comment_action(actor, &command_digest)
+        .await
+    {
+        Ok(ScopedActionAdmission::Allowed) => {}
+        Ok(ScopedActionAdmission::Limited { retry_after }) => {
+            return comment_rate_denial(retry_after);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
     let comments = match store.list(book_id, query.after, 25).await {
         Ok(Some(comments)) => comments,
@@ -251,6 +266,16 @@ pub(super) async fn page(
     response.headers_mut().insert(
         "content-security-policy",
         "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'".parse().expect("static CSP"),
+    );
+    response
+}
+
+/// Shared 429 representation for book and free-chapter comment mutations.
+pub(super) fn comment_rate_denial(seconds: u32) -> Response {
+    let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
+    response.headers_mut().insert(
+        axum::http::header::RETRY_AFTER,
+        axum::http::HeaderValue::from_str(&seconds.to_string()).expect("positive seconds"),
     );
     response
 }
