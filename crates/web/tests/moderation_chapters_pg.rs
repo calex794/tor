@@ -574,6 +574,16 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     .await;
     assert_eq!(blocked_page.status(), StatusCode::OK);
     assert!(html(blocked_page).await.contains("Paid chapter metadata"));
+    // Direct old-style boolean SQL cannot remove a categorical block.
+    let bypass = sqlx::query("UPDATE chapters SET admin_hold=false WHERE id=$1")
+        .bind(paid_chapter)
+        .execute(&pool)
+        .await;
+    assert!(
+        bypass.is_err(),
+        "legacy boolean writes must not bypass a categorical block"
+    );
+
     let invalid_form = format!("csrf_token={csrf}&expected_state=blocked&next_state=published");
     assert_eq!(
         request(
@@ -620,5 +630,43 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         format!(
             "{moderator}:none:hold\n{admin}:hold:none\n{admin}:none:hidden\n{admin}:hidden:blocked\n{admin}:blocked:none"
         )
+    );
+    // The old SQL seeding path remains supported for generic boolean holds.
+    let legacy_chapter: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO chapters(book_id,chapter_no,title,visibility,access_level,price_amount)
+             VALUES({book},3,'Legacy generic hold','draft','free',0) RETURNING id"
+        ),
+    )
+    .parse()
+    .unwrap();
+    pg(
+        &url,
+        &format!("UPDATE chapters SET admin_hold=true WHERE id={legacy_chapter}"),
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT moderation_state || ':' || admin_hold::int
+                 FROM chapters WHERE id={legacy_chapter}"
+            )
+        ),
+        "hold:1"
+    );
+    pg(
+        &url,
+        &format!("UPDATE chapters SET admin_hold=false WHERE id={legacy_chapter}"),
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT moderation_state || ':' || admin_hold::int
+                 FROM chapters WHERE id={legacy_chapter}"
+            )
+        ),
+        "none:0"
     );
 }
