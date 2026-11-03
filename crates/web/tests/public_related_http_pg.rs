@@ -136,7 +136,10 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     assert_eq!(unlinked_status, StatusCode::OK);
     assert!(!unlinked_page.contains("Связанные книги"));
 
-    sql(&url, &format!("UPDATE books SET admin_hold=TRUE WHERE id={target}"));
+    sql(
+        &url,
+        &format!("UPDATE books SET admin_hold=TRUE WHERE id={target}"),
+    );
     let (status, held_html) = page(app.clone(), source).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!held_html.contains(&format!("href=\"/books/{target}\"")));
@@ -152,7 +155,13 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     assert!(!draft_html.contains(&format!("href=\"/books/{target}\"")));
 
     // Even after restoring the target, the source cannot link from a draft.
-    sql(&url, &format!("UPDATE books SET visibility='public' WHERE id={target}"));
-    sql(&url, &format!("UPDATE books SET visibility='draft' WHERE id={source}"));
+    sql(
+        &url,
+        &format!("UPDATE books SET visibility='public' WHERE id={target}"),
+    );
+    sql(
+        &url,
+        &format!("UPDATE books SET visibility='draft' WHERE id={source}"),
+    );
     assert_eq!(page(app.clone(), source).await.0, StatusCode::NOT_FOUND);
 }
