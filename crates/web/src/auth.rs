@@ -59,6 +59,7 @@ mod book_sources;
 mod book_stars;
 mod book_stats_http;
 mod book_title_suggestions;
+mod book_titles;
 mod chapter_comments;
 mod chapter_thanks;
 mod checkout;
