@@ -1,6 +1,6 @@
 //! S058: first invisible chapter wins; terminal blocked/empty are durable.
 //! Only disposable /tor_ci PostgreSQL may be modified.
-use sqlx::PgPool;
+use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::{book_delayed_schedule::BookSlotFrontier, PgAuthoring},
     services::authoring::{new_book, save_chapter, AuthorError, SaveChapterRequest},
@@ -71,9 +71,15 @@ async fn force_due(pool: &PgPool, book: i64) {
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
-    let _claim_lock = super::S058_BOOK_SLOT_TEST_LOCK.lock().await;
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
+    // A database-scoped fixture lock coordinates separate Cargo test binaries.
+    // Dropping this connection releases the lock, including on panic.
+    let mut slot_fixture_lock = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(580058)")
+        .execute(&mut slot_fixture_lock)
+        .await
+        .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
     let (author, owner, book) = owner_and_book(&pool, "blocked").await;
     let two = author
@@ -211,9 +217,15 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
-    let _claim_lock = super::S058_BOOK_SLOT_TEST_LOCK.lock().await;
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
+    // A database-scoped fixture lock coordinates separate Cargo test binaries.
+    // Dropping this connection releases the lock, including on panic.
+    let mut slot_fixture_lock = sqlx::PgConnection::connect(&url).await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(580058)")
+        .execute(&mut slot_fixture_lock)
+        .await
+        .unwrap();
     let pool = PgPool::connect(&url).await.unwrap();
     let (author, owner, book) = owner_and_book(&pool, "empty").await;
     author
