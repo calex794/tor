@@ -74,8 +74,8 @@ fi
 
 # A committed public and a private row must BOTH survive the backup.
 psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -q <<'SQL'
-INSERT INTO books(source_identity,target_language,title,visibility)
-VALUES('ci:dr:public','ru','TOR Independent Backup Test','public')
+INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+VALUES('ci:dr:public','ru','TOR Independent Backup Test','public','basic')
 ON CONFLICT(source_identity,target_language) DO NOTHING;
 INSERT INTO books(source_identity,target_language,title,visibility)
 VALUES('ci:dr:hidden','ru','TOR Private Backup Test','draft')
