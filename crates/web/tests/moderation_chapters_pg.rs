@@ -271,9 +271,16 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     );
 
     assert_eq!(
-        request(&app, "GET", "/moderation/chapters?status=blocked", &mod_cookie, ORIGIN, "")
-            .await
-            .status(),
+        request(
+            &app,
+            "GET",
+            "/moderation/chapters?status=blocked",
+            &mod_cookie,
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
         StatusCode::BAD_REQUEST
     );
 
@@ -365,9 +372,7 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     );
     let audit_count: i64 = pg(
         &url,
-        &format!(
-            "SELECT count(*) FROM moderation_chapter_hold_events WHERE chapter_id={chapter}"
-        ),
+        &format!("SELECT count(*) FROM moderation_chapter_hold_events WHERE chapter_id={chapter}"),
     )
     .parse()
     .unwrap();
