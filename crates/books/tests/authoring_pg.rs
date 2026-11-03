@@ -883,3 +883,6 @@ mod registration_sources_edit_pg;
 
 #[path = "project_status_pg.rs"]
 mod project_status_pg;
+
+#[path = "book_titles_pg.rs"]
+mod book_titles_pg;

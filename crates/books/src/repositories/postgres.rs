@@ -1,6 +1,8 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
 mod book_source_links;
+mod book_titles;
+pub use book_titles::OwnedBookTitles;
 pub use project_status::OwnedProjectStatus;
 mod project_status;
 pub use book_source_links::OwnedBookSourceLinks;
