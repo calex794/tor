@@ -40,9 +40,7 @@ mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
 mod auth_observation;
-pub(crate) fn auth_observation_dropped() -> u64 {
-    auth_observation::dropped_count()
-}
+pub(crate) use auth_observation::dropped_count as auth_observation_dropped;
 mod account_form_http;
 mod account_home;
 mod author_book_page;
@@ -84,6 +82,7 @@ mod mail;
 mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
+mod moderation_books;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
@@ -192,7 +191,6 @@ fn router_inner(
     let authoring = PgAuthoring::new(accounts.pool().clone());
     let checkout = tor_commerce::repositories::checkout::PgCheckout::new(accounts.pool().clone());
     let paid_checkout_enabled = std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1");
-    // Layer sales require two independent, explicit switches on top of direct paid checkout.
     let layer_pages_enabled = std::env::var("TOR_LAYER_PAGES_ENABLED").as_deref() == Ok("1");
     let layer_checkout_enabled =
         paid_checkout_enabled && layer_pages_enabled && layer_checkout_api::configured();
@@ -264,6 +262,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
+        .merge(moderation_books::router())
         .merge(book_project_status::router().merge(book_titles::router()))
         .merge(book_related::router())
         .route("/mail", get(mail::index))
@@ -420,9 +419,7 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = cover_routes
-        .into_iter()
-        .fold(app, |app, cover| app.merge(cover));
+    let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }
