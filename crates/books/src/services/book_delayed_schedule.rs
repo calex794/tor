@@ -104,8 +104,16 @@ mod tests {
         ] {
             assert_eq!(parse_publication_times(&invalid), Err(AuthorError::Invalid));
         }
-        assert_eq!(parse_publication_times(&slots(&vec!["00:00"; 100])).unwrap().len(), 100);
-        assert_eq!(parse_publication_times(&slots(&vec!["00:00"; 101])), Err(AuthorError::Invalid));
+        assert_eq!(
+            parse_publication_times(&slots(&vec!["00:00"; 100]))
+                .unwrap()
+                .len(),
+            100
+        );
+        assert_eq!(
+            parse_publication_times(&slots(&vec!["00:00"; 101])),
+            Err(AuthorError::Invalid)
+        );
         assert_eq!(publication_time_text(1439).unwrap(), "23:59");
         assert_eq!(publication_time_text(-1), Err(AuthorError::Invalid));
     }

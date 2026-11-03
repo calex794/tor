@@ -44,7 +44,10 @@ async fn s058_book_schedule_owner_collaborator_cadence_acl_and_revision() {
     let source = format!("tor-ci:s058-book-cadence:{owner}:{}", std::process::id());
     let book = new_book(&source, "ru", "Расписание книги", &"u".repeat(43)).unwrap();
     let book_id = author.create_owned_book(owner, &book).await.unwrap();
-    let empty = author.get_book_delayed_schedule(owner, book_id).await.unwrap();
+    let empty = author
+        .get_book_delayed_schedule(owner, book_id)
+        .await
+        .unwrap();
     assert_eq!(empty.schedule_revision, 0);
     assert!(empty.publication_times.is_empty());
     assert_eq!(
@@ -52,59 +55,89 @@ async fn s058_book_schedule_owner_collaborator_cadence_acl_and_revision() {
         Err(AuthorError::Missing)
     );
     assert_eq!(
-        author.replace_book_delayed_schedule(stranger, book_id, true, 2, &times(&["09:00"]))
+        author
+            .replace_book_delayed_schedule(stranger, book_id, true, 2, &times(&["09:00"]))
             .await,
         Err(AuthorError::Missing)
     );
     assert_eq!(
-        author.replace_book_delayed_schedule(owner, book_id, true, 0, &times(&["09:00"]))
+        author
+            .replace_book_delayed_schedule(owner, book_id, true, 0, &times(&["09:00"]))
             .await,
         Err(AuthorError::Invalid)
     );
     let slots = times(&["09:00", "09:00", "18:00"]);
-    let first = author.replace_book_delayed_schedule(owner, book_id, true, 2, &slots)
-        .await.unwrap();
+    let first = author
+        .replace_book_delayed_schedule(owner, book_id, true, 2, &slots)
+        .await
+        .unwrap();
     assert_eq!(first.schedule_revision, 1);
     assert_eq!(first.publication_times, slots);
     assert!(first.next_slot_utc.as_deref().unwrap().ends_with('Z'));
     assert!(first.anchor_date.is_some());
     assert!(first.next_slot_index.is_some());
-    assert_eq!(author.replace_book_delayed_schedule(owner, book_id, true, 2, &slots)
-        .await.unwrap().schedule_revision, 1);
+    assert_eq!(
+        author
+            .replace_book_delayed_schedule(owner, book_id, true, 2, &slots)
+            .await
+            .unwrap()
+            .schedule_revision,
+        1
+    );
 
     PgBookMembers::new(pool.clone())
         .add_collaborator(owner, book_id, translator, BookRole::Translator)
-        .await.unwrap();
-    assert_eq!(author.get_book_delayed_schedule(translator, book_id).await.unwrap(), first);
-    let changed = author.replace_book_delayed_schedule(
-        translator, book_id, true, 2, &times(&["10:00"]),
-    ).await.unwrap();
+        .await
+        .unwrap();
+    assert_eq!(
+        author
+            .get_book_delayed_schedule(translator, book_id)
+            .await
+            .unwrap(),
+        first
+    );
+    let changed = author
+        .replace_book_delayed_schedule(translator, book_id, true, 2, &times(&["10:00"]))
+        .await
+        .unwrap();
     assert_eq!(changed.schedule_revision, 2);
     assert_eq!(changed.anchor_date, first.anchor_date);
     assert_eq!(changed.publication_times, times(&["10:00"]));
-    let disabled = author.replace_book_delayed_schedule(
-        owner, book_id, false, 2, &times(&["10:00"]),
-    ).await.unwrap();
+    let disabled = author
+        .replace_book_delayed_schedule(owner, book_id, false, 2, &times(&["10:00"]))
+        .await
+        .unwrap();
     assert_eq!(disabled.schedule_revision, 3);
     assert!(disabled.anchor_date.is_none());
     assert!(disabled.next_slot_utc.is_none());
     assert!(disabled.next_slot_index.is_none());
     sqlx::query("UPDATE book_members SET is_active=FALSE WHERE book_id=$1 AND user_id=$2")
-        .bind(book_id).bind(translator).execute(&pool).await.unwrap();
+        .bind(book_id)
+        .bind(translator)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         author.get_book_delayed_schedule(translator, book_id).await,
         Err(AuthorError::Missing)
     );
     assert_eq!(
-        author.replace_book_delayed_schedule(translator, book_id, true, 1, &times(&["12:00"]))
+        author
+            .replace_book_delayed_schedule(translator, book_id, true, 1, &times(&["12:00"]))
             .await,
         Err(AuthorError::Missing)
     );
-    let kept = author.get_book_delayed_schedule(owner, book_id).await.unwrap();
+    let kept = author
+        .get_book_delayed_schedule(owner, book_id)
+        .await
+        .unwrap();
     assert_eq!(kept, disabled);
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM book_delayed_publication_slots WHERE book_id=$1",
-    ).bind(book_id).fetch_one(&pool).await.unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM book_delayed_publication_slots WHERE book_id=$1")
+            .bind(book_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count, 1);
     pool.close().await;
 }

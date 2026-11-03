@@ -81,7 +81,9 @@ async fn load_schedule(
         .collect::<Result<Vec<_>, _>>()?;
     Ok((
         BookDelayedSchedule {
-            enabled: row.try_get("enabled").map_err(|_| AuthorError::Unavailable)?,
+            enabled: row
+                .try_get("enabled")
+                .map_err(|_| AuthorError::Unavailable)?,
             interval_days: row
                 .try_get("interval_days")
                 .map_err(|_| AuthorError::Unavailable)?,
@@ -149,7 +151,11 @@ impl PgAuthoring {
         actor: i64,
         book: i64,
     ) -> Result<BookDelayedSchedule, AuthorError> {
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         require_manager(&mut tx, actor, book, false).await?;
         let (current, _) = load_schedule(&mut tx, book).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
@@ -171,7 +177,11 @@ impl PgAuthoring {
             return Err(AuthorError::Invalid);
         }
         let minutes = parse_publication_times(publication_times)?;
-        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
         require_manager(&mut tx, actor, book, true).await?;
         let (current, prior_anchor) = load_schedule(&mut tx, book).await?;
         if current.schedule_revision > 0
@@ -212,7 +222,11 @@ impl PgAuthoring {
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(|_| AuthorError::Unavailable)?;
-                if remaining { today } else { today + 1 }
+                if remaining {
+                    today
+                } else {
+                    today + 1
+                }
             };
             let first_day = on_cadence_day(anchor, today, interval_days)?;
             let (target, index) = next_slot(&mut tx, first_day, interval_days, &minutes).await?;
