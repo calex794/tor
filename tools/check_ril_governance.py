@@ -58,6 +58,7 @@ SCOPE_CALLS = {
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
     "active_role", "create_free", "create_paid",
+    "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
@@ -72,7 +73,6 @@ OWNER_CALLS = {
     "owned_book_source_links", "update_book_source_links",
     "owned_project_status", "update_project_status",
     "owned_book_titles", "update_book_titles",
-    "owned_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "add_book", "remove_book_if_current", "create_once",
