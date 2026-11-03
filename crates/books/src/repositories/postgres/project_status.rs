@@ -96,7 +96,14 @@ mod tests {
         for value in ["", "ongoing", "completed", "paused", "planned"] {
             assert!(valid_project_status(value));
         }
-        for invalid in ["public", "hidden", "paid", "blocked", "completed ", "deleted"] {
+        for invalid in [
+            "public",
+            "hidden",
+            "paid",
+            "blocked",
+            "completed ",
+            "deleted",
+        ] {
             assert!(!valid_project_status(invalid));
         }
     }
