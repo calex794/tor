@@ -304,8 +304,6 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
             ("POST", "/moderation/books/{id}/visibility", "submit_visibility"): "crates/web/src/auth/moderation_books.rs",
-            ("GET", "/moderation/chapters", "page"): "crates/web/src/auth/moderation_chapters.rs",
-            ("POST", "/moderation/chapters/{id}/hold", "submit"): "crates/web/src/auth/moderation_chapters.rs",
         }
         if (allowed_moderation.get(admin_key) != entry["source"]
                 or policy != "scoped"):
@@ -416,18 +414,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
             )
-        elif entry["source"] in {
-            "crates/web/src/auth/moderation_books.rs",
-            "crates/web/src/auth/moderation_chapters.rs",
-        }:
-            # Both reviewed moderation capabilities use a digest bound to the
-            # live role, and lock it again in the same PG mutation transaction.
-            is_chapter = entry["source"].endswith("moderation_chapters.rs")
+        elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
+            # Book approval is the only reviewed moderation capability.
+            # The live session/role are locked again in the PG mutation.
             if entry["method"] == "GET":
-                operation = "moderation_chapters" if is_chapter else "moderation_books"
+                operation = "moderation_books"
             else:
                 operation = (
-                    "moderate_chapter_hold" if is_chapter else
                     "moderate_book_visibility" if entry["handler"] == "submit_visibility"
                     else "moderate_book_hold"
                 )

@@ -38,8 +38,8 @@ BEGIN
       VALUES('migration-test@example.invalid','Migration Fixture','$argon2id$ci-placeholder')
       RETURNING id INTO new_user_id;
 
-    INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-      VALUES ('ci-public-book','ru','CI Public Book','public',new_user_id)
+    INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+      VALUES ('ci-public-book','ru','CI Public Book','public',new_user_id,'basic')
       RETURNING id INTO public_book_id;
 
     INSERT INTO books(source_identity,target_language,title,visibility)
