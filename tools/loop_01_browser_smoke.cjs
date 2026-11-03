@@ -62,7 +62,8 @@ async function screenshot(page, screen, step) {
 
         await owner.getByRole('link', { name: 'Добавить главу' }).click();
         await owner.waitForURL('**/chapters/new');
-        await owner.getByLabel('Номер главы').fill('1');
+        assert(await owner.getByLabel('Номер главы').inputValue() === '1',
+          screen + ': automatic first chapter number must be 1');
         await owner.getByLabel('Название главы').fill('Первый выпуск петли');
         await owner.getByLabel('Текст главы').fill('Начало истории петли.');
         await owner.getByRole('button', { name: 'Сохранить главу' }).click();
@@ -101,7 +102,8 @@ async function screenshot(page, screen, step) {
         ), screen + ': owner demand not visible');
         await owner.getByRole('link', { name: 'Добавить главу' }).click();
         await owner.waitForURL('**/chapters/new');
-        await owner.getByLabel('Номер главы').fill('2');
+        assert(await owner.getByLabel('Номер главы').inputValue() === '2',
+          screen + ': automatic second chapter number must be 2');
         await owner.getByLabel('Название главы').fill('Второй выпуск петли');
         await owner.getByLabel('Текст главы').fill('Продолжение истории петли.');
         await owner.getByRole('button', { name: 'Сохранить главу' }).click();

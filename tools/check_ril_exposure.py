@@ -32,6 +32,7 @@ AUDITED_ADMIN_MAIL = {
 }
 AUDITED_REFUND_ADMIN = {
     ("GET", "/admin/finance/refunds", "page", "admin_refund"),
+    ("POST", "/admin/finance/refunds/approve", "approval::submit", "admin_refund_approve"),
 }
 AUDITED_SUPPORT_ADMIN = {
     ("GET", "/admin/support", "index", "support_admin"),

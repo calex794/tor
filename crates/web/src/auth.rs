@@ -40,9 +40,7 @@ mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
 mod auth_observation;
-pub(crate) fn auth_observation_dropped() -> u64 {
-    auth_observation::dropped_count()
-}
+pub(crate) use auth_observation::dropped_count as auth_observation_dropped;
 mod account_form_http;
 mod account_home;
 mod author_book_page;
@@ -85,6 +83,7 @@ mod mail;
 mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
+mod moderation_books;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
@@ -264,6 +263,7 @@ fn router_inner(
         .route("/users/{target_user_id}/block", post(friendship::block))
         .merge(admin_mail_routes::router())
         .merge(admin_refund_review::router())
+        .merge(moderation_books::router())
         .merge(book_project_status::router().merge(book_titles::router()))
         .merge(book_related::router().merge(book_origin_metadata::router()))
         .route("/mail", get(mail::index))
@@ -420,9 +420,7 @@ fn router_inner(
             behavior_consent::annotate_verified_ril,
         ))
         .merge(chapter_routes);
-    let app = cover_routes
-        .into_iter()
-        .fold(app, |app, cover| app.merge(cover));
+    let app = cover_routes.into_iter().fold(app, Router::merge);
     let app = app.merge(crate::recommendation_http::routes(rec_runtime.clone()));
     crate::recommendation_http::instrument(app, Some(rec_runtime))
 }

@@ -1,13 +1,14 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
 mod book_related;
-pub use book_related::{OwnedRelatedBooks, RelatedBookCard};
+pub use book_related::{ManagedRelatedBooks, RelatedBookCard};
 mod book_source_links;
 mod book_titles;
 pub use book_titles::OwnedBookTitles;
 pub use project_status::OwnedProjectStatus;
 mod project_status;
 pub use book_source_links::OwnedBookSourceLinks;
+mod book_delayed_schedule;
 mod chapter_batch_import;
 mod chapter_edit;
 mod chapter_publish_free;
@@ -18,7 +19,7 @@ pub use chapter_schedule::{DueReleaseOutcome, ScheduledChapter};
 mod legacy_title_guard;
 mod mail_aliases;
 mod origin_metadata;
-pub use origin_metadata::OwnedOriginMetadata;
+pub use origin_metadata::ManagedOriginMetadata;
 mod owned_book_hash;
 mod owned_chapter_pages;
 mod registration_links;
@@ -95,6 +96,9 @@ impl PgCatalog {
         )
         .execute(&self.pool)
         .await?;
+        // A stale schema can still serve catalog pages while B-06 chapter
+        // writes fail. Do not report readiness until its working table is
+        // present and readable by the restricted application role.
         sqlx::query("SELECT chapter_id, version_id FROM chapter_working_drafts LIMIT 0")
             .execute(&self.pool)
             .await?;
@@ -168,7 +172,6 @@ impl PgAuthoring {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
-
     /// A successful command creates exactly one private draft. Concurrent retries
     /// with the same payload return the original ID; changed payloads conflict.
     pub async fn create_owned_book(
@@ -389,7 +392,7 @@ impl PgAuthoring {
             || request.book_id <= 0
             || request.chapter_id.is_some()
             || request.expected_revision != 0
-            || request.number <= 0
+            || request.number < 0
             || request.access != ChapterAccess::Free
             || request.price_amount != 0
             || !valid_command_key(&request.command_key)
@@ -421,8 +424,7 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
 
-        // Row lock serializes publication against deletion, owner changes and
-        // concurrent chapter creation. Unowned and missing books are identical.
+        // Book row lock serializes owner changes and competing chapter saves.
         let book_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
              WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
@@ -434,8 +436,7 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         let book_visibility = book_visibility.ok_or(AuthorError::Missing)?;
-        // Adding a chapter to a public book requires a separate chapter-release
-        // workflow. Saving text must not implicitly publish it.
+        // Public-book chapters use a separate release command.
         if book_visibility != "draft" {
             return Err(AuthorError::Conflict);
         }
@@ -484,12 +485,14 @@ impl PgAuthoring {
             });
         }
 
+        let number =
+            super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters (book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES ($1,$2,$3,'public','free',0,1) RETURNING id",
         )
         .bind(request.book_id)
-        .bind(request.number)
+        .bind(number)
         .bind(&request.title)
         .fetch_one(&mut *tx)
         .await

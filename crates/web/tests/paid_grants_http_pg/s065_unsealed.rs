@@ -37,6 +37,23 @@ impl Drop for AdminRoleCleanup<'_> {
     }
 }
 
+struct ModeratorRoleCleanup<'a> {
+    url: &'a str,
+    user_id: i64,
+}
+impl Drop for ModeratorRoleCleanup<'_> {
+    fn drop(&mut self) {
+        pg(
+            self.url,
+            &format!(
+                "UPDATE account_roles SET is_active=FALSE \
+                 WHERE user_id={} AND role='moderator'",
+                self.user_id
+            ),
+        );
+    }
+}
+
 pub(super) async fn assert_unsealed_admin_read(
     url: &str,
     accounts: &PgAccounts,
@@ -47,7 +64,7 @@ pub(super) async fn assert_unsealed_admin_read(
     book: i64,
 ) {
     let (admin_id, admin_session) = account(accounts, "s065-admin-unsealed@tor-ci.example").await;
-    let (_, outsider) = account(accounts, "s065-unsealed-outsider@tor-ci.example").await;
+    let (moderator_id, outsider) = account(accounts, "s065-unsealed-outsider@tor-ci.example").await;
     pg(
         url,
         &format!(
@@ -58,6 +75,29 @@ pub(super) async fn assert_unsealed_admin_read(
         url,
         user_id: admin_id,
     };
+    // A live moderator is still not a site administrator. The resulting
+    // denials cover both free and paid unpublished working drafts in each
+    // authenticated router mode (browser, API-only G, no-G PG).
+    pg(
+        url,
+        &format!(
+            "INSERT INTO account_roles(user_id,role,is_active) \
+             VALUES({moderator_id},'moderator',TRUE) \
+             ON CONFLICT(user_id,role) DO UPDATE SET is_active=TRUE"
+        ),
+    );
+    let _moderator_cleanup = ModeratorRoleCleanup {
+        url,
+        user_id: moderator_id,
+    };
+    let mod_actor = accounts
+        .session_actor(&tor_accounts::services::security::session_token_digest(
+            &outsider,
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(mod_actor.moderator && !mod_actor.administrator);
     let csrf = tor_accounts::services::security::generate_session_token();
     let signed_before = fake.signed.load(Ordering::SeqCst);
     // These two drafts have no published pointer or B/G-attached object.

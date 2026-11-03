@@ -148,7 +148,7 @@ async function readyCover(page, bookId, viewport, scheme) {
         ]);
         assert(aliasConflict.status() === 409,
           'S020: edited Chinese title blocks new duplicate registration');
-        // S020: change origin language/year/category independently of publication.
+        // S020: a member-scoped origin editor persists data without changing publication.
         await page.goto(base + '/me/books/' + bookId + '/settings/origin');
         await page.getByLabel('Язык оригинала (например, zh, en)').fill('zh');
         await page.getByLabel('Год выпуска').fill('2024');
@@ -231,7 +231,8 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.goto(base + '/me/books/' + bookId);
 
         await page.getByRole('link', { name: 'Добавить главу' }).click();
-        await page.getByLabel('Номер главы').fill('1');
+        assert(await page.getByLabel('Номер главы').inputValue() === '1',
+          'S021: new book starts with automatic chapter number 1');
         await page.getByLabel('Название главы').fill('Проверочная глава');
         await page.getByLabel('Текст главы').fill('Опубликованный текст с обложкой.');
         await page.getByRole('button', { name: 'Сохранить главу' }).click();

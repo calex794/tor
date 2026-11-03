@@ -1,4 +1,4 @@
-//! S020: owner-only origin language, release year and catalog section.
+//! S020: active Book member origin language, release year and catalog section.
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use tor_books::{repositories::postgres::OwnedOriginMetadata, services::authoring::AuthorError};
+use tor_books::{repositories::postgres::ManagedOriginMetadata, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,7 +25,7 @@ pub(super) fn router() -> Router<AuthState> {
     Router::new().route("/me/books/{id}/settings/origin", get(edit).post(save))
 }
 
-fn render(book_id: i64, book: &OwnedOriginMetadata, csrf: &str) -> Html<String> {
+fn render(book_id: i64, book: &ManagedOriginMetadata, csrf: &str) -> Html<String> {
     let year = book
         .release_year
         .map(|value| value.to_string())
@@ -90,7 +90,7 @@ pub(super) async fn edit(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.owned_origin_metadata(actor, book_id).await {
+    let book = match state.authoring.manageable_origin_metadata(actor, book_id).await {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn s020_origin_form_escapes_book_title_and_has_no_publication_switch() {
-        let book = OwnedOriginMetadata {
+        let book = ManagedOriginMetadata {
             title: "<script>alert(1)</script>".into(),
             original_language: "zh".into(),
             release_year: Some(2024),

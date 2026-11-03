@@ -1,7 +1,8 @@
 //! S020: owner edits all translated/original aliases without leaking drafts.
 use sqlx::PgPool;
-use tor_books::repositories::postgres::PgAuthoring;
+use tor_books::repositories::{book_members::PgBookMembers, postgres::PgAuthoring};
 use tor_books::services::authoring::AuthorError;
+use tor_contracts::access::BookRole;
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
@@ -122,5 +123,108 @@ async fn s020_owner_titles_update_claims_atomically_across_languages() {
         .fetch_one(&pool)
         .await
         .unwrap();
+    let translator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S020 Titles Translator','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("s020-titles-translator-{marker}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let moderator: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES($1,'S020 Titles Moderator','$argon2id$test') RETURNING id",
+    )
+    .bind(format!("s020-titles-moderator-{marker}@example.test"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let members = PgBookMembers::new(pool.clone());
+    members
+        .add_collaborator(owner, book, translator, BookRole::Translator)
+        .await
+        .unwrap();
+    members
+        .add_collaborator(owner, book, moderator, BookRole::Moderator)
+        .await
+        .unwrap();
+    assert!(repo
+        .owned_book_titles(translator, book)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(repo
+        .owned_book_titles(moderator, book)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(repo
+        .owned_book_titles(translator, conflict)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        repo.update_book_titles(translator, conflict, 1, "Denied", "", ["", "", ""])
+            .await,
+        Err(AuthorError::Missing)
+    );
+    let second_alias = format!("S020 second alias {marker}");
+    assert_eq!(
+        repo.update_book_titles(
+            moderator,
+            book,
+            2,
+            &renamed_title,
+            &chinese,
+            [&english, &second_alias, ""],
+        )
+        .await,
+        Ok(3)
+    );
+    assert_eq!(
+        repo.update_book_titles(translator, book, 2, "Stale", "", ["", "", ""])
+            .await,
+        Err(AuthorError::Conflict)
+    );
+    members
+        .revoke_collaborator(owner, book, moderator)
+        .await
+        .unwrap();
+    assert!(repo
+        .owned_book_titles(moderator, book)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        repo.update_book_titles(moderator, book, 3, "Denied", "", ["", "", ""])
+            .await,
+        Err(AuthorError::Missing)
+    );
+    assert!(repo
+        .owned_book_titles(translator, book)
+        .await
+        .unwrap()
+        .is_some());
+    sqlx::query("UPDATE books SET admin_hold=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.owned_book_titles(owner, book).await.unwrap().is_none());
+    assert_eq!(
+        repo.update_book_titles(translator, book, 3, "Held", "", ["", "", ""])
+            .await,
+        Err(AuthorError::Missing)
+    );
+    sqlx::query("UPDATE books SET admin_hold=FALSE,is_deleted=TRUE WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo
+        .owned_book_titles(translator, book)
+        .await
+        .unwrap()
+        .is_none());
     pool.close().await;
 }

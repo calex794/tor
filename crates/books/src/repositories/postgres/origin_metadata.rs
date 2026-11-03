@@ -1,9 +1,9 @@
-//! S020: owner-only origin metadata edits, independent of publication and access.
+//! S020: active Book member origin metadata edits, independent of publication and access.
 use super::PgAuthoring;
 use crate::services::authoring::AuthorError;
 use sqlx::Row;
 
-pub struct OwnedOriginMetadata {
+pub struct ManagedOriginMetadata {
     pub title: String,
     pub original_language: String,
     pub release_year: Option<i32>,
@@ -53,19 +53,24 @@ pub fn validate_origin_metadata(
 }
 
 impl PgAuthoring {
-    pub async fn owned_origin_metadata(
+    pub async fn manageable_origin_metadata(
         &self,
         actor: i64,
         book_id: i64,
-    ) -> Result<Option<OwnedOriginMetadata>, AuthorError> {
+    ) -> Result<Option<ManagedOriginMetadata>, AuthorError> {
         if actor <= 0 || book_id <= 0 {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT title, original_language, release_year, catalog_section,
-                    origin_metadata_revision
-             FROM books
-             WHERE id=$1 AND owner_user_id=$2 AND NOT is_deleted AND NOT admin_hold",
+            "SELECT b.title, b.original_language, b.release_year,
+                    b.catalog_section, b.origin_metadata_revision
+             FROM books b WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
+               AND EXISTS (
+                 SELECT 1 FROM book_members m WHERE m.book_id=b.id
+                   AND m.user_id=$2 AND m.is_active
+                   AND (m.role IN ('translator','moderator')
+                        OR (m.role='owner' AND b.owner_user_id=$2))
+               )",
         )
         .bind(book_id)
         .bind(actor)
@@ -73,7 +78,7 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         row.map(|row| {
-            Ok(OwnedOriginMetadata {
+            Ok(ManagedOriginMetadata {
                 title: row.try_get("title").map_err(|_| AuthorError::Unavailable)?,
                 original_language: row
                     .try_get("original_language")
@@ -109,33 +114,45 @@ impl PgAuthoring {
         }
         let (language, year, section) =
             validate_origin_metadata(raw_language, raw_year, raw_section)?;
-        let updated: Option<i64> = sqlx::query_scalar(
-            "UPDATE books
-                SET original_language=$4, release_year=$5, catalog_section=$6,
-                    origin_metadata_revision=origin_metadata_revision+1
-              WHERE id=$1 AND owner_user_id=$2
-                AND origin_metadata_revision=$3
-                AND origin_metadata_revision < 9223372036854775807
-                AND NOT is_deleted AND NOT admin_hold
-              RETURNING origin_metadata_revision",
+        let mut tx = self.pool.begin().await.map_err(|_| AuthorError::Unavailable)?;
+        // Same Book -> BookMember lock order as collaborator revocation and S020
+        // related/title/status writes. No stale access check before the write.
+        let revision: Option<i64> = sqlx::query_scalar(
+            "SELECT b.origin_metadata_revision FROM books b
+             WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
+             FOR UPDATE OF b",
         )
         .bind(book_id)
-        .bind(actor)
-        .bind(expected_revision)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        let revision = revision.ok_or(AuthorError::Missing)?;
+        super::book_related::lock_manageable_member(&mut tx, actor, book_id).await?;
+        if revision != expected_revision {
+            return Err(AuthorError::Conflict);
+        }
+        let next_revision = revision.checked_add(1).ok_or(AuthorError::Conflict)?;
+        let updated: Option<i64> = sqlx::query_scalar(
+            "UPDATE books
+             SET original_language=$2, release_year=$3, catalog_section=$4,
+                 origin_metadata_revision=$5
+             WHERE id=$1 AND origin_metadata_revision=$6
+             RETURNING origin_metadata_revision",
+        )
+        .bind(book_id)
         .bind(&language)
         .bind(year)
         .bind(&section)
-        .fetch_optional(&self.pool)
+        .bind(next_revision)
+        .bind(expected_revision)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        if let Some(revision) = updated {
-            return Ok(revision);
+        if updated != Some(next_revision) {
+            return Err(AuthorError::Conflict);
         }
-        if self.owned_origin_metadata(actor, book_id).await?.is_some() {
-            Err(AuthorError::Conflict)
-        } else {
-            Err(AuthorError::Missing)
-        }
+        tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
+        Ok(next_revision)
     }
 }
 

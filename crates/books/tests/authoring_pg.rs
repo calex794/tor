@@ -887,8 +887,98 @@ mod project_status_pg;
 #[path = "book_titles_pg.rs"]
 mod book_titles_pg;
 
+#[path = "book_delayed_schedule_pg.rs"]
+mod book_delayed_schedule_pg;
 #[path = "book_related_pg.rs"]
 mod book_related_pg;
 
 #[path = "origin_metadata_pg.rs"]
 mod origin_metadata_pg;
+
+#[tokio::test]
+#[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
+async fn b_auto_number_serializes_free_delayed_and_paid_writers() {
+    use tor_books::{
+        repositories::paid_storage::PgPaidStorage,
+        services::authoring::{save_chapter, SaveChapterRequest},
+    };
+    let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
+    assert!(url.ends_with("/tor_ci"), "Never run on production");
+    let pool = PgPool::connect(&url).await.expect("PG connect");
+    let author = PgAuthoring::new(pool.clone());
+    let owner: i64 = sqlx::query_scalar(
+        "INSERT INTO users(email_normalized,display_name,password_hash)
+         VALUES('b-auto-number@tor-ci.example','Auto author','$argon2id$test')
+         ON CONFLICT(email_normalized) DO UPDATE SET display_name=EXCLUDED.display_name
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let book = new_book(
+        &format!("tor-ci:chapter-number:{owner}:{nonce}"),
+        "ru",
+        "Автонумерация",
+        &"a".repeat(43),
+    )
+    .unwrap();
+    let book_id = author.create_owned_book(owner, &book).await.unwrap();
+    let make = |title: &str, key: &str, access: &str, price_amount: i64| {
+        save_chapter(SaveChapterRequest {
+            book_id: book_id as u64,
+            chapter_id: None,
+            number: 0,
+            expected_revision: 0,
+            title,
+            body: "New chapter content",
+            access,
+            price_amount,
+            command_key: key,
+        })
+        .unwrap()
+    };
+    let first = make("First", &"b".repeat(43), "free", 0);
+    let saved = author.create_free_chapter(owner, &first).await.unwrap();
+    assert_eq!(
+        author.create_free_chapter(owner, &first).await.unwrap(),
+        saved
+    );
+    let second = make("Second", &"c".repeat(43), "free", 0);
+    let third = make("Third", &"d".repeat(43), "free", 0);
+    let (second_out, third_out) = tokio::join!(
+        author.create_free_chapter(owner, &second),
+        author.create_free_chapter(owner, &third)
+    );
+    assert_ne!(
+        second_out.unwrap().chapter_id,
+        third_out.unwrap().chapter_id
+    );
+    author.release_book(owner, book_id).await.unwrap();
+    let published = make("Published", &"e".repeat(43), "free", 0);
+    author
+        .create_published_free_chapter(owner, &published)
+        .await
+        .unwrap();
+    let delayed = make("Delayed", &"f".repeat(43), "free", 0);
+    author
+        .create_pending_free_chapter(owner, &delayed)
+        .await
+        .unwrap();
+    let paid = make("Paid", &"g".repeat(43), "paid", 175);
+    PgPaidStorage::new(pool.clone())
+        .prepare_new_paid_chapter(owner, &paid)
+        .await
+        .unwrap();
+    let assigned: Vec<i32> =
+        sqlx::query_scalar("SELECT chapter_no FROM chapters WHERE book_id=$1 ORDER BY chapter_no")
+            .bind(book_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(assigned, vec![1, 2, 3, 4, 5, 6]);
+    pool.close().await;
+}

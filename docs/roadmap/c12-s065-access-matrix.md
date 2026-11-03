@@ -4,6 +4,12 @@
 
 Source: [S065 scenario](https://app.notion.com/p/40432a84beec8115b1f9f8567f855ce7), [C-12 task](tasks.tsv), [reader API](api-v1.md), [paid delivery contract](../contracts/paid-delivery-v1.md). Reference implementation: NEwBOO `backend/app/web/routes/reader_page.py` and related history/preview routes; absent legacy endpoints in TOR are **not** equivalent to implemented feature parity.
 
+## 03.11.2026 — moderator identity is not site-administrator content entitlement
+
+NEwBOO's `chapter_access_service.py` distinguishes `is_moderator` from `is_admin` at a moderation gate. Its `reader_context_service.py` explicitly overrides normal paid read denial with `can_read=true` for **administrator**, not `moderator`. TOR therefore now recognizes `AccountRole::Moderator` independently in PostgreSQL/A sessions and allows an existing administrator to grant/revoke it, but does **not** implicitly grant private S065 text/PNG, mail, finance, purchased grant or history privilege to this new A role.
+
+Integration acceptance uses a real active moderator session for the existing negative S065 private encrypted/unsealed chapter and asset routes, including revoked administrator isolation; account A-05 acceptance verifies grant/revoke/role event and a moderator's inability to grant another role. Moderator tooling, moderation capabilities and scoped book-team preview still need a separate parity design and tests; no production migration rollout or new default moderator account.
+
 ## 03.11.2026 — immutable audit for privileged content deliveries
 
 TOR records the **successful delivery** of privileged content, rather than merely the presence of the administrator reader shell. The real A session and active administrator role are rechecked under PostgreSQL `FOR SHARE` locks in the same transaction as the audit insert. A failed insert/commit suppresses the privileged response. The record contains only administrator ID, chapter ID, version ID, action (`unsealed_body`, `sealed_chapter_grant`, `sealed_asset_grant`) and timestamp. It never stores text, S3/object URLs, image IDs, encryption keys, cookies or session digests. Audit rows are immutable (no UPDATE/DELETE). Buyer and Layer grants cannot create an administrative audit. A revoked role cannot create new successful-delivery events.
