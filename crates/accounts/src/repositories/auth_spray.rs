@@ -93,7 +93,7 @@ impl PgAccounts {
             .execute(&mut *tx)
             .await?
             .rows_affected();
-            let new_target = i32::from(inserted == 1);
+            let new_target = if inserted == 1 { 1 } else { 0 };
             sqlx::query(
                 "UPDATE auth_spray_windows
                  SET failed_attempts=failed_attempts+1,
