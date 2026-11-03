@@ -169,11 +169,12 @@ impl PgNotifications {
                     "SELECT EXISTS(
                         SELECT 1 FROM reader_followed_release_candidates r
                         JOIN books b ON b.id=r.book_id
-                        JOIN chapter_publications p ON p.chapter_id=r.chapter_id
+                        JOIN chapter_first_release_events first
+                          ON first.chapter_id=r.chapter_id
                         JOIN outbox_events e ON e.id=$4::uuid
                         WHERE r.user_id=$2 AND r.chapter_id=$1
                           AND b.owner_user_id=$3
-                          AND p.version_id=(e.payload->>'version_id')::bigint
+                          AND first.version_id=(e.payload->>'version_id')::bigint
                     )",
                 )
                 .bind(object_id)
