@@ -24,7 +24,8 @@ use tor_books::repositories::{
     PgCatalog,
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
-use tor_reading::repositories::PgReader;
+use tor_reading::repositories::{PgBookLikes, PgReader};
+use tor_recommendations::repositories::PgBookStars;
 use tor_social::repositories::notifications::PgNotifications;
 use tor_storage::{
     repositories::{paid_delivery::PgPrivateDelivery, s3::S3PrivateStore},
@@ -287,6 +288,24 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         .unwrap()
         .expect("reader must expose public parent before chapter release");
     assert!(public_book.chapters.is_empty());
+    // Every additional public-book HTTP gate must independently accept
+    // the same new public book. This rules out unrelated rating/likes 404s.
+    assert!(
+        PgBookStars::new(pool.clone())
+            .visible_summary(book)
+            .await
+            .unwrap()
+            .is_some(),
+        "public book star projection must exist even before first chapter"
+    );
+    assert!(
+        PgBookLikes::new(pool.clone())
+            .public_count(book)
+            .await
+            .unwrap()
+            .is_some(),
+        "public book likes projection must exist even before first chapter"
+    );
     let (toc_before_status, toc_before) =
         request_body(&app, &format!("/api/v1/books/{book}/toc")).await;
     assert_eq!(toc_before_status, StatusCode::OK);
