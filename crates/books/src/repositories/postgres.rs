@@ -96,9 +96,7 @@ impl PgCatalog {
         )
         .execute(&self.pool)
         .await?;
-        // A stale schema can still serve catalog pages while B-06 chapter
-        // writes fail. Do not report readiness until its working table is
-        // present and readable by the restricted application role.
+        // Readiness must cover working drafts, not just the public catalog schema.
         sqlx::query("SELECT chapter_id, version_id FROM chapter_working_drafts LIMIT 0")
             .execute(&self.pool)
             .await?;
