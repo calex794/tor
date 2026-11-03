@@ -1,5 +1,7 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
+mod book_related;
+pub use book_related::{OwnedRelatedBooks, RelatedBookCard};
 mod book_source_links;
 mod book_titles;
 pub use book_titles::OwnedBookTitles;
