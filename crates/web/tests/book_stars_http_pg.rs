@@ -295,9 +295,9 @@ async fn f_05_http_reader_ratings_work_translation_csrf_and_moderation() {
         false,
         ORIGIN.to_owned(),
     );
-    let forged = format!("csrf_token=bad&rating_kind=work&rating=3");
+    let forged = "csrf_token=bad&rating_kind=work&rating=3";
     assert_eq!(
-        call(&second_app, "POST", &rate, &other_cookie, ORIGIN, &forged)
+        call(&second_app, "POST", &rate, &other_cookie, ORIGIN, forged)
             .await
             .status(),
         StatusCode::FORBIDDEN,
