@@ -194,7 +194,10 @@ impl PgAccounts {
         if chapter_id <= 0
             || expected_revision < 0
             || expected_version.is_some_and(|id| id <= 0)
-            || !matches!(expected_moderation_state, "none" | "hold" | "hidden" | "blocked")
+            || !matches!(
+                expected_moderation_state,
+                "none" | "hold" | "hidden" | "blocked"
+            )
             || !matches!(expected_visibility, "draft" | "public")
             || !matches!(action, "published" | "draft")
         {
@@ -207,13 +210,12 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         let actor = current_moderator(&mut tx, session).await?;
         // Same lock ordering as B authoring: book before chapter.
-        let book_id: Option<i64> = sqlx::query_scalar(
-            "SELECT book_id FROM chapters WHERE id=$1 AND NOT is_deleted",
-        )
-        .bind(chapter_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| ModerationBooksError::Unavailable)?;
+        let book_id: Option<i64> =
+            sqlx::query_scalar("SELECT book_id FROM chapters WHERE id=$1 AND NOT is_deleted")
+                .bind(chapter_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|_| ModerationBooksError::Unavailable)?;
         let book_id = book_id.ok_or(ModerationBooksError::Missing)?;
         let book: Option<(String, String, bool, Option<i64>)> = sqlx::query_as(
             "SELECT visibility,visibility_status,admin_hold,owner_user_id
@@ -226,8 +228,15 @@ impl PgAccounts {
         let (book_visibility, book_status, book_hold, owner) =
             book.ok_or(ModerationBooksError::Missing)?;
         let row: Option<(
-            String, String, bool, i64, String, i64,
-            Option<i64>, Option<i64>, bool,
+            String,
+            String,
+            bool,
+            i64,
+            String,
+            i64,
+            Option<i64>,
+            Option<i64>,
+            bool,
         )> = sqlx::query_as(
             "SELECT c.visibility,c.moderation_state,c.admin_hold,c.edit_revision,
                     c.access_level,c.price_amount,p.version_id,d.version_id,
@@ -243,7 +252,18 @@ impl PgAccounts {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
-        let Some((visibility,mod_state,held,revision,access,price,publication,working,release_due)) = row else {
+        let Some((
+            visibility,
+            mod_state,
+            held,
+            revision,
+            access,
+            price,
+            publication,
+            working,
+            release_due,
+        )) = row
+        else {
             return Err(ModerationBooksError::Missing);
         };
         if visibility != expected_visibility
@@ -311,15 +331,17 @@ impl PgAccounts {
                 if release.rows_affected() != 1 {
                     return Err(ModerationBooksError::Stale);
                 }
-            } else if (access == "paid" && price <= 0)
-                || (access == "free" && price != 0)
-            {
+            } else if (access == "paid" && price <= 0) || (access == "free" && price != 0) {
                 return Err(ModerationBooksError::Stale);
             }
             // Existing paid pointer is B-owned: never attach another version,
             // edit an encrypted object or change a purchase grant here.
         }
-        let next_visibility = if action == "published" { "public" } else { "draft" };
+        let next_visibility = if action == "published" {
+            "public"
+        } else {
+            "draft"
+        };
         sqlx::query(
             "UPDATE chapters SET visibility=$2,admin_hold=false,
                 moderation_state='none' WHERE id=$1",
@@ -360,5 +382,4 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(())
     }
-
 }
