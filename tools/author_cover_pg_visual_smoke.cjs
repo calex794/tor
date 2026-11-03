@@ -154,8 +154,8 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.getByLabel('Год выпуска').fill('2024');
         await page.getByLabel('Раздел каталога').selectOption('novels/chinese');
         await page.getByRole('button', { name: 'Сохранить сведения' }).click();
-        await page.waitForURL(base + '/me/books/' + bookId);
-        await page.goto(base + '/me/books/' + bookId + '/settings/origin');
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings/origin');
+        await page.reload();
         assert(await page.getByLabel('Язык оригинала (например, zh, en)').inputValue() === 'zh',
           'S020: original language persists');
         assert(await page.getByLabel('Год выпуска').inputValue() === '2024',
