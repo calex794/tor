@@ -23,8 +23,8 @@ for n in range(1, buyers + 1):
 owner = smoke.scalar(
     "SELECT id FROM users WHERE email_normalized='perf252-paid-author@tor-ci.example'")
 smoke.require(owner > 0, "author registration failed")
-smoke.pg(f"""INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
-VALUES(200001,'ci:perf252:paid-book','ru','PERF252 покупка','public',{owner})""")
+smoke.pg(f"""INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
+VALUES(200001,'ci:perf252:paid-book','ru','PERF252 покупка','public',{owner},'basic')""")
 smoke.pg("""INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
 SELECT 2000000+n,200001,n,'PERF252 paid chapter ' || n,'public','paid',100
 FROM generate_series(1,300) n""")
