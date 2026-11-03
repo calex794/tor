@@ -1,4 +1,4 @@
-//! S020: atomic owner-only editing of book titles and their duplicate claims.
+//! S020: atomic active-book-member editing of book titles and their duplicate claims.
 //! Published editions and private drafts keep their source identity and reader rights.
 use super::PgAuthoring;
 use crate::services::{authoring::AuthorError, book_registration::normalized_title};
@@ -68,9 +68,14 @@ impl PgAuthoring {
             return Ok(None);
         }
         let row = sqlx::query(
-            "SELECT title, original_title, alt_titles, title_metadata_revision
-               FROM books WHERE id=$1 AND owner_user_id=$2
-               AND NOT is_deleted AND NOT admin_hold",
+            "SELECT b.title,b.original_title,b.alt_titles,b.title_metadata_revision
+               FROM books b WHERE b.id=$1 AND NOT b.is_deleted AND NOT b.admin_hold
+                 AND EXISTS (
+                   SELECT 1 FROM book_members m WHERE m.book_id=b.id
+                     AND m.user_id=$2 AND m.is_active
+                     AND (m.role IN ('translator','moderator')
+                          OR (m.role='owner' AND b.owner_user_id=$2))
+                 )",
         )
         .bind(book_id)
         .bind(actor)
@@ -117,16 +122,16 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         let book = sqlx::query(
-            "SELECT target_language, title_metadata_revision
-             FROM books WHERE id=$1 AND owner_user_id=$2
-               AND NOT is_deleted AND NOT admin_hold FOR UPDATE",
+            "SELECT b.target_language,b.title_metadata_revision
+             FROM books b WHERE b.id=$1
+               AND NOT b.is_deleted AND NOT b.admin_hold FOR UPDATE OF b",
         )
         .bind(book_id)
-        .bind(actor)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Missing)?;
+        super::book_related::lock_manageable_member(&mut tx, actor, book_id).await?;
         let language: String = book
             .try_get("target_language")
             .map_err(|_| AuthorError::Unavailable)?;
@@ -181,11 +186,10 @@ impl PgAuthoring {
 
         let new_revision = revision.checked_add(1).ok_or(AuthorError::Unavailable)?;
         sqlx::query(
-            "UPDATE books SET title=$3, original_title=$4, alt_titles=$5,
-             title_metadata_revision=$6 WHERE id=$1 AND owner_user_id=$2",
+            "UPDATE books SET title=$2, original_title=$3, alt_titles=$4,
+             title_metadata_revision=$5 WHERE id=$1",
         )
         .bind(book_id)
-        .bind(actor)
         .bind(&title)
         .bind(&original)
         .bind(&alternatives)
