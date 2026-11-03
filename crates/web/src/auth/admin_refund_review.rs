@@ -1,13 +1,14 @@
 //! S036: site-administrator-only, audited and read-only refund review.
 //! Never expose an approve/reject operation until the separate step-up and
 //! approved commercial refund policy requirements are implemented.
+mod approval;
 use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::Deserialize;
@@ -24,7 +25,12 @@ pub(super) struct Cursor {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/admin/finance/refunds", get(page))
+    Router::new()
+        .route("/admin/finance/refunds", get(page))
+        .route(
+            "/admin/finance/refunds/approve",
+            post(approval::submit).layer(DefaultBodyLimit::max(4096)),
+        )
 }
 
 fn status(state: &str) -> &'static str {
@@ -68,7 +74,7 @@ fn render_request(row: &AdminRefundRequest) -> String {
     )
 }
 
-fn page_shell(content: &str) -> Response {
+fn page_shell(content: &str, cookies: &[String]) -> Response {
     let mut response = private_response(
         pages::layout(
             "Заявки на возврат — администратор",
@@ -83,7 +89,7 @@ fn page_shell(content: &str) -> Response {
                 </div></section>"#
             ),
         ),
-        &[],
+        cookies,
     )
     .into_response();
     response.headers_mut().insert(
@@ -120,12 +126,21 @@ pub(super) async fn page(
             return deny(StatusCode::SERVICE_UNAVAILABLE);
         }
     };
+    let allow_approval = approval::enabled(&state);
+    let (csrf, cookies) = if allow_approval {
+        state.cookies.csrf_for_page(&headers)
+    } else {
+        (String::new(), Vec::new())
+    };
     let mut body = String::new();
     if requests.is_empty() {
         body.push_str("<p>Заявок не найдено.</p>");
     }
     for request in &requests {
         body.push_str(&render_request(request));
+        if allow_approval {
+            body.push_str(&approval::form(request, &csrf));
+        }
     }
     if requests.len() == 30 {
         if let Some(last) = requests.last() {
@@ -137,7 +152,7 @@ pub(super) async fn page(
             .expect("html cursor");
         }
     }
-    page_shell(&body)
+    page_shell(&body, &cookies)
 }
 
 #[cfg(test)]
