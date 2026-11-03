@@ -270,15 +270,32 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         count_before, 0,
         "private ciphertext is not reader publication"
     );
+    // Diagnose the live book-page gate independently from the scheduled
+    // chapter release. A public book with no released chapters must be 200.
+    let book_row = pg(
+        &url,
+        &format!(
+            "SELECT visibility || '|' || admin_hold::text || '|' || is_deleted::text
+             FROM books WHERE id={book}"
+        ),
+    );
+    assert_eq!(book_row, "public|false|false");
+    let public_reader = PgReader::new(pool.clone());
+    let public_book = public_reader
+        .public_book_page(book as u64, 100, None)
+        .await
+        .unwrap()
+        .expect("reader must expose public parent before chapter release");
+    assert!(public_book.chapters.is_empty());
+    let (toc_before_status, toc_before) =
+        request_body(&app, &format!("/api/v1/books/{book}/toc")).await;
+    assert_eq!(toc_before_status, StatusCode::OK);
     let (before_status, before) = request_body(&app, &format!("/books/{book}")).await;
     assert_eq!(
         before_status,
         StatusCode::OK,
-        "book page must load before release"
+        "book page must load before release; public JSON TOC is {toc_before_status}, book row is {book_row}"
     );
-    let (toc_before_status, toc_before) =
-        request_body(&app, &format!("/api/v1/books/{book}/toc")).await;
-    assert_eq!(toc_before_status, StatusCode::OK);
     assert!(
         !toc_before.contains("S058 queued paid chapter"),
         "draft must not appear in public JSON TOC"
