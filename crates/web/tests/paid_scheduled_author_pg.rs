@@ -11,8 +11,7 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use sqlx::PgPool;
-use std::{env, num::NonZeroU32, sync::Arc};
+use std::{env, num::NonZeroU32, process::Command, sync::Arc};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
@@ -37,6 +36,23 @@ const ENDPOINT: &str = "http://127.0.0.1:9000";
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const BUCKET: &str = "tor-s058-scheduled-author-ci";
 const SECRET: &str = "S058_UNPUBLISHED_PAID_BODY_SECRET_2026";
+
+/// The web crate deliberately has no direct SQLx dependency. Use the same
+/// restricted tor_ci psql fixture as paid_author_pg, not a second data port.
+fn pg(url: &str, sql: &str) -> String {
+    assert!(url.starts_with("postgresql://tor_app:") && url.ends_with("/tor_ci"));
+    assert_eq!(env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
+    let output = Command::new("psql")
+        .args(["-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url, "--command", sql])
+        .output()
+        .expect("psql client required by isolated PG test");
+    assert!(
+        output.status.success(),
+        "disposable fixture SQL failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
 
 async fn request_body(app: &Router, path: &str) -> (StatusCode, String) {
     let response = app
@@ -111,7 +127,7 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     let store = S3PrivateStore::new(client, BUCKET.to_owned()).unwrap();
 
     let catalog = PgCatalog::connect(&url).await.unwrap();
-    let pool: PgPool = catalog.pool();
+    let pool = catalog.pool();
     let accounts = PgAccounts::from_pool(pool.clone());
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -129,15 +145,15 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         )
         .await
         .unwrap();
-    let book: i64 = sqlx::query_scalar(
-        "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-         VALUES($1,'ru',$2,'public',$3) RETURNING id",
+    let book: i64 = pg(
+        &url,
+        &format!(
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
+             VALUES('ci:s058-paid-author:{nonce}','ru','S058 scheduled paid book {nonce}','public',{owner})
+             RETURNING id"
+        ),
     )
-    .bind(format!("ci:s058-paid-author:{nonce}"))
-    .bind(format!("S058 scheduled paid book {nonce}"))
-    .bind(owner)
-    .fetch_one(&pool)
-    .await
+    .parse()
     .unwrap();
 
     let author = PgAuthoring::new(pool.clone());
@@ -194,29 +210,27 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         "the delayed command key cannot change into immediate publication"
     );
 
-    let staged: (i64, i64, String, String, i64, String) = sqlx::query_as(
-        "SELECT c.id,v.id,c.visibility,c.access_level,c.price_amount,o.state
-         FROM chapters c JOIN chapter_versions v ON v.chapter_id=c.id
-         JOIN storage_objects o ON o.id=v.storage_object_id
-         JOIN chapter_reader_manifests m ON m.chapter_id=c.id
-           AND m.version_id=v.id AND m.storage_object_id=o.id
-         WHERE c.book_id=$1",
-    )
-    .bind(book)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let (chapter, version, visibility, access, price, state) = staged;
-    assert_eq!(
-        (visibility.as_str(), access.as_str(), price, state.as_str()),
-        ("draft", "paid", 175, "attached")
+    let staged = pg(
+        &url,
+        &format!(
+            "SELECT c.id || '|' || v.id || '|' || c.visibility || '|' ||
+                    c.access_level || '|' || c.price_amount || '|' || o.state
+             FROM chapters c JOIN chapter_versions v ON v.chapter_id=c.id
+             JOIN storage_objects o ON o.id=v.storage_object_id
+             JOIN chapter_reader_manifests m ON m.chapter_id=c.id
+               AND m.version_id=v.id AND m.storage_object_id=o.id
+             WHERE c.book_id={book}"
+        ),
     );
-    let count_before: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
-            .bind(chapter)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let columns = staged.split('|').collect::<Vec<_>>();
+    assert_eq!(columns.len(), 6);
+    let chapter: i64 = columns[0].parse().unwrap();
+    let version: i64 = columns[1].parse().unwrap();
+    assert_eq!((&columns[2..]), &["draft", "paid", "175", "attached"]);
+    let count_before: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={chapter}"),
+    ).parse().unwrap();
     assert_eq!(
         count_before, 0,
         "private ciphertext is not reader publication"
@@ -232,26 +246,27 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     );
 
     // Make the specific book's next slot due. No worker is activated.
-    sqlx::query(
-        "UPDATE book_delayed_publication_settings
-         SET next_slot_at=clock_timestamp()-interval '1 second' WHERE book_id=$1",
-    )
-    .bind(book)
-    .execute(&pool)
-    .await
-    .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "UPDATE book_delayed_publication_settings
+                 SET next_slot_at=clock_timestamp()-interval '1 second'
+                 WHERE book_id={book} RETURNING book_id"
+            ),
+        ),
+        book.to_string(),
+    );
     let token = generate_session_token();
     let claim = author.claim_due_book_slot(&token).await.unwrap().unwrap();
     assert_eq!(
         author.bind_book_slot_frontier(&claim, &token).await,
         Ok(BookSlotFrontier::Ready(chapter))
     );
-    let still_private: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
-            .bind(chapter)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let still_private: i64 = pg(
+        &url,
+        &format!("SELECT count(*) FROM chapter_publications WHERE chapter_id={chapter}"),
+    ).parse().unwrap();
     assert_eq!(still_private, 0);
     assert_eq!(
         author.release_bound_book_slot(&claim, &token).await,
@@ -264,32 +279,29 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         .release_bound_book_slot(&claim, &token)
         .await
         .is_err());
-    let published: (String, String, i64, i64) = sqlx::query_as(
-        "SELECT c.visibility,c.access_level,c.price_amount,p.version_id
-         FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
-         WHERE c.id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        published,
-        ("public".to_owned(), "paid".to_owned(), 175, version)
+    let published = pg(
+        &url,
+        &format!(
+            "SELECT c.visibility || '|' || c.access_level || '|' ||
+                    c.price_amount || '|' || p.version_id
+             FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
+             WHERE c.id={chapter}"
+        ),
     );
-    let (first, encrypted, outbox): (i64, i64, i64) = sqlx::query_as(
-        "SELECT
-          (SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1),
-          (SELECT count(*) FROM chapter_encrypted_release_events WHERE chapter_id=$1),
-          (SELECT count(*) FROM outbox_events
-           WHERE dedupe_key=$2)",
-    )
-    .bind(chapter)
-    .bind(format!("chapter-published:{chapter}:{version}"))
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!((first, encrypted, outbox), (1, 1, 1));
+    assert_eq!(published, format!("public|paid|175|{version}"));
+    let counts = pg(
+        &url,
+        &format!(
+            "SELECT
+             (SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={chapter})
+             || '|' ||
+             (SELECT count(*) FROM chapter_encrypted_release_events WHERE chapter_id={chapter})
+             || '|' ||
+             (SELECT count(*) FROM outbox_events
+              WHERE dedupe_key='chapter-published:{chapter}:{version}')"
+        ),
+    );
+    assert_eq!(counts, "1|1|1");
     let (_, after) = request_body(&app, &format!("/books/{book}")).await;
     assert!(
         !after.contains(SECRET),
