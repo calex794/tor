@@ -150,6 +150,20 @@ fn auth_limit_error(status: StatusCode, registration: bool) -> Response {
     }
 }
 
+fn spray_rate_error(seconds: u32) -> Response {
+    let mut reply = auth_problem(
+        StatusCode::TOO_MANY_REQUESTS,
+        "Слишком много попыток входа",
+        "Повторите попытку немного позже.",
+        false,
+    );
+    reply.headers_mut().insert(
+        header::RETRY_AFTER,
+        HeaderValue::from_str(&seconds.to_string()).expect("numeric retry-after"),
+    );
+    reply
+}
+
 fn login_storage_error(stage: LoginOutcome) -> Response {
     observability::record_login_outcome(stage);
     // Static label only: do not log email, password, cookie or password hash.
@@ -396,6 +410,19 @@ pub(super) async fn login(
             return auth_limit_error(status, false);
         }
     };
+    let spray = match login_limiter::spray_start(&state, &email, audit.verified_ip).await {
+        Ok(guard) => guard,
+        Err(login_limiter::SprayError::Locked(seconds)) => {
+            observed.report(auth_observation::Outcome::RateLimited, None);
+            observability::record_login_outcome(LoginOutcome::RateLimited);
+            return spray_rate_error(seconds);
+        }
+        Err(login_limiter::SprayError::Unavailable) => {
+            eprintln!("TOR_AUTH_UNAVAILABLE stage=spray_preflight");
+            observed.report(auth_observation::Outcome::Unavailable, None);
+            return auth_limit_error(StatusCode::SERVICE_UNAVAILABLE, false);
+        }
+    };
     let stored = match state.accounts.find_user(&email).await {
         Ok(stored) => stored,
         Err(_) => {
@@ -452,6 +479,14 @@ pub(super) async fn login(
             },
             stored.as_ref().map(|u| u.id),
         );
+        if let Some(ref guard) = spray {
+            if !login_limiter::spray_failure(&state, guard).await {
+                eprintln!("TOR_AUTH_UNAVAILABLE stage=spray_record");
+                if guard.enforcing() {
+                    return auth_limit_error(StatusCode::SERVICE_UNAVAILABLE, false);
+                }
+            }
+        }
         return invalid_credentials();
     }
     let Some(user) = stored else {
