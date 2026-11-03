@@ -143,6 +143,11 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
             )
             .await?
         {
+            self.paid
+                .rearm_prepared_paid_frontier(
+                    actor, request.book_id, pending.chapter_id, pending.version_id,
+                )
+                .await?;
             return Ok(());
         }
         let version = ChapterVersionRef {
@@ -188,9 +193,20 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
                 )
                 .await?
         {
+            self.paid
+                .rearm_prepared_paid_frontier(
+                    actor, request.book_id, pending.chapter_id, pending.version_id,
+                )
+                .await?;
             return Ok(());
         }
-        attached
+        attached?;
+        self.paid
+            .rearm_prepared_paid_frontier(
+                actor, request.book_id, pending.chapter_id, pending.version_id,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Existing paid chapter: prepare a new immutable B revision while the
