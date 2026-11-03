@@ -16,6 +16,38 @@ pub async fn issue_paid_asset_grant(
     purchase_id: Option<PositiveId>,
     object_id: &ObjectId,
 ) -> Result<AssetDeliveryGrant, DeliveryError> {
+    issue_asset_grant(
+        entitlement, assets, storage, actor, chapter_id, purchase_id, object_id, false,
+    )
+    .await
+}
+
+/// Only the separate, live A-session-bound administrator entitlement may
+/// select this G exception. No buyer or subscriber grant may call it.
+pub async fn issue_paid_admin_asset_grant(
+    entitlement: &dyn EntitlementPort,
+    assets: &dyn ChapterAssetPort,
+    storage: &dyn PrivateObjectDeliveryPort,
+    actor: Actor,
+    chapter_id: PositiveId,
+    object_id: &ObjectId,
+) -> Result<AssetDeliveryGrant, DeliveryError> {
+    issue_asset_grant(
+        entitlement, assets, storage, actor, chapter_id, None, object_id, true,
+    )
+    .await
+}
+
+async fn issue_asset_grant(
+    entitlement: &dyn EntitlementPort,
+    assets: &dyn ChapterAssetPort,
+    storage: &dyn PrivateObjectDeliveryPort,
+    actor: Actor,
+    chapter_id: PositiveId,
+    purchase_id: Option<PositiveId>,
+    object_id: &ObjectId,
+    administrator: bool,
+) -> Result<AssetDeliveryGrant, DeliveryError> {
     let pinned = match entitlement
         .resolve_entitlement(actor, chapter_id, purchase_id)
         .await?
@@ -38,9 +70,15 @@ pub async fn issue_paid_asset_grant(
         return Err(DeliveryError::Unavailable);
     }
     let issued_at = Utc::now();
-    let signed = storage
-        .grant_verified_object(&encrypted, DEFAULT_SIGNED_GET_TTL)
-        .await?;
+    let signed = if administrator {
+        storage
+            .grant_verified_admin_asset(&encrypted, DEFAULT_SIGNED_GET_TTL)
+            .await?
+    } else {
+        storage
+            .grant_verified_object(&encrypted, DEFAULT_SIGNED_GET_TTL)
+            .await?
+    };
     verify_granted_content(&encrypted, &signed)?;
 
     match entitlement
