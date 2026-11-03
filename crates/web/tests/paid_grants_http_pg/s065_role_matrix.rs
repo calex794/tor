@@ -302,6 +302,39 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         serde_json::from_slice(&to_bytes(held.into_body(), 8192).await.unwrap()).unwrap();
     assert_eq!(held_body["version_id"], version.to_string());
     assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND chapter_id={chapter}"
+            )
+        ),
+        3,
+        "two sealed chapter grants and one PNG grant must be audited"
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND version_id={version} \
+                 AND action='sealed_chapter_grant'"
+            )
+        ),
+        2
+    );
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND version_id={version} \
+                 AND action='sealed_asset_grant'"
+            )
+        ),
+        1
+    );
     // Even held/draft sealed content remains reachable from the same
     // canonical URL, without disclosing its identity to a guest.
     let held_redirect = read_page(reader, &canonical, Some(&admin_session)).await;
@@ -315,6 +348,32 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
             .await
             .status(),
         StatusCode::NOT_FOUND
+    );
+
+    // NEwBOO's administrator bypass is bound to the CURRENT version.
+    // A sealed object from the history is not a reader fallback when neither
+    // a working draft nor a published pointer currently selects it.
+    pg(
+        url,
+        &format!("DELETE FROM chapter_publications WHERE chapter_id={chapter}"),
+    );
+    let before_orphan = fake.signed.load(Ordering::SeqCst);
+    let orphan = send(
+        grants,
+        &path,
+        Some(&admin_session),
+        Some(&csrf),
+        Some(ORIGIN),
+        r#"{"source":"administrator"}"#,
+    )
+    .await;
+    assert_ne!(orphan.status(), StatusCode::OK);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), before_orphan);
+    pg(
+        url,
+        &format!(
+            "INSERT INTO chapter_publications(chapter_id,version_id) VALUES({chapter},{version})"
+        ),
     );
 
     // Revocation must invalidate the next admin GET/POST, including a held
@@ -354,6 +413,17 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         assert!(to_bytes(r.into_body(), 8192).await.unwrap().is_empty());
     }
     assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id}"
+            )
+        ),
+        3,
+        "rejected/revoked reads must not create successful-delivery audit entries"
+    );
     // Historic NEwBOO aliases are absent, not unguarded admin back doors.
     for path in [
         format!("/reader/{chapter}/history?version_id={version}"),

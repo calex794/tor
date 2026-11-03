@@ -1,3 +1,4 @@
+pub mod admin_reader_audit;
 pub mod admin_reader_entitlements;
 pub mod checkout;
 pub mod direct_exposure;

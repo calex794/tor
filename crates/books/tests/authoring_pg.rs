@@ -887,5 +887,8 @@ mod project_status_pg;
 #[path = "book_titles_pg.rs"]
 mod book_titles_pg;
 
+#[path = "book_related_pg.rs"]
+mod book_related_pg;
+
 #[path = "origin_metadata_pg.rs"]
 mod origin_metadata_pg;

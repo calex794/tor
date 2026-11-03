@@ -73,6 +73,7 @@ OWNER_CALLS = {
     "owned_project_status", "update_project_status",
     "owned_book_titles", "update_book_titles",
     "owned_origin_metadata", "update_origin_metadata",
+    "owned_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",
     "add_book", "remove_book_if_current", "create_once",

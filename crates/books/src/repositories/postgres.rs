@@ -1,5 +1,7 @@
 //! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
+mod book_related;
+pub use book_related::{OwnedRelatedBooks, RelatedBookCard};
 mod book_source_links;
 mod book_titles;
 pub use book_titles::OwnedBookTitles;
@@ -93,9 +95,6 @@ impl PgCatalog {
         )
         .execute(&self.pool)
         .await?;
-        // A stale schema can still serve catalog pages while B-06 chapter
-        // writes fail. Do not report readiness until its working table is
-        // present and readable by the restricted application role.
         sqlx::query("SELECT chapter_id, version_id FROM chapter_working_drafts LIMIT 0")
             .execute(&self.pool)
             .await?;

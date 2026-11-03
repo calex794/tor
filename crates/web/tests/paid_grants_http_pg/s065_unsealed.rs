@@ -355,6 +355,18 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(current["version_id"], next.to_string());
         assert_eq!(current["body_markdown"], "NEW PRIVATE REVISION");
     }
+    // Two versions of each free/paid draft were delivered through each
+    // of the three supported admin router modes, never to other actors.
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id} AND action='unsealed_body'"
+            )
+        ),
+        12
+    );
     assert_eq!(
         scalar(
             url,
@@ -474,4 +486,15 @@ pub(super) async fn assert_unsealed_admin_read(
         .await
         .unwrap()
         .is_empty());
+    assert_eq!(
+        scalar(
+            url,
+            &format!(
+                "SELECT count(*) FROM reader_admin_chapter_access_audit \
+                 WHERE admin_user_id={admin_id}"
+            )
+        ),
+        12,
+        "revoked or denied reads cannot create successful-delivery audit records"
+    );
 }
