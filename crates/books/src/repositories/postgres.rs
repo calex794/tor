@@ -1,5 +1,5 @@
-//! Public catalog SQLx adapter, ported from bokarust@d11b27b.
 mod book_description;
+pub use book_description::ManagedBookDescription;
 mod book_related;
 pub use book_related::{ManagedRelatedBooks, RelatedBookCard};
 mod book_source_links;
@@ -7,8 +7,8 @@ mod book_titles;
 pub use book_titles::OwnedBookTitles;
 pub use project_status::OwnedProjectStatus;
 mod project_status;
-pub use book_source_links::OwnedBookSourceLinks;
-mod book_delayed_schedule;
+pub use book_source_links::ManagedBookSourceLinks;
+pub mod book_delayed_schedule;
 mod chapter_batch_import;
 mod chapter_edit;
 mod chapter_publish_free;

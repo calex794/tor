@@ -62,6 +62,8 @@ SCOPE_CALLS = {
     "manageable_project_status", "update_project_status",
     "owned_book_titles", "update_book_titles",
     "manageable_origin_metadata", "update_origin_metadata",
+    "manageable_book_description", "update_book_description",
+    "manageable_book_source_links", "update_book_source_links",
     "moderation_books", "moderate_book_hold",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
@@ -73,8 +75,7 @@ OWNER_CALLS = {
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
     "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
-    "release_book", "owned_book_description", "update_book_description",
-    "owned_book_source_links", "update_book_source_links",
+    "release_book",
 
     "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
     "owned_layers", "addable_books", "current_books", "owner_offer_state",

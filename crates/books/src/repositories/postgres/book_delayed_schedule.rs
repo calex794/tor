@@ -1,5 +1,6 @@
 //! B/S058: book-owned, Moscow-time release configuration from NEwBOO.
 //! A saved schedule is not itself a release or a promise of an active worker.
+mod occurrences;
 use super::PgAuthoring;
 use crate::services::{
     authoring::AuthorError,
@@ -7,6 +8,7 @@ use crate::services::{
         on_cadence_day, parse_publication_times, publication_time_text, BookDelayedSchedule,
     },
 };
+pub use occurrences::BookSlotClaim;
 use sqlx::{Postgres, Row, Transaction};
 
 async fn require_manager(

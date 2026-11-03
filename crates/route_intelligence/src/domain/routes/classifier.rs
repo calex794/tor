@@ -270,6 +270,7 @@ pub fn classify(matched_template: Option<&str>, method: &str) -> RoutePassport {
         (Some("/moderation/chapters/{id}/hold"), "POST") => Some(257),
         (Some("/me/books/{id}/settings/origin"), "GET") => Some(258),
         (Some("/me/books/{id}/settings/origin"), "POST") => Some(259),
+        (Some("/me/books/{id}/settings"), "GET") => Some(260),
         _ => None,
     };
     index

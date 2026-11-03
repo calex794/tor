@@ -22,7 +22,9 @@ pub(super) struct OriginForm {
 }
 
 pub(super) fn router() -> Router<AuthState> {
-    Router::new().route("/me/books/{id}/settings/origin", get(edit).post(save))
+    Router::new()
+        .route("/me/books/{id}/settings/origin", get(edit).post(save))
+        .route("/me/books/{id}/settings", get(index))
 }
 
 fn render(book_id: i64, book: &ManagedOriginMetadata, csrf: &str) -> Html<String> {
@@ -69,7 +71,7 @@ fn render(book_id: i64, book: &ManagedOriginMetadata, csrf: &str) -> Html<String
         <label for="s020-section">Раздел каталога</label>
         <select id="s020-section" name="catalog_section">{sections}</select>
         <button class="button" type="submit">Сохранить сведения</button>
-        </form><p><a href="/me/books/{book_id}">Вернуться к книге</a></p>
+        </form><p><a href="/me/books/{book_id}/settings">Все настройки книги</a></p>
         </div></div></section>"#,
         pages::escape_html(&book.title),
         pages::escape_html(csrf),
@@ -134,7 +136,7 @@ pub(super) async fn save(
         .await
     {
         Ok(_) => private_response(
-            Redirect::to(&format!("/me/books/{book_id}/settings/origin")),
+            Redirect::to(&format!("/me/books/{book_id}/settings")),
             &[],
         ),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
@@ -142,6 +144,44 @@ pub(super) async fn save(
         Err(AuthorError::Missing | AuthorError::Forbidden) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
+}
+
+
+fn render_index(id: i64, title: &str) -> Html<String> {
+    let content = format!(
+        r#"<section class="section auth-section"><div class="container">
+        <div class="auth-card author-card"><h1>Настройки книги «{}»</h1>
+        <p>Редактировать эти свойства могут действующие участники данной книги.
+        Публикация, платные главы и владение управляются отдельно.</p>
+        <ul>
+        <li><a href="/me/books/{id}/settings/titles">Названия книги</a></li>
+        <li><a href="/me/books/{id}/description">Аннотация книги</a></li>
+        <li><a href="/me/books/{id}/settings/sources">Ссылки на источники</a></li>
+        <li><a href="/me/books/{id}/settings/origin">Сведения об оригинале</a></li>
+        <li><a href="/me/books/{id}/settings/project-status">Состояние работы</a></li>
+        <li><a href="/me/books/{id}/settings/related">Связанные книги</a></li>
+        </ul></div></div></section>"#,
+        pages::escape_html(title)
+    );
+    pages::layout("Настройки книги", "Редакторские настройки книги.", &content)
+}
+
+pub(super) async fn index(
+    State(state): State<AuthState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match session_user(&state, &headers).await {
+        Ok(Some(actor)) => actor,
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    };
+    let book = match state.authoring.manageable_origin_metadata(actor, id).await {
+        Ok(Some(book)) => book,
+        Ok(None) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    private_response(render_index(id, &book.title), &[])
 }
 
 #[cfg(test)]
@@ -165,5 +205,24 @@ mod tests {
         assert!(!page.contains("name=\"visibility\""));
         assert!(!page.contains("name=\"access_level\""));
         assert!(!page.contains("name=\"target_language\""));
+    }
+
+    #[test]
+    fn s020_member_index_has_safe_links_and_escaped_title() {
+        let html = render_index(42, "<script>unsafe</script>").0;
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>"));
+        for path in [
+            "/me/books/42/settings/titles",
+            "/me/books/42/description",
+            "/me/books/42/settings/sources",
+            "/me/books/42/settings/origin",
+            "/me/books/42/settings/project-status",
+            "/me/books/42/settings/related",
+        ] {
+            assert!(html.contains(path));
+        }
+        assert!(!html.contains("/me/books/42/publish"));
+        assert!(!html.contains("/me/books/42/chapters"));
     }
 }
