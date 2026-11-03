@@ -183,7 +183,9 @@ pub(super) async fn check(
     assert_eq!(
         pg(
             &url,
-            &format!("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={pending_free}")
+            &format!(
+                "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id={pending_free}"
+            )
         ),
         "1",
         "republish must never create a second first-release fact"
@@ -348,5 +350,4 @@ pub(super) async fn check(
         ),
         "0"
     );
-
 }
