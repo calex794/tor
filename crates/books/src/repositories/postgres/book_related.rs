@@ -1,5 +1,5 @@
 //! S020: bidirectional related-book links; one canonical SQL edge per pair.
-//! A source is always owner-controlled. Search and display expose only live
+//! A source is controlled by an active Book member. Search and display expose only live
 //! public target books, never private names or hidden administration holds.
 use super::{PgAuthoring, PgCatalog};
 use crate::services::{authoring::AuthorError, book_registration::normalized_title};
@@ -12,23 +12,29 @@ pub struct RelatedBookCard {
 }
 
 #[derive(Debug)]
-pub struct OwnedRelatedBooks {
+pub struct ManagedRelatedBooks {
     pub title: String,
     pub linked: Vec<RelatedBookCard>,
 }
 
 impl PgAuthoring {
-    pub async fn owned_related_books(
+    pub async fn manageable_related_books(
         &self,
         actor: i64,
         book_id: i64,
-    ) -> Result<Option<OwnedRelatedBooks>, AuthorError> {
+    ) -> Result<Option<ManagedRelatedBooks>, AuthorError> {
         if actor <= 0 || book_id <= 0 {
             return Ok(None);
         }
         let title: Option<String> = sqlx::query_scalar(
-            "SELECT title FROM books WHERE id=$1 AND owner_user_id=$2
-               AND NOT is_deleted AND NOT admin_hold",
+            "SELECT b.title FROM books b WHERE b.id=$1
+               AND NOT b.is_deleted AND NOT b.admin_hold
+               AND EXISTS (
+                 SELECT 1 FROM book_members m
+                 WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
+                   AND (m.role IN ('translator','moderator')
+                        OR (m.role='owner' AND b.owner_user_id=$2))
+               )",
         )
         .bind(book_id)
         .bind(actor)
@@ -62,7 +68,7 @@ impl PgAuthoring {
                 })
             })
             .collect::<Result<Vec<_>, AuthorError>>()?;
-        Ok(Some(OwnedRelatedBooks { title, linked }))
+        Ok(Some(ManagedRelatedBooks { title, linked }))
     }
 
     /// Exact main-title match only, as in NEwBOO; never suggest private books.
@@ -72,7 +78,7 @@ impl PgAuthoring {
         book_id: i64,
         title: &str,
     ) -> Result<Vec<RelatedBookCard>, AuthorError> {
-        if self.owned_related_books(actor, book_id).await?.is_none() {
+        if self.manageable_related_books(actor, book_id).await?.is_none() {
             return Err(AuthorError::Missing);
         }
         let needle = normalized_title(title);
@@ -118,10 +124,18 @@ impl PgAuthoring {
         // Deterministic row lock order avoids A->B / B->A link deadlocks.
         // A concurrent visibility/hold change must not race this insertion.
         let rows = sqlx::query(
-            "SELECT id, owner_user_id, visibility, admin_hold, is_deleted
-             FROM books WHERE id=ANY($1::bigint[]) ORDER BY id FOR UPDATE",
+            "SELECT b.id, b.visibility, b.admin_hold, b.is_deleted,
+                    EXISTS (
+                      SELECT 1 FROM book_members m
+                      WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
+                        AND (m.role IN ('translator','moderator')
+                             OR (m.role='owner' AND b.owner_user_id=$2))
+                    ) AS can_manage
+             FROM books b WHERE b.id=ANY($1::bigint[])
+             ORDER BY b.id FOR UPDATE OF b",
         )
         .bind(vec![book_id, target_id])
+        .bind(actor)
         .fetch_all(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
@@ -139,10 +153,10 @@ impl PgAuthoring {
                 .try_get("is_deleted")
                 .map_err(|_| AuthorError::Unavailable)?;
             if id == book_id {
-                let owner: Option<i64> = row
-                    .try_get("owner_user_id")
+                let can_manage: bool = row
+                    .try_get("can_manage")
                     .map_err(|_| AuthorError::Unavailable)?;
-                source_ok = owner == Some(actor) && !held && !deleted;
+                source_ok = can_manage && !held && !deleted;
             } else if id == target_id {
                 let visibility: String = row
                     .try_get("visibility")
@@ -182,8 +196,15 @@ impl PgAuthoring {
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         let allowed: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM books WHERE id=$1 AND owner_user_id=$2
-               AND NOT admin_hold AND NOT is_deleted FOR UPDATE",
+            "SELECT b.id FROM books b WHERE b.id=$1
+               AND NOT b.admin_hold AND NOT b.is_deleted
+               AND EXISTS (
+                 SELECT 1 FROM book_members m
+                 WHERE m.book_id=b.id AND m.user_id=$2 AND m.is_active
+                   AND (m.role IN ('translator','moderator')
+                        OR (m.role='owner' AND b.owner_user_id=$2))
+               )
+             FOR UPDATE OF b",
         )
         .bind(book_id)
         .bind(actor)
