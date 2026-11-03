@@ -83,6 +83,7 @@ mod mail_api;
 mod mail_book_previews;
 mod mail_pages;
 mod moderation_books;
+mod moderation_chapters;
 mod notification_settings;
 mod notifications;
 mod paid_completion;
