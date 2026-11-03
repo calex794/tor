@@ -104,3 +104,27 @@ pub(super) async fn draft_edit_case(
     assert!(updated_html.contains("Updated chapter"));
     edit_path
 }
+
+// Test-only site approval: public author release must not bypass moderation.
+// Role, CSRF, CAS and audit authorization are verified in moderation_books_pg.
+pub(super) async fn approve_pending_book_ci(app: &Router, pool: &sqlx::PgPool, book_id: i64) {
+    let path = format!("/books/{book_id}");
+    assert_eq!(
+        send(app, request("GET", &path, "", "", ORIGIN))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "author release must remain private until site approval"
+    );
+    let result = sqlx::query(
+        "UPDATE books
+         SET visibility_status='active',
+             visibility_status_revision=visibility_status_revision+1
+         WHERE id=$1 AND visibility='public' AND visibility_status='pending_moderation'",
+    )
+    .bind(book_id)
+    .execute(pool)
+    .await
+    .expect("approve disposable site-review fixture");
+    assert_eq!(result.rows_affected(), 1, "exactly one pending book was approved");
+}

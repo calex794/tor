@@ -267,8 +267,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
     assert_eq!(anon_detail.status(), StatusCode::SEE_OTHER);
     assert_eq!(anon_detail.headers()[header::LOCATION], "/login");
 
-    // B-03/B-04: real browser writer journey with CSRF, immutable chapter and
-    // deliberate release. The anonymous catalog does not leak the draft.
+    // B-03/B-04: authenticated author release; the site review is separate.
     let book_id = book_path
         .trim_start_matches("/me/books/")
         .parse::<i64>()
@@ -443,6 +442,7 @@ async fn registration_login_logout_origin_csrf_and_private_profile_impl() {
         released.headers()[header::LOCATION],
         format!("/books/{book_id}")
     );
+    b04_cases::approve_pending_book_ci(&app, &pool, book_id).await;
     let public_book = send(
         &app,
         request("GET", &format!("/books/{book_id}"), "", "", ORIGIN),
