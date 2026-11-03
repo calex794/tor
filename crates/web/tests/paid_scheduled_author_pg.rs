@@ -362,7 +362,10 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
                AND aggregate_id={chapter} AND delivered_at IS NOT NULL"
         ),
     );
-    assert_eq!(event_state, "2", "root and recipient event are acknowledged");
+    assert_eq!(
+        event_state, "2",
+        "root and recipient event are acknowledged"
+    );
     let (_, after) = request_body(&app, &format!("/books/{book}")).await;
     assert!(
         !after.contains(SECRET),
