@@ -54,6 +54,8 @@ mod s034_live_chromium;
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
+#[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
+mod s065_admin_browser;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -346,6 +348,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         None,
     )
     .unwrap();
+    // C-12/S065: administrator reads the real sealed V1 and PNG in Chromium
+    // without a purchase; role revocation closes all fresh grants.
+    s065_admin_browser::verify(&app, &accounts, &url, chapter, v1, &stranger_cookie).await;
     assert_eq!(
         post_grant(
             &app,
