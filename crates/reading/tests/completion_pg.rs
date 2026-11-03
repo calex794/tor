@@ -36,8 +36,8 @@ async fn c_13_final_free_progress_is_atomic_durable_and_unique() {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility)
-         VALUES(98410,'ci:c13:completion','ru','Книга с завершением','public')",
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+         VALUES(98410,'ci:c13:completion','ru','Книга с завершением','public','basic')",
     )
     .execute(&pool)
     .await
