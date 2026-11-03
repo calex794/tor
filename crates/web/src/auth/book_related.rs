@@ -161,7 +161,11 @@ pub(super) async fn search(
         Err(error) => return error_response(error),
     };
     if matches.len() == 1 {
-        if let Err(error) = state.authoring.add_related_book(actor, id, matches[0].id).await {
+        if let Err(error) = state
+            .authoring
+            .add_related_book(actor, id, matches[0].id)
+            .await
+        {
             return error_response(error);
         }
         return private_response(
@@ -196,7 +200,11 @@ pub(super) async fn add(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(status) => return deny(status),
     };
-    if let Err(error) = state.authoring.add_related_book(actor, id, form.target_id).await {
+    if let Err(error) = state
+        .authoring
+        .add_related_book(actor, id, form.target_id)
+        .await
+    {
         return error_response(error);
     }
     private_response(
