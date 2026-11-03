@@ -42,7 +42,7 @@ async fn fixture(pool: &PgPool, suffix: &str) -> (PgAuthoring, i64, i64) {
         body: "Первая глава",
         access: "free",
         price_amount: 0,
-        command_key: &"k".repeat(43),
+        command_key: &format!("{:043x}", ((book_id as u128) << 32) | 1),
     })
     .unwrap();
     author.create_free_chapter(user, &first).await.unwrap();
@@ -51,7 +51,7 @@ async fn fixture(pool: &PgPool, suffix: &str) -> (PgAuthoring, i64, i64) {
 }
 
 async fn pending(author: &PgAuthoring, owner: i64, book: i64, number: i32) -> (i64, i64) {
-    let key = if number == 2 { "l" } else { "m" };
+    let key = format!("{:043x}", ((book as u128) << 32) | (number as u128));
     let request = save_chapter(SaveChapterRequest {
         book_id: book as u64,
         chapter_id: None,
@@ -61,7 +61,7 @@ async fn pending(author: &PgAuthoring, owner: i64, book: i64, number: i32) -> (i
         body: "Текст закрытой главы",
         access: "free",
         price_amount: 0,
-        command_key: &key.repeat(43),
+        command_key: &key,
     })
     .unwrap();
     let saved = author
@@ -130,7 +130,7 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
         body: "Новая редакция перед публикацией",
         access: "free",
         price_amount: 0,
-        command_key: &"o".repeat(43),
+        command_key: &format!("{:043x}", ((book as u128) << 32) | 4),
     })
     .unwrap();
     let edited = author
