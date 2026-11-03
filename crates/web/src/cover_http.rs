@@ -1,5 +1,5 @@
 //! Thin HTTP adapter and optional router constructors for private book covers.
-use super::{auth, auth_cookies, cover_delivery, make_router, pages, ril, AppState};
+use super::{auth_cookies, cover_delivery, make_router, pages, ril, AppState};
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
@@ -59,21 +59,14 @@ pub fn router_with_postgres_reading_auth_covers(
     public_origin: String,
     objects: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
 ) -> Router {
-    let auth_reader = reader.clone();
-    ril::instrument(
-        make_router(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            Some(objects),
-            Some(super::book_follow_page::FollowBookControl::new(
-                accounts.clone(),
-                secure,
-                public_origin.clone(),
-            )),
-        )
-        .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+    super::authenticated_postgres_reader_without_paid_g(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        Some(objects),
+        false,
     )
 }
 
@@ -87,29 +80,14 @@ pub fn router_with_postgres_reading_auth_cover_uploads(
     public_origin: String,
     objects: Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>,
 ) -> Router {
-    let auth_reader = reader.clone();
-    let follows = super::book_follow_page::FollowBookControl::new(
-        accounts.clone(),
-        secure,
-        public_origin.clone(),
-    );
-    let uploads = auth::router_with_cover_uploads(
+    super::authenticated_postgres_reader_without_paid_g(
+        catalog,
+        reader,
         accounts,
-        auth_reader,
         secure,
         public_origin,
-        objects.clone(),
-    );
-    ril::instrument(
-        make_router(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            Some(objects),
-            Some(follows),
-        )
-        .merge(uploads),
+        Some(objects),
+        true,
     )
 }
 
