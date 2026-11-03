@@ -48,8 +48,8 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
     );
 
     sqlx::query(
-        "INSERT INTO books(id,source_identity,target_language,title,visibility) \
-         SELECT n, 'ci:c08:' || n, 'ru', 'Длинный список ' || n, 'public' \
+        "INSERT INTO books(id,source_identity,target_language,title,visibility,access_level) \
+         SELECT n, 'ci:c08:' || n, 'ru', 'Длинный список ' || n, 'public', 'basic' \
          FROM generate_series(92010, 92114) AS n",
     )
     .execute(&pool)
