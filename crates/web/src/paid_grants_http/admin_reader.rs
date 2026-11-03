@@ -28,19 +28,33 @@ pub(super) async fn admin_reader(
         return deny(StatusCode::SERVICE_UNAVAILABLE);
     };
     let authority = PgAdministratorReaderEntitlements::new(state.accounts.pool().clone(), digest);
-    match authority
-        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
+    // A current unsealed working draft takes precedence over a previously
+    // sealed publication; its text is requested separately with live CSRF.
+    // Do not fall back to stale sealed content when a draft exists but fails.
+    let unsealed = match authority
+        .unsealed_version(Actor { user_id: actor_id }, chapter_id)
         .await
     {
-        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
-        Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
-        Ok(EntitlementDecision::Denied { .. }) => return deny(StatusCode::FORBIDDEN),
+        Ok(Some(_)) => true,
+        Ok(None) => false,
         Err(error) => return deny(status(error)),
+    };
+    if !unsealed {
+        match authority
+            .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
+            .await
+        {
+            Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
+            Ok(EntitlementDecision::Allowed { .. }) => return deny(StatusCode::CONFLICT),
+            Ok(EntitlementDecision::Denied { .. }) => return deny(StatusCode::FORBIDDEN),
+            Err(error) => return deny(status(error)),
+        }
     }
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let content = format!(
         r#"<section class="section reader-page reader-private reader-paid"
                      data-admin-chapter-reader data-chapter-id="{chapter}"
+                     data-admin-unsealed="{unsealed}"
                      data-csrf-token="{csrf}" data-s3-origin="{origin}"
                      aria-labelledby="admin-reader-title">
              <header class="reader-topbar">
@@ -64,6 +78,7 @@ pub(super) async fn admin_reader(
              <script type="module" src="/assets/newboo-admin-reader.mjs"></script>
            </section>"#,
         chapter = chapter_id.get(),
+        unsealed = unsealed,
         csrf = crate::pages::escape_html(&csrf),
         origin = crate::pages::escape_html(s3_origin),
     );
