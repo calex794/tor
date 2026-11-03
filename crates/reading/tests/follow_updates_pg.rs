@@ -121,7 +121,12 @@ async fn c_16_followed_free_releases_are_private_and_keyset_paginated() {
         .execute(&pool)
         .await
         .unwrap();
-    assert!(releases.latest(reader, None).await.unwrap().items.is_empty());
+    assert!(releases
+        .latest(reader, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
     assert!(!releases
         .set_read_state(reader, chapter_ids[1], true)
         .await

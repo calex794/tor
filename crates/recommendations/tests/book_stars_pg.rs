@@ -139,7 +139,16 @@ async fn f_05_pg_work_and_translation_are_independent_updatable_and_private() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(store.visible_summary(book).await.unwrap().unwrap().work.votes, 2);
+    assert_eq!(
+        store
+            .visible_summary(book)
+            .await
+            .unwrap()
+            .unwrap()
+            .work
+            .votes,
+        2
+    );
     pool.close().await;
 }
 
