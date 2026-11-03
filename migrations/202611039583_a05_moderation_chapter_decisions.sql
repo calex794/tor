@@ -14,6 +14,31 @@ ALTER TABLE chapters
     ADD CONSTRAINT chapters_moderation_state_hold_consistent
     CHECK ((moderation_state = 'none') = (NOT admin_hold));
 
+-- Older fixture/worker SQL may update only admin_hold. Convert those
+-- generic hold toggles to the corresponding state, but reject any attempt
+-- to remove a specifically hidden/blocked moderator decision that way.
+CREATE FUNCTION chapters_sync_legacy_moderation_hold()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.admin_hold AND NEW.moderation_state = 'none' THEN
+            NEW.moderation_state := 'hold';
+        END IF;
+    ELSIF NEW.admin_hold IS DISTINCT FROM OLD.admin_hold
+          AND NEW.moderation_state IS NOT DISTINCT FROM OLD.moderation_state THEN
+        IF OLD.moderation_state IN ('hidden','blocked') THEN
+            RAISE EXCEPTION 'cannot bypass specific chapter moderation decision'
+                USING ERRCODE='23514';
+        END IF;
+        NEW.moderation_state := CASE WHEN NEW.admin_hold THEN 'hold' ELSE 'none' END;
+    END IF;
+    RETURN NEW;
+END;
+$;
+CREATE TRIGGER chapters_sync_legacy_moderation_hold
+    BEFORE INSERT OR UPDATE OF admin_hold ON chapters
+    FOR EACH ROW EXECUTE FUNCTION chapters_sync_legacy_moderation_hold();
+
 CREATE TABLE moderation_chapter_decision_events (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     actor_user_id BIGINT NOT NULL CHECK (actor_user_id > 0),
