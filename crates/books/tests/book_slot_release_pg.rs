@@ -3,7 +3,8 @@
 use sqlx::{Connection, PgPool};
 use tor_books::{
     repositories::postgres::{
-        book_delayed_schedule::{BookSlotFrontier, BookSlotReleaseOutcome}, PgAuthoring,
+        book_delayed_schedule::{BookSlotFrontier, BookSlotReleaseOutcome},
+        PgAuthoring,
     },
     services::authoring::{new_book, save_chapter, AuthorError, SaveChapterRequest},
 };
@@ -63,7 +64,10 @@ async fn pending(author: &PgAuthoring, owner: i64, book: i64, number: i32) -> (i
         command_key: &key.repeat(43),
     })
     .unwrap();
-    let saved = author.create_pending_free_chapter(owner, &request).await.unwrap();
+    let saved = author
+        .create_pending_free_chapter(owner, &request)
+        .await
+        .unwrap();
     (saved.chapter_id, saved.version_id)
 }
 
@@ -107,13 +111,12 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
         author.bind_book_slot_frontier(&claim, &token).await,
         Ok(BookSlotFrontier::Ready(chapter))
     );
-    let before: Option<i64> = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let before: Option<i64> =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
     assert_eq!(before, None, "slot binding cannot publish a chapter");
 
     // An edit after binding is the current immutable edition to release,
@@ -136,11 +139,16 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
         .unwrap();
     assert_eq!(edited.revision, 2);
     assert_eq!(
-        author.release_bound_book_slot(&claim, &"p".repeat(43)).await,
+        author
+            .release_bound_book_slot(&claim, &"p".repeat(43))
+            .await,
         Err(AuthorError::Conflict),
         "another worker's token cannot release"
     );
-    let result = author.release_bound_book_slot(&claim, &token).await.unwrap();
+    let result = author
+        .release_bound_book_slot(&claim, &token)
+        .await
+        .unwrap();
     assert_eq!(
         result,
         BookSlotReleaseOutcome::Released {
@@ -169,21 +177,19 @@ async fn s058_bound_slot_release_is_one_atomic_b06_version_and_cursor() {
     assert_eq!(persisted.1, edited.version_id);
     assert_eq!(persisted.2, edited.version_id);
     assert_eq!(persisted.3, "Новая редакция перед публикацией");
-    let event_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let event_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(event_count, 1);
-    let draft_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let draft_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_working_drafts WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(draft_count, 0);
     let occurrence: (String, Option<String>, Option<i64>) = sqlx::query_as(
         "SELECT status,processing_token,chapter_id
@@ -249,18 +255,20 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(blocked, ("blocked".to_owned(), "chapter_admin_hold".to_owned()));
+    assert_eq!(
+        blocked,
+        ("blocked".to_owned(), "chapter_admin_hold".to_owned())
+    );
     assert_eq!(
         author.release_bound_book_slot(&claim, &token).await,
         Err(AuthorError::Conflict)
     );
-    let events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(events, 0);
 
     sqlx::query("UPDATE chapters SET admin_hold=FALSE WHERE id=$1")
@@ -274,7 +282,11 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
         .unwrap();
     due(&pool, book).await;
     let next_token = "r".repeat(43);
-    let next = author.claim_due_book_slot(&next_token).await.unwrap().unwrap();
+    let next = author
+        .claim_due_book_slot(&next_token)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         author.bind_book_slot_frontier(&next, &next_token).await,
         Ok(BookSlotFrontier::Ready(chapter))
@@ -295,7 +307,11 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
         "expired worker cannot publish after losing lease"
     );
     let new_token = "s".repeat(43);
-    let retry = author.claim_due_book_slot(&new_token).await.unwrap().unwrap();
+    let retry = author
+        .claim_due_book_slot(&new_token)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(retry.attempt_count, 2);
     assert_eq!(
         author.bind_book_slot_frontier(&retry, &new_token).await,
@@ -306,28 +322,32 @@ async fn s058_bound_slot_does_not_release_after_hold_or_stale_lease() {
         Err(AuthorError::Conflict),
         "stale attempt cannot commit while new lease is held"
     );
-    let released = author.release_bound_book_slot(&retry, &new_token).await.unwrap();
+    let released = author
+        .release_bound_book_slot(&retry, &new_token)
+        .await
+        .unwrap();
     let (released_chapter, released_version) = match released {
-        BookSlotReleaseOutcome::Released { chapter_id, version_id } => (chapter_id, version_id),
+        BookSlotReleaseOutcome::Released {
+            chapter_id,
+            version_id,
+        } => (chapter_id, version_id),
         other => panic!("expected atomic B-06 release, got {other:?}"),
     };
     assert_eq!(released_chapter, chapter);
-    let persisted_version: i64 = sqlx::query_scalar(
-        "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let persisted_version: i64 =
+        sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(released_version, persisted_version);
     // It has completed and advanced, so the old bound occurrence cannot replay.
-    let first_events: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let first_events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(first_events, 1);
     author
         .replace_book_delayed_schedule(owner, book, false, 1, &times)

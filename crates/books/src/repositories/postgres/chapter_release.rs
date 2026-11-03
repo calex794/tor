@@ -259,102 +259,101 @@ pub(super) async fn release_pending_free_chapter_tx(
     if expected_revision <= 0 || expected_version_id <= 0 {
         return Err(AuthorError::Invalid);
     }
-        let visibility: Option<String> = sqlx::query_scalar(
-            "SELECT visibility FROM books
+    let visibility: Option<String> = sqlx::query_scalar(
+        "SELECT visibility FROM books
              WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
              FOR UPDATE",
-        )
-        .bind(book_id)
-        .bind(actor)
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
-        match visibility.as_deref() {
-            None => return Err(AuthorError::Missing),
-            Some("public") => (),
-            Some(_) => return Err(AuthorError::Conflict),
-        }
-        let row = sqlx::query(
-            "SELECT visibility,edit_revision FROM chapters
+    )
+    .bind(book_id)
+    .bind(actor)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?;
+    match visibility.as_deref() {
+        None => return Err(AuthorError::Missing),
+        Some("public") => (),
+        Some(_) => return Err(AuthorError::Conflict),
+    }
+    let row = sqlx::query(
+        "SELECT visibility,edit_revision FROM chapters
              WHERE id=$1 AND book_id=$2 AND access_level='free' AND price_amount=0
                AND NOT admin_hold AND NOT is_deleted
                AND (reader_released_at IS NULL OR reader_released_at<=now())
              FOR UPDATE",
-        )
-        .bind(chapter_id)
-        .bind(book_id)
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?
-        .ok_or(AuthorError::Missing)?;
-        let chapter_visibility: String = row
-            .try_get("visibility")
-            .map_err(|_| AuthorError::Unavailable)?;
-        let revision: i64 = row
-            .try_get("edit_revision")
-            .map_err(|_| AuthorError::Unavailable)?;
-        if revision != expected_revision {
-            return Err(AuthorError::Conflict);
-        }
-        if chapter_visibility == "public" {
-            // Exact replay after successful publication is safe and side-effect free.
-            let current: Option<i64> = sqlx::query_scalar(
-                "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
-            )
-            .bind(chapter_id)
-            .fetch_optional(&mut **tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-            return if current == Some(expected_version_id) {
-                Ok(())
-            } else {
-                Err(AuthorError::Conflict)
-            };
-        }
-        if chapter_visibility != "draft" {
-            return Err(AuthorError::Conflict);
-        }
-        let version: Option<i64> =
-            sqlx::query_scalar("SELECT version_id FROM chapter_working_drafts WHERE chapter_id=$1")
+    )
+    .bind(chapter_id)
+    .bind(book_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?
+    .ok_or(AuthorError::Missing)?;
+    let chapter_visibility: String = row
+        .try_get("visibility")
+        .map_err(|_| AuthorError::Unavailable)?;
+    let revision: i64 = row
+        .try_get("edit_revision")
+        .map_err(|_| AuthorError::Unavailable)?;
+    if revision != expected_revision {
+        return Err(AuthorError::Conflict);
+    }
+    if chapter_visibility == "public" {
+        // Exact replay after successful publication is safe and side-effect free.
+        let current: Option<i64> =
+            sqlx::query_scalar("SELECT version_id FROM chapter_publications WHERE chapter_id=$1")
                 .bind(chapter_id)
                 .fetch_optional(&mut **tx)
                 .await
                 .map_err(|_| AuthorError::Unavailable)?;
-        if version != Some(expected_version_id) {
-            return Err(AuthorError::Conflict);
-        }
-        let inserted: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO chapter_publications(chapter_id,version_id)
+        return if current == Some(expected_version_id) {
+            Ok(())
+        } else {
+            Err(AuthorError::Conflict)
+        };
+    }
+    if chapter_visibility != "draft" {
+        return Err(AuthorError::Conflict);
+    }
+    let version: Option<i64> =
+        sqlx::query_scalar("SELECT version_id FROM chapter_working_drafts WHERE chapter_id=$1")
+            .bind(chapter_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+    if version != Some(expected_version_id) {
+        return Err(AuthorError::Conflict);
+    }
+    let inserted: Option<i64> = sqlx::query_scalar(
+        "INSERT INTO chapter_publications(chapter_id,version_id)
              VALUES ($1,$2) ON CONFLICT(chapter_id) DO NOTHING RETURNING chapter_id",
-        )
+    )
+    .bind(chapter_id)
+    .bind(expected_version_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?;
+    if inserted.is_none() {
+        return Err(AuthorError::Conflict);
+    }
+    sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
         .bind(chapter_id)
-        .bind(expected_version_id)
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(|_| AuthorError::Unavailable)?;
-        if inserted.is_none() {
-            return Err(AuthorError::Conflict);
-        }
-        sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
-            .bind(chapter_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-        sqlx::query("DELETE FROM chapter_working_drafts WHERE chapter_id=$1")
-            .bind(chapter_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(|_| AuthorError::Unavailable)?;
-        sqlx::query(
-            "INSERT INTO chapter_first_release_events
-             (chapter_id,version_id,creator_user_id)
-             VALUES ($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
-        )
-        .bind(chapter_id)
-        .bind(expected_version_id)
-        .bind(actor)
         .execute(&mut **tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
+    sqlx::query("DELETE FROM chapter_working_drafts WHERE chapter_id=$1")
+        .bind(chapter_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+    sqlx::query(
+        "INSERT INTO chapter_first_release_events
+             (chapter_id,version_id,creator_user_id)
+             VALUES ($1,$2,$3) ON CONFLICT(chapter_id) DO NOTHING",
+    )
+    .bind(chapter_id)
+    .bind(expected_version_id)
+    .bind(actor)
+    .execute(&mut **tx)
+    .await
+    .map_err(|_| AuthorError::Unavailable)?;
     Ok(())
 }

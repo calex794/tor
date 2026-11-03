@@ -8,8 +8,14 @@ use sqlx::Row;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BookSlotReleaseOutcome {
-    Released { chapter_id: i64, version_id: i64 },
-    Blocked { chapter_id: i64, reason: &'static str },
+    Released {
+        chapter_id: i64,
+        version_id: i64,
+    },
+    Blocked {
+        chapter_id: i64,
+        reason: &'static str,
+    },
 }
 
 impl PgAuthoring {
@@ -114,7 +120,7 @@ impl PgAuthoring {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        let (reason,version,revision) = if let Some(first) = first {
+        let (reason, version, revision) = if let Some(first) = first {
             let first_id: i64 = first.try_get("id").map_err(|_| AuthorError::Unavailable)?;
             let visibility: String = first
                 .try_get("visibility")
@@ -164,26 +170,42 @@ impl PgAuthoring {
             } else {
                 None
             };
-            (reason,version,revision)
+            (reason, version, revision)
         } else {
-            (Some("frontier_changed"),None,0)
+            (Some("frontier_changed"), None, 0)
         };
         if let Some(reason) = reason {
-            finish_terminal(&mut tx, claim, token, Some(chapter_id), "blocked", Some(reason)).await?;
+            finish_terminal(
+                &mut tx,
+                claim,
+                token,
+                Some(chapter_id),
+                "blocked",
+                Some(reason),
+            )
+            .await?;
             tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
-            return Ok(BookSlotReleaseOutcome::Blocked { chapter_id,reason });
+            return Ok(BookSlotReleaseOutcome::Blocked { chapter_id, reason });
         }
         let owner = owner.ok_or(AuthorError::Conflict)?;
         let version_id = version.ok_or(AuthorError::Conflict)?;
         // Preserve B-06's exact revision, immutable reader pointer and single
         // first-release fact; failure anywhere rolls back the whole slot.
         release_pending_free_chapter_tx(
-            &mut tx, owner, claim.book_id, chapter_id, revision, version_id,
+            &mut tx,
+            owner,
+            claim.book_id,
+            chapter_id,
+            revision,
+            version_id,
         )
         .await?;
         finish_terminal(&mut tx, claim, token, Some(chapter_id), "completed", None).await?;
         advance_terminal_slot(&mut tx, claim).await?;
         tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
-        Ok(BookSlotReleaseOutcome::Released { chapter_id,version_id })
+        Ok(BookSlotReleaseOutcome::Released {
+            chapter_id,
+            version_id,
+        })
     }
 }
