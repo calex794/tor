@@ -23,6 +23,29 @@ pub struct ModerationChapter {
     pub last_decision_id: i64,
 }
 
+/// Immutable expectation captured by a moderator's publish/draft form.
+pub struct ChapterPublicationCommand<'a> {
+    pub expected_moderation_state: &'a str,
+    pub expected_visibility: &'a str,
+    pub expected_revision: i64,
+    pub expected_version: Option<i64>,
+    pub expected_decision_id: i64,
+    pub action: &'a str,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ChapterPublicationRow {
+    visibility: String,
+    moderation_state: String,
+    admin_hold: bool,
+    edit_revision: i64,
+    access_level: String,
+    price_amount: i64,
+    version_id: Option<i64>,
+    working_version_id: Option<i64>,
+    release_due: bool,
+}
+
 impl PgAccounts {
     /// A moderator sees metadata, never body_markdown or a buyer grant.
     /// Session, live role and user remain locked until the read commits.
@@ -188,13 +211,16 @@ impl PgAccounts {
         &self,
         session: &[u8; 32],
         chapter_id: i64,
-        expected_moderation_state: &str,
-        expected_visibility: &str,
-        expected_revision: i64,
-        expected_version: Option<i64>,
-        expected_decision_id: i64,
-        action: &str,
+        command: ChapterPublicationCommand<'_>,
     ) -> Result<(), ModerationBooksError> {
+        let ChapterPublicationCommand {
+            expected_moderation_state,
+            expected_visibility,
+            expected_revision,
+            expected_version,
+            expected_decision_id,
+            action,
+        } = command;
         if chapter_id <= 0
             || expected_revision < 0
             || expected_decision_id < 0
@@ -232,20 +258,11 @@ impl PgAccounts {
         .map_err(|_| ModerationBooksError::Unavailable)?;
         let (book_visibility, book_status, book_hold, owner) =
             book.ok_or(ModerationBooksError::Missing)?;
-        let row: Option<(
-            String,
-            String,
-            bool,
-            i64,
-            String,
-            i64,
-            Option<i64>,
-            Option<i64>,
-            bool,
-        )> = sqlx::query_as(
+        let row: Option<ChapterPublicationRow> = sqlx::query_as(
             "SELECT c.visibility,c.moderation_state,c.admin_hold,c.edit_revision,
-                    c.access_level,c.price_amount,p.version_id,d.version_id,
-                    (c.reader_released_at IS NULL OR c.reader_released_at<=now())
+                    c.access_level,c.price_amount,p.version_id,
+                    d.version_id AS working_version_id,
+                    (c.reader_released_at IS NULL OR c.reader_released_at<=now()) AS release_due
              FROM chapters c
              LEFT JOIN chapter_publications p ON p.chapter_id=c.id
              LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
@@ -257,20 +274,17 @@ impl PgAccounts {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|_| ModerationBooksError::Unavailable)?;
-        let Some((
+        let ChapterPublicationRow {
             visibility,
-            mod_state,
-            held,
-            revision,
-            access,
-            price,
-            publication,
-            working,
+            moderation_state: mod_state,
+            admin_hold: held,
+            edit_revision: revision,
+            access_level: access,
+            price_amount: price,
+            version_id: publication,
+            working_version_id: working,
             release_due,
-        )) = row
-        else {
-            return Err(ModerationBooksError::Missing);
-        };
+        } = row.ok_or(ModerationBooksError::Missing)?;
         // The append-only audit sequence also fences ABA: an old publish
         // form cannot republish after someone else published and drafted it.
         let last_decision_id: i64 = sqlx::query_scalar(
