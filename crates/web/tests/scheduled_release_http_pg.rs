@@ -138,6 +138,20 @@ async fn s058_author_schedule_http_is_private_and_first_release_is_visible() {
     .unwrap();
     author.create_free_chapter(owner, &first).await.unwrap();
     author.release_book(owner, book_id).await.unwrap();
+    // S020: Book publishing does not bypass the site's pending review.
+    // This S058 fixture requires an approved public book to test scheduling.
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(book_id as u64, 10, None)
+        .await
+        .unwrap()
+        .is_none());
+    pg(
+        &url,
+        &format!(
+            "UPDATE books SET visibility_status='active'
+             WHERE id={book_id} AND visibility_status='pending_moderation'"
+        ),
+    );
     let app = tor_web::router_with_postgres_reading_auth(
         catalog,
         PgReader::new(pool.clone()),

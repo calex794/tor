@@ -14,7 +14,10 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
-use tor_books::repositories::PgCatalog;
+use tor_books::{
+    repositories::{postgres::PgAuthoring, PgCatalog},
+    services::authoring::{new_book, save_chapter, SaveChapterRequest},
+};
 use tor_contracts::auth::{AccountRole, UserId};
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
@@ -117,7 +120,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         )
         .await
         .unwrap();
-    accounts
+    let book_owner = accounts
         .register_with_session(
             &format!("mod-books-outsider-{nonce}@example.invalid"),
             "Outsider",
@@ -147,9 +150,9 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
              VALUES('ci:moderation:book:{nonce}','ru',
-             '<script>private moderation title</script>','public') RETURNING id"
+             '<script>private moderation title</script>','public','basic') RETURNING id"
         ),
     )
     .parse()
@@ -520,4 +523,127 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         ),
     );
     assert_eq!(events, format!("{moderator}:0:1\n{admin}:1:0"));
+    // A newly registered book is pending site review even after the author
+    // publishes its first free chapter. The Book owner cannot approve it.
+    let author = PgAuthoring::new(pool.clone());
+    let registration = new_book(
+        &format!("ci:moderation:fresh:{nonce}"),
+        "ru",
+        "Новая книга на проверке",
+        &"t".repeat(43),
+    )
+    .unwrap();
+    let fresh = author
+        .create_owned_book(book_owner, &registration)
+        .await
+        .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={fresh}")
+        ),
+        "draft:pending_moderation"
+    );
+    let first = save_chapter(SaveChapterRequest {
+        book_id: fresh as u64,
+        chapter_id: None,
+        number: 1,
+        expected_revision: 0,
+        title: "Глава перед модерацией",
+        body: "Текст ожидает одобрения",
+        access: "free",
+        price_amount: 0,
+        command_key: &"u".repeat(43),
+    })
+    .unwrap();
+    author
+        .create_free_chapter(book_owner, &first)
+        .await
+        .unwrap();
+    author.release_book(book_owner, fresh).await.unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={fresh}")
+        ),
+        "public:pending_moderation"
+    );
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(fresh as u64, 10, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        request(&app, "GET", &format!("/books/{fresh}"), "", ORIGIN, "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let approve_action = format!("/moderation/books/{fresh}/visibility");
+    let approve = format!(
+        "csrf_token={csrf}&expected_status=pending_moderation&expected_revision=1&new_status=active"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &approve_action,
+            &outsider_cookie,
+            ORIGIN,
+            &approve
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(&app, "POST", &approve_action, &mod_cookie, ORIGIN, &approve)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "revoked site moderator cannot approve a new book"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &approve_action,
+            &admin_cookie,
+            ORIGIN,
+            &approve
+        )
+        .await
+        .status(),
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &approve_action,
+            &admin_cookie,
+            ORIGIN,
+            &approve
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT,
+        "repeated approval must fail CAS"
+    );
+    assert!(PgReader::new(pool.clone())
+        .public_book_page(fresh as u64, 10, None)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT actor_user_id || ':' || before_status || '>' || after_status
+                 FROM moderation_book_visibility_events
+                 WHERE book_id={fresh}"
+            )
+        ),
+        format!("{admin}:pending_moderation>active")
+    );
 }

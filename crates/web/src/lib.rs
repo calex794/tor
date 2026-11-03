@@ -198,17 +198,23 @@ fn reading_status(error: ReadingError) -> StatusCode {
     }
 }
 
-/// C-03: bounded chapter metadata, no unpublished chapter or paid body content.
 async fn book_toc(
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Query(query): Query<TocQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    let Some(reader) = state.reader else {
+    let Some(reader) = state.reader.as_ref() else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
+    let digest = public_reader_http::reader_session_digest(&state, &headers);
     let book = match reader
-        .public_book_page(id, query.limit.unwrap_or(100), query.after.as_deref())
+        .public_book_page_for_session(
+            id,
+            query.limit.unwrap_or(100),
+            query.after.as_deref(),
+            digest.as_ref(),
+        )
         .await
     {
         Ok(Some(book)) => book,
@@ -252,8 +258,9 @@ async fn book_detail(
     }
     if let Some(reader) = state.reader.as_ref() {
         let limit = query.limit.unwrap_or(100);
+        let digest = public_reader_http::reader_session_digest(&state, &headers);
         let book = match reader
-            .public_book_page(id, limit, query.after.as_deref())
+            .public_book_page_for_session(id, limit, query.after.as_deref(), digest.as_ref())
             .await
         {
             Ok(Some(book)) => book,
@@ -322,8 +329,6 @@ async fn book_detail(
     )
     .into_response()
 }
-/// Keep the security-reviewed public route identity stable while isolating
-/// the actual S005/C-10 reader logic in the C/H feature module.
 async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
@@ -334,8 +339,6 @@ async fn reader_page(
     public_reader_http::reader_page(State(state), Path(id), Query(query), headers, method).await
 }
 
-/// S3 delivery is not connected: deny every alternative reader API request.
-/// Neither a published free chapter nor a paid ID can expose raw markdown.
 async fn denied_reader_api(Path(_id): Path<u64>) -> Response {
     auth_cookies::private_response(StatusCode::NOT_FOUND, &[])
 }
@@ -346,14 +349,10 @@ async fn register() -> impl axum::response::IntoResponse {
     pages::inactive_account_page("Регистрация")
 }
 
-/// This is not an HTTP endpoint.
 pub fn ril_path_report_for_diagnostics() -> Option<tor_traffic_behavior::PathReport> {
     ril::path_report_for_diagnostics()
 }
 
-/// Operator-owned, read-only FinOps diagnostics from persisted RIL-06 data.
-/// No HTTP route, authorization decision, user paths or synchronous request SQL.
-/// Requires a real PG catalog; a failure yields no report (never fake zero cost).
 pub async fn ril_cost_map_for_diagnostics(
     catalog: &PgCatalog,
     days: u16,

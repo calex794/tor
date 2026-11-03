@@ -110,8 +110,8 @@ async fn book_like_public_count_browser_csrf_repeat_unlike_moderation_and_limit(
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:likes-http:{nonce}','ru','Заголовок <like>','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:likes-http:{nonce}','ru','Заголовок <like>','public','basic') RETURNING id"
         ),
     )
     .parse()

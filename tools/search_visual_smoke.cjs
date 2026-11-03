@@ -4,6 +4,7 @@ const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { approvePendingBookForIsolatedCi } = require('./site_moderation_ci.cjs');
 const base = 'http://127.0.0.1:3098';
 const dbUrl = process.env.APP_URL;
 const shots = process.env.TOR_SEARCH_SHOTS || 'search-shots';
@@ -322,6 +323,16 @@ async function draftBook(page, viewport) {
 
         await page.getByRole('button', { name: 'Опубликовать книгу' }).click();
         await page.waitForURL(base + '/books/' + id);
+        const beforeApproval = await page.goto(base + '/books/' + id);
+        assert(beforeApproval && beforeApproval.status() === 404,
+          viewport + ': author release bypassed mandatory site review');
+        await search(guest, filters);
+        assert(await bookLink(guest, id).count() === 0,
+          viewport + ': pending book leaked into public search');
+        approvePendingBookForIsolatedCi(id);
+        const approved = await page.goto(base + '/books/' + id);
+        assert(approved && approved.status() === 200,
+          viewport + ': site-approved book is not publicly visible');
         await search(guest, filters);
         assert(await bookLink(guest, id).isVisible(), viewport + ': public book not found');
         await verifyOriginalBookCard(guest, id, viewport);

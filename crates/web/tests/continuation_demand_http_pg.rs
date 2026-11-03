@@ -115,8 +115,8 @@ async fn c_15_http_demand_requires_completion_csrf_and_owner_scoping() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id)
-             VALUES('ci:c15:http:{nonce}','ru','Книга для читателей','public',{owner}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level)
+             VALUES('ci:c15:http:{nonce}','ru','Книга для читателей','public',{owner},'basic') RETURNING id"
         ),
     )
     .parse()

@@ -97,8 +97,8 @@ async fn book_stats_page_csv_owner_foreign_guest_and_csv_formulas() {
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id) \
-         VALUES('ci:stats-owner:{unique}','ru','=2+3 Stats','public',{owner}) RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,owner_user_id,access_level) \
+         VALUES('ci:stats-owner:{unique}','ru','=2+3 Stats','public',{owner},'basic') RETURNING id"
         ),
     )
     .parse()

@@ -150,9 +150,9 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     let book: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
              VALUES('ci:moderation:book:{nonce}','ru',
-             '<script>private moderation title</script>','public') RETURNING id"
+             '<script>private moderation title</script>','public','basic') RETURNING id"
         ),
     )
     .parse()

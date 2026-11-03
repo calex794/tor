@@ -105,10 +105,10 @@ jobs:
       - name: Seed visible and hidden rows
         run: |
           PGPASSWORD=tor-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO books(id,source_identity,target_language,title,visibility)
-          VALUES (1,'ci:1','ru','TOR CI public','public'),
-                 (2,'ci:2','ru','TOR CI hidden','draft'),
-                 (3,'ci:3','ru','TOR CI held','public');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+          VALUES (1,'ci:1','ru','TOR CI public','public','basic'),
+                 (2,'ci:2','ru','TOR CI hidden','draft','basic'),
+                 (3,'ci:3','ru','TOR CI held','public','basic');
           UPDATE books SET admin_hold=true WHERE id=3;
           -- Author/genre fixtures cover public, hidden and held rows with identical metadata.
           UPDATE books SET author_name='Жюль', genres=ARRAY['фэнтези','приключения']
@@ -121,8 +121,8 @@ jobs:
           OVERRIDING SYSTEM VALUE
           SELECT id,'cover-'||id||'@example.invalid','CI Cover Owner','$argon2id$test'
             FROM generate_series(901,905) AS id;
-          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id)
-          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id
+          INSERT INTO books(id,source_identity,target_language,title,visibility,owner_user_id,access_level)
+          SELECT id,'ci:cover:'||id,'ru','CI owned cover book','public',id,'basic'
             FROM generate_series(901,905) AS id;
           SQL
       - name: Seed published free and protected chapters
@@ -203,6 +203,7 @@ jobs:
           cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_assets_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test postgres_reading -- --ignored
+          cargo test -p tor-reading --test age_tier_reader_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test seo_public_book_pg -- --ignored --test-threads=1
           cargo test -p tor-reading --test progress_postgres -- --ignored
           cargo test -p tor-reading --test slices_pg c_09_ -- --ignored --test-threads=1

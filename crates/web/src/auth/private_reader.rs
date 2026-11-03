@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{Redirect, Response},
 };
-use tor_reading::{domain::renderer::valid_reader_length, services::PublicReadingRepository};
+use tor_reading::domain::renderer::valid_reader_length;
 
 #[derive(serde::Deserialize)]
 pub(super) struct IssueFeedbackQuery {
@@ -29,7 +29,16 @@ pub(super) async fn page(
         }
         Err(status) => return deny(status),
     };
-    let chapter = match state.reader.public_chapter(id).await {
+    // Recheck the same session inside the PostgreSQL query returning chapter text.
+    let Some(token) = state.cookies.session_token(&headers) else {
+        return deny(StatusCode::UNAUTHORIZED);
+    };
+    let digest = tor_accounts::services::security::session_token_digest(&token);
+    let chapter = match state
+        .reader
+        .public_chapter_for_session(id, Some(&digest))
+        .await
+    {
         Ok(Some(chapter)) if valid_reader_length(&chapter.body_markdown) => chapter,
         Ok(Some(_)) => return deny(StatusCode::PAYLOAD_TOO_LARGE),
         Ok(None) => return deny(StatusCode::NOT_FOUND),

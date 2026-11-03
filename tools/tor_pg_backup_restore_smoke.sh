@@ -57,11 +57,11 @@ fi
 
 # Seed distinct public and private rows so this drill tests actual data.
 psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -q <<'SQL'
-INSERT INTO books (source_identity, target_language, title, visibility)
-VALUES ('ci:i11:backup-public', 'ru', 'TOR Backup Restore Canary', 'public')
+INSERT INTO books (source_identity, target_language, title, visibility, access_level)
+VALUES ('ci:i11:backup-public', 'ru', 'TOR Backup Restore Canary', 'public', 'basic')
 ON CONFLICT (source_identity, target_language) DO NOTHING;
-INSERT INTO books (source_identity, target_language, title, visibility)
-VALUES ('ci:i11:backup-private', 'ru', 'TOR Backup Private Canary', 'draft')
+INSERT INTO books (source_identity, target_language, title, visibility, access_level)
+VALUES ('ci:i11:backup-private', 'ru', 'TOR Backup Private Canary', 'draft', 'basic')
 ON CONFLICT (source_identity, target_language) DO NOTHING;
 SQL
 
