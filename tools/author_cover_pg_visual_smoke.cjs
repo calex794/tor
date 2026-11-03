@@ -137,7 +137,7 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.goto(base + '/me/books/new');
         await page.getByLabel('Название книги').fill('Совсем другое название ' + providerId);
         await page.getByLabel('Ссылка на первоисточник')
-          .fill('https://example.org/work/' + providerId');
+          .fill('https://example.org/work/' + providerId);
         const [providerDuplicate] = await Promise.all([
           page.waitForResponse(r => r.url() === base + '/me/books' &&
             r.request().method() === 'POST'),
