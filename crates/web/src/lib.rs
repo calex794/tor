@@ -74,6 +74,7 @@ struct AppState {
     paid_batch_browser_enabled: bool,
     paid_checkout_browser: bool,
     private_admin_reader_enabled: bool,
+    private_admin_sealed_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
@@ -440,6 +441,59 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
     ))
 }
 
+/// Authenticated PostgreSQL without private paid G. The administrator's
+/// current plaintext draft can be read, while paid S3/checkout routes
+/// remain absent. The same constructor is used by cover-only modes.
+pub(super) fn authenticated_postgres_reader_without_paid_g(
+    catalog: PgCatalog,
+    reader: PgReader,
+    accounts: tor_accounts::repositories::PgAccounts,
+    secure: bool,
+    public_origin: String,
+    cover_objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
+    enable_cover_uploads: bool,
+) -> Router {
+    let auth_reader = reader.clone();
+    let follows = book_follow_page::FollowBookControl::new(
+        accounts.clone(),
+        secure,
+        public_origin.clone(),
+    );
+    let admin = paid_grants_http::administrator_only_router(
+        accounts.clone(),
+        auth_cookies::CookiePolicy {
+            secure,
+            origin: public_origin.clone(),
+        },
+    );
+    let owner_auth = match (enable_cover_uploads, cover_objects.as_ref()) {
+        (true, Some(store)) => auth::router_with_cover_uploads(
+            accounts,
+            auth_reader,
+            secure,
+            public_origin,
+            store.clone(),
+        ),
+        _ => auth::router(accounts, auth_reader, secure, public_origin),
+    };
+    ril::instrument(
+        make_router_with_paid_checkout(
+            Arc::new(catalog.clone()),
+            Some(catalog),
+            Some(reader),
+            true,
+            cover_objects,
+            Some(follows),
+            ReaderModes {
+                paid_browser: false,
+                admin_reader: true,
+            },
+        )
+        .merge(owner_auth)
+        .merge(admin),
+    )
+}
+
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -447,21 +501,14 @@ pub fn router_with_postgres_reading_auth(
     secure: bool,
     public_origin: String,
 ) -> Router {
-    let auth_reader = reader.clone();
-    ril::instrument(
-        make_router(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            None,
-            Some(book_follow_page::FollowBookControl::new(
-                accounts.clone(),
-                secure,
-                public_origin.clone(),
-            )),
-        )
-        .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+    authenticated_postgres_reader_without_paid_g(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        None,
+        false,
     )
 }
 
@@ -585,6 +632,9 @@ fn make_router_with_paid_checkout(
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             // Administrator private reading is independent of paid checkout.
             private_admin_reader_enabled: active_auth && modes.admin_reader,
+            private_admin_sealed_reader_enabled: active_auth
+                && modes.admin_reader
+                && modes.paid_browser,
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,
