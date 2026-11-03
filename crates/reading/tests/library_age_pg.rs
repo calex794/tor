@@ -152,6 +152,30 @@ async fn s020_library_age_gate_rechecks_live_opt_in_grant_and_book_tier() {
         .iter()
         .any(|b| b.book_id == ids[2]));
 
+    // Pending deletion is a separate, live Book lifecycle restriction,
+    // even when a previously saved Book still has the allowed basic age tier.
+    sqlx::query("UPDATE books SET lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(library
+        .list_books(user, 10, None)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        library.add_book(user, ids[0]).await,
+        Err(LibraryError::NotFound)
+    );
+    sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
+        .bind(ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(library.list_books(user, 10, None).await.unwrap().items.len(), 1);
+
     // The Book tier is rechecked too: basic -> adult immediately hides the
     // previously saved book from a reader who has not opted in.
     sqlx::query("UPDATE books SET access_level='adult' WHERE id=$1")

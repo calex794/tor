@@ -6,7 +6,7 @@ Reference: [NEwBOO book_access_policy.py](https://github.com/HeisLuka/newboo/blo
 
 - `PgLibrary::add_book` authorizes in the **INSERT ... SELECT** PostgreSQL statement; a prior GET, client checkbox or purchase record grants nothing.
 - `PgLibrary::list_books` applies the same eligibility test **before** bounded keyset pagination: an unauthorized saved title is not returned and does not displace authorized items.
-- Uses the active account row from `users`, live `books.visibility='public'` and `visibility_status='active'`, non-held/non-deleted, and `books.access_level`: `basic` for active accounts, `adult` only after `users.adult_enabled=TRUE`, `pro_adult` only with an active `user_level_grants` record. `NULL` unknown level is denied.
+- Uses the active account row from `users`, live `books.visibility='public'` and `visibility_status='active'`, non-held/non-deleted/non-pending_deletion, and `books.access_level`: `basic` for active accounts, `adult` only after `users.adult_enabled=TRUE`, `pro_adult` only with an active `user_level_grants` record. `NULL` unknown level is denied.
 - Retains saved rows on revoked eligibility. A later opt-in/grant restores visibility; removal is still allowed while the Book is hidden or the grant is revoked.
 - Adds real disposable PostgreSQL test for basic/18+/21+/NULL, live opt-in and grant revocation, moderation visibility, and Book-tier changes, registered in both integration workflows. Existing 105-book fixture is expressly marked `basic`.
 
