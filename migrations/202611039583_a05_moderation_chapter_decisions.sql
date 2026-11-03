@@ -9,6 +9,10 @@ UPDATE chapters SET moderation_state='hold' WHERE admin_hold;
 ALTER TABLE chapters
     ADD CONSTRAINT chapters_moderation_state_allowed
     CHECK (moderation_state IN ('none','hold','hidden','blocked'));
+-- Prevent hidden/blocked states from being served with admin_hold=false.
+ALTER TABLE chapters
+    ADD CONSTRAINT chapters_moderation_state_hold_consistent
+    CHECK ((moderation_state = 'none') = (NOT admin_hold));
 
 CREATE TABLE moderation_chapter_decision_events (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
