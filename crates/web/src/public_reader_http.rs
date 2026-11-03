@@ -2,8 +2,13 @@
 use super::{auth_cookies, pages, AppState};
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, Method, StatusCode},
-    response::Response,
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    response::{Redirect, Response},
+};
+use tor_accounts::services::security::session_token_digest;
+use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
+use tor_contracts::paid_delivery::{
+    Actor, EntitlementDecision, EntitlementPort, PositiveId,
 };
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
 use tor_reading::services::PublicReadingRepository;
@@ -16,6 +21,66 @@ pub(super) struct PublicIssueQuery {
     pub comments_after: Option<i64>,
 }
 
+/// Only a live A administrator with a sealed B/G paid edition may leave the
+/// canonical public reader for the private admin reader. No role, version,
+/// purchase identity or private metadata is taken from the URL/query string.
+async fn administrator_paid_redirect(
+    state: &AppState,
+    headers: &HeaderMap,
+    id: u64,
+) -> Result<Option<Response>, StatusCode> {
+    if !state.private_admin_reader_enabled {
+        return Ok(None);
+    }
+    let Some(control) = state.follow_control.as_ref() else {
+        return Ok(None);
+    };
+    let (accounts, cookies) = control.browser_context();
+    let Some(session) = cookies.session_token(headers) else {
+        return Ok(None);
+    };
+    let digest = session_token_digest(&session);
+    let actor = accounts
+        .session_actor(&digest)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let Some(actor) = actor.filter(|actor| actor.administrator) else {
+        return Ok(None);
+    };
+    let chapter_id = i64::try_from(id)
+        .ok()
+        .and_then(|raw| PositiveId::new(raw).ok());
+    let Some(chapter_id) = chapter_id else {
+        return Ok(None);
+    };
+    let actor_id = PositiveId::new(actor.actor.user_id.get())
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let authority = PgAdministratorReaderEntitlements::new(accounts.pool().clone(), digest);
+    match authority
+        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
+        .await
+    {
+        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {
+            let mut response = auth_cookies::private_response(
+                Redirect::to(&format!("/read/admin/{id}")),
+                &[],
+            );
+            response.headers_mut().insert(
+                header::REFERRER_POLICY,
+                HeaderValue::from_static("no-referrer"),
+            );
+            response.headers_mut().insert(
+                "x-robots-tag",
+                HeaderValue::from_static("noindex, nofollow"),
+            );
+            Ok(Some(response))
+        }
+        Ok(EntitlementDecision::Denied { .. }) => Ok(None),
+        Ok(EntitlementDecision::Allowed { .. }) => Err(StatusCode::CONFLICT),
+        Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
 /// C-10: successful and denied reading both use no-store and strict CSP.
 pub(super) async fn reader_page(
     State(state): State<AppState>,
@@ -24,12 +89,21 @@ pub(super) async fn reader_page(
     headers: HeaderMap,
     method: Method,
 ) -> Response {
-    let Some(reader) = state.reader else {
+    let Some(reader) = state.reader.as_ref() else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
     let chapter = match reader.public_chapter(id).await {
         Ok(Some(chapter)) => chapter,
-        Ok(None) => match reader.public_paid_chapter_preview(id).await {
+        Ok(None) => {
+            // NEwBOO parity: the ordinary /reader link is sufficient for an
+            // active site administrator, including sealed hidden/draft paid
+            // editions. Everyone else retains the public paywall/404 policy.
+            match administrator_paid_redirect(&state, &headers, id).await {
+                Ok(Some(redirect)) => return redirect,
+                Ok(None) => {}
+                Err(status) => return auth_cookies::private_response(status, &[]),
+            }
+            match reader.public_paid_chapter_preview(id).await {
             Ok(Some(preview)) => {
                 // Publicly visible paid metadata has a paywall, never plaintext.
                 // Hidden, held, deleted and unreleased chapters still yield 404.
@@ -47,7 +121,8 @@ pub(super) async fn reader_page(
             }
             Ok(None) => return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]),
             Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
-        },
+            }
+        }
         Err(_) => return auth_cookies::private_response(StatusCode::SERVICE_UNAVAILABLE, &[]),
     };
     if !tor_reading::domain::renderer::valid_reader_length(&chapter.body_markdown) {
