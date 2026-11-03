@@ -77,7 +77,7 @@ impl PgAuthoring {
                CASE WHEN link.smaller_book_id=$1
                  THEN link.larger_book_id ELSE link.smaller_book_id END
              WHERE $1 IN (link.smaller_book_id, link.larger_book_id)
-               AND target.visibility='public' AND target.visibility_status='active'
+               AND target.visibility='public' AND target.visibility_status='active' AND target.access_level='basic'
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 100",
         )
@@ -269,7 +269,7 @@ impl PgCatalog {
              WHERE source.id=$1
                AND source.visibility='public' AND source.visibility_status='active'
                AND NOT source.admin_hold AND NOT source.is_deleted
-               AND target.visibility='public' AND target.visibility_status='active'
+               AND target.visibility='public' AND target.visibility_status='active' AND target.access_level='basic'
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 12",
         )

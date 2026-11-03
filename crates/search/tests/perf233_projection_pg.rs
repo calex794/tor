@@ -190,7 +190,6 @@ async fn assert_public_catalog_projection_count(pool: &PgPool) {
     );
 }
 
-
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL tor_ci with S020 public basic projection"]
 async fn s020_anonymous_catalog_excludes_restricted_books_and_exact_counts() {
@@ -220,11 +219,11 @@ async fn s020_anonymous_catalog_excludes_restricted_books_and_exact_counts() {
     .await
     .unwrap();
     let mut ids = Vec::new();
-    for (name,level) in [
-        ("basic",Some("basic")),
-        ("adult",Some("adult")),
-        ("pro",Some("pro_adult")),
-        ("unknown",None),
+    for (name, level) in [
+        ("basic", Some("basic")),
+        ("adult", Some("adult")),
+        ("pro", Some("pro_adult")),
+        ("unknown", None),
     ] {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books(source_identity,target_language,title,visibility,access_level,genres)
@@ -319,7 +318,10 @@ async fn s020_anonymous_catalog_excludes_restricted_books_and_exact_counts() {
     .fetch_optional(&pool)
     .await
     .unwrap();
-    assert_eq!(refs, None, "revoked last basic facet disappears immediately");
+    assert_eq!(
+        refs, None,
+        "revoked last basic facet disappears immediately"
+    );
 
     sqlx::query("DELETE FROM books WHERE id=ANY($1::bigint[])")
         .bind(&ids)
