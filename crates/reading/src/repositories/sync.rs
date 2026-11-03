@@ -43,8 +43,8 @@ impl PgReadingSync {
                AND (book.access_level='basic' \
                OR (book.access_level='adult' AND viewer.adult_enabled) \
                OR (book.access_level='pro_adult' AND EXISTS ( \
-                   SELECT 1 FROM user_level_grants AS grant \
-                   WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active))) \
+                   SELECT 1 FROM user_level_grants AS age_grant \
+                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())",
@@ -114,8 +114,8 @@ impl PgReadingSync {
                AND (book.access_level='basic'
                     OR (book.access_level='adult' AND viewer.adult_enabled)
                     OR (book.access_level='pro_adult' AND EXISTS (
-                        SELECT 1 FROM user_level_grants AS grant
-                        WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active)))
+                        SELECT 1 FROM user_level_grants AS age_grant
+                        WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active)))
                AND chapter.visibility='public' AND chapter.access_level='free'
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())
@@ -160,8 +160,8 @@ impl PgReadingSync {
                AND (book.access_level='basic' \
                OR (book.access_level='adult' AND viewer.adult_enabled) \
                OR (book.access_level='pro_adult' AND EXISTS ( \
-                   SELECT 1 FROM user_level_grants AS grant \
-                   WHERE grant.user_id=viewer.id AND grant.level='pro_adult' AND grant.is_active))) \
+                   SELECT 1 FROM user_level_grants AS age_grant \
+                   WHERE age_grant.user_id=viewer.id AND age_grant.level='pro_adult' AND age_grant.is_active))) \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now()) \
