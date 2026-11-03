@@ -12,18 +12,32 @@ fn last_decision(url: &str, chapter: i64) -> i64 {
     .unwrap()
 }
 
-pub(super) async fn check(
-    url: &str,
-    app: &Router,
-    reader: &PgReader,
-    book: i64,
-    paid_chapter: i64,
-    paid_version: i64,
-    paid_action: &str,
-    mod_cookie: &str,
-    admin_cookie: &str,
-    csrf: &str,
-) {
+pub(super) struct Context<'a> {
+    pub(super) url: &'a str,
+    pub(super) app: &'a Router,
+    pub(super) reader: &'a PgReader,
+    pub(super) book: i64,
+    pub(super) paid_chapter: i64,
+    pub(super) paid_version: i64,
+    pub(super) paid_action: &'a str,
+    pub(super) mod_cookie: &'a str,
+    pub(super) admin_cookie: &'a str,
+    pub(super) csrf: &'a str,
+}
+
+pub(super) async fn check(context: Context<'_>) {
+    let Context {
+        url,
+        app,
+        reader,
+        book,
+        paid_chapter,
+        paid_version,
+        paid_action,
+        mod_cookie,
+        admin_cookie,
+        csrf,
+    } = context;
     // MOD-C03: publish a first FREE working edition atomically, then draft
     // and republish exactly that edition. Never synthesize a paid publication.
     let pending_free: i64 = pg(
