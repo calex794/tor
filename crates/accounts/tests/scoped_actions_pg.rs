@@ -1,10 +1,7 @@
 //! AB-08/09: shared PostgreSQL scoped write quota with idempotent retries.
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tor_accounts::repositories::{
-    scoped_actions::ScopedActionAdmission,
-    PgAccounts,
-};
+use tor_accounts::repositories::{scoped_actions::ScopedActionAdmission, PgAccounts};
 
 fn digest(label: &str) -> [u8; 32] {
     Sha256::digest(label.as_bytes()).into()
