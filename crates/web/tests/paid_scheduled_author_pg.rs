@@ -11,20 +11,18 @@ use axum::{
     http::{header, Request, StatusCode},
     Router,
 };
-use std::{env, num::NonZeroU32, sync::Arc, time::Duration};
 use sqlx::PgPool;
+use std::{env, num::NonZeroU32, sync::Arc, time::Duration};
 use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
-use tor_books::{
-    repositories::{
-        postgres::{
-            book_delayed_schedule::{BookSlotFrontier, BookSlotReleaseOutcome},
-            PgAuthoring,
-        },
-        PgCatalog,
+use tor_books::repositories::{
+    postgres::{
+        book_delayed_schedule::{BookSlotFrontier, BookSlotReleaseOutcome},
+        PgAuthoring,
     },
+    PgCatalog,
 };
 use tor_contracts::paid_delivery::PrivateObjectDeliveryPort;
 use tor_reading::repositories::PgReader;
@@ -165,13 +163,8 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         )
         .unwrap(),
     );
-    let publisher = PgPaidAuthorPublisher::new(
-        catalog.clone(),
-        store,
-        keyring,
-        BUCKET.to_owned(),
-    )
-    .unwrap();
+    let publisher =
+        PgPaidAuthorPublisher::new(catalog.clone(), store, keyring, BUCKET.to_owned()).unwrap();
     let app = tor_web::router_with_postgres_reading_auth_paid_grants_browser_author(
         catalog,
         PgReader::new(pool.clone()),
@@ -214,18 +207,29 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     .await
     .unwrap();
     let (chapter, version, visibility, access, price, state) = staged;
-    assert_eq!((visibility.as_str(), access.as_str(), price, state.as_str()), ("draft", "paid", 175, "attached"));
-    let count_before: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(count_before, 0, "private ciphertext is not reader publication");
+    assert_eq!(
+        (visibility.as_str(), access.as_str(), price, state.as_str()),
+        ("draft", "paid", 175, "attached")
+    );
+    let count_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        count_before, 0,
+        "private ciphertext is not reader publication"
+    );
     let (_, before) = request_body(&app, &format!("/books/{book}")).await;
-    assert!(!before.contains(SECRET), "plaintext must never be in book HTML");
-    assert!(!before.contains("S058 scheduled paid"), "draft TOC must not expose chapter title");
+    assert!(
+        !before.contains(SECRET),
+        "plaintext must never be in book HTML"
+    );
+    assert!(
+        !before.contains("S058 scheduled paid"),
+        "draft TOC must not expose chapter title"
+    );
 
     // Make the specific book's next slot due. No worker is activated.
     sqlx::query(
@@ -242,19 +246,24 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         author.bind_book_slot_frontier(&claim, &token).await,
         Ok(BookSlotFrontier::Ready(chapter))
     );
-    let still_private: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM chapter_publications WHERE chapter_id=$1",
-    )
-    .bind(chapter)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let still_private: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM chapter_publications WHERE chapter_id=$1")
+            .bind(chapter)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(still_private, 0);
     assert_eq!(
         author.release_bound_book_slot(&claim, &token).await,
-        Ok(BookSlotReleaseOutcome::Released { chapter_id: chapter, version_id: version })
+        Ok(BookSlotReleaseOutcome::Released {
+            chapter_id: chapter,
+            version_id: version
+        })
     );
-    assert!(author.release_bound_book_slot(&claim, &token).await.is_err());
+    assert!(author
+        .release_bound_book_slot(&claim, &token)
+        .await
+        .is_err());
     let published: (String, String, i64, i64) = sqlx::query_as(
         "SELECT c.visibility,c.access_level,c.price_amount,p.version_id
          FROM chapters c JOIN chapter_publications p ON p.chapter_id=c.id
@@ -264,7 +273,10 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(published, ("public".to_owned(), "paid".to_owned(), 175, version));
+    assert_eq!(
+        published,
+        ("public".to_owned(), "paid".to_owned(), 175, version)
+    );
     let (first, encrypted, outbox): (i64, i64, i64) = sqlx::query_as(
         "SELECT
           (SELECT count(*) FROM chapter_first_release_events WHERE chapter_id=$1),
@@ -279,6 +291,9 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
     .unwrap();
     assert_eq!((first, encrypted, outbox), (1, 1, 1));
     let (_, after) = request_body(&app, &format!("/books/{book}")).await;
-    assert!(!after.contains(SECRET), "published paid HTML must not reveal plaintext");
+    assert!(
+        !after.contains(SECRET),
+        "published paid HTML must not reveal plaintext"
+    );
     pool.close().await;
 }
