@@ -113,6 +113,112 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         }
         published
     }
+
+    /// S058: stage an immutable, G-verified paid edition for the book schedule.
+    /// No publication pointer, release fact or reader entitlement is created.
+    pub async fn stage_for_book_schedule(
+        &self,
+        actor: i64,
+        request: &SaveChapter,
+    ) -> Result<(), AuthorError> {
+        self.paid
+            .require_active_book_schedule(actor, request.book_id)
+            .await?;
+        let pending = self
+            .paid
+            .prepare_scheduled_paid_chapter(actor, request)
+            .await?;
+        if pending.published {
+            // The delayed command hash is distinct from the immediate path.
+            // This exact scheduled edition may already have been released
+            // by a worker before a retried HTTP response reaches the author.
+            return Ok(());
+        }
+        if self
+            .paid
+            .staged_paid_object_attached(
+                actor,
+                request.book_id,
+                pending.chapter_id,
+                pending.version_id,
+            )
+            .await?
+        {
+            self.paid
+                .rearm_prepared_paid_frontier(
+                    actor,
+                    request.book_id,
+                    pending.chapter_id,
+                    pending.version_id,
+                )
+                .await?;
+            return Ok(());
+        }
+        let version = ChapterVersionRef {
+            chapter_id: PositiveId::new(pending.chapter_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+            version_id: PositiveId::new(pending.version_id)
+                .map_err(|_| AuthorError::Unavailable)?,
+        };
+        let object_id = fresh_private_object_id().map_err(|_| AuthorError::Unavailable)?;
+        let sealed =
+            seal_chapter_with_keyring(version, object_id.clone(), &request.body, &self.keyring)
+                .map_err(|_| AuthorError::Unavailable)?;
+        let object = self
+            .registry
+            .reserve_pending_with_keyring(&sealed, &self.keyring, &self.bucket)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        let receipt = upload_and_verify(&self.store, &object, &sealed.ciphertext)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        self.registry
+            .mark_ready(&receipt)
+            .await
+            .map_err(|_| AuthorError::Unavailable)?;
+        let attached = self
+            .paid
+            .attach_verified_and_publish(
+                actor,
+                request.book_id,
+                version,
+                &object_id,
+                PaidPublication::KeepCurrent,
+            )
+            .await;
+        if attached == Err(AuthorError::Conflict)
+            && self
+                .paid
+                .staged_paid_object_attached(
+                    actor,
+                    request.book_id,
+                    pending.chapter_id,
+                    pending.version_id,
+                )
+                .await?
+        {
+            self.paid
+                .rearm_prepared_paid_frontier(
+                    actor,
+                    request.book_id,
+                    pending.chapter_id,
+                    pending.version_id,
+                )
+                .await?;
+            return Ok(());
+        }
+        attached?;
+        self.paid
+            .rearm_prepared_paid_frontier(
+                actor,
+                request.book_id,
+                pending.chapter_id,
+                pending.version_id,
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Existing paid chapter: prepare a new immutable B revision while the
     /// bought V1 remains the published and readable edition. Only after
     /// authenticated G PUT+GET/hash may B move the current pointer by CAS.
@@ -228,6 +334,10 @@ impl<S: PrivateObjectStore + Clone> PgPaidAuthorPublisher<S> {
 
 #[async_trait]
 impl<S: PrivateObjectStore + Clone> PaidChapterPublisher for PgPaidAuthorPublisher<S> {
+    async fn stage_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
+        self.stage_for_book_schedule(actor, request).await
+    }
+
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError> {
         self.publish(actor, request).await
     }

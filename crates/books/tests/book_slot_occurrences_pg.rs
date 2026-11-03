@@ -36,11 +36,13 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let title = format!("Очередь публикаций {nonce}");
+    let key = format!("{nonce:043x}");
     let book = new_book(
         &format!("tor-ci:s058-occurrence:{owner}:{nonce}"),
         "ru",
-        "Очередь публикаций",
-        &"u".repeat(43),
+        &title,
+        &key,
     )
     .unwrap();
     let book_id = author.create_owned_book(owner, &book).await.unwrap();

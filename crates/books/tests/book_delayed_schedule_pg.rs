@@ -41,8 +41,16 @@ async fn s058_book_schedule_owner_collaborator_cadence_acl_and_revision() {
     .await
     .unwrap();
     let author = PgAuthoring::new(pool.clone());
-    let source = format!("tor-ci:s058-book-cadence:{owner}:{}", std::process::id());
-    let book = new_book(&source, "ru", "Расписание книги", &"u".repeat(43)).unwrap();
+    // Book registration claims titles globally in /tor_ci. A stable test
+    // title collides with previous scenarios even when source IDs differ.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let source = format!("tor-ci:s058-book-cadence:{owner}:{nonce}");
+    let title = format!("Расписание книги {nonce}");
+    let key = format!("{nonce:043x}");
+    let book = new_book(&source, "ru", &title, &key).unwrap();
     let book_id = author.create_owned_book(owner, &book).await.unwrap();
     let empty = author
         .get_book_delayed_schedule(owner, book_id)

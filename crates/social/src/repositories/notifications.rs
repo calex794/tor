@@ -62,6 +62,12 @@ impl PgNotifications {
         Self { pool }
     }
 
+    /// Fan out S058's canonical release fact into recipient-scoped events.
+    /// No direct notification or plaintext is created here.
+    pub async fn fanout_chapter_releases(&self, limit: u16) -> Result<usize, MailError> {
+        super::chapter_notifications::fanout(&self.pool, limit).await
+    }
+
     /// Consume only this feature's events. Row-level SKIP LOCKED and the
     /// source-event unique key make competing workers/restarts idempotent.
     /// No external message or notification is sent before the DB receipt.
@@ -85,7 +91,8 @@ impl PgNotifications {
                      ('social.mail.created','social.friendship.requested',
                       'social.friendship.accepted','social.friendship.removed',
                       'social.group_mail.created',
-                      'social.group_creator_transfer.proposed')
+                      'social.group_creator_transfer.proposed',
+                      'reader.chapter.released')
                    AND NOT EXISTS (
                      SELECT 1 FROM event_deliveries d
                      WHERE d.event_id=e.id AND d.consumer='user_notifications')
@@ -154,6 +161,11 @@ impl PgNotifications {
                 .await
                 .map_err(unavailable)?;
                 status.as_deref() == Some("active")
+            } else if kind == "reader.chapter.released" {
+                super::chapter_notifications::eligible_recipient(
+                    &mut tx, object_id, actor, recipient, &event_id,
+                )
+                .await?
             } else if kind == "social.group_creator_transfer.proposed" {
                 // Lock the group in a separate statement BEFORE checking
                 // the offer. With READ COMMITTED, joining a locked group in
@@ -213,6 +225,12 @@ impl PgNotifications {
                     .await
                     .map_err(unavailable)?;
                 let (category, title, body, url) = match kind.as_str() {
+                    "reader.chapter.released" => (
+                        "chapter_created",
+                        "Новая глава",
+                        format!("{name} опубликовал новую главу"),
+                        format!("/reader/{object_id}"),
+                    ),
                     "social.mail.created" => (
                         "mail",
                         "Новое сообщение",

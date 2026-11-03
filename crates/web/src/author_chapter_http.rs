@@ -1,7 +1,6 @@
 //! Browser author publishing, only for authenticated owner, no URL collectors.
 #![forbid(unsafe_code)]
 
-use async_trait::async_trait;
 use axum::{
     extract::{DefaultBodyLimit, Form, Path, State},
     http::{HeaderMap, StatusCode},
@@ -15,41 +14,16 @@ use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
     repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
-    services::authoring::{
-        save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest,
-    },
+    services::authoring::{save_chapter, AuthorError, ChapterAccess, SaveChapterRequest},
 };
 
 use crate::auth_cookies::{private_response, CookiePolicy};
 
 mod chapter_import;
 mod new_chapter_page;
+mod publisher;
 mod schedule;
-
-/// Only the S3-paid constructor provides this port. Ordinary author routes
-/// remain entirely unable to write private paid content.
-#[async_trait]
-pub(crate) trait PaidChapterPublisher: Send + Sync {
-    async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
-
-    /// No paid edit without a separately configured, verified S3 writer.
-    async fn publish_edit(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
-        Err(AuthorError::Unavailable)
-    }
-
-    /// The isolated illustrated-author route supplies a server-computed
-    /// immutable image identity. Non-S3 publishers fail closed by default.
-    async fn publish_with_image(
-        &self,
-        _actor: i64,
-        _request: &SaveChapter,
-        _object_id: &tor_contracts::paid_delivery::ObjectId,
-        _bytes: &[u8],
-        _mime: &str,
-    ) -> Result<(), AuthorError> {
-        Err(AuthorError::Unavailable)
-    }
-}
+pub(crate) use publisher::PaidChapterPublisher;
 
 #[derive(Clone)]
 struct AuthorChapterState {
@@ -244,9 +218,6 @@ async fn create_chapter(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     if request.access == ChapterAccess::Paid {
-        if delayed_publication {
-            return deny(StatusCode::BAD_REQUEST);
-        }
         let Some(publisher) = &state.paid_author else {
             return private_response(
                 (
@@ -256,8 +227,20 @@ async fn create_chapter(
                 &[],
             );
         };
-        return match publisher.publish_new(actor, &request).await {
-            Ok(()) => private_response(Redirect::to(&format!("/books/{id}")), &[]),
+        let paid_result = if delayed_publication {
+            publisher.stage_new(actor, &request).await
+        } else {
+            publisher.publish_new(actor, &request).await
+        };
+        return match paid_result {
+            Ok(()) => {
+                let target = if delayed_publication {
+                    format!("/me/books/{id}")
+                } else {
+                    format!("/books/{id}")
+                };
+                private_response(Redirect::to(&target), &[])
+            }
             Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
             Err(AuthorError::Conflict) => private_response(
                 (
