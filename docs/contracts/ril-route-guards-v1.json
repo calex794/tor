@@ -1750,14 +1750,14 @@
       "template": "/me/books/{id}/settings/titles",
       "source": "crates/web/src/auth/book_titles.rs",
       "handler": "edit",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "POST",
       "template": "/me/books/{id}/settings/titles",
       "source": "crates/web/src/auth/book_titles.rs",
       "handler": "save",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "GET",
