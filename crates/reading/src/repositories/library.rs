@@ -18,13 +18,21 @@ impl PgLibrary {
         if user_id <= 0 || book_id <= 0 {
             return Err(LibraryError::Invalid);
         }
-        // Visibility is checked inside the actual write, not in a prior page GET.
+        // The live Book tier and account grant are checked inside the write,
+        // not on an earlier GET or a client-provided 'adult' flag.
         // An existing bookmark keeps its place; a replay cannot create a duplicate.
         let saved: Option<i64> = sqlx::query_scalar(
             "INSERT INTO reader_library_items (user_id, book_id) \
              SELECT $1, b.id FROM books AS b \
+             JOIN users AS u ON u.id=$1 AND u.account_state='active' \
              WHERE b.id = $2 AND b.visibility = 'public' AND b.visibility_status = 'active' \
-               AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.lifecycle_status<>'pending_deletion' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND (b.access_level='basic' \
+                    OR (b.access_level='adult' AND u.adult_enabled) \
+                    OR (b.access_level='pro_adult' AND EXISTS ( \
+                        SELECT 1 FROM user_level_grants AS g \
+                        WHERE g.user_id=u.id AND g.level='pro_adult' AND g.is_active \
+                    ))) \
              ON CONFLICT (user_id, book_id) DO UPDATE SET book_id = EXCLUDED.book_id \
              RETURNING id",
         )
@@ -64,13 +72,21 @@ impl PgLibrary {
             return Err(LibraryError::Invalid);
         }
         // The user_id comes from the verified session. Paid text and purchases
-        // are not joined or selected, and hidden books disappear from the view.
+        // are not joined or selected. A revoked 18+/21+ grant hides the title
+        // at read time without deleting a saved bookmark.
         let rows = sqlx::query(
             "SELECT li.id AS cursor_id, b.id AS book_id, b.title \
              FROM reader_library_items AS li \
              JOIN books AS b ON b.id = li.book_id \
+             JOIN users AS u ON u.id=li.user_id AND u.account_state='active' \
              WHERE li.user_id = $1 AND ($2::BIGINT IS NULL OR li.id < $2) \
-               AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND b.visibility = 'public' AND b.visibility_status = 'active' AND b.lifecycle_status<>'pending_deletion' AND NOT b.admin_hold AND NOT b.is_deleted \
+               AND (b.access_level='basic' \
+                    OR (b.access_level='adult' AND u.adult_enabled) \
+                    OR (b.access_level='pro_adult' AND EXISTS ( \
+                        SELECT 1 FROM user_level_grants AS g \
+                        WHERE g.user_id=u.id AND g.level='pro_adult' AND g.is_active \
+                    ))) \
              ORDER BY li.id DESC LIMIT $3",
         )
         .bind(user_id)
