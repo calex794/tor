@@ -229,18 +229,6 @@ pub(super) async fn page(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
-    match state
-        .accounts
-        .permit_comment_action(actor, &command_digest)
-        .await
-    {
-        Ok(ScopedActionAdmission::Allowed) => {}
-        Ok(ScopedActionAdmission::Limited { retry_after }) => {
-            return comment_rate_denial(retry_after);
-        }
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    }
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
     let comments = match store.list(book_id, query.after, 25).await {
         Ok(Some(comments)) => comments,
@@ -326,6 +314,18 @@ pub(super) async fn submit(
         None => format!("book:{book_id}\n{}", body.as_str()),
     };
     let digest = Sha256::digest(payload.as_bytes());
+    let command_digest: [u8; 32] = Sha256::digest(key.as_str().as_bytes()).into();
+    match state
+        .accounts
+        .permit_comment_action(actor, &command_digest)
+        .await
+    {
+        Ok(ScopedActionAdmission::Allowed) => {}
+        Ok(ScopedActionAdmission::Limited { retry_after }) => {
+            return comment_rate_denial(retry_after);
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let store = PgPublicBookComments::new(state.accounts.pool().clone());
     match store
         .create_with_parent(
