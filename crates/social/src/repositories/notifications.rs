@@ -62,6 +62,12 @@ impl PgNotifications {
         Self { pool }
     }
 
+    /// Fan out S058's canonical release fact into recipient-scoped events.
+    /// No direct notification or plaintext is created here.
+    pub async fn fanout_chapter_releases(&self, limit: u16) -> Result<usize, MailError> {
+        super::chapter_notifications::fanout(&self.pool, limit).await
+    }
+
     /// Consume only this feature's events. Row-level SKIP LOCKED and the
     /// source-event unique key make competing workers/restarts idempotent.
     /// No external message or notification is sent before the DB receipt.
