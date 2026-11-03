@@ -12,10 +12,10 @@ pub enum ModerationBooksError {
     Unavailable,
 }
 
-#[derive(Debug)]
 // Row shape remains private to the bounded site-moderation queue.
 type ModerationBookRow = (i64, String, String, String, i64, bool, Option<i64>);
 
+#[derive(Debug)]
 pub struct ModerationBook {
     pub visibility_status: String,
     pub visibility_status_revision: i64,
