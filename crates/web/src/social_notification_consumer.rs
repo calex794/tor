@@ -9,6 +9,9 @@ pub fn start(repo: PgNotifications) -> tokio::task::JoinHandle<()> {
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             tick.tick().await;
+            if let Err(error) = repo.fanout_chapter_releases(16).await {
+                tracing::warn!(?error, "S058 chapter release fanout unavailable");
+            }
             if let Err(error) = repo.deliver_pending(50).await {
                 // No user ID, message body, profile name or event payload in logs.
                 tracing::warn!(?error, "on-site social notification delivery unavailable");
