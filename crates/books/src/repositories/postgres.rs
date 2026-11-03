@@ -390,7 +390,7 @@ impl PgAuthoring {
             || request.book_id <= 0
             || request.chapter_id.is_some()
             || request.expected_revision != 0
-            || request.number <= 0
+            || request.number < 0
             || request.access != ChapterAccess::Free
             || request.price_amount != 0
             || !valid_command_key(&request.command_key)
@@ -435,8 +435,7 @@ impl PgAuthoring {
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         let book_visibility = book_visibility.ok_or(AuthorError::Missing)?;
-        // Adding a chapter to a public book requires a separate chapter-release
-        // workflow. Saving text must not implicitly publish it.
+        // Public-book chapters use a separate release command.
         if book_visibility != "draft" {
             return Err(AuthorError::Conflict);
         }
@@ -485,12 +484,13 @@ impl PgAuthoring {
             });
         }
 
+        let number = super::chapter_number::assign(&mut tx, request.book_id, request.number).await?;
         let chapter_id: i64 = sqlx::query_scalar(
             "INSERT INTO chapters (book_id,chapter_no,title,visibility,access_level,price_amount,edit_revision)
              VALUES ($1,$2,$3,'public','free',0,1) RETURNING id",
         )
         .bind(request.book_id)
-        .bind(request.number)
+        .bind(number)
         .bind(&request.title)
         .fetch_one(&mut *tx)
         .await

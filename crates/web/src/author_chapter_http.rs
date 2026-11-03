@@ -62,6 +62,7 @@ struct AuthorChapterState {
 #[derive(Deserialize)]
 struct ChapterForm {
     number: i32,
+    auto_number: Option<String>,
     title: String,
     body: String,
     command_key: String,
@@ -220,11 +221,18 @@ async fn create_chapter(
         (Some("1"), None) | (None, Some("1")) | (Some("1"), Some("1")) => true,
         _ => return deny(StatusCode::BAD_REQUEST),
     };
+    // NEwBOO: the displayed number is advisory; B allocates the real number
+    // under the owner book lock. Existing explicit-number POSTs remain valid.
+    let number = match form.auto_number.as_deref() {
+        None => form.number,
+        Some("1") => 0,
+        _ => return deny(StatusCode::BAD_REQUEST),
+    };
     let access = form.access.as_deref().unwrap_or("free");
     let request = match save_chapter(SaveChapterRequest {
         book_id: id,
         chapter_id: None,
-        number: form.number,
+        number,
         expected_revision: 0,
         title: &form.title,
         body: &body,

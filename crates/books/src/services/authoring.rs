@@ -252,7 +252,8 @@ pub fn save_chapter(input: SaveChapterRequest<'_>) -> Result<SaveChapter, Author
     };
     if book_id <= 0
         || chapter_id.is_some_and(|id| id <= 0)
-        || input.number <= 0
+        || input.number < 0
+        || (chapter_id.is_some() && input.number == 0)
         || input.expected_revision < 0
         || (chapter_id.is_none() && input.expected_revision != 0)
         || !(1..=200).contains(&title.chars().count())
@@ -475,6 +476,27 @@ mod tests {
         })
         .is_err());
         assert_eq!(save_chapter(input("a\r\nb")).unwrap().body, "a\nb");
+        assert_eq!(
+            save_chapter(SaveChapterRequest {
+                number: 0,
+                ..input("auto")
+            })
+            .unwrap()
+            .number,
+            0
+        );
+        assert!(save_chapter(SaveChapterRequest {
+            number: -1,
+            ..input("bad")
+        })
+        .is_err());
+        assert!(save_chapter(SaveChapterRequest {
+            number: 0,
+            chapter_id: Some(1),
+            expected_revision: 1,
+            ..input("bad edit")
+        })
+        .is_err());
     }
 
     #[test]
