@@ -11,7 +11,8 @@ use axum::{
 };
 use serde::Deserialize;
 use tor_accounts::{
-    repositories::moderation_chapters::ModerationChapter, services::security::session_token_digest,
+    repositories::moderation_chapters::{ChapterPublicationCommand, ModerationChapter},
+    services::security::session_token_digest,
 };
 
 #[derive(Default, Deserialize)]
@@ -247,12 +248,14 @@ pub(super) async fn submit(
                 .moderate_chapter_publication(
                     &digest,
                     id,
-                    expected,
-                    visibility,
-                    revision,
-                    form.expected_version,
-                    decision_id,
-                    next,
+                    ChapterPublicationCommand {
+                        expected_moderation_state: expected,
+                        expected_visibility: visibility,
+                        expected_revision: revision,
+                        expected_version: form.expected_version,
+                        expected_decision_id: decision_id,
+                        action: next,
+                    },
                 )
                 .await
         }
