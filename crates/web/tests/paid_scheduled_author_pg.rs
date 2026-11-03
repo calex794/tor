@@ -306,6 +306,19 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
             .is_some(),
         "public book likes projection must exist even before first chapter"
     );
+    // Compare the same public book through the plain reader router. If this
+    // responds 200 but the paid-author router responds 404, the bug belongs
+    // to the extra auth/middleware composition, not scheduling or SQL.
+    let simple = tor_web::router_with_postgres_reading(
+        PgCatalog::connect(&url).await.unwrap(),
+        PgReader::new(pool.clone()),
+    );
+    let (simple_status, _) = request_body(&simple, &format!("/books/{book}")).await;
+    assert_eq!(
+        simple_status,
+        StatusCode::OK,
+        "plain public reader router must show the scheduled book"
+    );
     let (toc_before_status, toc_before) =
         request_body(&app, &format!("/api/v1/books/{book}/toc")).await;
     assert_eq!(toc_before_status, StatusCode::OK);
