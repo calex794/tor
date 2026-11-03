@@ -38,6 +38,7 @@ pub use cover_http::{
     router_with_postgres_reading_auth_cover_uploads, router_with_postgres_reading_auth_covers,
     router_with_postgres_reading_covers,
 };
+mod admin_reader_router;
 pub mod cover_worker;
 mod observability;
 mod operator_overview;
@@ -74,6 +75,7 @@ struct AppState {
     paid_batch_browser_enabled: bool,
     paid_checkout_browser: bool,
     private_admin_reader_enabled: bool,
+    private_admin_sealed_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
@@ -447,21 +449,14 @@ pub fn router_with_postgres_reading_auth(
     secure: bool,
     public_origin: String,
 ) -> Router {
-    let auth_reader = reader.clone();
-    ril::instrument(
-        make_router(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            None,
-            Some(book_follow_page::FollowBookControl::new(
-                accounts.clone(),
-                secure,
-                public_origin.clone(),
-            )),
-        )
-        .merge(auth::router(accounts, auth_reader, secure, public_origin)),
+    admin_reader_router::authenticated_postgres_reader_without_paid_g(
+        catalog,
+        reader,
+        accounts,
+        secure,
+        public_origin,
+        None,
+        false,
     )
 }
 
@@ -585,6 +580,9 @@ fn make_router_with_paid_checkout(
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             // Administrator private reading is independent of paid checkout.
             private_admin_reader_enabled: active_auth && modes.admin_reader,
+            private_admin_sealed_reader_enabled: active_auth
+                && modes.admin_reader
+                && modes.paid_browser,
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,

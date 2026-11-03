@@ -5,7 +5,7 @@ use super::*;
 use serde_json::json;
 
 pub(super) async fn read(
-    State(state): State<GrantState>,
+    State(state): State<AdminReaderState>,
     Path(raw_chapter): Path<String>,
     headers: HeaderMap,
 ) -> Response {
