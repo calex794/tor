@@ -21,6 +21,7 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://127.0.0.1:3098";
 
+#[path = "moderation_chapters_pg/c03.rs"]
 mod c03;
 
 fn pg(url: &str, sql: &str) -> String {
