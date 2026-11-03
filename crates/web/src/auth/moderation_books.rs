@@ -100,6 +100,7 @@ fn render(rows: &[ModerationBook], csrf: &str) -> String {
               {list}</div></section>"#
         ),
     )
+    .0
 }
 
 pub(super) async fn page(
