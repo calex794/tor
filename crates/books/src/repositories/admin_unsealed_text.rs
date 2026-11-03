@@ -14,10 +14,7 @@ impl PgAdminUnsealedText {
         Self { pool }
     }
 
-    pub async fn read(
-        &self,
-        pinned: ChapterVersionRef,
-    ) -> Result<Option<String>, DeliveryError> {
+    pub async fn read(&self, pinned: ChapterVersionRef) -> Result<Option<String>, DeliveryError> {
         let text: Option<String> = sqlx::query_scalar(
             "SELECT v.body_markdown
              FROM chapter_versions v
