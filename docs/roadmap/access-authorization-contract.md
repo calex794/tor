@@ -40,6 +40,8 @@
 | Задержанная публикация | публичный TOC не показывает текст до срока | до срока — отказ, исключение авторский preview | no new sale | worker проверяет актуальный срок и роль |
 | Личная/private книга | нет | только владелец и явно разрешённые соавторы | нет | приватное содержимое не попадает в поиск/рекламу |
 
+**NEwBOO current-version parity:** обычный административный reader наследует `current_version_id`, а не разрешение на просмотр произвольного номера редакции. В TOR для административного просмотра текущая редакция выбирается только по указателю `chapter_working_drafts.version_id` (если он есть), иначе `chapter_publications.version_id`. Сохранённые G/S3-объекты без выбранного текущего указателя остаются историей, не могут быть выданы как fallback reader/grant; отдельный owner/editor history и preview должны иметь собственные ACL. Данное правило не меняет buyer V1, Layer CURRENT V2 или права на оплаченные редакции.
+
 **Контроль всех поверхностей:** SSR reader, JSON `/read`, `/reader`, `/me/library`, direct version/history, preview, offsets/autosave, comment anchor/snippet, SEO/search, recommendation/ads card, S3/storage signed URL, offline feed, CDN/browser cache. Каждая получает одинаковое deny-поведение, независимо от количества обходных маршрутов.
 
 ## 3. Слои — конкретный оплаченный договор из аудита NEwBOO

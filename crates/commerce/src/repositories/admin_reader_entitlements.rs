@@ -82,25 +82,27 @@ impl EntitlementPort for PgAdministratorReaderEntitlements {
         // authorize a new bearer grant. No trusted choice of V1/V2 comes
         // from the browser. B/G must still verify the attached ciphertext.
         //
-        // The current sealed publication wins; a stored sealed draft may be
-        // inspected even if a book/chapter is hidden or held for moderation.
-        // A draft with no attached G object is not a valid S3 grant.
+        // NEwBOO's canonical reader grants the current chapter version,
+        // not the newest historical S3 object. In TOR the current working
+        // pointer takes precedence over the published one. An orphaned sealed
+        // version without either current pointer must never become readable.
         let version: Option<i64> = sqlx::query_scalar(
             "SELECT v.id
-             FROM chapter_versions v
-             JOIN chapters c ON c.id=v.chapter_id
+             FROM chapters c
              JOIN books b ON b.id=c.book_id
+             LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
+             LEFT JOIN chapter_publications cp ON cp.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id
+               AND v.id=COALESCE(d.version_id,cp.version_id)
              JOIN storage_objects o ON o.id=v.storage_object_id
                AND o.state='attached' AND o.object_kind='chapter'
                AND o.codec='gzip'
-             LEFT JOIN chapter_publications cp ON cp.chapter_id=c.id
              JOIN users u ON u.id=$2 AND u.account_state='active'
              JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3
                AND s.revoked_at IS NULL AND s.expires_at>now()
              JOIN account_roles r ON r.user_id=u.id
                AND r.role='administrator' AND r.is_active
              WHERE c.id=$1 AND c.access_level='paid'
-             ORDER BY (cp.version_id=v.id) DESC, v.version_no DESC, v.id DESC
              LIMIT 1",
         )
         .bind(chapter_id.get())
