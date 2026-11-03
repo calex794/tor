@@ -2,8 +2,8 @@
 //! owner checks and private-target non-disclosure on real disposable PG.
 use sqlx::PgPool;
 use tor_books::repositories::{book_members::PgBookMembers, postgres::PgAuthoring};
-use tor_contracts::access::BookRole;
 use tor_books::services::authoring::AuthorError;
+use tor_contracts::access::BookRole;
 
 #[tokio::test]
 #[ignore = "requires local isolated /tor_ci PostgreSQL"]
@@ -31,7 +31,6 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
     .fetch_one(&pool)
     .await
     .unwrap();
-
 
     let translator: i64 = sqlx::query_scalar(
         "INSERT INTO users(email_normalized,display_name,password_hash)
@@ -123,22 +122,27 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         .add_collaborator(owner, a, moderator, BookRole::Moderator)
         .await
         .unwrap();
-    assert!(repo
-        .manageable_related_books(translator, b)
-        .await
-        .unwrap()
-        .is_none(), "membership of Book A never grants Book B settings");
-    assert!(repo
-        .manageable_related_books(translator, a)
-        .await
-        .unwrap()
-        .is_some(), "active translator can open settings");
-    assert!(repo
-        .manageable_related_books(moderator, a)
-        .await
-        .unwrap()
-        .is_some(), "active book moderator can open settings");
-
+    assert!(
+        repo.manageable_related_books(translator, b)
+            .await
+            .unwrap()
+            .is_none(),
+        "membership of Book A never grants Book B settings"
+    );
+    assert!(
+        repo.manageable_related_books(translator, a)
+            .await
+            .unwrap()
+            .is_some(),
+        "active translator can open settings"
+    );
+    assert!(
+        repo.manageable_related_books(moderator, a)
+            .await
+            .unwrap()
+            .is_some(),
+        "active book moderator can open settings"
+    );
 
     assert!(repo
         .manageable_related_books(another, a)
@@ -250,8 +254,16 @@ async fn s020_related_books_are_bilateral_and_never_expose_private_targets() {
         repo.remove_related_book(moderator, a, b).await,
         Err(AuthorError::Missing)
     );
-    let a_links = repo.manageable_related_books(owner, a).await.unwrap().unwrap();
-    let b_links = repo.manageable_related_books(another, b).await.unwrap().unwrap();
+    let a_links = repo
+        .manageable_related_books(owner, a)
+        .await
+        .unwrap()
+        .unwrap();
+    let b_links = repo
+        .manageable_related_books(another, b)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(a_links.linked.len(), 1);
     assert_eq!(a_links.linked[0].id, b);
     assert_eq!(b_links.linked.len(), 1);
