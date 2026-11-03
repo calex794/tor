@@ -11,6 +11,7 @@ use tor_contracts::reader_manifest::{ReaderVersionManifestV1, READER_PARSER_SCHE
 mod admin_delivery;
 mod delivery;
 mod edit;
+mod scheduled;
 pub use admin_delivery::PgAdminPaidStorage;
 pub use edit::PreparedPaidEdit;
 
