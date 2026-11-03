@@ -76,8 +76,9 @@ impl PgAccounts {
         Ok(rows)
     }
 
-    /// Compare-and-set is inside a transaction with live role locks.
-    /// Never alter visibility, versions, prices, publication or purchases.
+    /// Legacy boolean requests are generic holds only: a stale form must not
+    /// accidentally clear a distinct moderator hidden/blocked decision.
+    /// Both entry points now use the same CAS and append-only decision audit.
     pub async fn moderate_chapter_hold(
         &self,
         session: &[u8; 32],
@@ -85,56 +86,12 @@ impl PgAccounts {
         expected_hold: bool,
         new_hold: bool,
     ) -> Result<(), ModerationBooksError> {
-        if chapter_id <= 0 || expected_hold == new_hold {
-            return Err(ModerationBooksError::Invalid);
-        }
-        let mut tx = self
-            .pool()
-            .begin()
+        let expected = if expected_hold { "hold" } else { "none" };
+        let next = if new_hold { "hold" } else { "none" };
+        self.moderate_chapter_decision(session, chapter_id, expected, next)
             .await
-            .map_err(|_| ModerationBooksError::Unavailable)?;
-        let actor = current_moderator(&mut tx, session).await?;
-        let previous: Option<(bool, i64)> = sqlx::query_as(
-            "SELECT c.admin_hold, c.book_id
-             FROM chapters c JOIN books b ON b.id=c.book_id
-             WHERE c.id=$1 AND NOT c.is_deleted AND NOT b.is_deleted
-             FOR UPDATE OF c",
-        )
-        .bind(chapter_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| ModerationBooksError::Unavailable)?;
-        let Some((previous, book_id)) = previous else {
-            return Err(ModerationBooksError::Missing);
-        };
-        if previous != expected_hold {
-            return Err(ModerationBooksError::Stale);
-        }
-        sqlx::query("UPDATE chapters SET admin_hold=$2, moderation_state=$3 WHERE id=$1")
-            .bind(chapter_id)
-            .bind(new_hold)
-            .bind(if new_hold { "hold" } else { "none" })
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| ModerationBooksError::Unavailable)?;
-        sqlx::query(
-            "INSERT INTO moderation_chapter_hold_events
-                (actor_user_id,book_id,chapter_id,before_hold,after_hold)
-             VALUES($1,$2,$3,$4,$5)",
-        )
-        .bind(actor)
-        .bind(book_id)
-        .bind(chapter_id)
-        .bind(previous)
-        .bind(new_hold)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| ModerationBooksError::Unavailable)?;
-        tx.commit()
-            .await
-            .map_err(|_| ModerationBooksError::Unavailable)?;
-        Ok(())
     }
+
     /// Preserve NEwBOO's distinct hide/block decisions without altering an
     /// author-owned draft/public state, a published version or paid rights.
     /// A changed decision is always audited, even if both states are held.
