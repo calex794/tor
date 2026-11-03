@@ -15,14 +15,37 @@ async fn s020_public_related_books_are_reciprocal_and_revocable() {
     let url = std::env::var("TEST_DATABASE_URL").expect("disposable tor_ci URL");
     assert!(url.ends_with("/tor_ci"), "never run on production");
     let pool = PgPool::connect(&url).await.expect("PG");
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let mut ids = Vec::new();
     for (suffix, title, visibility, held) in [
         ("source", format!("S020 Главная {stamp}"), "public", false),
-        ("target", format!("<img src=x onerror=alert(1)> Том {stamp}"), "public", false),
-        ("hidden", format!("S020 Скрытый том {stamp}"), "draft", false),
-        ("held", format!("S020 Заблокированный том {stamp}"), "public", true),
-        ("unlinked", format!("S020 Посторонняя книга {stamp}"), "public", false),
+        (
+            "target",
+            format!("<img src=x onerror=alert(1)> Том {stamp}"),
+            "public",
+            false,
+        ),
+        (
+            "hidden",
+            format!("S020 Скрытый том {stamp}"),
+            "draft",
+            false,
+        ),
+        (
+            "held",
+            format!("S020 Заблокированный том {stamp}"),
+            "public",
+            true,
+        ),
+        (
+            "unlinked",
+            format!("S020 Посторонняя книга {stamp}"),
+            "public",
+            false,
+        ),
     ] {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO books(source_identity,target_language,title,visibility,admin_hold)
