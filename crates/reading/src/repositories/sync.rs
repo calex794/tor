@@ -39,7 +39,6 @@ impl PgReadingSync {
              JOIN chapter_publications AS published ON published.chapter_id = chapter.id \
              WHERE saved.user_id = $1 AND book.visibility = 'public' AND book.visibility_status = 'active' \
                AND NOT book.admin_hold AND NOT book.is_deleted \
-               AND book.lifecycle_status<>'pending_deletion' \
                AND (book.access_level='basic' \
                OR (book.access_level='adult' AND viewer.adult_enabled) \
                OR (book.access_level='pro_adult' AND EXISTS ( \
@@ -110,7 +109,6 @@ impl PgReadingSync {
                ON edition.id=publication.version_id AND edition.chapter_id=chapter.id
              WHERE chapter.id=$1 AND publication.version_id=$2
                AND book.visibility='public' AND book.visibility_status='active' AND NOT book.admin_hold AND NOT book.is_deleted
-               AND book.lifecycle_status<>'pending_deletion'
                AND (book.access_level='basic'
                     OR (book.access_level='adult' AND viewer.adult_enabled)
                     OR (book.access_level='pro_adult' AND EXISTS (
@@ -156,7 +154,6 @@ impl PgReadingSync {
                  AND edition.chapter_id = chapter.id \
              WHERE chapter.id = $2 AND published.version_id = $3 \
                AND book.visibility = 'public' AND book.visibility_status = 'active' AND NOT book.admin_hold AND NOT book.is_deleted \
-               AND book.lifecycle_status<>'pending_deletion' \
                AND (book.access_level='basic' \
                OR (book.access_level='adult' AND viewer.adult_enabled) \
                OR (book.access_level='pro_adult' AND EXISTS ( \

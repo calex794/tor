@@ -188,13 +188,32 @@ async fn s020_progress_and_free_sync_recheck_live_age_opt_in_and_grants() {
         .unwrap();
     assert!(progress.continue_reading(progress_actor).await.unwrap().is_empty());
     assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    // NEwBOO parity: pending deletion unlists the Book, but direct reading and
+    // already-owned cursors remain valid until hard deletion or site blocking.
     sqlx::query("UPDATE books SET access_level='basic',lifecycle_status='pending_deletion' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(progress
+        .continue_reading(progress_actor)
+        .await
+        .unwrap()
+        .iter()
+        .any(|item| item.book_id == book));
+    assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_some());
+    sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
     assert!(progress.continue_reading(progress_actor).await.unwrap().is_empty());
     assert!(sync.free_state(sync_actor, chapter).await.unwrap().is_none());
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=$1")
+        .bind(book)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE books SET lifecycle_status='in_progress' WHERE id=$1")
         .bind(book)
         .execute(&pool)

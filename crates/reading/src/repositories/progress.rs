@@ -40,7 +40,6 @@ impl PgReadingProgress {
              WHERE saved.user_id=$1 AND saved.chapter_id=$2 \
                AND b.visibility='public' AND b.visibility_status='active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
-               AND b.lifecycle_status<>'pending_deletion' \
                AND (b.access_level='basic' \
                OR (b.access_level='adult' AND viewer.adult_enabled) \
                OR (b.access_level='pro_adult' AND EXISTS ( \
@@ -94,7 +93,6 @@ impl PgReadingProgress {
                ON v.id = publication.version_id AND v.chapter_id = c.id \
              WHERE progress.user_id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
-               AND b.lifecycle_status<>'pending_deletion' \
                AND (b.access_level='basic' \
                OR (b.access_level='adult' AND viewer.adult_enabled) \
                OR (b.access_level='pro_adult' AND EXISTS ( \
@@ -165,7 +163,6 @@ impl PgReadingProgress {
                  ON v.id = published.version_id AND v.chapter_id = c.id \
              WHERE c.id = $2 AND published.version_id = $3 \
                AND b.visibility = 'public' AND b.visibility_status = 'active' AND NOT b.admin_hold AND NOT b.is_deleted \
-               AND b.lifecycle_status<>'pending_deletion' \
                AND (b.access_level='basic' \
                OR (b.access_level='adult' AND viewer.adult_enabled) \
                OR (b.access_level='pro_adult' AND EXISTS ( \
@@ -210,7 +207,6 @@ impl PgReadingProgress {
              JOIN chapter_publications published ON published.chapter_id = c.id \
              WHERE c.id = $1 AND b.visibility = 'public' AND b.visibility_status = 'active' \
                AND NOT b.admin_hold AND NOT b.is_deleted \
-               AND b.lifecycle_status<>'pending_deletion' \
                AND (b.access_level='basic' \
                OR (b.access_level='adult' AND viewer.adult_enabled) \
                OR (b.access_level='pro_adult' AND EXISTS ( \
