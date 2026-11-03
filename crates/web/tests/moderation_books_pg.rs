@@ -479,7 +479,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     pg(
         &url,
         &format!(
-            "DO $
+            "DO $$
              BEGIN
                  BEGIN
                      DELETE FROM moderation_book_visibility_events WHERE book_id={book};
@@ -491,7 +491,7 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
                          RAISE EXCEPTION 'visibility audit unexpectedly absent';
                      END IF;
                  END;
-             END $;"
+             END $$;"
         ),
     );
     let release = format!("csrf_token={csrf}&expected_hold=true&new_hold=false");

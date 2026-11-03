@@ -25,7 +25,7 @@ impl PgCatalog {
              WHERE a.alias_key=ANY($2::text[])
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND (
-                 b.visibility='public'
+                 (b.visibility='public' AND b.visibility_status='active')
                  OR EXISTS (
                    SELECT 1 FROM book_members m
                    WHERE m.book_id=b.id AND m.user_id=$1 AND m.is_active

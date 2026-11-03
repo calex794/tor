@@ -48,7 +48,7 @@ impl PgCreatorFollows {
         Ok(sqlx::query_scalar(
             "SELECT b.owner_user_id FROM books AS b
              WHERE b.id=$1 AND b.owner_user_id IS NOT NULL
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND EXISTS (
                    SELECT 1 FROM book_members AS m WHERE m.book_id=b.id
                      AND m.user_id=b.owner_user_id AND m.role='owner' AND m.is_active
@@ -102,7 +102,7 @@ impl PgCreatorFollows {
         let creator: Option<i64> = sqlx::query_scalar(
             "SELECT b.owner_user_id FROM books AS b
              WHERE b.id=$1 AND b.owner_user_id IS NOT NULL
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                AND EXISTS (
                    SELECT 1 FROM book_members AS m WHERE m.book_id=b.id
                      AND m.user_id=b.owner_user_id AND m.role='owner' AND m.is_active
@@ -179,7 +179,7 @@ impl PgCreatorFollows {
              FROM creator_follow_periods AS p
              JOIN users AS u ON u.id=p.creator_user_id
              LEFT JOIN books AS b ON b.id=p.source_book_id
-                  AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+                  AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              WHERE p.follower_user_id=$1 AND p.ended_at IS NULL
                  AND ($2::bigint IS NULL OR p.id<$2)
              ORDER BY p.id DESC LIMIT 21",
