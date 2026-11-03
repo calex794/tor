@@ -17,9 +17,7 @@ pub async fn issue_paid_asset_grant(
     object_id: &ObjectId,
 ) -> Result<AssetDeliveryGrant, DeliveryError> {
     issue_asset_grant(
-        entitlement,
-        assets,
-        storage,
+        (entitlement, assets, storage),
         actor,
         chapter_id,
         purchase_id,
@@ -40,9 +38,7 @@ pub async fn issue_paid_admin_asset_grant(
     object_id: &ObjectId,
 ) -> Result<AssetDeliveryGrant, DeliveryError> {
     issue_asset_grant(
-        entitlement,
-        assets,
-        storage,
+        (entitlement, assets, storage),
         actor,
         chapter_id,
         None,
@@ -53,15 +49,18 @@ pub async fn issue_paid_admin_asset_grant(
 }
 
 async fn issue_asset_grant(
-    entitlement: &dyn EntitlementPort,
-    assets: &dyn ChapterAssetPort,
-    storage: &dyn PrivateObjectDeliveryPort,
+    ports: (
+        &dyn EntitlementPort,
+        &dyn ChapterAssetPort,
+        &dyn PrivateObjectDeliveryPort,
+    ),
     actor: Actor,
     chapter_id: PositiveId,
     purchase_id: Option<PositiveId>,
     object_id: &ObjectId,
     administrator: bool,
 ) -> Result<AssetDeliveryGrant, DeliveryError> {
+    let (entitlement, assets, storage) = ports;
     let pinned = match entitlement
         .resolve_entitlement(actor, chapter_id, purchase_id)
         .await?
