@@ -299,11 +299,13 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             errors.append(f"{label}: missing support requester capability boundary")
     if entry["template"].startswith("/moderation/"):
         allowed_moderation = {
-            ("GET", "/moderation/books", "page"),
-            ("POST", "/moderation/books/{id}/hold", "submit"),
+            ("GET", "/moderation/books", "page"): "crates/web/src/auth/moderation_books.rs",
+            ("POST", "/moderation/books/{id}/hold", "submit"): "crates/web/src/auth/moderation_books.rs",
+            ("GET", "/moderation/chapters", "page"): "crates/web/src/auth/moderation_chapters.rs",
+            ("POST", "/moderation/chapters/{id}/hold", "submit"): "crates/web/src/auth/moderation_chapters.rs",
         }
-        if (entry["source"] != "crates/web/src/auth/moderation_books.rs"
-                or admin_key not in allowed_moderation or policy != "scoped"):
+        if (allowed_moderation.get(admin_key) != entry["source"]
+                or policy != "scoped"):
             errors.append(f"{label}: unreviewed moderator capability surface")
         if not ("session_actor(&digest)" in evidence
                 and "actor.moderator || actor.administrator" in evidence
@@ -407,10 +409,17 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 and "PgLayers::new" in charged
                 and ".buy(&command)" in charged
             )
-        elif entry["source"] == "crates/web/src/auth/moderation_books.rs":
-            # Unlike owner methods, this narrow capability accepts a digest
-            # and checks session + role again inside the same PG transaction.
-            operation = "moderation_books" if entry["method"] == "GET" else "moderate_book_hold"
+        elif entry["source"] in {
+            "crates/web/src/auth/moderation_books.rs",
+            "crates/web/src/auth/moderation_chapters.rs",
+        }:
+            # Both reviewed moderation capabilities use a digest bound to the
+            # live role, and lock it again in the same PG mutation transaction.
+            is_chapter = entry["source"].endswith("moderation_chapters.rs")
+            if entry["method"] == "GET":
+                operation = "moderation_chapters" if is_chapter else "moderation_books"
+            else:
+                operation = "moderate_chapter_hold" if is_chapter else "moderate_book_hold"
             scoped = (
                 bool(re.search(rf"\b{operation}\s*\(\s*&digest\s*,", evidence))
                 and "session_token_digest(&token)" in evidence

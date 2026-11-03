@@ -21,7 +21,7 @@ pub struct ModerationBook {
     pub owner_user_id: Option<i64>,
 }
 
-async fn current_moderator(
+pub(super) async fn current_moderator(
     tx: &mut Transaction<'_, Postgres>,
     session: &[u8; 32],
 ) -> Result<i64, ModerationBooksError> {
