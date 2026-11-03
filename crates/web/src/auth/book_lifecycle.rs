@@ -65,7 +65,7 @@ fn render(id: i64, book: &ManagedBookLifecycle, csrf: &str) -> Html<String> {
         <p>Статус произведения не публикует и не скрывает книгу,
         не меняет возрастной уровень, главы, покупки или редакционный статус.</p>
         {editor}
-        <p><a href="/me/books/{id}">Вернуться к книге</a></p>
+        <p><a href="/me/books/{id}/settings">Все настройки книги</a></p>
         </div></div></section>"#,
         pages::escape_html(&book.title),
     );
@@ -144,6 +144,7 @@ mod tests {
         assert!(!rendered.contains("name=\"visibility\""));
         assert!(!rendered.contains("name=\"access_level\""));
         assert!(!rendered.contains("value=\"pending_deletion\""));
+        assert!(rendered.contains("/me/books/42/settings"));
         let pending = ManagedBookLifecycle {
             status: "pending_deletion".into(),
             ..book
