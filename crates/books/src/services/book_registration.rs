@@ -69,7 +69,10 @@ pub fn normalized_source_url(raw_url: &str) -> Result<String, AuthorError> {
     let host = host.strip_prefix("www.").unwrap_or(&host);
     let path = uri.path().trim_end_matches('/');
     let path = if path.is_empty() { "/" } else { path };
-    let query = uri.query().map(|value| format!("?{value}")).unwrap_or_default();
+    let query = uri
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
     Ok(format!("https://{host}{path}{query}"))
 }
 
