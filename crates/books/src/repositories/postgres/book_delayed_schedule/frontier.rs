@@ -15,7 +15,7 @@ pub enum BookSlotFrontier {
     Empty,
 }
 
-async fn finish_terminal(
+pub(super) async fn finish_terminal(
     tx: &mut Transaction<'_, Postgres>,
     claim: &BookSlotClaim,
     token: &str,
@@ -57,7 +57,7 @@ async fn finish_terminal(
 
 /// Move an empty occurrence to the next ordered Moscow slot in the same
 /// transaction. This preserves duplicate clock times via their slot indices.
-async fn advance_empty(
+pub(super) async fn advance_terminal_slot(
     tx: &mut Transaction<'_, Postgres>,
     claim: &BookSlotClaim,
 ) -> Result<(), AuthorError> {
@@ -251,7 +251,7 @@ impl PgAuthoring {
         .map_err(|_| AuthorError::Unavailable)?;
         let Some(row) = first else {
             finish_terminal(&mut tx, claim, token, None, "empty", None).await?;
-            advance_empty(&mut tx, claim).await?;
+            advance_terminal_slot(&mut tx, claim).await?;
             tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
             return Ok(BookSlotFrontier::Empty);
         };

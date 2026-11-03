@@ -6,7 +6,7 @@ use crate::services::authoring::{
     valid_command_key, AuthorError, ChapterAccess, PendingChapter, SaveChapter, SavedChapter,
 };
 use sha2::{Digest, Sha256};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 
 impl PgAuthoring {
     /// Create a private, versioned chapter even though the parent book is public.
@@ -229,6 +229,36 @@ impl PgAuthoring {
             .begin()
             .await
             .map_err(|_| AuthorError::Unavailable)?;
+        release_pending_free_chapter_tx(
+            &mut tx,
+            actor,
+            book_id,
+            chapter_id,
+            expected_revision,
+            expected_version_id,
+        )
+        .await?;
+        tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
+        Ok(())
+    }
+}
+/// B-06's canonical atomic publication mutation. Callers own a PostgreSQL
+/// transaction and must commit its reader pointer, release fact and other
+/// durable effects together. Lock order remains Book -> Chapter.
+pub(super) async fn release_pending_free_chapter_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    actor: i64,
+    book_id: i64,
+    chapter_id: i64,
+    expected_revision: i64,
+    expected_version_id: i64,
+) -> Result<(), AuthorError> {
+    if actor <= 0 || book_id <= 0 || chapter_id <= 0 {
+        return Err(AuthorError::Missing);
+    }
+    if expected_revision <= 0 || expected_version_id <= 0 {
+        return Err(AuthorError::Invalid);
+    }
         let visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
              WHERE id=$1 AND owner_user_id=$2 AND NOT admin_hold AND NOT is_deleted
@@ -236,7 +266,7 @@ impl PgAuthoring {
         )
         .bind(book_id)
         .bind(actor)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         match visibility.as_deref() {
@@ -253,7 +283,7 @@ impl PgAuthoring {
         )
         .bind(chapter_id)
         .bind(book_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?
         .ok_or(AuthorError::Missing)?;
@@ -272,7 +302,7 @@ impl PgAuthoring {
                 "SELECT version_id FROM chapter_publications WHERE chapter_id=$1",
             )
             .bind(chapter_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
             return if current == Some(expected_version_id) {
@@ -287,7 +317,7 @@ impl PgAuthoring {
         let version: Option<i64> =
             sqlx::query_scalar("SELECT version_id FROM chapter_working_drafts WHERE chapter_id=$1")
                 .bind(chapter_id)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(|_| AuthorError::Unavailable)?;
         if version != Some(expected_version_id) {
@@ -299,7 +329,7 @@ impl PgAuthoring {
         )
         .bind(chapter_id)
         .bind(expected_version_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
         if inserted.is_none() {
@@ -307,12 +337,12 @@ impl PgAuthoring {
         }
         sqlx::query("UPDATE chapters SET visibility='public' WHERE id=$1")
             .bind(chapter_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query("DELETE FROM chapter_working_drafts WHERE chapter_id=$1")
             .bind(chapter_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|_| AuthorError::Unavailable)?;
         sqlx::query(
@@ -323,10 +353,8 @@ impl PgAuthoring {
         .bind(chapter_id)
         .bind(expected_version_id)
         .bind(actor)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|_| AuthorError::Unavailable)?;
-        tx.commit().await.map_err(|_| AuthorError::Unavailable)?;
-        Ok(())
-    }
+    Ok(())
 }
