@@ -5,6 +5,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const {createHash}=require('node:crypto');
 const base='http://127.0.0.1:3098';
+const honeypotBrowser=require('./a09_honeypot_browser.cjs');
 const password='OriginalSecurePassword2026';
 const replacement='ReplacementSecurePassword2026';
 const nonce=Date.now().toString();
@@ -34,7 +35,9 @@ async function login(browser,mail,secret) {
 (async()=>{
   const browser=await chromium.launch({headless:true});
   try {
+    await honeypotBrowser(browser,base,email,password);
     const alice=await register(browser,email,'A browser reader');
+    await honeypotBrowser.rejectedLogin(browser,base,email,password);
     const bob=await register(browser,`b-browser-${nonce}@example.invalid`,'B browser reader');
     const second=await login(browser,email,password);
     const guest=await browser.newContext();

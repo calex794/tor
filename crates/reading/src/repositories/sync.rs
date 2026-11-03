@@ -36,7 +36,7 @@ impl PgReadingSync {
              JOIN chapters AS chapter ON chapter.book_id = saved.book_id AND chapter.id = $2 \
              JOIN books AS book ON book.id = chapter.book_id \
              JOIN chapter_publications AS published ON published.chapter_id = chapter.id \
-             WHERE saved.user_id = $1 AND book.visibility = 'public' \
+             WHERE saved.user_id = $1 AND book.visibility = 'public' AND book.visibility_status = 'active' \
                AND NOT book.admin_hold AND NOT book.is_deleted \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
@@ -101,7 +101,7 @@ impl PgReadingSync {
              JOIN chapter_versions AS edition
                ON edition.id=publication.version_id AND edition.chapter_id=chapter.id
              WHERE chapter.id=$1 AND publication.version_id=$2
-               AND book.visibility='public' AND NOT book.admin_hold AND NOT book.is_deleted
+               AND book.visibility='public' AND book.visibility_status='active' AND NOT book.admin_hold AND NOT book.is_deleted
                AND chapter.visibility='public' AND chapter.access_level='free'
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now())
@@ -139,7 +139,7 @@ impl PgReadingSync {
              JOIN chapter_versions AS edition ON edition.id = published.version_id \
                  AND edition.chapter_id = chapter.id \
              WHERE chapter.id = $2 AND published.version_id = $3 \
-               AND book.visibility = 'public' AND NOT book.admin_hold AND NOT book.is_deleted \
+               AND book.visibility = 'public' AND book.visibility_status = 'active' AND NOT book.admin_hold AND NOT book.is_deleted \
                AND chapter.visibility = 'public' AND chapter.access_level = 'free' \
                AND NOT chapter.admin_hold AND NOT chapter.is_deleted \
                AND (chapter.reader_released_at IS NULL OR chapter.reader_released_at <= now()) \

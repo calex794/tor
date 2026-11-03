@@ -251,7 +251,7 @@ impl PgDirectEntitlements {
                 LIMIT 1
             ) owned ON TRUE
             WHERE owned.purchase_id IS NOT NULL
-               OR (b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               OR (b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
                    AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
                    AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
                    AND EXISTS (

@@ -378,7 +378,7 @@ impl PgLayers {
         let public_books: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
-             WHERE vb.layer_version_id=$1 AND b.visibility='public'
+             WHERE vb.layer_version_id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(cmd.version.get())

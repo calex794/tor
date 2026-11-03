@@ -131,7 +131,7 @@ impl PgPublicChapterComments {
              JOIN books b ON b.id=c.book_id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
-             WHERE c.id=$1 AND p.version_id=$2 AND b.visibility='public'
+             WHERE c.id=$1 AND p.version_id=$2 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted
@@ -267,7 +267,7 @@ impl PgPublicChapterComments {
              JOIN books b ON b.id=c.book_id
              JOIN chapter_publications p ON p.chapter_id=c.id
              JOIN chapter_versions v ON v.chapter_id=c.id AND v.id=p.version_id
-             WHERE c.id=$1 AND p.version_id=$2 AND b.visibility='public'
+             WHERE c.id=$1 AND p.version_id=$2 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='public' AND c.access_level='free'
                AND NOT c.admin_hold AND NOT c.is_deleted

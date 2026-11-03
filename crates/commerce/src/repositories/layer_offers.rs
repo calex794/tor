@@ -125,7 +125,7 @@ impl PgLayers {
             let (count, unavailable): (i64, bool) = sqlx::query_as(
                 "SELECT COUNT(*),
                         COALESCE(BOOL_OR(
-                            b.admin_hold OR b.is_deleted OR
+                            b.admin_hold OR b.is_deleted OR b.visibility_status <> 'active' OR
                             s.current_revision IS NULL OR
                             (SELECT COALESCE(SUM(a.share_percent),0)::BIGINT
                              FROM revenue_share_assignments a
@@ -214,7 +214,7 @@ impl PgLayers {
                     (SELECT COALESCE(SUM(a.share_percent),0)::BIGINT
                      FROM revenue_share_assignments a
                      WHERE a.book_id=b.id AND a.revision=s.current_revision),
-                    (b.visibility <> 'public') AS non_public
+                    (b.visibility <> 'public' OR b.visibility_status <> 'active') AS non_public
              FROM commerce_layer_version_books vb
              JOIN books b ON b.id=vb.book_id
              LEFT JOIN revenue_share_states s ON s.book_id=b.id

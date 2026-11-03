@@ -33,7 +33,7 @@ fn missing_or_unavailable(error: sqlx::Error) -> MailError {
 /// This check is performed separately for join, send and read, not only join.
 async fn public_book(tx: &mut Transaction<'_, Postgres>, book_id: i64) -> Result<(), MailError> {
     let available: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM books WHERE id=$1 AND visibility='public'
+        "SELECT id FROM books WHERE id=$1 AND visibility='public' AND visibility_status='active'
          AND NOT admin_hold AND NOT is_deleted FOR SHARE",
     )
     .bind(book_id)
@@ -85,7 +85,7 @@ impl PgBookRooms {
                  SELECT 1 FROM social_book_room_members m
                  WHERE m.book_id=b.id AND m.user_id=$2 AND m.status='active')
              FROM books b
-             WHERE b.id=$1 AND b.visibility='public'
+             WHERE b.id=$1 AND b.visibility='public' AND b.visibility_status='active'
                AND NOT b.admin_hold AND NOT b.is_deleted",
         )
         .bind(book_id)

@@ -35,7 +35,7 @@ pub async fn swap_options(pool: &PgPool, actor: i64) -> Result<Vec<SwapOption>, 
            AND target.access_level='paid' AND target.visibility='public'
            AND target.price_amount>0 AND NOT target.admin_hold AND NOT target.is_deleted
            AND (target.reader_released_at IS NULL OR target.reader_released_at<=now())
-           AND target_book.visibility='public' AND NOT target_book.admin_hold
+           AND target_book.visibility='public' AND target_book.visibility_status='active' AND NOT target_book.admin_hold
            AND NOT target_book.is_deleted
            AND source_book.owner_user_id IS NOT NULL AND source_book.owner_user_id<>$1
            AND NOT EXISTS (SELECT 1 FROM library_purchased_chapters l

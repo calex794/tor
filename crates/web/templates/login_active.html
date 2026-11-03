@@ -9,6 +9,10 @@
       </header>
       <form class="auth-form" method="post" action="/login" autocomplete="on" novalidate>
         <input type="hidden" name="csrf_token" value="<!--CSRF_TOKEN-->">
+        <div class="auth-form__website-trap" aria-hidden="true">
+          <label for="login-website">Сайт</label>
+          <input id="login-website" name="website" type="text" autocomplete="off" tabindex="-1" value="">
+        </div>
         <!--AUTH_RETURN_FIELD-->
         <label for="login-email">Электронная почта</label>
         <input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254">

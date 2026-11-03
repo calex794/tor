@@ -147,8 +147,17 @@ fn collected_metrics(metrics: &HttpMetrics) -> String {
     text.push_str("# TYPE tor_auth_observation_dropped_total counter\n");
     text.push_str(&format!(
         "tor_auth_observation_dropped_total {}\n",
-        crate::auth::auth_observation_dropped()
+        crate::auth::auth_observation::dropped_count()
     ));
+    let (login_traps, registration_traps, route_traps) = crate::auth::honeypot::counts();
+    text.push_str("# HELP tor_auth_honeypot_login_total Filled hidden login forms; no user labels.\n# TYPE tor_auth_honeypot_login_total counter\n");
+    text.push_str(&format!("tor_auth_honeypot_login_total {login_traps}\n"));
+    text.push_str("# HELP tor_auth_honeypot_register_total Filled hidden registration forms; no user labels.\n# TYPE tor_auth_honeypot_register_total counter\n");
+    text.push_str(&format!(
+        "tor_auth_honeypot_register_total {registration_traps}\n"
+    ));
+    text.push_str("# HELP tor_auth_honeypot_route_total Requests to the decoy route; no path labels.\n# TYPE tor_auth_honeypot_route_total counter\n");
+    text.push_str(&format!("tor_auth_honeypot_route_total {route_traps}\n"));
     #[cfg(unix)]
     {
         let counts = PUBLISHER.get().map(|p| p.counts()).unwrap_or_default();

@@ -181,7 +181,7 @@ impl PgDirectSwaps {
                AND c.visibility='public' AND c.price_amount>0
                AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL OR c.reader_released_at<=now())
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active' AND NOT b.admin_hold AND NOT b.is_deleted
              FOR SHARE OF c,p,b",
         )
         .bind(i.target_chapter_id)

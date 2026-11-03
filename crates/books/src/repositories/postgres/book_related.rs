@@ -77,7 +77,7 @@ impl PgAuthoring {
                CASE WHEN link.smaller_book_id=$1
                  THEN link.larger_book_id ELSE link.smaller_book_id END
              WHERE $1 IN (link.smaller_book_id, link.larger_book_id)
-               AND target.visibility='public'
+               AND target.visibility='public' AND target.visibility_status='active'
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 100",
         )
@@ -118,7 +118,7 @@ impl PgAuthoring {
         let rows = sqlx::query(
             "SELECT id, title FROM books
              WHERE id<>$1
-               AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+               AND visibility='public' AND visibility_status='active' AND NOT admin_hold AND NOT is_deleted
                AND book_registration_legacy_title_key(title)=$2
              ORDER BY id LIMIT 20",
         )
@@ -154,7 +154,7 @@ impl PgAuthoring {
         // Deterministic row lock order avoids A->B / B->A link deadlocks.
         // A concurrent visibility/hold change must not race this insertion.
         let rows = sqlx::query(
-            "SELECT id, visibility, admin_hold, is_deleted
+            "SELECT id, visibility, visibility_status, admin_hold, is_deleted
              FROM books WHERE id=ANY($1::bigint[])
              ORDER BY id FOR UPDATE",
         )
@@ -181,7 +181,10 @@ impl PgAuthoring {
                 let visibility: String = row
                     .try_get("visibility")
                     .map_err(|_| AuthorError::Unavailable)?;
-                target_ok = visibility == "public" && !held && !deleted;
+                let moderation: String = row
+                    .try_get("visibility_status")
+                    .map_err(|_| AuthorError::Unavailable)?;
+                target_ok = visibility == "public" && moderation == "active" && !held && !deleted;
             }
         }
         // Uniform 404 avoids probing unpublished targets or private owners.
@@ -264,9 +267,9 @@ impl PgCatalog {
                ON target.id = CASE WHEN source.id=link.smaller_book_id
                  THEN link.larger_book_id ELSE link.smaller_book_id END
              WHERE source.id=$1
-               AND source.visibility='public'
+               AND source.visibility='public' AND source.visibility_status='active'
                AND NOT source.admin_hold AND NOT source.is_deleted
-               AND target.visibility='public'
+               AND target.visibility='public' AND target.visibility_status='active'
                AND NOT target.admin_hold AND NOT target.is_deleted
              ORDER BY target.id LIMIT 12",
         )

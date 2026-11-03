@@ -82,6 +82,32 @@ async fn c_08_bookmarks_are_private_bounded_and_never_grant_paid_text() {
     }
     assert_eq!(pages, 4);
     assert_eq!(seen.len(), 106);
+    assert!(bookmarks
+        .list_books(92001, 100, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|book| book.book_id == 92114));
+    sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=92114")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!bookmarks
+        .list_books(92001, 100, None)
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .any(|book| book.book_id == 92114));
+    assert_eq!(
+        bookmarks.add_book(92002, 92114).await,
+        Err(LibraryError::NotFound)
+    );
+    sqlx::query("UPDATE books SET visibility_status='active' WHERE id=92114")
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         bookmarks.list_books(92001, 0, None).await.err(),
         Some(LibraryError::Invalid)
