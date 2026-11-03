@@ -4,11 +4,12 @@ use super::{deny, session_user, AuthState};
 use crate::{auth_cookies::private_response, pages};
 use axum::{
     extract::{Form, Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{Redirect, Response},
 };
 use serde::Deserialize;
 use std::fmt::Write;
+use tor_accounts::services::security::session_token_digest;
 use tor_recommendations::repositories::{PgBookStars, StarKind, StarRatingError, UserStars};
 
 #[derive(Deserialize)]
@@ -137,6 +138,25 @@ pub(super) async fn submit(
     let Some(kind) = StarKind::parse(&form.rating_kind) else {
         return deny(StatusCode::UNPROCESSABLE_ENTITY);
     };
+    // NEwBOO's authenticated book_rating scope: 12 write attempts/minute,
+    // separate from login, book likes, comments and reader purchases.
+    // The verified actor, never a browser-supplied id, owns the PG bucket.
+    if !(1..=5).contains(&form.rating) {
+        return deny(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let throttle = session_token_digest(&format!("action:book_rating:user:{actor}"));
+    match state.accounts.permit_auth_attempt(&throttle, 12, 60).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let mut response = deny(StatusCode::TOO_MANY_REQUESTS);
+            response.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                HeaderValue::from_static("60"),
+            );
+            return response;
+        }
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    }
     let stars = PgBookStars::new(state.accounts.pool().clone());
     match stars.set_rating(actor, book_id, kind, form.rating).await {
         Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}/rate")), &[]),
