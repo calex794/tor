@@ -116,7 +116,9 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         let paywall = read_page(storage_free, &path, Some(&admin_session)).await;
         assert_eq!(paywall.status(), StatusCode::OK);
         let html = to_bytes(paywall.into_body(), 256 * 1024).await.unwrap();
-        assert!(!html.windows(BODY.len()).any(|bytes| bytes == BODY.as_bytes()));
+        assert!(!html
+            .windows(BODY.len())
+            .any(|bytes| bytes == BODY.as_bytes()));
     }
     assert_eq!(
         send(
