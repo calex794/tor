@@ -20,8 +20,8 @@ function fixtureBook(visibility) {
   assert(db.endsWith('/tor_ci'), 'disposable mail book fixture required');
   const nonce = require('node:crypto').randomUUID().replace(/-/g, '');
   const title = visibility === 'public' ? 'Browser book <safe>' : 'BROWSER-SECRET-TITLE';
-  const statement = "INSERT INTO books(source_identity,target_language,title,visibility) VALUES('ci:e08:browser:"
-    + nonce + "','ru','" + title + "','" + visibility + "') RETURNING id";
+  const statement = "INSERT INTO books(source_identity,target_language,title,visibility,access_level) VALUES('ci:e08:browser:"
+    + nonce + "','ru','" + title + "','" + visibility + "','basic') RETURNING id";
   const id = execFileSync('psql', ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1',
     '--dbname', db, '--command', statement], { encoding: 'utf8' }).trim();
   assert(/^[1-9][0-9]*$/.test(id), 'one book fixture ID');
