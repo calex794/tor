@@ -74,10 +74,16 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
     .await
     .unwrap();
     let sync = PgReadingSync::new(pool.clone());
-    assert!(sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
-    assert!(!sync.purchased_allowed(other,purchase,chapter,v1).await.unwrap());
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
+    assert!(!sync
+        .purchased_allowed(other, purchase, chapter, v1)
+        .await
+        .unwrap());
     assert_eq!(
-        sync.purchased_body_for_validation(buyer,purchase,chapter,v1)
+        sync.purchased_body_for_validation(buyer, purchase, chapter, v1)
             .await
             .unwrap()
             .as_deref(),
@@ -89,9 +95,12 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     assert!(sync
-        .purchased_body_for_validation(buyer,purchase,chapter,v1)
+        .purchased_body_for_validation(buyer, purchase, chapter, v1)
         .await
         .unwrap()
         .is_none());
@@ -100,14 +109,20 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
         .execute(&pool)
         .await
         .unwrap();
-    assert!(sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
 
     sqlx::query("UPDATE books SET access_level='pro_adult' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     sqlx::query(
         "INSERT INTO user_level_grants(user_id,level,source,is_active)
          VALUES($1,'pro_adult','moderation',TRUE)",
@@ -116,19 +131,28 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
     .execute(&pool)
     .await
     .unwrap();
-    assert!(sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     sqlx::query("UPDATE user_level_grants SET is_active=FALSE WHERE user_id=$1")
         .bind(buyer)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     sqlx::query("UPDATE books SET access_level=NULL WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
 
     // NEwBOO: direct pinned purchase remains usable after storefront withdrawal
     // and throughout pending deletion. Only hard blocking/refund revokes.
@@ -141,19 +165,28 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
     .execute(&pool)
     .await
     .unwrap();
-    assert!(sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     sqlx::query("UPDATE books SET visibility_status='blocked' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(!sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     sqlx::query("UPDATE books SET visibility_status='hidden' WHERE id=$1")
         .bind(book)
         .execute(&pool)
         .await
         .unwrap();
-    assert!(sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
 
     sqlx::query(
         "INSERT INTO chapter_purchase_revocations(purchase_id,reversal_reference,reason)
@@ -164,7 +197,10 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
     .execute(&pool)
     .await
     .unwrap();
-    assert!(!sync.purchased_allowed(buyer,purchase,chapter,v1).await.unwrap());
+    assert!(!sync
+        .purchased_allowed(buyer, purchase, chapter, v1)
+        .await
+        .unwrap());
     let retained: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM library_purchased_chapters
          WHERE user_id=$1 AND chapter_id=$2 AND active_version_id=$3",
@@ -175,5 +211,8 @@ async fn s020_pinned_paid_v1_requires_live_age_and_keeps_owned_version_after_hid
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(retained, 1, "refund must not rewrite immutable purchase history");
+    assert_eq!(
+        retained, 1,
+        "refund must not rewrite immutable purchase history"
+    );
 }
