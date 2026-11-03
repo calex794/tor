@@ -4,7 +4,7 @@
 const { execFileSync } = require('node:child_process');
 
 function approvePendingBookForIsolatedCi(bookId) {
-  const raw = process.env.TEST_DATABASE_URL;
+  const raw = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
   if (process.env.GITHUB_ACTIONS !== 'true' || !raw) {
     throw new Error('Site approval fixture requires disposable GitHub CI');
   }
