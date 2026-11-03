@@ -134,7 +134,7 @@ pub(super) async fn advance_terminal_slot(
 
 impl PgAuthoring {
     /// Under one Book -> schedule -> occurrence transaction lock, bind the
-    /// first chapter still invisible to readers. Never skip a held, missing,
+    /// first chapter still invisible to readers. Never skip a held, unprepared,
     /// paid or separately scheduled chapter in favor of a later chapter.
     /// An already bound chapter is stable across lease recovery.
     pub async fn bind_book_slot_frontier(
@@ -230,6 +230,19 @@ impl PgAuthoring {
                     (c.reader_released_at IS NULL
                      OR c.reader_released_at<=clock_timestamp()) AS time_allowed,
                     d.version_id AS working_version,
+                    (SELECT v.id FROM chapter_versions v
+                     WHERE v.chapter_id=c.id AND v.version_no=c.edit_revision LIMIT 1)
+                        AS paid_version,
+                    (SELECT EXISTS (
+                        SELECT 1 FROM chapter_versions v
+                        JOIN storage_objects o ON o.id=v.storage_object_id
+                        JOIN chapter_reader_manifests m
+                          ON m.chapter_id=c.id AND m.version_id=v.id
+                         AND m.storage_object_id=o.id
+                        WHERE v.chapter_id=c.id AND v.version_no=c.edit_revision
+                          AND o.state='attached' AND o.object_kind='chapter'
+                          AND o.verified_at IS NOT NULL
+                    )) AS paid_ready,
                     (p.version_id IS NOT NULL) AS has_publication,
                     (scheduled.chapter_id IS NOT NULL) AS manually_scheduled
              FROM chapters c
@@ -274,6 +287,12 @@ impl PgAuthoring {
         let working: Option<i64> = row
             .try_get("working_version")
             .map_err(|_| AuthorError::Unavailable)?;
+        let paid_version: Option<i64> = row
+            .try_get("paid_version")
+            .map_err(|_| AuthorError::Unavailable)?;
+        let paid_ready: bool = row
+            .try_get("paid_ready")
+            .map_err(|_| AuthorError::Unavailable)?;
         let published: bool = row
             .try_get("has_publication")
             .map_err(|_| AuthorError::Unavailable)?;
@@ -288,8 +307,14 @@ impl PgAuthoring {
             Some("chapter_not_pending")
         } else if manual {
             Some("manual_schedule_active")
+        } else if access == "paid" && price > 0 {
+            if !paid_ready || paid_version.is_none() {
+                Some("paid_version_not_prepared")
+            } else {
+                None
+            }
         } else if access != "free" || price != 0 {
-            Some("paid_frontier_needs_private_release")
+            Some("invalid_chapter_access")
         } else if working.is_none() {
             Some("missing_working_version")
         } else {

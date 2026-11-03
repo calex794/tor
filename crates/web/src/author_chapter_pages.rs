@@ -319,7 +319,7 @@ pub fn new_chapter(
         </select>
         <label for="chapter-price">Цена в копейках (100 = 1 ₽; для бесплатной — 0)</label>
         <input id="chapter-price" name="price_amount" type="number" min="0" step="1" value="0" required>
-        <p class="account-profile__hint">Платная глава будет опубликована только после проверки зашифрованного файла в закрытом хранилище. При ошибке сохранения повторите отправку той же формы.</p>"#
+        <p class="account-profile__hint">Платная глава сначала шифруется и проверяется в закрытом хранилище. При отложенном выпуске она остаётся недоступной до слота расписания книги.</p>"#
     } else {
         r#"<input type="hidden" name="access" value="free">
         <input type="hidden" name="price_amount" value="0">"#
@@ -342,9 +342,9 @@ pub fn new_chapter(
             if is_public {
                 r#"<label><input type="checkbox" name="is_delayed_publication" value="1">
                    <strong>Отложенная публикация</strong></label>
-                   <p class="account-profile__hint">Сейчас доступна для бесплатных глав.
-                   Сохранённая глава не появится у читателей до выпуска; после сохранения
-                   назначьте время публикации в UTC.</p>"#
+                   <p class="account-profile__hint">Для бесплатной главы после сохранения назначьте UTC-время.
+                   Для платной главы заранее включите расписание книги:
+                   шифрованная версия будет открыта только в ближайший слот.</p>"#
             } else {
                 ""
             },

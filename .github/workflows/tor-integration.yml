@@ -262,6 +262,11 @@ jobs:
           cargo test -p tor-books --test free_published_edit_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test chapter_release_pg -- --ignored
           cargo test -p tor-books --test scheduled_release_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_delayed_schedule_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_occurrences_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_frontier_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_release_pg -- --ignored --test-threads=1
+          cargo test -p tor-books --test book_slot_paid_release_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test scheduled_release_http_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_storage_pg -- --ignored --test-threads=1
           cargo test -p tor-books --test paid_published_edit_pg -- --ignored --test-threads=1
@@ -384,6 +389,7 @@ jobs:
         run: |
           cargo test -p tor-web --test password_change_http_pg a_07_ -- --ignored --test-threads=1
           cargo test -p tor-social --test slices_pg e_08_ -- --ignored --test-threads=1
+          cargo test -p tor-social --test chapter_release_notifications_pg -- --ignored --test-threads=1
           cargo test -p tor-web --test mail_http_pg e_08_ -- --ignored --test-threads=1
           cargo test -p tor-accounts --test access_audit_pg -- --ignored --test-threads=1
           cargo test -p tor-accounts --test auth_observation_pg -- --ignored --test-threads=1
@@ -1178,6 +1184,7 @@ jobs:
           TOR_PAID_CHECKOUT_ENABLED=1 TOR_LAYER_READER_ENABLED=1 cargo test -p tor-web --features s3-paid --test paid_grants_s3_pg -- --ignored --test-threads=1
           node tools/layer_reader_minio_chromium_e2e.cjs
           cargo test -p tor-web --features s3-paid --test paid_author_pg -- --ignored --test-threads=1
+          cargo test -p tor-web --features s3-paid --test paid_scheduled_author_pg -- --ignored --test-threads=1
           node tools/paid_grant_webcrypto_e2e.mjs
           node tools/paid_reader_minio_chromium_e2e.cjs
           node tools/paid_reader_private_media_browser.cjs
