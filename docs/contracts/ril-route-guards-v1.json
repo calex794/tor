@@ -1758,6 +1758,34 @@
       "source": "crates/web/src/auth/book_titles.rs",
       "handler": "save",
       "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/related",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/related/search",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "search",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/related/add",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "add",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/related/remove",
+      "source": "crates/web/src/auth/book_related.rs",
+      "handler": "remove",
+      "policy": "owner"
     }
   ]
 }
