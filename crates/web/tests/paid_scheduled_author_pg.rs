@@ -16,6 +16,7 @@ use tor_accounts::{
     repositories::PgAccounts,
     services::security::{generate_session_token, hash_password, session_token_digest},
 };
+use tor_books::services::PublicBookRepository;
 use tor_books::repositories::{
     postgres::{
         book_delayed_schedule::{BookSlotFrontier, BookSlotReleaseOutcome},
@@ -281,6 +282,31 @@ async fn s058_paid_private_browser_staging_and_exact_book_slot_release() {
         ),
     );
     assert_eq!(book_row, "public|false|false");
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT count(*) FROM books WHERE id={book}
+                   AND visibility='public' AND NOT admin_hold AND NOT is_deleted"
+            )
+        ),
+        "1",
+        "the exact public predicate must include the new book in psql"
+    );
+    let catalog_probe = PgCatalog::new(pool.clone());
+    assert!(
+        catalog_probe.get_public(book as u64).await.unwrap().is_some(),
+        "Catalog SQLx must see the same book as psql"
+    );
+    let fresh_reader = PgReader::connect(&url).await.unwrap();
+    assert!(
+        fresh_reader
+            .public_book_page(book as u64, 100, None)
+            .await
+            .unwrap()
+            .is_some(),
+        "fresh Reader SQLx pool must see the same book as psql"
+    );
     let public_reader = PgReader::new(pool.clone());
     let public_book = public_reader
         .public_book_page(book as u64, 100, None)
