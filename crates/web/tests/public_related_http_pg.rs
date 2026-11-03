@@ -13,8 +13,16 @@ fn sql(url: &str, query: &str) -> String {
     assert!(url.ends_with("/tor_ci"), "production database forbidden");
     let out = Command::new("psql")
         .args([
-            "-X", "-A", "-t", "-q", "-v", "ON_ERROR_STOP=1",
-            "--dbname", url, "--command", query,
+            "-X",
+            "-A",
+            "-t",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "--dbname",
+            url,
+            "--command",
+            query,
         ])
         .output()
         .expect("isolated PG fixture");
