@@ -492,15 +492,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         None,
     )
     .unwrap();
-    // The production-like PG/auth runtime has no paid G adapter or S3
-    // settings. Admin unsealed reading is still available there.
-    let without_g = tor_web::router_with_postgres_reading_auth(
-        catalog.clone(),
-        reader.clone(),
-        accounts.clone(),
-        false,
-        ORIGIN.to_owned(),
-    );
+    let without_g = s065_unsealed::pg_only_app(catalog.clone(), reader.clone(), accounts.clone());
     let app = tor_web::router_with_postgres_reading_auth_paid_grants(
         catalog,
         reader,
