@@ -2,6 +2,7 @@
 //! The browser supplies only the chapter and optional owned purchase id.
 //! D authorizes; B resolves; G signs. No paid plaintext crosses this endpoint.
 mod admin_reader;
+mod admin_unsealed;
 mod asset_grants;
 mod chapter_grants;
 mod layer_reader;
@@ -28,6 +29,7 @@ use tokio::sync::{Mutex, Semaphore};
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::repositories::{
     admin_paid_assets::PgAdminPaidAssets,
+    admin_unsealed_text::PgAdminUnsealedText,
     paid_assets::PgPaidAssets,
     paid_storage::{PgAdminPaidStorage, PgPaidStorage},
 };
@@ -82,6 +84,7 @@ struct GrantState {
     first_direct_grant: PgDirectFirstExposure,
     versions: PgPaidStorage,
     admin_versions: PgAdminPaidStorage,
+    admin_unsealed: PgAdminUnsealedText,
     assets: PgPaidAssets,
     admin_assets: PgAdminPaidAssets,
     storage: Arc<dyn PrivateObjectDeliveryPort>,
@@ -372,6 +375,7 @@ fn router_inner(
         first_direct_grant: PgDirectFirstExposure::new(pool.clone()),
         versions: PgPaidStorage::new(pool.clone()),
         admin_versions: PgAdminPaidStorage::new(pool.clone()),
+        admin_unsealed: PgAdminUnsealedText::new(pool.clone()),
         assets: PgPaidAssets::new(pool.clone()),
         admin_assets: PgAdminPaidAssets::new(pool),
         storage,
@@ -396,6 +400,10 @@ fn router_inner(
     if state.reader_s3_origin.is_some() {
         app = app
             .route("/read/admin/{chapter_id}", get(admin_reader::admin_reader))
+            .route(
+                "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+                post(admin_unsealed::read),
+            )
             .route("/assets/newboo-admin-reader.mjs", get(admin_reader::script))
             .route("/read/paid/{chapter_id}", get(paid_reader))
             .route(
