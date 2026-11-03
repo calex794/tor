@@ -20,7 +20,7 @@ pub(super) use tor_accounts::domain::auth_observation::AuthAttemptOutcome as Out
 static IN_FLIGHT: OnceLock<Arc<Semaphore>> = OnceLock::new();
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn dropped_count() -> u64 {
+pub(crate) fn dropped_count() -> u64 {
     DROPPED.load(Ordering::Relaxed)
 }
 
