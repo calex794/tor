@@ -50,7 +50,9 @@ pub(super) async fn fanout(pool: &PgPool, limit: u16) -> Result<usize, MailError
              JOIN chapter_first_release_events first
                ON first.chapter_id=c.id AND first.version_id=$3
              WHERE b.id=$1 AND c.id=$2
-               AND b.visibility='public' AND NOT b.admin_hold AND NOT b.is_deleted
+               AND b.visibility='public' AND b.visibility_status='active'
+               AND b.lifecycle_status<>'pending_deletion'
+               AND NOT b.admin_hold AND NOT b.is_deleted
                AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
                AND (c.reader_released_at IS NULL
                     OR c.reader_released_at<=clock_timestamp())
@@ -198,6 +200,8 @@ pub(super) async fn eligible_recipient(
         "SELECT EXISTS(
             SELECT 1 FROM chapters c
             JOIN books b ON b.id=c.book_id
+            JOIN users recipient ON recipient.id=$3
+              AND recipient.account_state='active'
             JOIN chapter_publications p ON p.chapter_id=c.id
             JOIN chapter_first_release_events first
               ON first.chapter_id=c.id
@@ -209,7 +213,16 @@ pub(super) async fn eligible_recipient(
               AND e.payload->>'book_id'=b.id::text
               AND e.payload->>'version_id'=first.version_id::text
               AND b.visibility='public' AND b.visibility_status='active'
+              AND b.lifecycle_status<>'pending_deletion'
               AND NOT b.admin_hold AND NOT b.is_deleted
+              AND (
+                   b.access_level='basic'
+                   OR (b.access_level='adult' AND recipient.adult_enabled)
+                   OR (b.access_level='pro_adult' AND EXISTS (
+                       SELECT 1 FROM user_level_grants grant
+                       WHERE grant.user_id=recipient.id
+                         AND grant.level='pro_adult' AND grant.is_active))
+              )
               AND c.visibility='public' AND NOT c.admin_hold AND NOT c.is_deleted
               AND (c.reader_released_at IS NULL
                    OR c.reader_released_at<=clock_timestamp())
