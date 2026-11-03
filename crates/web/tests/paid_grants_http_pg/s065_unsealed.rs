@@ -11,6 +11,16 @@ use serde_json::Value;
 use std::sync::{atomic::Ordering, Arc};
 use tor_accounts::repositories::PgAccounts;
 
+/// Full authenticated PostgreSQL web router with no paid G adapter,
+/// private S3 origin or purchased-content browser.
+pub(super) fn pg_only_app(
+    catalog: tor_books::repositories::PgCatalog,
+    reader: tor_reading::repositories::PgReader,
+    accounts: PgAccounts,
+) -> Router {
+    tor_web::router_with_postgres_reading_auth(catalog, reader, accounts, false, ORIGIN.to_owned())
+}
+
 struct AdminRoleCleanup<'a> {
     url: &'a str,
     user_id: i64,
