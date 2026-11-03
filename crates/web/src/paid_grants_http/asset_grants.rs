@@ -2,7 +2,7 @@
 //! This route authenticates session + CSRF then C enforces D -> B -> G -> D.
 use super::*;
 use tor_contracts::paid_delivery::ObjectId;
-use tor_reading::services::paid_delivery::issue_paid_asset_grant;
+use tor_reading::services::paid_delivery::{issue_paid_admin_asset_grant, issue_paid_asset_grant};
 
 pub(super) async fn grant_asset(
     State(state): State<GrantState>,
@@ -73,16 +73,28 @@ pub(super) async fn grant_asset(
     let Ok(_permit) = state.concurrent.clone().try_acquire_owned() else {
         return deny(StatusCode::TOO_MANY_REQUESTS);
     };
-    let result = issue_paid_asset_grant(
-        authority,
-        assets,
-        state.storage.as_ref(),
-        Actor { user_id: actor_id },
-        chapter_id,
-        purchase_id,
-        &object_id,
-    )
-    .await;
+    let result = if matches!(body.source, Some(GrantSource::Administrator)) {
+        issue_paid_admin_asset_grant(
+            authority,
+            assets,
+            state.storage.as_ref(),
+            Actor { user_id: actor_id },
+            chapter_id,
+            &object_id,
+        )
+        .await
+    } else {
+        issue_paid_asset_grant(
+            authority,
+            assets,
+            state.storage.as_ref(),
+            Actor { user_id: actor_id },
+            chapter_id,
+            purchase_id,
+            &object_id,
+        )
+        .await
+    };
     match result {
         Ok(grant) => {
             let Some(version) = positive(&grant.version_id) else {
