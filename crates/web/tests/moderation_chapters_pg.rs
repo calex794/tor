@@ -514,6 +514,31 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         .status(),
         StatusCode::CONFLICT
     );
+    // Old MOD-C01 boolean release cannot bypass a more specific decision.
+    let legacy_release = format!("csrf_token={csrf}&expected_hold=true&new_hold=false");
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &paid_action,
+            &admin_cookie,
+            ORIGIN,
+            &legacy_release
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT moderation_state || ':' || admin_hold::int
+                 FROM chapters WHERE id={paid_chapter}"
+            )
+        ),
+        "hidden:1"
+    );
     let block_form = format!("csrf_token={csrf}&expected_state=hidden&next_state=blocked");
     assert_eq!(
         request(
@@ -592,6 +617,8 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
     );
     assert_eq!(
         decisions,
-        format!("{admin}:none:hidden\n{admin}:hidden:blocked\n{admin}:blocked:none")
+        format!(
+            "{moderator}:none:hold\n{admin}:hold:none\n{admin}:none:hidden\n{admin}:hidden:blocked\n{admin}:blocked:none"
+        )
     );
 }
