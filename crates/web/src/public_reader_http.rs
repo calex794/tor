@@ -19,8 +19,8 @@ pub(super) struct PublicIssueQuery {
     pub comments_after: Option<i64>,
 }
 
-/// Only a live A administrator with a sealed B/G paid edition may leave the
-/// canonical public reader for the private admin reader. No role, version,
+/// Only a live A administrator with a current unsealed B edition or an
+/// attached B/G sealed paid edition may use the canonical private reader. No role, version,
 /// purchase identity or private metadata is taken from the URL/query string.
 async fn administrator_paid_redirect(
     state: &AppState,
@@ -54,27 +54,35 @@ async fn administrator_paid_redirect(
     let actor_id =
         PositiveId::new(actor.actor.user_id.get()).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let authority = PgAdministratorReaderEntitlements::new(accounts.pool().clone(), digest);
-    match authority
-        .resolve_entitlement(Actor { user_id: actor_id }, chapter_id, None)
+    let admin = Actor { user_id: actor_id };
+    // The admin shell already prioritizes the current unsealed working draft.
+    // Canonical reader navigation must use the same A/D decision; otherwise
+    // unpublished free/paid drafts are reachable only through a private URL.
+    let unsealed = authority
+        .unsealed_version(admin, chapter_id)
         .await
-    {
-        Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {
-            let mut response =
-                auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
-            response.headers_mut().insert(
-                header::REFERRER_POLICY,
-                HeaderValue::from_static("no-referrer"),
-            );
-            response.headers_mut().insert(
-                "x-robots-tag",
-                HeaderValue::from_static("noindex, nofollow"),
-            );
-            Ok(Some(response))
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if unsealed.is_none() {
+        match authority.resolve_entitlement(admin, chapter_id, None).await {
+            Ok(EntitlementDecision::Allowed { pinned }) if pinned.chapter_id == chapter_id => {}
+            Ok(EntitlementDecision::Denied { .. }) => return Ok(None),
+            Ok(EntitlementDecision::Allowed { .. }) => return Err(StatusCode::CONFLICT),
+            Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
         }
-        Ok(EntitlementDecision::Denied { .. }) => Ok(None),
-        Ok(EntitlementDecision::Allowed { .. }) => Err(StatusCode::CONFLICT),
-        Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
     }
+    // No private text, chosen version, role claims, S3 credentials or purchase
+    // identity enters the redirect. The destination rechecks the live A role.
+    let mut response =
+        auth_cookies::private_response(Redirect::to(&format!("/read/admin/{id}")), &[]);
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response.headers_mut().insert(
+        "x-robots-tag",
+        HeaderValue::from_static("noindex, nofollow"),
+    );
+    Ok(Some(response))
 }
 
 /// C-10: successful and denied reading both use no-store and strict CSP.
