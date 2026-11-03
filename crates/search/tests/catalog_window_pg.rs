@@ -26,11 +26,11 @@ async fn b_18_47_public_books_forward_backward_no_skip_or_duplicate() {
     let source = format!("ci:b18:{nonce}");
     sqlx::query(
         "INSERT INTO books(source_identity,target_language,title,author_name,
-                genres,tags,fandoms,visibility,admin_hold,is_deleted)
+                genres,tags,fandoms,visibility,admin_hold,is_deleted,access_level)
          SELECT $1 || ':' || n::text,'ru',$2 || ' ' || lpad(n::text,3,'0'),
                 $3 || (n%3)::text,
                 ARRAY['pager-genre'],ARRAY['pager-tag'],ARRAY['pager-fandom'],
-                CASE WHEN n<=47 THEN 'public' ELSE 'draft' END,n=49,n=50
+                CASE WHEN n<=47 THEN 'public' ELSE 'draft' END,n=49,n=50,'basic'
          FROM generate_series(1,50) AS n",
     )
     .bind(&source)
@@ -49,7 +49,7 @@ async fn b_18_47_public_books_forward_backward_no_skip_or_duplicate() {
     ] {
         let oracle_sql = format!(
             "SELECT id FROM books WHERE source_identity LIKE $1
-             AND visibility='public' AND NOT admin_hold AND NOT is_deleted
+             AND visibility='public' AND visibility_status='active' AND access_level='basic' AND NOT admin_hold AND NOT is_deleted
              ORDER BY {order_by}"
         );
         let expected: Vec<i64> = sqlx::query_scalar(&oracle_sql)

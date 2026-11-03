@@ -88,8 +88,8 @@ jobs:
         run: |
           DATABASE_URL="$MIGRATOR_URL" cargo run -p tor-migrations --bin tor-migrate
           PGPASSWORD=tor-load-ci-app PGUSER=tor_app PGDATABASE=tor_ci psql -X -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO books(id,source_identity,target_language,title,visibility)
-          VALUES (1,'ci:load:book:1','ru','Load Test Book','public');
+          INSERT INTO books(id,source_identity,target_language,title,visibility,access_level)
+          VALUES (1,'ci:load:book:1','ru','Load Test Book','public','basic');
           INSERT INTO chapters(id,book_id,chapter_no,title,visibility,access_level,price_amount)
           VALUES (101,1,1,'Load Test Chapter','public','free',0);
           INSERT INTO chapter_versions(id,chapter_id,version_no,body_markdown)
@@ -97,11 +97,11 @@ jobs:
           INSERT INTO chapter_publications(chapter_id,version_id)
           VALUES (101,201);
           -- Ten percent have real facets; empty-taxonomy rows dominate early TOR.
-          INSERT INTO books(id,source_identity,target_language,title,visibility,genres,tags,fandoms)
+          INSERT INTO books(id,source_identity,target_language,title,visibility,genres,tags,fandoms,access_level)
           SELECT n,'ci:load:book:' || n, 'ru','Load Test Book ' || n,'public',
                  CASE WHEN n % 10 = 0 THEN ARRAY['fantasy'] ELSE ARRAY[]::text[] END,
                  CASE WHEN n % 10 = 0 THEN ARRAY['fiction'] ELSE ARRAY[]::text[] END,
-                 CASE WHEN n % 20 = 0 THEN ARRAY['world'] ELSE ARRAY[]::text[] END
+                 CASE WHEN n % 20 = 0 THEN ARRAY['world'] ELSE ARRAY[]::text[] END, 'basic'
           FROM generate_series(2,10000) n;
           SQL
       - name: Measure exact count and taxonomy SQL A/B (10k books)
