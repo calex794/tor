@@ -225,8 +225,12 @@ async fn s058_prepared_paid_is_private_then_one_exact_slot_release() {
         access: "paid",
         price_amount: 90,
         command_key: &"w".repeat(43),
-    }).unwrap();
-    let reserved = paid.prepare_scheduled_paid_chapter(owner, &request).await.unwrap();
+    })
+    .unwrap();
+    let reserved = paid
+        .prepare_scheduled_paid_chapter(owner, &request)
+        .await
+        .unwrap();
     assert!(!reserved.published);
     assert_eq!(
         paid.prepare_new_paid_chapter(owner, &request).await,
