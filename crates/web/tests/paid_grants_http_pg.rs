@@ -639,7 +639,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         3,
         "only three verified administrator read/image grants may reach G"
     );
-    s065_unsealed::assert_unsealed_admin_read(&url, &accounts, &browser, &fake, book).await;
+    s065_unsealed::assert_unsealed_admin_read(&url, &accounts, &browser, &app, &fake, book).await;
     // Preserve the independent fake-signer counter expected by the existing
     // direct buyer tests below. No production signer state is ever reset.
     fake.signed.store(0, Ordering::SeqCst);

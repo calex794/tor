@@ -85,6 +85,19 @@ pub(super) async fn assert_administrator_can_read_without_purchase(
         format!("/api/v1/reader/chapters/{chapter}/assets/{ASSET_UUID}/delivery-grants");
     let page = format!("/read/admin/{chapter}");
     let normal = format!("/read/paid/{chapter}?purchase_id={purchase}");
+    // API-only mode must not manufacture an encrypted browser shell.
+    assert_eq!(
+        read_page(grants, &page, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        read_page(grants, &normal, Some(&admin_session))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     let old_preview =
         format!("/reader/{chapter}?preview=1&version_id={version}&purchase_id={purchase}");
 
