@@ -31,8 +31,8 @@ async fn s020_owner_status_cas_is_private_and_independent_of_visibility() {
     .unwrap();
     let book_id: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,owner_user_id,
-                           project_status,visibility)
-         VALUES($1,'ru',$2,$3,'ongoing','draft') RETURNING id",
+                           project_status,visibility,access_level)
+         VALUES($1,'ru',$2,$3,'ongoing','draft','basic') RETURNING id",
     )
     .bind(format!("s020:status:{marker}"))
     .bind(format!("Состояние книги {marker}"))
