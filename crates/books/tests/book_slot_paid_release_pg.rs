@@ -292,5 +292,70 @@ async fn s058_unprepared_paid_never_advances_past_frontier() {
         .unwrap(),
         0,
     );
+
+    // A delayed G upload finishes after the due slot was blocked. The
+    // original slot can retry without advancing to the later free chapter.
+    let body = "Глава остаётся платной после подготовки";
+    let sha: [u8; 32] = Sha256::digest(body.as_bytes()).into();
+    let version: i64 = sqlx::query_scalar(
+        "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown,content_sha256)
+         VALUES($1,1,$2,$3) RETURNING id",
+    )
+    .bind(chapter)
+    .bind(body)
+    .bind(sha.as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let object = ready_object(
+        &pool,
+        chapter,
+        version,
+        body,
+        "58005800-0002-4000-8000-000000000002",
+    )
+    .await;
+    let paid = PgPaidStorage::new(pool.clone());
+    let pinned = ChapterVersionRef {
+        chapter_id: PositiveId::new(chapter).unwrap(),
+        version_id: PositiveId::new(version).unwrap(),
+    };
+    paid.attach_verified_and_publish(owner, book, pinned, &object, PaidPublication::KeepCurrent)
+        .await
+        .unwrap();
+    assert_eq!(
+        paid.rearm_prepared_paid_frontier(owner, book, chapter, version)
+            .await,
+        Ok(true)
+    );
+    assert_eq!(
+        paid.rearm_prepared_paid_frontier(owner, book, chapter, version)
+            .await,
+        Ok(false),
+        "rearming is idempotent"
+    );
+    let retry_token = "y".repeat(43);
+    let retry = author.claim_due_book_slot(&retry_token).await.unwrap().unwrap();
+    assert_eq!(retry.attempt_count, 2);
+    assert_eq!(
+        author.bind_book_slot_frontier(&retry, &retry_token).await,
+        Ok(BookSlotFrontier::Ready(chapter))
+    );
+    assert_eq!(
+        author.release_bound_book_slot(&retry, &retry_token).await,
+        Ok(BookSlotReleaseOutcome::Released {
+            chapter_id: chapter,
+            version_id: version,
+        })
+    );
+    let metadata: (String, String, i64) = sqlx::query_as(
+        "SELECT c.visibility,c.access_level,c.price_amount
+         FROM chapters c WHERE c.id=$1",
+    )
+    .bind(chapter)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(metadata, ("public".to_owned(), "paid".to_owned(), 210));
     pool.close().await;
 }
