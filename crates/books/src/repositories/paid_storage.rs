@@ -67,7 +67,8 @@ impl PgPaidStorage {
         actor: i64,
         request: &SaveChapter,
     ) -> Result<PreparedPaidChapter, AuthorError> {
-        self.prepare_new_paid_chapter_with_mode(actor, request, false).await
+        self.prepare_new_paid_chapter_with_mode(actor, request, false)
+            .await
     }
 
     async fn prepare_new_paid_chapter_with_mode(
