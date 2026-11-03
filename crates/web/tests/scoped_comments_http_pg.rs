@@ -99,9 +99,16 @@ async fn e_02_scoped_comment_limit_preserves_csrf_replay_and_other_actor() {
         "30"
     );
     assert_eq!(
-        call(&app, "POST", &path, &cookie, "https://evil.invalid", &blocked_form)
-            .await
-            .status(),
+        call(
+            &app,
+            "POST",
+            &path,
+            &cookie,
+            "https://evil.invalid",
+            &blocked_form
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -141,11 +148,23 @@ async fn e_02_scoped_comment_limit_preserves_csrf_replay_and_other_actor() {
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        pg(&url, &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}")).await,
+        pg(
+            &url,
+            &format!("SELECT count(*) FROM discussion_comments WHERE book_id={book}")
+        )
+        .await,
         "31"
     );
 
-    pg(&url, &format!("DELETE FROM discussion_comments WHERE book_id={book}")).await;
-    pg(&url, &format!("DELETE FROM users WHERE id IN ({actor},{other})")).await;
+    pg(
+        &url,
+        &format!("DELETE FROM discussion_comments WHERE book_id={book}"),
+    )
+    .await;
+    pg(
+        &url,
+        &format!("DELETE FROM users WHERE id IN ({actor},{other})"),
+    )
+    .await;
     pg(&url, &format!("DELETE FROM books WHERE id={book}")).await;
 }
