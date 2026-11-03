@@ -67,14 +67,13 @@ async fn b_01_owner_draft_is_private_and_idempotent() {
         Err(AuthorError::Conflict),
         "canonical identity must be unique"
     );
-    let row = sqlx::query("SELECT owner_user_id,visibility,visibility_status,access_level FROM books WHERE id=$1")
+    let row = sqlx::query("SELECT owner_user_id,visibility,access_level FROM books WHERE id=$1")
         .bind(book_id)
         .fetch_one(&pool)
         .await
         .unwrap();
     assert_eq!(row.get::<i64, _>("owner_user_id"), user);
     assert_eq!(row.get::<String, _>("visibility"), "draft");
-    assert_eq!(row.get::<String, _>("visibility_status"), "pending_moderation");
     assert_eq!(row.get::<String, _>("access_level"), "basic");
     pool.close().await;
 }

@@ -533,9 +533,15 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         &"t".repeat(43),
     )
     .unwrap();
-    let fresh = author.create_owned_book(book_owner, &registration).await.unwrap();
+    let fresh = author
+        .create_owned_book(book_owner, &registration)
+        .await
+        .unwrap();
     assert_eq!(
-        pg(&url, &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={fresh}")),
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={fresh}")
+        ),
         "draft:pending_moderation"
     );
     let first = save_chapter(SaveChapterRequest {
@@ -550,10 +556,16 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         command_key: &"u".repeat(43),
     })
     .unwrap();
-    author.create_free_chapter(book_owner, &first).await.unwrap();
+    author
+        .create_free_chapter(book_owner, &first)
+        .await
+        .unwrap();
     author.release_book(book_owner, fresh).await.unwrap();
     assert_eq!(
-        pg(&url, &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={fresh}")),
+        pg(
+            &url,
+            &format!("SELECT visibility||':'||visibility_status FROM books WHERE id={fresh}")
+        ),
         "public:pending_moderation"
     );
     assert!(PgReader::new(pool.clone())
@@ -572,9 +584,16 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         "csrf_token={csrf}&expected_status=pending_moderation&expected_revision=1&new_status=active"
     );
     assert_eq!(
-        request(&app, "POST", &approve_action, &outsider_cookie, ORIGIN, &approve)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &approve_action,
+            &outsider_cookie,
+            ORIGIN,
+            &approve
+        )
+        .await
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -585,15 +604,29 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         "revoked site moderator cannot approve a new book"
     );
     assert_eq!(
-        request(&app, "POST", &approve_action, &admin_cookie, ORIGIN, &approve)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &approve_action,
+            &admin_cookie,
+            ORIGIN,
+            &approve
+        )
+        .await
+        .status(),
         StatusCode::SEE_OTHER
     );
     assert_eq!(
-        request(&app, "POST", &approve_action, &admin_cookie, ORIGIN, &approve)
-            .await
-            .status(),
+        request(
+            &app,
+            "POST",
+            &approve_action,
+            &admin_cookie,
+            ORIGIN,
+            &approve
+        )
+        .await
+        .status(),
         StatusCode::CONFLICT,
         "repeated approval must fail CAS"
     );
@@ -613,5 +646,4 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         ),
         format!("{admin}:pending_moderation>active")
     );
-
 }
