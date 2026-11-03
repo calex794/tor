@@ -254,9 +254,12 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "verify_password_for_step_up(&password, &password_hash)",
             "approval_step_up_payload_digest(actor, request, revision, reason)",
             ".issue_administrator_refund_step_up(",
-            ".approve_once(actor, &session_digest, &proof_token, request, revision, reason)",
         )
-        if not approved_refund or not all(marker in evidence for marker in required):
+        approval_call = re.search(
+            r"\.approve_once\s*\(\s*actor,\s*&session_digest,\s*&proof_token,\s*request,\s*revision,\s*reason\s*\)",
+            evidence,
+        )
+        if not approved_refund or not all(marker in evidence for marker in required) or not approval_call:
             errors.append(f"{label}: S036 approval must retain live administrator session, fresh password, one-use proof, CSRF, opt-in and transactional approval")
     if policy == "admin_mail":
         method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
