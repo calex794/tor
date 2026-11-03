@@ -100,14 +100,20 @@ pub(super) async fn assert_unsealed_admin_read(
         assert_eq!(redirect.headers()[header::REFERRER_POLICY], "no-referrer");
         assert_eq!(redirect.headers()["x-robots-tag"], "noindex, nofollow");
         let bytes = to_bytes(redirect.into_body(), 8192).await.unwrap();
-        assert!(!bytes.windows(body.len()).any(|window| window == body.as_bytes()));
-        assert!(!bytes.windows(b"dek_b64u".len()).any(|window| window == b"dek_b64u"));
+        assert!(!bytes
+            .windows(body.len())
+            .any(|window| window == body.as_bytes()));
+        assert!(!bytes
+            .windows(b"dek_b64u".len())
+            .any(|window| window == b"dek_b64u"));
         for session in [None, Some(outsider.as_str())] {
             let denied = read_page(app, &canonical, session).await;
             assert_eq!(denied.status(), StatusCode::NOT_FOUND);
             assert_eq!(denied.headers()[header::CACHE_CONTROL], "no-store");
             let bytes = to_bytes(denied.into_body(), 8192).await.unwrap();
-            assert!(!bytes.windows(body.len()).any(|window| window == body.as_bytes()));
+            assert!(!bytes
+            .windows(body.len())
+            .any(|window| window == body.as_bytes()));
         }
         for (session, token, origin, expected) in [
             (None, None, Some(ORIGIN), StatusCode::UNAUTHORIZED),
