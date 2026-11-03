@@ -6,6 +6,7 @@ use axum::{
 };
 use std::net::{IpAddr, SocketAddr};
 use tor_accounts::services::security::session_token_digest;
+use tor_accounts::services::auth_observation::AuthObservationSigner;
 
 /// Only use X-Real-IP from a verified loopback reverse proxy when the
 /// operator has configured Nginx to overwrite it with $remote_addr.
@@ -72,11 +73,107 @@ pub(super) async fn limit(
     Ok(identity_key)
 }
 
+/// AB-02 mode is explicit: no unreviewed spray lock in production.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SprayMode {
+    Off,
+    Observe,
+    Enforce,
+}
+
+fn parse_spray_mode(value: &str) -> Option<SprayMode> {
+    match value {
+        "off" => Some(SprayMode::Off),
+        "observe" => Some(SprayMode::Observe),
+        "enforce" => Some(SprayMode::Enforce),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct SprayGuard {
+    ip: [u8; 32],
+    subnet: [u8; 32],
+    target: [u8; 32],
+    mode: SprayMode,
+}
+
+impl SprayGuard {
+    pub(super) fn enforcing(&self) -> bool {
+        self.mode == SprayMode::Enforce
+    }
+}
+
+pub(super) enum SprayError {
+    Locked(u32),
+    Unavailable,
+}
+
+/// Only an operator-enabled, independently keyed HMAC detector can change
+/// login behavior. A missing key in enforce mode is an explicit 503, not an
+/// accidental unlimited bypass. Unknown proxy peers never share a bucket.
+pub(super) async fn spray_start(
+    state: &AuthState,
+    normalized_email: &str,
+    verified_ip: Option<IpAddr>,
+) -> Result<Option<SprayGuard>, SprayError> {
+    let mode = std::env::var("TOR_AUTH_SPRAY_MODE").unwrap_or_else(|_| "off".to_owned());
+    let mode = parse_spray_mode(&mode).ok_or(SprayError::Unavailable)?;
+    if mode == SprayMode::Off {
+        return Ok(None);
+    }
+    let Some(ip) = verified_ip else {
+        return Ok(None);
+    };
+    let key = std::env::var("TOR_AUTH_SPRAY_KEY").map_err(|_| SprayError::Unavailable)?;
+    let signer = AuthObservationSigner::from_hex(&key).ok_or(SprayError::Unavailable)?;
+    let (source, subnet) = signer.source(ip);
+    if mode == SprayMode::Enforce {
+        let retry = state
+            .accounts
+            .spray_retry_after(&source)
+            .await
+            .map_err(|_| SprayError::Unavailable)?;
+        if let Some(seconds) = retry {
+            return Err(SprayError::Locked(seconds));
+        }
+    }
+    Ok(Some(SprayGuard {
+        ip: source,
+        subnet,
+        target: signer.target(normalized_email),
+        mode,
+    }))
+}
+
+/// The best-effort observation queue is not the source of truth. When enforce
+/// mode is enabled, failure to persist the evidence is surfaced to the caller.
+pub(super) async fn spray_failure(state: &AuthState, guard: &SprayGuard) -> bool {
+    state
+        .accounts
+        .record_spray_failure(
+            &guard.ip,
+            &guard.subnet,
+            &guard.target,
+            guard.enforcing(),
+        )
+        .await
+        .is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
     use std::net::{Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn spray_modes_require_explicit_selection() {
+        assert_eq!(parse_spray_mode("off"), Some(SprayMode::Off));
+        assert_eq!(parse_spray_mode("observe"), Some(SprayMode::Observe));
+        assert_eq!(parse_spray_mode("enforce"), Some(SprayMode::Enforce));
+        assert_eq!(parse_spray_mode("enabled"), None);
+    }
 
     #[test]
     fn loopback_reverse_proxy_does_not_share_a_global_limit() {
