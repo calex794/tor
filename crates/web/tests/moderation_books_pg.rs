@@ -176,7 +176,9 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
         ("POST", format!("/moderation/chapters/{book}/hold")),
     ] {
         assert_eq!(
-            request(&app, method, &path, &admin_cookie, ORIGIN, "").await.status(),
+            request(&app, method, &path, &admin_cookie, ORIGIN, "")
+                .await
+                .status(),
             StatusCode::NOT_FOUND,
             "chapter-by-chapter moderation is not a product capability"
         );
