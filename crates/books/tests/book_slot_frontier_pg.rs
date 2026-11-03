@@ -73,6 +73,7 @@ async fn force_due(pool: &PgPool, book: i64) {
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
+    let _claim_lock = super::S058_BOOK_SLOT_TEST_LOCK.lock().await;
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
     let pool = PgPool::connect(&url).await.unwrap();
@@ -196,6 +197,7 @@ async fn s058_blocked_frontier_never_skips_and_ready_binding_is_fenced() {
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn s058_empty_slot_advances_duplicate_time_and_paid_frontier_blocks() {
+    let _claim_lock = super::S058_BOOK_SLOT_TEST_LOCK.lock().await;
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
     let pool = PgPool::connect(&url).await.unwrap();

@@ -13,6 +13,7 @@ fn slots() -> Vec<String> {
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]
 async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
+    let _claim_lock = super::S058_BOOK_SLOT_TEST_LOCK.lock().await;
     let url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     assert!(url.ends_with("/tor_ci"), "Never run on production");
     let pool = PgPool::connect(&url).await.expect("disposable postgres");

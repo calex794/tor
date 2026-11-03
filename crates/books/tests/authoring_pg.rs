@@ -895,6 +895,7 @@ mod book_related_pg;
 mod book_slot_occurrences_pg;
 #[path = "book_slot_frontier_pg.rs"]
 mod book_slot_frontier_pg;
+static S058_BOOK_SLOT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[path = "origin_metadata_pg.rs"]
 mod origin_metadata_pg;
