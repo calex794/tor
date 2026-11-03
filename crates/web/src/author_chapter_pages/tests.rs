@@ -23,6 +23,7 @@ fn b12_owner_pages_keep_navigation_for_long_books() {
             uploads_enabled: false,
             latest_job: None,
             demand_count: 0,
+            paid_editor_enabled: false,
             next: Some(OwnedChapterCursor {
                 number: 501,
                 id: 501,
@@ -38,10 +39,15 @@ fn b12_owner_pages_keep_navigation_for_long_books() {
 }
 #[test]
 fn paid_controls_only_appear_in_enabled_author_pages() {
-    let disabled = new_chapter(42, "csrf", "command", false).0;
+    let disabled = new_chapter(42, "csrf", "command", false, false).0;
+    assert!(!disabled.contains("name=\"save_as_draft\""));
     assert!(!disabled.contains("<option value=\"paid\">"));
     assert!(disabled.contains("name=\"access\" value=\"free\""));
-    let enabled = new_chapter(42, "csrf", "command", true).0;
+    let enabled = new_chapter(42, "csrf", "command", true, true).0;
+    assert!(enabled.contains("name=\"save_as_draft\""));
+    let free_public = new_chapter(42, "csrf", "command", false, true).0;
+    assert!(free_public.contains("name=\"save_as_draft\""));
+    assert!(!free_public.contains("<option value=\"paid\">"));
     assert!(enabled.contains("<option value=\"paid\">"));
     assert!(enabled.contains("name=\"price_amount\""));
     assert!(enabled.contains("сразу после сохранения"));
@@ -104,7 +110,7 @@ fn release_form_escapes_chapter_body_and_pins_version() {
         revision: 3,
         version_id: 86,
     };
-    let page = release_chapter(2, 5, &chapter, "token");
+    let page = release_chapter(2, 5, &chapter, "token", None);
     assert!(page.0.contains("name=\"version_id\" value=\"86\""));
     assert!(page.0.contains("name=\"expected_revision\" value=\"3\""));
     assert!(page.0.contains("&lt;/pre&gt;"));

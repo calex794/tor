@@ -40,9 +40,15 @@ use tor_contracts::paid_delivery::{
 use tor_reading::repositories::PgReader;
 use tower::ServiceExt;
 
+#[path = "paid_grants_http_pg/s065_role_matrix.rs"]
+mod s065_role_matrix;
+#[path = "paid_grants_http_pg/s065_unsealed.rs"]
+mod s065_unsealed;
+
 const ORIGIN: &str = "http://127.0.0.1:3098";
 const ENDPOINT: &str = "/api/v1/reader/chapters/";
 const UUID: &str = "a1a1a1a1-1111-4111-8111-111111111111";
+const ASSET_UUID: &str = "a1a1a1a1-1111-4111-8111-111111111112";
 const BODY: &str = "S034-PAID-PRIVATE-V1-NEVER-IN-HTTP";
 
 fn pg(url: &str, sql: &str) -> String {
@@ -125,11 +131,21 @@ impl PrivateObjectDeliveryPort for FakeG {
             .unwrap(),
             object_sha256: hex(&object.object.sha256_ciphertext),
             cipher: "AES-256-GCM",
-            codec: "gzip",
+            codec: object.codec.wire(),
             nonce_b64u: URL_SAFE_NO_PAD.encode(object.nonce),
             aad_b64u: URL_SAFE_NO_PAD.encode(&object.aad),
             dek_b64u: SecretValue::new(URL_SAFE_NO_PAD.encode([0x11_u8; 32])).unwrap(),
         })
+    }
+
+    async fn grant_verified_admin_asset(
+        &self,
+        object: &EncryptedObjectRef,
+        ttl: Duration,
+    ) -> Result<GrantedContent, DeliveryError> {
+        // The disposable fake G has no storage-layer moderation policy.
+        // Production G must still independently verify B/G membership.
+        self.grant_verified_object(object, ttl).await
     }
 }
 
@@ -179,6 +195,30 @@ async fn read_page(app: &Router, path: &str, session: Option<&str>) -> Response 
         .unwrap()
 }
 
+// C-12: scan exact UTF-8 markers for paid text, private image references,
+// scoped keys and signed S3 URLs on all denied reader surfaces.
+fn has_private_reader_material(body: &[u8]) -> bool {
+    let markers: [&[u8]; 5] = [
+        BODY.as_bytes(),
+        b"X-Amz-Signature",
+        b"ciphertext_url",
+        b"dek_b64u",
+        b"asset:",
+    ];
+    markers
+        .iter()
+        .any(|needle| body.windows(needle.len()).any(|part| part == *needle))
+}
+
+#[test]
+fn c12_denied_reader_scan_detects_exact_s3_signature_bytes() {
+    assert_eq!(b"X-Amz-Signature".len(), 15);
+    assert!(has_private_reader_material(b"X-Amz-Signature"));
+    assert!(has_private_reader_material(b"?X-Amz-Signature=masked"));
+    assert!(has_private_reader_material(b"ciphertext_url"));
+    assert!(!has_private_reader_material(b"public-only response"));
+}
+
 /// S065 / C-12: the historical NEwBOO reader aliases must not become an
 /// alternative entitlement. Only the D-checked paid grant may sign G objects.
 /// Legacy endpoints are *not* implemented in TOR; a 404 proves absence on
@@ -217,16 +257,8 @@ async fn s065_alternate_reader_access_matrix(
             }
             let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
             assert!(
-                !bytes
-                    .windows(BODY.len())
-                    .any(|part| part == BODY.as_bytes()),
-                "paid plaintext leaked on {path}"
-            );
-            assert!(
-                !bytes
-                    .windows(b"X-Amz-Signature".len())
-                    .any(|part| part == b"X-Amz-Signature"),
-                "S3 signing data leaked on {path}"
+                !has_private_reader_material(&bytes),
+                "paid text, private asset or signed S3 credential leaked on {path}"
             );
             if is_paywall {
                 let html = String::from_utf8(bytes.to_vec()).unwrap();
@@ -255,19 +287,15 @@ async fn s065_alternate_reader_access_matrix(
         format!("/cdn/chapters/{chapter}/{version}.html"),
         format!("/media/chapters/{chapter}/{version}"),
     ] {
-        for session in [buyer, outsider] {
-            let response = read_page(browser, &path, Some(session)).await;
+        // Buyer, book creator without a purchase, and anonymous visitor:
+        // missing compatibility routes must never expose signed credentials.
+        for session in [Some(buyer), Some(outsider), None] {
+            let response = read_page(browser, &path, session).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
             let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
             assert!(
-                !bytes
-                    .windows(BODY.len())
-                    .any(|part| part == BODY.as_bytes()),
-                "paid plaintext in disabled compatibility route {path}"
-            );
-            assert!(
-                !bytes.windows(15).any(|part| part == b"X-Amz-Signature"),
-                "signed S3 credential in disabled compatibility route {path}"
+                !has_private_reader_material(&bytes),
+                "paid text, private asset or signed S3 credential on {path}"
             );
         }
     }
@@ -377,6 +405,38 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &format!(
             "INSERT INTO chapter_versions(chapter_id,version_no,body_markdown) \
              VALUES({chapter},1,'{BODY}') RETURNING id"
+        ),
+    );
+    // B/S065: exact V1 image membership must exist before chapter publication.
+    // The deterministic G stand-in signs metadata; the separate G suite checks
+    // real storage integrity and S3 signing. This fixture is NOT production media.
+    let image_digest = hex(&Sha256::digest(b"S065 test-only private PNG"));
+    let image_aad =
+        format!("tor.encrypted.asset.v1\n{chapter}\n{version}\n{ASSET_UUID}\n{image_digest}\n");
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO storage_objects(\
+                id,object_kind,bucket,object_key,state,size_bytes,\
+                sha256_ciphertext,plaintext_sha256,encrypted_dek,wrap_nonce,\
+                kek_id,object_nonce,object_aad,codec,verified_at,attached_at\
+             ) VALUES (\
+                '{ASSET_UUID}'::uuid,'chapter_asset','tor-private-chapter-ci',\
+                'private/chapter-assets/{ASSET_UUID}.enc','attached',64,\
+                decode(repeat('05',32),'hex'),decode('{image_digest}','hex'),\
+                decode(repeat('08',48),'hex'),decode(repeat('03',12),'hex'),\
+                'content-kek-v1',decode(repeat('02',12),'hex'),\
+                decode('{}','hex'),'none',now(),now()\
+             )",
+            hex(image_aad.as_bytes())
+        ),
+    );
+    pg(
+        &url,
+        &format!(
+            "INSERT INTO chapter_version_assets(chapter_id,version_id,\
+               storage_object_id,ordinal,media_type) \
+             VALUES({chapter},{version},'{ASSET_UUID}'::uuid,1,'image/png')"
         ),
     );
     pg(
@@ -565,11 +625,24 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         &author_csrf,
     )
     .await;
+    s065_role_matrix::assert_administrator_can_read_without_purchase(
+        &url,
+        &accounts,
+        &browser,
+        &app,
+        &fake,
+        (book, chapter, version, purchase_id),
+    )
+    .await;
     assert_eq!(
         fake.signed.load(Ordering::SeqCst),
-        0,
-        "alternate reader or progress routes must not sign G objects"
+        3,
+        "only three verified administrator read/image grants may reach G"
     );
+    s065_unsealed::assert_unsealed_admin_read(&url, &accounts, &browser, &fake, book).await;
+    // Preserve the independent fake-signer counter expected by the existing
+    // direct buyer tests below. No production signer state is ever reset.
+    fake.signed.store(0, Ordering::SeqCst);
     // A chapter ciphertext UUID is not an image B membership, even for
     // its valid buyer. No fallback to public media or generic G signing.
     let asset_route = format!("/api/v1/reader/chapters/{chapter}/assets/{UUID}/delivery-grants");
@@ -691,6 +764,50 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         "a successful paid grant must write durable first exposure"
     );
 
+    // Unlike the forged chapter-ciphertext UUID above, this asset is a real
+    // B-attached V1 image. D must authorize the exact purchase before G signs.
+    let owned_asset_route =
+        format!("/api/v1/reader/chapters/{chapter}/assets/{ASSET_UUID}/delivery-grants");
+    let outsider_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&author_cookie),
+        Some(&author_csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(outsider_asset.status(), StatusCode::FORBIDDEN);
+    assert_eq!(outsider_asset.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(outsider_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 1);
+
+    let permitted_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(permitted_asset.status(), StatusCode::OK);
+    assert_eq!(
+        permitted_asset.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let asset_json = json_body(permitted_asset).await;
+    assert_eq!(asset_json["schema"], "tor.paid_asset_delivery.v1");
+    assert_eq!(asset_json["chapter_id"], chapter.to_string());
+    assert_eq!(asset_json["version_id"], version.to_string());
+    assert_eq!(asset_json["object_id"], ASSET_UUID);
+    assert_eq!(asset_json["content"]["codec"], "none");
+    assert!(!asset_json.to_string().contains(BODY));
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+
     let v2 = scalar(
         &url,
         &format!(
@@ -721,7 +838,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     .await;
     assert_eq!(hidden.status(), StatusCode::OK);
     assert_eq!(json_body(hidden).await["version_id"], version.to_string());
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 2);
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    let retained_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(retained_asset.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(retained_asset).await["version_id"],
+        version.to_string()
+    );
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
 
     pg(
         &url,
@@ -740,6 +872,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .status(),
         StatusCode::FORBIDDEN,
     );
+    let held_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(held_asset.status(), StatusCode::FORBIDDEN);
+    assert_eq!(held_asset.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(held_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 4);
     pg(
         &url,
         &format!("UPDATE books SET admin_hold=false WHERE id={book}"),
@@ -787,7 +935,7 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
     assert!(to_bytes(raced.into_body(), 8192).await.unwrap().is_empty());
     assert_eq!(
         fake.signed.load(Ordering::SeqCst),
-        3,
+        5,
         "G signed once, but C must discard the token after D revocation"
     );
     // A subsequent request is rejected by D before reaching G.
@@ -804,7 +952,22 @@ async fn s034_real_http_pinned_v1_sessions_csrf_refund_and_creator_hide() {
         .status(),
         StatusCode::FORBIDDEN,
     );
-    assert_eq!(fake.signed.load(Ordering::SeqCst), 3);
+    let revoked_asset = send(
+        &app,
+        &owned_asset_route,
+        Some(&buyer_cookie),
+        Some(&csrf),
+        Some(ORIGIN),
+        &json!({"purchase_id":purchase_id.to_string()}).to_string(),
+    )
+    .await;
+    assert_eq!(revoked_asset.status(), StatusCode::FORBIDDEN);
+    assert_eq!(revoked_asset.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(to_bytes(revoked_asset.into_body(), 8192)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(fake.signed.load(Ordering::SeqCst), 5);
     assert_eq!(
         read_page(&browser, &reader_path, Some(&buyer_cookie))
             .await

@@ -1,7 +1,7 @@
 'use strict';
 
-// H-09: source text stays in memory and is sent to the same-origin owner route.
-// No scripts are inlined and all untrusted text uses textContent, never HTML.
+// H-09/S023: preview remains editable; confirmation is durable and owner-scoped.
+// No S3 key or signed URL is exposed to the browser.
 (() => {
   const root = document.getElementById('chapter-import');
   if (!root) return;
@@ -11,6 +11,7 @@
   const textInput = document.getElementById('chapter-import-text');
   const previewButton = document.getElementById('chapter-import-preview');
   const confirmButton = document.getElementById('chapter-import-confirm');
+  const cancelButton = document.getElementById('chapter-import-cancel');
   const results = document.getElementById('chapter-import-results');
   const status = document.getElementById('chapter-import-status');
   const csrfToken = document.getElementById('chapter-import-csrf').value;
@@ -19,6 +20,7 @@
   let archiveBase64 = '';
   let accepted = null;
   let requestSerial = 0;
+  let activeJob = null;
 
   function invalidate() {
     requestSerial++;
@@ -29,6 +31,10 @@
 
   function message(text) {
     status.textContent = text;
+  }
+
+  function sleep(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
   }
 
   async function send(path, payload) {
@@ -43,6 +49,99 @@
       throw new Error(data.error || ('Ошибка сервера: ' + response.status));
     }
     return data;
+  }
+
+  async function enqueue(payload) {
+    const response = await fetch('/me/books/' + bookId + '/chapters/import-queue', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => null);
+    // Only a missing route means that the optional worker is disabled.
+    // A JSON 404 from the queue handler (for example, a missing book) is real.
+    if (response.status === 404 && (!data || typeof data.error !== 'string')) return null;
+    if (!response.ok) {
+      const error = new Error((data && data.error) || ('Ошибка сервера: ' + response.status));
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+
+  async function latestJob() {
+    const response = await fetch(
+      '/me/books/' + bookId + '/chapters/import-jobs/latest',
+      { credentials: 'same-origin' }
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
+  async function watchJob(jobId) {
+    activeJob = String(jobId);
+    const watched = activeJob;
+    const query = '?job=' + encodeURIComponent(watched);
+    window.history.replaceState(null, '', window.location.pathname + query);
+    cancelButton.hidden = false;
+    confirmButton.disabled = true;
+    previewButton.disabled = true;
+    fileInput.disabled = true;
+    encodingInput.disabled = true;
+    textInput.disabled = true;
+
+    while (activeJob === watched) {
+      let response;
+      let data;
+      try {
+        response = await fetch(
+          '/me/books/' + bookId + '/chapters/import-jobs/' + encodeURIComponent(watched),
+          { credentials: 'same-origin' }
+        );
+        data = await response.json().catch(() => ({}));
+      } catch {
+        message('Потеряна связь с заданием. Проверка продолжится автоматически.');
+        await sleep(2000);
+        continue;
+      }
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 404) {
+          activeJob = null;
+          cancelButton.hidden = true;
+          message('Задание недоступно. Обновите страницу и проверьте владельца книги.');
+          return;
+        }
+        message('Не удалось получить состояние задания. Повторная проверка…');
+        await sleep(2000);
+        continue;
+      }
+      if (data.status === 'succeeded') {
+        activeJob = null;
+        cancelButton.hidden = true;
+        message('Импорт завершён. Создано глав: ' + data.saved_count + '.');
+        window.location.assign(data.book_url || ('/me/books/' + bookId));
+        return;
+      }
+      if (data.status === 'failed') {
+        activeJob = null;
+        cancelButton.hidden = true;
+        message('Импорт не выполнен (' + (data.error_code || 'ошибка') +
+          '). Главы не сохранены. Обновите страницу, чтобы начать новую попытку.');
+        return;
+      }
+      if (data.status === 'cancelled') {
+        activeJob = null;
+        cancelButton.hidden = true;
+        message('Импорт отменён. Главы не сохранены. Обновите страницу для нового задания.');
+        return;
+      }
+      message(data.status === 'running'
+        ? 'Импорт выполняется. Можно отменить задание.'
+        : 'Импорт стоит в очереди. Можно отменить задание.');
+      await sleep(1500);
+    }
   }
 
   async function readSelectedFile() {
@@ -78,7 +177,6 @@
       const bytes = await selected.arrayBuffer();
       if (isArchive) {
         if (serial !== requestSerial) return;
-        // Encode a bounded file; no external JS or third-party upload service.
         const data = new Uint8Array(bytes);
         const blocks = [];
         for (let offset = 0; offset < data.length; offset += 8192) {
@@ -91,10 +189,9 @@
           + ' прочитан. Проверьте главы, затем сможете исправить извлечённый текст.');
         return;
       }
-      // A legacy code page is used only after explicit selection by the author.
+      // Legacy code pages are converted explicitly to canonical UTF-8.
       const decoded = new TextDecoder(encodingInput.value, { fatal: true }).decode(bytes);
       if (serial !== requestSerial) return;
-      // The Rust parser applies its 700 kB limit to the UTF-8 text sent as JSON.
       if (new TextEncoder().encode(decoded).byteLength > 700000) {
         previewButton.disabled = true;
         message('После преобразования в UTF-8 текст больше 700 КБ.');
@@ -113,7 +210,6 @@
 
   fileInput.addEventListener('change', readSelectedFile);
   encodingInput.addEventListener('change', readSelectedFile);
-
   textInput.addEventListener('input', invalidate);
 
   previewButton.addEventListener('click', async () => {
@@ -125,10 +221,9 @@
     const serial = requestSerial;
     previewButton.disabled = true;
     message('Проверка границ глав…');
-    const text = textInput.value;
     try {
       const data = await send('import-preview', {
-        filename, text, csrf_token: csrfToken,
+        filename, text: textInput.value, csrf_token: csrfToken,
         ...(archiveBase64 ? {
           file_base64: archiveBase64,
           archive_encoding: encodingInput.value,
@@ -149,15 +244,13 @@
       results.replaceChildren(list);
       if (archiveBase64) {
         if (typeof data.extracted_text !== 'string') throw new Error('Нет текста архива');
-        // Reuse the canonical UTF-8 text import on confirmation and after edits.
         textInput.value = data.extracted_text;
         filename = filename.replace(/\.(docx|zip)$/i, '.txt');
         archiveBase64 = '';
       }
       accepted = { filename, text: textInput.value, fingerprint: data.fingerprint };
       confirmButton.disabled = false;
-      message('Найдено глав: ' + data.count
-        + '. Все будут созданы в черновике одной операцией.');
+      message('Найдено глав: ' + data.count + '. После подтверждения весь пакет сохранится одной операцией.');
     } catch (error) {
       if (serial === requestSerial) {
         message('Не удалось проверить файл: ' + error.message);
@@ -167,22 +260,84 @@
     }
   });
 
+  cancelButton.addEventListener('click', async () => {
+    if (!activeJob) return;
+    cancelButton.disabled = true;
+    try {
+      const response = await fetch(
+        '/me/books/' + bookId + '/chapters/import-jobs/' +
+          encodeURIComponent(activeJob) + '/cancel',
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csrf_token: csrfToken }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Не удалось отменить задание.');
+      if (data.cancelled) {
+        activeJob = null;
+        cancelButton.hidden = true;
+        window.history.replaceState(null, '', window.location.pathname);
+        message('Импорт отменён. Главы не сохранены. Обновите страницу для нового задания.');
+      } else {
+        message('Задание уже завершилось или было отменено. Проверяю итог…');
+        await watchJob(activeJob);
+      }
+    } catch (error) {
+      message(error.message);
+    } finally {
+      cancelButton.disabled = false;
+    }
+  });
+
   confirmButton.addEventListener('click', async () => {
     if (!accepted) return;
     confirmButton.disabled = true;
     previewButton.disabled = true;
-    message('Сохранение всех глав одной операцией…');
+    message('Отправка задания в очередь…');
+    const payload = {
+      ...accepted, csrf_token: csrfToken, command_key: commandKey,
+    };
     try {
-      const data = await send('import-confirm', {
-        ...accepted, csrf_token: csrfToken, command_key: commandKey,
-      });
+      let queued;
+      try {
+        queued = await enqueue(payload);
+      } catch (error) {
+        if (error.status === 409) {
+          const latest = await latestJob();
+          if (latest && latest.job_id) {
+            await watchJob(latest.job_id);
+            return;
+          }
+        }
+        throw error;
+      }
+      if (queued) {
+        message('Задание №' + queued.job_id + ' поставлено в очередь.');
+        await watchJob(queued.job_id);
+        return;
+      }
+      // Worker is not configured: retain the previously accepted synchronous
+      // path rather than silently pretending that a queue is running.
+      const data = await send('import-confirm', payload);
       message('Создано глав: ' + data.saved + '. Возвращаемся к книге.');
       window.location.assign(data.book_url);
     } catch (error) {
-      message('Сохранение не завершено: ' + error.message
-        + '. Можно повторить с тем же файлом.');
+      message('Импорт не начат: ' + error.message
+        + '. Проверьте соединение или обновите страницу.');
       confirmButton.disabled = false;
       previewButton.disabled = false;
     }
   });
+
+  const jobFromUrl = new URLSearchParams(window.location.search).get('job');
+  if (jobFromUrl && /^\d+$/.test(jobFromUrl)) {
+    watchJob(jobFromUrl);
+  } else {
+    latestJob().then((latest) => {
+      if (latest && latest.job_id) watchJob(latest.job_id);
+    }).catch(() => {});
+  }
 })();

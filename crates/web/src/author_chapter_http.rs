@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tor_accounts::services::security::generate_session_token;
 use tor_accounts::{repositories::PgAccounts, services::security::session_token_digest};
 use tor_books::{
-    repositories::postgres::PgAuthoring,
+    repositories::{paid_storage::PgPaidStorage, postgres::PgAuthoring},
     services::authoring::{
         save_chapter, AuthorError, ChapterAccess, SaveChapter, SaveChapterRequest,
     },
@@ -23,12 +23,18 @@ use tor_books::{
 use crate::auth_cookies::{private_response, CookiePolicy};
 
 mod chapter_import;
+mod schedule;
 
 /// Only the S3-paid constructor provides this port. Ordinary author routes
 /// remain entirely unable to write private paid content.
 #[async_trait]
 pub(crate) trait PaidChapterPublisher: Send + Sync {
     async fn publish_new(&self, actor: i64, request: &SaveChapter) -> Result<(), AuthorError>;
+
+    /// No paid edit without a separately configured, verified S3 writer.
+    async fn publish_edit(&self, _actor: i64, _request: &SaveChapter) -> Result<(), AuthorError> {
+        Err(AuthorError::Unavailable)
+    }
 
     /// The isolated illustrated-author route supplies a server-computed
     /// immutable image identity. Non-S3 publishers fail closed by default.
@@ -60,6 +66,7 @@ struct ChapterForm {
     command_key: String,
     access: Option<String>,
     price_amount: Option<i64>,
+    save_as_draft: Option<String>,
     csrf_token: Option<String>,
 }
 
@@ -118,10 +125,18 @@ pub(crate) fn router(
         )
         .route(
             "/me/books/{id}/chapters/{chapter_id}/release",
-            get(confirm_release).post(publish_chapter),
+            get(schedule::confirm_release).post(publish_chapter),
+        )
+        .route(
+            "/me/books/{id}/chapters/{chapter_id}/schedule",
+            post(schedule::schedule_chapter),
+        )
+        .route(
+            "/me/books/{id}/chapters/{chapter_id}/cancel-schedule",
+            post(schedule::cancel_schedule),
         )
         .route("/me/books/{id}/publish", post(publish_book))
-        .layer(DefaultBodyLimit::max(768 * 1024))
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     if let Some(images) = images {
         app.merge(images)
@@ -163,18 +178,16 @@ async fn new_chapter(
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    let paid_enabled = if state.paid_author.is_some() {
-        matches!(
-            state.authoring.owned_book_is_public(actor, id).await,
-            Ok(true)
-        )
-    } else {
-        false
+    let is_public = match state.authoring.owned_book_is_public(actor, id).await {
+        Ok(value) => value,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
+    let paid_enabled = is_public && state.paid_author.is_some();
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
     private_response(
-        crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled),
+        crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled, is_public),
         &cookies,
     )
 }
@@ -204,6 +217,11 @@ async fn create_chapter(
     // G requires identical LF canonicalization for B's content SHA and
     // the ciphertext AAD. Never permit the form to choose a KEK or S3 path.
     let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
+    let save_as_draft = match form.save_as_draft.as_deref() {
+        None => false,
+        Some("1") => true,
+        Some(_) => return deny(StatusCode::BAD_REQUEST),
+    };
     let access = form.access.as_deref().unwrap_or("free");
     let request = match save_chapter(SaveChapterRequest {
         book_id: id,
@@ -220,6 +238,9 @@ async fn create_chapter(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     if request.access == ChapterAccess::Paid {
+        if save_as_draft {
+            return deny(StatusCode::BAD_REQUEST);
+        }
         let Some(publisher) = &state.paid_author else {
             return private_response(
                 (
@@ -258,7 +279,15 @@ async fn create_chapter(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let outcome = if is_public {
+    if save_as_draft && !is_public {
+        return deny(StatusCode::BAD_REQUEST);
+    }
+    let outcome = if save_as_draft {
+        state
+            .authoring
+            .create_pending_free_chapter(actor, &request)
+            .await
+    } else if is_public {
         state
             .authoring
             .create_published_free_chapter(actor, &request)
@@ -267,6 +296,13 @@ async fn create_chapter(
         state.authoring.create_free_chapter(actor, &request).await
     };
     match outcome {
+        Ok(saved) if save_as_draft => private_response(
+            Redirect::to(&format!(
+                "/me/books/{id}/chapters/{}/release",
+                saved.chapter_id
+            )),
+            &[],
+        ),
         Ok(_) => private_response(Redirect::to(&format!("/me/books/{id}")), &[]),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
@@ -297,22 +333,43 @@ async fn edit_chapter(
         Ok(chapter) => chapter,
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let (chapter, is_published) = if let Some(chapter) = published {
-        (chapter, true)
+    let paid = if published.is_none() && state.paid_author.is_some() {
+        match PgPaidStorage::new(state.accounts.pool().clone())
+            .owned_published_paid_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(paid) => paid,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
+    let (chapter, is_published, is_paid) = if let Some(chapter) = published {
+        (chapter, true, false)
+    } else if let Some(chapter) = paid {
+        (chapter, true, true)
     } else {
         match state
             .authoring
             .owned_unpublished_free_chapter(actor, id, chapter_id)
             .await
         {
-            Ok(Some(chapter)) => (chapter, false),
+            Ok(Some(chapter)) => (chapter, false, false),
             Ok(None) => return deny(StatusCode::NOT_FOUND),
             Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
         }
     };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let command_key = generate_session_token();
-    let page = if is_published {
+    let page = if is_paid {
+        crate::author_chapter_pages::edit_published_paid_chapter(
+            id,
+            chapter_id,
+            &chapter,
+            &csrf,
+            &command_key,
+        )
+    } else if is_published {
         crate::author_chapter_pages::edit_published_chapter(
             id,
             chapter_id,
@@ -353,6 +410,56 @@ async fn update_chapter(
         Ok(chapter) if chapter > 0 => chapter,
         _ => return deny(StatusCode::NOT_FOUND),
     };
+    // B decides paid/publication state, never a submitted "paid" form field.
+    // The owner query and the publishing transaction both check ownership.
+    let paid = if state.paid_author.is_some() {
+        match PgPaidStorage::new(state.accounts.pool().clone())
+            .owned_published_paid_chapter(actor, id, chapter_id)
+            .await
+        {
+            Ok(paid) => paid,
+            Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    } else {
+        None
+    };
+    if let (Some(paid), Some(publisher)) = (paid, state.paid_author.as_ref()) {
+        let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
+        let input = match save_chapter(SaveChapterRequest {
+            book_id: book,
+            chapter_id: Some(chapter),
+            number: form.number,
+            expected_revision: form.expected_revision,
+            title: &form.title,
+            body: &body,
+            access: "paid",
+            price_amount: paid.price_amount,
+            command_key: &form.command_key,
+        }) {
+            Ok(input) => input,
+            Err(_) => return deny(StatusCode::BAD_REQUEST),
+        };
+        return match publisher.publish_edit(actor, &input).await {
+            Ok(()) => private_response(Redirect::to(&format!("/me/books/{id}/issues")), &[]),
+            Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
+            Err(AuthorError::Conflict) => private_response(
+                (
+                    StatusCode::CONFLICT,
+                    "Глава уже изменена. Обновите страницу редактора.",
+                ),
+                &[],
+            ),
+            Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
+            Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
+            Err(AuthorError::Unavailable) => private_response(
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Защищённое сохранение не завершено. Повторите эту же форму.",
+                ),
+                &[],
+            ),
+        };
+    }
     let input = match save_chapter(SaveChapterRequest {
         book_id: book,
         chapter_id: Some(chapter),
@@ -404,32 +511,6 @@ async fn update_chapter(
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-
-async fn confirm_release(
-    State(state): State<AuthorChapterState>,
-    Path((id, chapter_id)): Path<(i64, i64)>,
-    headers: HeaderMap,
-) -> Response {
-    let actor = match session_actor(&state, &headers).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    };
-    let pending = match state
-        .authoring
-        .pending_free_chapter(actor, id, chapter_id)
-        .await
-    {
-        Ok(Some(chapter)) => chapter,
-        Ok(None) => return deny(StatusCode::NOT_FOUND),
-        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
-    };
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    private_response(
-        crate::author_chapter_pages::release_chapter(id, chapter_id, &pending, &csrf),
-        &cookies,
-    )
 }
 
 async fn publish_chapter(

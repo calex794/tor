@@ -38,6 +38,44 @@ pub fn private_reader_with_demand(
     completed: bool,
     demand: Option<DemandState>,
 ) -> Html<String> {
+    private_reader_with_options(
+        chapter_id,
+        chapter,
+        csrf,
+        saved,
+        expected_revision,
+        completed,
+        PrivateReaderOptions {
+            demand,
+            issue: None,
+        },
+    )
+}
+
+pub struct PrivateReaderOptions<'a> {
+    pub demand: Option<DemandState>,
+    pub issue: Option<&'a str>,
+}
+
+pub fn private_reader_with_options(
+    chapter_id: u64,
+    chapter: &tor_reading::services::PublicChapterPage,
+    csrf: &str,
+    saved: SavedPlaceState,
+    expected_revision: i64,
+    completed: bool,
+    options: PrivateReaderOptions<'_>,
+) -> Html<String> {
+    let demand = options.demand;
+    let issue_feedback = match options.issue {
+        Some("sent") => {
+            "<p class=\"reader-issue-feedback\" role=\"status\">Сообщение об ошибке отправлено автору.</p>"
+        }
+        Some("repeat") => {
+            "<p class=\"reader-issue-feedback\" role=\"status\">Такое сообщение уже было отправлено автору.</p>"
+        }
+        _ => "",
+    };
     let blocks = reader_blocks(&chapter.body_markdown);
     // Do not infer completion from a GET or from a saved paragraph marker.
     // Only the final non-blank server-parsed block offers the explicit action.
@@ -158,6 +196,27 @@ pub fn private_reader_with_demand(
                 <article class="chapter-content reader-private__content" aria-label="Текст главы">
                     {sections}
                 </article>
+                <section class="reader-issues" id="text-issues">
+                  <h2>Предложить исправление</h2>
+                  {issue_feedback}
+                  <p>Выделите цитату в одном фрагменте и укажите правильный вариант.</p>
+                  <form method="post" action="/read/{chapter_id}/text-issues">
+                    <input type="hidden" name="csrf_token" value="{csrf}">
+                    <input type="hidden" name="version_id" value="{version_id}">
+                    <input type="hidden" name="block_index" id="issue-block">
+                    <input type="hidden" name="selection_start" id="issue-start">
+                    <input type="hidden" name="selection_end" id="issue-end">
+                    <label>Цитата <textarea name="quote" id="issue-quote" maxlength="500" required></textarea></label>
+                    <label>Предложение <textarea name="suggested_text" maxlength="1000" required></textarea></label>
+                    <label>Тип ошибки <select name="issue_type">
+                      <option value="typo">Опечатка</option><option value="formatting">Оформление</option>
+                      <option value="broken_link">Ссылка</option><option value="factual">Факт</option>
+                      <option value="continuity">Несогласованность</option><option value="other">Другое</option>
+                    </select></label>
+                    <button type="submit">Отправить автору</button>
+                  </form>
+                  <script defer src="/assets/newboo-text-issues.js"></script>
+                </section>
                 {complete_form}
                 {demand_panel}
                 <p class="reader-page__thanks"><a class="text-link" href="/reader/{chapter_id}/thanks">Сказать «Спасибо» за главу</a></p>
@@ -167,6 +226,8 @@ pub fn private_reader_with_demand(
         book_id = chapter.book_id,
         book_title = escape_html(&chapter.book_title),
         version_no = chapter.version_no,
+        version_id = chapter.version_id,
+        csrf = escape_html(csrf),
         chapter_title = escape_html(&chapter.chapter_title)
     );
     layout(

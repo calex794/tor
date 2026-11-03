@@ -12,6 +12,8 @@ pub mod repositories {
     pub mod inbox;
     pub mod mentions;
     pub mod public_book_comments;
+    pub mod public_chapter_comments;
+    pub mod text_issues;
 }
 
 pub mod services {

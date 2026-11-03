@@ -1,6 +1,7 @@
 //! Actual author book/chapter pages: no placeholder books or fabricated chapters.
 use axum::response::Html;
 use std::fmt::Write;
+use tor_books::repositories::postgres::ScheduledChapter;
 use tor_books::services::authoring::{
     ChapterAccess, OwnedBook, OwnedChapter, OwnedChapterCursor, OwnedChapterSummary, PendingChapter,
 };
@@ -47,6 +48,7 @@ pub fn detail_with_covers_with_demand(
             uploads_enabled,
             latest_job,
             demand_count,
+            paid_editor_enabled: false,
             next: None,
             has_previous_page: false,
         },
@@ -58,6 +60,7 @@ pub struct OwnerChapterPageOptions<'a> {
     pub uploads_enabled: bool,
     pub latest_job: Option<&'a str>,
     pub demand_count: i64,
+    pub paid_editor_enabled: bool,
     pub next: Option<OwnedChapterCursor>,
     pub has_previous_page: bool,
 }
@@ -74,6 +77,7 @@ pub fn detail_with_covers_with_demand_page(
         uploads_enabled,
         latest_job,
         demand_count,
+        paid_editor_enabled,
         next,
         has_previous_page,
     } = options;
@@ -88,7 +92,11 @@ pub fn detail_with_covers_with_demand_page(
                 ChapterAccess::Paid => "Платная",
             };
             let pending = published && !chapter.published;
-            let edit_action = if chapter.access == ChapterAccess::Free {
+            let edit_action = if chapter.access == ChapterAccess::Free
+                || (chapter.access == ChapterAccess::Paid
+                    && chapter.published
+                    && paid_editor_enabled)
+            {
                 format!(
                     " <a href=\"/me/books/{}/chapters/{}/edit\">Редактировать</a>",
                     book.id, chapter.id
@@ -202,7 +210,9 @@ pub fn detail_with_covers_with_demand_page(
         {demand_panel}
         {upload}
         <p><a href="/me/books/{id}/description">Редактировать аннотацию</a></p>
+        <p><a href="/me/books/{id}/settings/sources">Ссылки на произведение</a></p>
         <p><a href="/books/{id}/stats">Статистика книги</a></p>
+        <p><a href="/me/books/{id}/issues">Ошибки текста</a></p>
         <h2>Главы</h2>{items}
         {add_action}
         {import_action}
@@ -291,6 +301,7 @@ pub fn new_chapter(
     csrf: &str,
     command_key: &str,
     paid_enabled: bool,
+    is_public: bool,
 ) -> Html<String> {
     // No paid-control is presented unless the private S3 writer and
     // owner-only publishing flow are explicitly enabled for this book.
@@ -319,6 +330,17 @@ pub fn new_chapter(
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
         .replace("<!--CHAPTER_ACCESS-->", access_fields)
+        .replace(
+            "<!--SCHEDULE_OPTION-->",
+            if is_public {
+                r#"<label><input type="checkbox" name="save_as_draft" value="1">
+                   Сохранить бесплатную главу закрытым черновиком для отложенного выпуска</label>
+                   <p class="account-profile__hint">После сохранения откроется подтверждение,
+                   где можно назначить время публикации в UTC.</p>"#
+            } else {
+                ""
+            },
+        )
         .replace(
             "<!--CHAPTER_HEADING-->",
             if paid_enabled { "Новая глава" } else { "Новая бесплатная глава" },
@@ -381,7 +403,15 @@ pub fn edit_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
-    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, false)
+    edit_chapter_mode(
+        book_id,
+        chapter_id,
+        chapter,
+        csrf,
+        command_key,
+        false,
+        false,
+    )
 }
 
 /// A published free chapter uses the same NEwBOO-style editor and save action,
@@ -393,7 +423,18 @@ pub fn edit_published_chapter(
     csrf: &str,
     command_key: &str,
 ) -> Html<String> {
-    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true)
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true, false)
+}
+
+/// Verified paid editor: metadata is frozen; Save publishes encrypted V2.
+pub fn edit_published_paid_chapter(
+    book_id: i64,
+    chapter_id: i64,
+    chapter: &OwnedChapter,
+    csrf: &str,
+    command_key: &str,
+) -> Html<String> {
+    edit_chapter_mode(book_id, chapter_id, chapter, csrf, command_key, true, true)
 }
 
 fn edit_chapter_mode(
@@ -403,8 +444,11 @@ fn edit_chapter_mode(
     csrf: &str,
     command_key: &str,
     published: bool,
+    paid: bool,
 ) -> Html<String> {
-    let description = if published {
+    let description = if paid {
+        "После сохранения новая платная редакция появится только после проверки закрытого S3. Старая купленная редакция останется доступной. Номер, название и цена не изменяются."
+    } else if published {
         "Сохранение сразу обновит опубликованную редакцию. Предыдущая версия останется в истории."
     } else {
         "Редакция остаётся закрытой до выпуска книги или главы."
@@ -435,6 +479,16 @@ fn edit_chapter_mode(
         .replace("<!--NUMBER-->", &chapter.number.to_string())
         .replace("<!--TITLE_HEADING-->", &title_in_heading)
         .replace("<!--TITLE-->", &escape_html(&chapter.title))
+        .replace("<!--TITLE_READONLY-->", if paid { "readonly" } else { "" })
+        .replace(
+            "<!--EDIT_PRICE-->",
+            if paid {
+                format!("<p>Цена неизменна: {} копеек.</p>", chapter.price_amount)
+            } else {
+                String::new()
+            }
+            .as_str(),
+        )
         .replace("<!--BODY-->", &escape_html(&chapter.body))
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key));
@@ -448,7 +502,27 @@ pub fn release_chapter(
     chapter_id: i64,
     chapter: &PendingChapter,
     csrf: &str,
+    schedule: Option<&ScheduledChapter>,
 ) -> Html<String> {
+    let schedule_status = match schedule {
+        Some(s) => format!(
+            "<p>Расписание: {} UTC · статус: {}</p>",
+            escape_html(&s.scheduled_utc),
+            escape_html(&s.status)
+        ),
+        None => String::new(),
+    };
+    let cancel_form = if schedule.is_some_and(|s| s.status == "pending" || s.status == "stale") {
+        format!(
+            r#"<form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/cancel-schedule">
+               <input type="hidden" name="csrf_token" value="{}">
+               <button class="button" type="submit">Отменить отложенный выпуск</button>
+               </form>"#,
+            escape_html(csrf)
+        )
+    } else {
+        String::new()
+    };
     let content = format!(
         r#"<section class="section auth-section"><div class="container">
         <div class="auth-card author-chapter-card">
@@ -463,6 +537,18 @@ pub fn release_chapter(
           <input type="hidden" name="version_id" value="{}">
           <button class="button" type="submit">Опубликовать эту главу</button>
         </form>
+        <h3>Отложенный выпуск</h3>
+        <p>Время указывается в UTC, а не в часовом поясе браузера.</p>
+        {schedule_status}
+        <form method="post" action="/me/books/{book_id}/chapters/{chapter_id}/schedule">
+          <input type="hidden" name="csrf_token" value="{}">
+          <input type="hidden" name="expected_revision" value="{}">
+          <input type="hidden" name="version_id" value="{}">
+          <label for="scheduled_utc">Дата и время (UTC)</label>
+          <input id="scheduled_utc" type="datetime-local" name="scheduled_utc" required>
+          <button class="button" type="submit">Запланировать или перенести выпуск</button>
+        </form>
+        {cancel_form}
         <p><a href="/me/books/{book_id}">Вернуться к черновикам</a></p>
         </div></div></section>"#,
         chapter.number,
@@ -470,6 +556,9 @@ pub fn release_chapter(
         chapter.revision,
         chapter.version_id,
         escape_html(&chapter.body),
+        escape_html(csrf),
+        chapter.revision,
+        chapter.version_id,
         escape_html(csrf),
         chapter.revision,
         chapter.version_id,

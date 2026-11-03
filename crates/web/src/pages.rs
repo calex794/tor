@@ -6,6 +6,11 @@ use axum::{
 use std::fmt::Write;
 
 mod account;
+mod layer_storefront;
+pub use layer_storefront::{
+    offer_page as layer_offer_page, purchase_error as layer_purchase_error,
+    purchased_page as purchased_layers_page,
+};
 mod creators;
 pub use creators::creator_follows;
 mod referrals;
@@ -13,16 +18,21 @@ mod session_security;
 #[allow(unused_imports)] // Old public renderer remains available for existing callers.
 pub use account::{
     account_error_page, login_form, login_form_with_next, my_account, my_account_with_achievements,
+    my_account_with_achievements_and_swap, my_account_with_achievements_refunds_and_swap,
     my_account_with_follow_updates, password_change_form, registration_form,
     registration_form_with_error, registration_form_with_error_and_next,
     registration_form_with_next,
 };
 pub use referrals::referrals_page;
 pub use session_security::active_sessions;
+mod reader_free;
+mod reader_free_comments;
+mod reader_free_issues;
+pub use reader_free::{reader_with_login_link, reader_with_public_discussions};
 mod reader_private;
 #[allow(unused_imports)]
 pub use reader_private::private_reader;
-pub use reader_private::private_reader_with_demand;
+pub use reader_private::{private_reader_with_options, PrivateReaderOptions};
 mod paywall;
 pub use paywall::{paid_chapter_paywall, paid_chapter_paywall_checkout};
 mod checkout_page;
@@ -53,6 +63,19 @@ pub fn escape_html(value: &str) -> String {
 
 pub fn layout(title: &str, description: &str, content: &str) -> Html<String> {
     layout_with_seo(title, description, content, seo_head::default_head())
+}
+
+/// Public homepage widget; all private page CSP rules remain unchanged.
+pub(super) fn layout_with_support_widget(
+    title: &str,
+    description: &str,
+    content: &str,
+) -> Html<String> {
+    let html = layout(title, description, content);
+    Html(html.0.replace(
+        "</body>",
+        "<script src=\"/assets/newboo-support-widget.js\" defer></script>\n</body>",
+    ))
 }
 
 fn layout_with_seo(
@@ -355,73 +378,6 @@ pub fn reader(chapter: &tor_reading::services::PublicChapterPage) -> Html<String
     reader_with_login_link(chapter, None)
 }
 
-/// The public reader can link to the existing authenticated completion route.
-/// A link never creates demand, grants access, or assumes that an open was read.
-pub fn reader_with_login_link(
-    chapter: &tor_reading::services::PublicChapterPage,
-    chapter_id: Option<u64>,
-) -> Html<String> {
-    let previous = chapter
-        .previous_chapter_id
-        .map(|id| format!("<a rel=\"prev\" href=\"/reader/{id}\">Предыдущая глава</a>"))
-        .unwrap_or_default();
-    use tor_reading::services::PublicContinuation;
-    let (next, continuation_status) = match chapter.continuation() {
-        PublicContinuation::ReadNow(id) => (
-            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава</a>"),
-            "",
-        ),
-        PublicContinuation::NeedsAccess(id) => (
-            format!("<a rel=\"next\" href=\"/reader/{id}\">Следующая глава — платная</a>"),
-            "<p class=\"reader-next-state\">Следующая глава опубликована. Для чтения может потребоваться покупка.</p>",
-        ),
-        PublicContinuation::WaitingForRelease => (
-            String::new(),
-            "<p class=\"reader-next-state\">Следующих опубликованных глав пока нет.</p>",
-        ),
-    };
-    let return_to_reading = if matches!(
-        chapter.continuation(),
-        PublicContinuation::WaitingForRelease
-    ) {
-        chapter_id
-            .map(|id| {
-                format!(
-                    "<p class=\"reader-next-state\"><a class=\"text-link\" href=\"/read/{id}\">Отметить главу прочитанной и попросить продолжение</a></p>"
-                )
-            })
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
-    let continuation_status = format!("{continuation_status}{return_to_reading}");
-    let navigation = if previous.is_empty() && next.is_empty() {
-        String::new()
-    } else {
-        format!("<nav class=\"chapter-navigation\" aria-label=\"Переход между главами\">{previous}{next}</nav>")
-    };
-    let thanks_link = chapter_id
-        .map(|id| format!("<p class=\"reader-page__thanks\"><a class=\"text-link\" href=\"/reader/{id}/thanks\">Сказать «Спасибо» за главу</a></p>"))
-        .unwrap_or_default();
-    let html = include_str!("../templates/reader.html")
-        .replace("<!--BOOK_ID-->", &chapter.book_id.to_string())
-        .replace("<!--BOOK_TITLE-->", &escape_html(&chapter.book_title))
-        .replace("<!--CHAPTER_TITLE-->", &escape_html(&chapter.chapter_title))
-        .replace("<!--CHAPTER_VERSION-->", &chapter.version_no.to_string())
-        .replace("<!--CHAPTER_NAVIGATION-->", &navigation)
-        .replace("<!--CONTINUATION_STATUS-->", &continuation_status)
-        .replace("<!--CHAPTER_THANKS_LINK-->", &thanks_link)
-        .replace(
-            "<!--CHAPTER_CONTENT-->",
-            &tor_reading::domain::renderer::render(&chapter.body_markdown),
-        );
-    layout(
-        &chapter.chapter_title,
-        "Опубликованная бесплатная глава.",
-        &html,
-    )
-}
-
 pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str) -> Html<String> {
     let title = escape_html(&book.title);
     let token = escape_html(csrf);
@@ -437,7 +393,7 @@ pub fn bookmark_prompt(book: &tor_reading::services::PublicBookPage, csrf: &str)
 }
 
 mod library;
-pub use library::my_library_with_updates;
+pub use library::my_library_with_updates_and_layers;
 
 pub async fn stylesheet() -> impl IntoResponse {
     (
@@ -461,7 +417,11 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-comments.css"));
         css.push('\n');
+        css.push_str(include_str!("../assets/newboo-support-widget.css"));
+        css.push('\n');
         css.push_str(include_str!("../assets/newboo-reader.css"));
+        css.push('\n');
+        css.push_str(include_str!("../assets/newboo-layer-storefront.css"));
         css.push('\n');
         css.push_str(include_str!("../assets/newboo-cover-picker.css"));
         css
@@ -472,6 +432,34 @@ pub async fn newboo_stylesheet() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
         CSS.as_str(),
+    )
+}
+
+/// Public free-reader display settings only.
+pub async fn free_reader_script() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        {
+            static JS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+                let mut js = String::from(include_str!("../assets/newboo-free-reader.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-progress.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-toc.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-issues.js"));
+                js.push('\n');
+                js.push_str(include_str!("../assets/newboo-free-comments.js"));
+                js
+            });
+            JS.as_str()
+        },
     )
 }
 

@@ -314,7 +314,7 @@
       "method": "GET",
       "template": "/me/books/new",
       "source": "crates/web/src/auth.rs",
-      "handler": "new_author_book",
+      "handler": "book_registration_http::new_page",
       "policy": "session"
     },
     {
@@ -363,7 +363,14 @@
       "method": "GET",
       "template": "/me/books/{id}/chapters/{chapter_id}/release",
       "source": "crates/web/src/author_chapter_http.rs",
-      "handler": "confirm_release",
+      "handler": "schedule::confirm_release",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/sources",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_sources::edit",
       "policy": "owner"
     },
     {
@@ -678,7 +685,7 @@
       "method": "POST",
       "template": "/api/v1/reader/chapters/{chapter_id}/delivery-grants",
       "source": "crates/web/src/paid_grants_http.rs",
-      "handler": "grant",
+      "handler": "chapter_grants::grant",
       "policy": "session"
     },
     {
@@ -798,6 +805,13 @@
       "template": "/me/books/{id}/cover",
       "source": "crates/web/src/author_cover_http.rs",
       "handler": "upload_cover",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/sources",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_sources::save",
       "policy": "owner"
     },
     {
@@ -1359,6 +1373,363 @@
       "source": "crates/web/src/auth/checkout_browser.rs",
       "handler": "browser_buy",
       "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{book_id}/chapters/import-queue",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "enqueue",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{book_id}/chapters/import-jobs/latest",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "latest",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{book_id}/chapters/import-jobs/{job_id}",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "status",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{book_id}/chapters/import-jobs/{job_id}/cancel",
+      "source": "crates/web/src/chapter_import_queue_http.rs",
+      "handler": "cancel",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-text-issues.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "text_issue_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/issues",
+      "source": "crates/web/src/auth.rs",
+      "handler": "text_issues::author_page",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/issues/{issue_id}/status",
+      "source": "crates/web/src/auth.rs",
+      "handler": "text_issues::change_status",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/read/{id}/text-issues",
+      "source": "crates/web/src/auth.rs",
+      "handler": "text_issues::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/refunds/swap",
+      "source": "crates/web/src/auth.rs",
+      "handler": "direct_swap_browser::page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/refunds/swap",
+      "source": "crates/web/src/auth.rs",
+      "handler": "direct_swap_browser::submit",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/support",
+      "handler": "page",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/support/widget",
+      "handler": "widget",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/support/messages",
+      "handler": "messages",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/support/messages",
+      "handler": "submit",
+      "policy": "support_requester",
+      "source": "crates/web/src/auth/support.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support",
+      "handler": "index",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support/{id}",
+      "handler": "page",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/support/{id}/messages",
+      "handler": "messages",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/messages",
+      "handler": "submit",
+      "policy": "support_admin",
+      "source": "crates/web/src/auth/support_admin.rs"
+    },
+    {
+      "method": "GET",
+      "template": "/api/v1/support/tickets",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "widget",
+      "policy": "support_requester"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/support/tickets",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "json_submit",
+      "policy": "support_requester"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/read",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "mark_read",
+      "policy": "support_admin"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-support-widget.js",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "widget_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-admin-support.js",
+      "source": "crates/web/src/auth/support.rs",
+      "handler": "admin_script",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/text-issues",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "text_issues::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/close",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "close",
+      "policy": "support_admin"
+    },
+    {
+      "method": "POST",
+      "template": "/admin/support/{id}/reopen",
+      "source": "crates/web/src/auth/support_admin.rs",
+      "handler": "reopen",
+      "policy": "support_admin"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-free-reader.js",
+      "source": "crates/web/src/lib.rs",
+      "handler": "pages::free_reader_script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/{layer_id}/books",
+      "source": "crates/web/src/auth/layer_routes/layer_books.rs",
+      "handler": "page",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/books",
+      "source": "crates/web/src/auth/layer_routes/layer_books.rs",
+      "handler": "add",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers/new",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/new",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "create",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/offer",
+      "source": "crates/web/src/auth/layer_routes/layer_offer_manage.rs",
+      "handler": "publish",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/me/layers",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "index",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/layers/{layer_id}/metadata",
+      "source": "crates/web/src/auth/layer_routes/layer_create.rs",
+      "handler": "update_metadata",
+      "policy": "owner"
+    },
+    {
+      "method": "GET",
+      "template": "/layers/{layer_id}",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "page",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/layers/{layer_id}/purchase",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "buy_form",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/layers/{layer_id}/purchase",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "layer_checkout_api::buy",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/library/layers",
+      "source": "crates/web/src/auth/layer_storefront.rs",
+      "handler": "my_terms",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/read/layer/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "layer_reader::layer_reader",
+      "policy": "session"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-layer-reader.mjs",
+      "source": "crates/web/src/lib.rs",
+      "handler": "layer_reader_assets::script",
+      "policy": "public"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/{chapter_id}/cancel-schedule",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "schedule::cancel_schedule",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/chapters/{chapter_id}/schedule",
+      "source": "crates/web/src/author_chapter_http.rs",
+      "handler": "schedule::schedule_chapter",
+      "policy": "owner"
+    },
+    {
+      "method": "POST",
+      "template": "/reader/{id}/comments",
+      "source": "crates/web/src/auth.rs",
+      "handler": "chapter_comments::submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/read/admin/{chapter_id}",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_reader::admin_reader",
+      "policy": "admin_reader"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/newboo-admin-reader.mjs",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_reader::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/refunds",
+      "source": "crates/web/src/auth/refund_browser.rs",
+      "handler": "page",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/me/refunds",
+      "source": "crates/web/src/auth/refund_browser.rs",
+      "handler": "submit",
+      "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/admin/finance/refunds",
+      "source": "crates/web/src/auth/admin_refund_review.rs",
+      "handler": "page",
+      "policy": "admin_refund"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/book-title-suggestions.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_title_suggestions::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/title-suggestions",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_title_suggestions::find",
+      "policy": "session"
+    },
+    {
+      "method": "POST",
+      "template": "/api/v1/reader/chapters/{chapter_id}/admin-unsealed",
+      "source": "crates/web/src/paid_grants_http.rs",
+      "handler": "admin_unsealed::read",
+      "policy": "admin_reader"
     }
   ]
 }

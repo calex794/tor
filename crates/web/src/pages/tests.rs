@@ -1,3 +1,4 @@
+use super::reader_free::reader_with_public_features;
 use super::*;
 
 #[test]
@@ -308,15 +309,55 @@ fn s034_purchase_form_escapes_metadata_and_has_exact_terms() {
 }
 
 #[test]
-fn ne_wboo_reader_shell_uses_live_chapter_data_and_no_fake_controls() {
+fn ne_wboo_reader_shell_uses_live_chapter_data_and_free_preferences() {
     let template = include_str!("../../templates/reader.html");
     assert!(template.contains("reader-topbar"));
     assert!(template.contains("reader-page__title"));
     assert!(template.contains("<!--CHAPTER_CONTENT-->"));
+    assert!(template.contains("<!--FREE_PROGRESS_ATTRS-->"));
+    assert!(template.contains("<!--READER_SUBTITLE-->"));
+    assert!(template.contains("<!--FREE_ISSUES_PANEL-->"));
+    assert!(template.contains("data-free-toc"));
+    assert!(template.contains("<!--CHAPTER_ID-->"));
     assert!(template.contains("href=\"/books/<!--BOOK_ID-->\""));
-    assert!(!template.contains("data-reader-theme-cycle"));
+    assert!(template.contains("data-free-theme-cycle"));
+    assert!(template.contains("data-free-settings-open"));
+    assert!(template.contains("/assets/newboo-free-reader.js"));
     assert!(!template.contains("Сохранение прогресса появится"));
     assert!(include_str!("../../assets/newboo-reader.css").contains(".reader-topbar__back"));
+}
+
+#[test]
+fn s047_public_free_reader_binds_issue_form_only_to_verified_session() {
+    let chapter = tor_reading::services::PublicChapterPage {
+        version_id: 602,
+        book_id: 1,
+        book_title: "<script>Книга</script>".into(),
+        chapter_title: "<script>Заголовок</script>".into(),
+        version_no: 1,
+        body_markdown: "Первая строка\n\nВторая строка".into(),
+        previous_chapter_id: None,
+        next_chapter_id: Some(103),
+        next_chapter_is_paid: true,
+    };
+    let guest = reader_with_login_link(&chapter, Some(101)).0;
+    assert!(guest.contains("data-free-toc-book=\"1\""));
+    assert!(guest.contains("data-free-toc-chapter=\"101\""));
+    assert!(guest.contains("Войти, чтобы сообщить автору"));
+    assert!(!guest.contains("data-free-issue-form"));
+    assert!(!guest.contains("name=\"csrf_token\""));
+    let signed = reader_with_public_features(&chapter, Some(101), Some("safe"), Some("sent")).0;
+    assert!(signed.contains("data-free-issue-form"));
+    assert!(signed.contains("name=\"csrf_token\" value=\"safe\""));
+    assert!(signed.contains("name=\"version_id\" value=\"602\""));
+    assert!(signed.contains("Сообщение об ошибке отправлено автору."));
+    assert!(signed.contains("data-free-issues id=\"text-issues\" open"));
+    assert!(!signed.contains("<script>Книга</script>"));
+    assert!(!signed.contains("<script>Заголовок</script>"));
+    let injected =
+        reader_with_public_features(&chapter, Some(101), Some("safe"), Some("<script>")).0;
+    assert!(!injected.contains("Сообщение об ошибке отправлено"));
+    assert!(!injected.contains("&lt;script&gt;</p>"));
 }
 
 #[test]
@@ -460,4 +501,11 @@ fn b_18_navigation_follows_books_in_catalog_layout() {
     let navigation = html.find("catalog-pagination").expect("page controls");
     assert!(navigation > card, "page navigation follows the book grid");
     assert!(html.contains("Страница 1"));
+}
+
+#[test]
+fn s019_header_has_book_registration_on_desktop_and_mobile() {
+    let html = layout("Каталог", "Книги", "").0;
+    assert_eq!(html.matches("href=\"/me/books/new\"").count(), 2);
+    assert!(html.contains("Создать книгу"));
 }

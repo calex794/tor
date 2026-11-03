@@ -30,6 +30,27 @@ pub(super) async fn invalid_registration(app: &Router, csrf: &str, csrf_cookie: 
     let escaped_html = body_of(bad_name).await;
     assert!(escaped_html.contains("&lt;script&gt;"));
     assert!(!escaped_html.contains("value=\"<script>\""));
+    // AB-03/04: traps are private, do not create a session, and never write an account.
+    let decoy = send(
+        app,
+        request("GET", "/__bp_honeypot/admin/private", "", "", ORIGIN),
+    )
+    .await;
+    assert_eq!(decoy.status(), StatusCode::NOT_FOUND);
+    assert_eq!(decoy.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(decoy.headers()["x-robots-tag"], "noindex, nofollow, noarchive");
+    assert_eq!(body_of(decoy).await, "");
+    let form = format!(
+        "email=tor_ci_honeypot%40example.invalid&display_name=Trap&password=LongSecurePassword2026&csrf_token={csrf}&website=filled"
+    );
+    let blocked = send(app, request("POST", "/register", &form, csrf_cookie, ORIGIN)).await;
+    assert_eq!(blocked.status(), StatusCode::BAD_REQUEST);
+    assert!(blocked.headers().get(header::SET_COOKIE).is_none());
+    let url = std::env::var("TEST_DATABASE_URL").expect("disposable PG URL");
+    assert!(url.ends_with("/tor_ci"), "never query production");
+    let catalog = PgCatalog::connect(&url).await.expect("disposable PostgreSQL");
+    let audit = PgAccounts::from_pool(catalog.pool().clone());
+    assert!(audit.find_user("tor_ci_honeypot@example.invalid").await.unwrap().is_none());
 }
 
 /// F-09: an invalid manual code must keep the pending guest invitation and
@@ -150,6 +171,18 @@ pub(super) async fn rejected_login(app: &Router, bad_login: &str, login_csrf_coo
     assert!(login_error.contains("account-error__card"));
     assert!(login_error.contains("Неверный адрес почты или пароль"));
     assert!(login_error.contains("href=\"/login\""));
+    // A real password with a filled decoy must never issue a session.
+    let csrf = bad_login.split("csrf_token=").nth(1).expect("login csrf");
+    let form = format!(
+        "email=tor_ci_account%40example.com&password=LongSecurePassword2026&csrf_token={csrf}&website=filled"
+    );
+    let blocked = send(
+        app,
+        request("POST", "/login", &form, login_csrf_cookie, ORIGIN),
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::UNAUTHORIZED);
+    assert!(blocked.headers().get(header::SET_COOKIE).is_none());
 }
 
 pub(super) async fn seed_exhausted_proxy_counter(accounts: &PgAccounts) {

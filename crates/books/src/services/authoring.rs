@@ -36,6 +36,14 @@ pub struct NewBook {
     pub genres: Vec<String>,
     pub tags: Vec<String>,
     pub fandoms: Vec<String>,
+    pub original_title: String,
+    pub original_language: String,
+    pub source_url: String,
+    pub extra_source_urls: Vec<String>,
+    pub release_year: Option<i32>,
+    pub project_status: String,
+    pub catalog_section: String,
+    pub alt_titles: Vec<String>,
 }
 
 pub fn new_book(
@@ -65,6 +73,14 @@ pub fn new_book(
         genres: Vec::new(),
         tags: Vec::new(),
         fandoms: Vec::new(),
+        original_title: String::new(),
+        original_language: String::new(),
+        source_url: String::new(),
+        extra_source_urls: Vec::new(),
+        release_year: None,
+        project_status: String::new(),
+        catalog_section: String::new(),
+        alt_titles: Vec::new(),
     })
 }
 

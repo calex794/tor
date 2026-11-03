@@ -90,12 +90,107 @@ async function readyCover(page, bookId, viewport, scheme) {
         await page.waitForURL('**/me');
 
         await page.getByRole('link', { name: 'Мои книги' }).click();
-        await page.getByRole('link', { name: 'Создать книгу' }).click();
+        // S019: exercise the header action at both viewport sizes.
+        if (viewport === 'desktop') {
+          const create = page.getByRole('navigation', { name: 'Основная навигация' })
+            .getByRole('link', { name: 'Создать книгу' });
+          assert(await create.isVisible(), 'Desktop header must offer book registration');
+          await create.click();
+        } else {
+          await page.locator('.site-mobile-menu__trigger').click();
+          const create = page.getByRole('navigation', { name: 'Мобильная навигация' })
+            .getByRole('link', { name: 'Создать книгу' });
+          assert(await create.isVisible(), 'Mobile menu must offer book registration');
+          await create.click();
+        }
         await page.getByLabel('Название книги').fill(title);
-        await page.getByLabel('Язык').fill('ru');
+        await page.getByLabel('Язык', { exact: true }).fill('ru');
         await page.getByRole('button', { name: 'Создать книгу' }).click();
         await page.waitForURL(/\/me\/books\/\d+$/);
         const bookId = page.url().split('/').pop();
+
+        // A second form with the same title must show a useful 409, not a blank error.
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill(title);
+        await page.getByLabel('Язык', { exact: true }).fill('ru');
+        const [duplicateResponse] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books' &&
+            r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Создать книгу' }).click(),
+        ]);
+        assert(duplicateResponse.status() === 409,
+          'S019: duplicate title must return 409');
+        assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
+          'S019: duplicate title must explain the failure in Russian');
+        assert(await page.getByRole('link', { name: 'Проверить каталог' }).isVisible(),
+          'S019: duplicate response must offer a useful next action');
+        // S019: the same Rulate work must not be registered again under another
+        // title, domain, scheme or tracking query. No external URL fetch.
+        const providerId = (viewport === 'desktop' ? 910100 : 910200)
+          + (scheme === 'light' ? 1 : 2);
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill('Исходная Rulate книга ' + providerId);
+        await page.getByLabel('Ссылка на первоисточник')
+          .fill('https://tl.rulate.ru/book/' + providerId + '/?utm_source=test');
+        await page.getByRole('button', { name: 'Создать книгу' }).click();
+        await page.waitForURL(/\/me\/books\/\d+$/);
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill('Совсем другое название ' + providerId);
+        await page.getByLabel('Ссылка на первоисточник')
+          .fill('http://rulate.ru/book/000' + providerId + '?utm_campaign=other');
+        const [providerDuplicate] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books' &&
+            r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Создать книгу' }).click(),
+        ]);
+        assert(providerDuplicate.status() === 409,
+          'S019: different Rulate link and title must not create a duplicate');
+        assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
+          'S019: Rulate alias conflict must preserve actionable error page');
+        // S019: an actual original and a mirror may be from arbitrary hosts.
+        // Registration must claim both in one transaction without fetching them.
+        const workNum = providerId + 500000;
+        const chineseOriginal = 'https://fiction.example.cn/novel/' + workNum;
+        const mirrorLink = 'https://mirror.example.org/work/' + workNum;
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги')
+          .fill('Перевод китайского оригинала ' + workNum);
+        await page.getByLabel('Ссылка на первоисточник').fill(chineseOriginal);
+        await page.getByLabel('Дополнительная ссылка на это произведение').fill(mirrorLink);
+        await page.getByRole('button', { name: 'Создать книгу' }).click();
+        await page.waitForURL(/\/me\/books\/\d+$/);
+        const sourceBookId = page.url().split('/').pop();
+        await page.getByRole('link', { name: 'Ссылки на произведение' }).click();
+        assert(await page.getByLabel('Ссылка на оригинал').inputValue() === chineseOriginal,
+          'S019: source settings must show the existing original');
+        assert(await page.getByLabel('Дополнительная ссылка на произведение')
+          .inputValue() === mirrorLink, 'S019: existing mirror must be shown');
+        const editedMirror = 'https://mirror.example.org/updated/' + workNum;
+        await page.getByLabel('Дополнительная ссылка на произведение').fill(editedMirror);
+        const [linksSaved] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books/' + sourceBookId +
+            '/settings/sources' && r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Сохранить ссылки' }).click(),
+        ]);
+        assert(linksSaved.status() === 303, 'S019: owner must be able to save URLs');
+        await page.waitForURL(base + '/me/books/' + sourceBookId);
+        await page.goto(base + '/me/books/' + sourceBookId + '/settings/sources');
+        assert(await page.getByLabel('Дополнительная ссылка на произведение')
+          .inputValue() === editedMirror, 'S019: saved mirror must survive reload');
+
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill('Другое название зеркала ' + workNum);
+        await page.getByLabel('Ссылка на первоисточник').fill(editedMirror);
+        const [mirrorDuplicate] = await Promise.all([
+          page.waitForResponse(r => r.url() === base + '/me/books' &&
+            r.request().method() === 'POST'),
+          page.getByRole('button', { name: 'Создать книгу' }).click(),
+        ]);
+        assert(mirrorDuplicate.status() === 409,
+          'S019: a supplied mirror URL must prevent duplicate registration');
+        assert(await page.getByRole('heading', { name: 'Книга не создана' }).isVisible(),
+          'S019: conflict must not reveal private book details');
+        await page.goto(base + '/me/books/' + bookId);
 
         await page.getByRole('link', { name: 'Добавить главу' }).click();
         await page.getByLabel('Номер главы').fill('1');
@@ -131,6 +226,16 @@ async function readyCover(page, bookId, viewport, scheme) {
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');
 
+        // S019: published book appears as a hint before a duplicate is submitted.
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill(title);
+        await page.waitForFunction(id =>
+          document.querySelector('#book-title-suggestions a[href="/books/' + id + '"]') !== null,
+          bookId, { timeout: 10000 });
+        const hint = page.locator('#book-title-suggestions');
+        assert(await hint.getByRole('link', { name: title }).isVisible(),
+          'S019: published title hint must point to the real book');
+        await page.goto(base + '/books/' + bookId);
         const publicBook = await page.goto(base + '/books/' + bookId);
         assert(publicBook && publicBook.status() === 200, 'Published book lost');
         assert(await page.locator('img[src="/covers/' + bookId + '/main.webp"]').count() === 1,

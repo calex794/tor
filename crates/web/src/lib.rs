@@ -25,8 +25,12 @@ mod book_error_pages;
 mod book_follow_page;
 mod catalog_http;
 mod chapter_import_assets;
+pub mod chapter_import_queue_http;
+pub mod chapter_import_worker;
 pub mod cover_delivery;
 mod cover_http;
+mod layer_reader_assets;
+mod layer_reader_pages;
 mod recommendation_http;
 pub mod recommendation_worker;
 mod referral_book_http;
@@ -69,9 +73,21 @@ struct AppState {
     search: Option<tor_search::PgSearch>,
     paid_batch_browser_enabled: bool,
     paid_checkout_browser: bool,
+    private_admin_reader_enabled: bool,
     follow_control: Option<book_follow_page::FollowBookControl>,
     covers: Option<cover_delivery::CoverDelivery>,
 }
+async fn text_issue_script() -> Response {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/javascript; charset=utf-8",
+        )],
+        include_str!("../assets/newboo-text-issues.js"),
+    )
+        .into_response()
+}
+
 async fn health() -> &'static str {
     "ok"
 }
@@ -300,10 +316,11 @@ async fn book_detail(
 async fn reader_page(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    Query(query): Query<public_reader_http::PublicIssueQuery>,
     headers: axum::http::HeaderMap,
     method: axum::http::Method,
 ) -> Response {
-    public_reader_http::reader_page(State(state), Path(id), headers, method).await
+    public_reader_http::reader_page(State(state), Path(id), Query(query), headers, method).await
 }
 
 /// S3 delivery is not connected: deny every alternative reader API request.
@@ -383,6 +400,12 @@ pub fn start_ril_pg_background(catalog: &PgCatalog) {
     ril::start_pg_background(tor_traffic_behavior::repositories::PgRilRollups::new(
         catalog.pool(),
     ));
+}
+
+/// Instrument late-bound S023 routes without adding another fallback or
+/// duplicating observations from the already-instrumented base router.
+pub fn instrument_additional_routes(router: Router) -> Router {
+    ril::instrument_additional(router)
 }
 
 pub fn router(repo: Arc<dyn PublicBookRepository>) -> Router {
@@ -482,11 +505,20 @@ fn make_router_with_paid_checkout(
         .route("/api/v1/books/{id}/toc", get(book_toc))
         .route("/reader/{id}", get(reader_page))
         .route("/api/v1/chapters/{id}/read", get(denied_reader_api))
+        .route("/assets/newboo-text-issues.js", get(text_issue_script))
+        .route(
+            "/assets/newboo-free-reader.js",
+            get(pages::free_reader_script),
+        )
         .route("/assets/site.css", get(pages::stylesheet))
         .route("/assets/newboo.css", get(pages::newboo_stylesheet))
         .route(
             "/assets/newboo-paid-reader.mjs",
             get(pages::paid_reader_script),
+        )
+        .route(
+            "/assets/newboo-layer-reader.mjs",
+            get(layer_reader_assets::script),
         )
         .route(
             "/assets/newboo-cover-picker.js",
@@ -540,6 +572,8 @@ fn make_router_with_paid_checkout(
             paid_checkout_browser: active_auth
                 && paid_browser_enabled
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
+            // Administrator private reading is independent of paid checkout.
+            private_admin_reader_enabled: active_auth && paid_browser_enabled,
             paid_batch_browser_enabled: active_auth
                 && std::env::var("TOR_PAID_CHECKOUT_ENABLED").as_deref() == Ok("1"),
             covers,

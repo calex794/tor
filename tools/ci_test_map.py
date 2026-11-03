@@ -39,7 +39,7 @@ SUITE_JOB_IDS = {
 }
 
 # Deployment workflows contact the VPS: operator dispatch only, never automatic CI.
-MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml"}
+MANUAL_WORKFLOWS = {"tor-vps-staging.yml", "tor-one-click-release.yml", "chapter-import-s3.yml"}
 # Safe local-only performance workflows run for changes to their harness, and
 # can also be started manually. They never contact live infrastructure.
 PERFORMANCE_WORKFLOWS = {"tor-http-load.yml"}
@@ -57,8 +57,8 @@ BROWSER_SUITES = {"reader_browser", "visual", "cover_browser", "paid_e2e"}
 # They must run the complete available B/C/D/G/H/I pack regardless of the graph.
 CRITICAL_PACKAGES = {
     "tor-contracts", "tor-accounts", "tor-books", "tor-reading", "tor-commerce",
-    "tor-storage", "tor-ingest", "tor-migrations", "tor-traffic_behavior",
-    "tor-route_intelligence", "tor-referrals", "tor-social",
+    "tor-storage", "tor-ingest", "tor-imports", "tor-migrations", "tor-traffic_behavior",
+    "tor-route_intelligence", "tor-support", "tor-referrals", "tor-social",
 }
 KNOWN_PACKAGES = CRITICAL_PACKAGES | {
     "tor-web", "tor-search", "tor-recommendations", "tor-observability",
@@ -76,6 +76,9 @@ TEST_SUITES = {
     "crates/ingest/tests/image_pipeline.rs": {"rust", "image"},
     "crates/ingest/tests/s3_provider.rs": {"rust", "cover_s3", "cover_browser"},
     "crates/ingest/tests/cover_jobs_pg.rs": {"rust", "postgres"},
+    "crates/imports/tests/chapter_import_jobs_pg.rs": {"rust", "postgres"},
+    "crates/books/tests/chapter_import_job_finalize_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/chapter_import_queue_http_pg.rs": {"rust", "postgres"},
     "crates/storage/tests/crypto_webcrypto.mjs": {"crypto"},
     "crates/storage/tests/private_objects.rs": {"rust", "crypto"},
     "crates/storage/tests/s3_private_provider.rs": {"rust", "storage_s3"},
@@ -91,6 +94,8 @@ TEST_SUITES = {
     "crates/search/tests/f03_unicode_pg.rs": {"rust", "postgres"},
     "crates/referrals/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/social/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/support/tests/slices_pg.rs": {"rust", "postgres"},
+    "crates/web/tests/support_http_pg.rs": {"rust", "postgres"},
     "crates/accounts/tests/referral_signup_decision_pg.rs": {"rust", "postgres"},
     "crates/recommendations/tests/slices_pg.rs": {"rust", "postgres"},
     "crates/discussions/tests/slices_pg.rs": {"rust", "postgres"},
@@ -102,6 +107,7 @@ TEST_SUITES = {
     "tools/newboo_cover_visual_smoke.cjs": {"visual"},
     "tools/reader_visual_smoke.cjs": {"reader_browser"},
     "tools/mail_browser_pg.cjs": {"reader_browser"},
+    "tools/support_browser_pg.cjs": {"reader_browser"},
     "tools/referral_share_browser_smoke.cjs": {"reader_browser"},
     "tools/author_chapter_visual_smoke.cjs": {"reader_browser"},
     "tools/loop_01_browser_smoke.cjs": {"reader_browser"},

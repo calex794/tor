@@ -336,7 +336,8 @@ async fn e_08_creator_transfer_bell_notifies_only_for_live_proposals() {
             break;
         }
     }
-    assert_eq!(notifications.list(recipient, None, 50).await.unwrap().len(), 1);
+    // A delivered but now revoked offer is retained for audit, not displayed.
+    assert!(notifications.list(recipient, None, 50).await.unwrap().is_empty());
     let receipt_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM event_deliveries d
          JOIN outbox_events e ON e.id=d.event_id
@@ -451,5 +452,131 @@ async fn e_08_transfer_notice_rechecks_offer_after_concurrent_revocation() {
         .execute(&pool)
         .await
         .unwrap();
+    cleanup(&pool, &users).await;
+}
+/// Already delivered creator-offer bells disappear as soon as the offer is
+/// no longer actionable. Filtering happens before LIMIT; an invalid newest
+/// offer must not hide an older valid one in the notification inbox.
+#[tokio::test]
+#[ignore = "requires isolated TEST_DATABASE_URL ending /tor_ci"]
+async fn e_08_delivered_transfer_bell_only_shows_actionable_offers() {
+    let (pool, users) = fixture().await;
+    let (owner, recipient) = (users[0], users[1]);
+    let groups = PgGroupMail::new(pool.clone());
+    let notifications = PgNotifications::new(pool.clone());
+    let live_group = groups
+        .create(owner, &[recipient], "Live transfer offer")
+        .await
+        .unwrap();
+    let live_offer = groups
+        .propose_transfer(owner, live_group, recipient)
+        .await
+        .unwrap();
+    for _ in 0..10 {
+        if notifications.deliver_pending(100).await.unwrap() < 100 {
+            break;
+        }
+    }
+    let live = notifications.list(recipient, None, 1).await.unwrap();
+    assert_eq!(live.len(), 1);
+    let live_id = live[0].id;
+    assert!(live_offer > 0);
+    assert_eq!(
+        notifications
+            .list_section(recipient, None, 50, "system")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    for resolution in ["revoked", "declined", "expired", "accepted", "left"] {
+        let group_id = groups
+            .create(owner, &[recipient], "Transient transfer offer")
+            .await
+            .unwrap();
+        let offer_id = groups
+            .propose_transfer(owner, group_id, recipient)
+            .await
+            .unwrap();
+        for _ in 0..10 {
+            if notifications.deliver_pending(100).await.unwrap() < 100 {
+                break;
+            }
+        }
+        let before = notifications.list(recipient, None, 2).await.unwrap();
+        assert_eq!(before.len(), 2, "a live offer must initially appear: {resolution}");
+        let stale_id = before[0].id;
+        assert!(stale_id > live_id);
+        assert_eq!(before[1].id, live_id);
+
+        match resolution {
+            "revoked" => groups.revoke_transfer(owner, group_id, offer_id).await.unwrap(),
+            "declined" => groups.decline_transfer(recipient, offer_id).await.unwrap(),
+            "expired" => {
+                sqlx::query(
+                    "UPDATE social_group_creator_transfers
+                     SET created_at=clock_timestamp()-interval '10 days',
+                         expires_at=clock_timestamp()-interval '3 days'
+                     WHERE id=$1",
+                )
+                .bind(offer_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+            "accepted" => assert_eq!(
+                groups.accept_transfer(recipient, offer_id).await,
+                Ok(group_id)
+            ),
+            "left" => groups.leave(recipient, group_id).await.unwrap(),
+            _ => unreachable!(),
+        }
+
+        let visible = notifications.list(recipient, None, 1).await.unwrap();
+        assert_eq!(visible.len(), 1, "stale offer was rendered: {resolution}");
+        assert_eq!(visible[0].id, live_id, "filter before LIMIT: {resolution}");
+        assert_eq!(
+            notifications.list(recipient, Some(stale_id + 1), 1)
+                .await.unwrap()[0].id,
+            live_id,
+            "cursor must skip stale rows: {resolution}"
+        );
+        assert_eq!(
+            notifications
+                .list_section(recipient, None, 50, "system")
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "system tab must not expose stale offers: {resolution}"
+        );
+        assert!(
+            !notifications.mark_read(recipient, stale_id).await.unwrap(),
+            "an old Open form must return not found: {resolution}"
+        );
+        let stored: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM user_notifications WHERE id=$1")
+                .bind(stale_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored, 1, "do not delete the historical projection");
+        sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+            .bind(group_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    assert!(notifications.mark_read(recipient, live_id).await.unwrap());
+    assert!(notifications.list(recipient, None, 1).await.unwrap()[0].is_read);
+    sqlx::query("DELETE FROM social_group_conversations WHERE id=$1")
+        .bind(live_group)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(notifications.list(recipient, None, 50).await.unwrap().is_empty());
+    assert!(!notifications.mark_read(recipient, live_id).await.unwrap());
     cleanup(&pool, &users).await;
 }

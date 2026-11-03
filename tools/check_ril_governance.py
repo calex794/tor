@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = Path("docs/contracts/ril-route-guards-v1.json")
 METHODS = r"get|post|put|patch|delete|head|options|trace"
-POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_mail"}
+POLICIES = {"recovery", "public", "deny", "entry", "csrf_only", "session", "scoped", "owner", "token", "operator", "administrator", "admin_reader", "admin_mail", "admin_refund", "support_requester", "support_admin"}
 WRITES = {"POST", "PUT", "PATCH", "DELETE"}
-PROTECTED = {"session", "scoped", "owner", "administrator", "admin_mail"}
+PROTECTED = {"session", "scoped", "owner", "administrator", "admin_reader", "admin_mail", "admin_refund", "support_admin"}
 ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail", "admin_mail::index"): "users",
     ("GET", "/admin/mail/users/{user_id}", "admin_mail::user"): "mailbox",
@@ -26,6 +26,23 @@ ADMIN_MAIL_HANDLERS = {
     ("GET", "/admin/mail/groups/{id}", "admin_mail::group"): "group",
     ("GET", "/admin/mail/book-rooms", "admin_mail::book_rooms"): "book_rooms",
     ("GET", "/admin/mail/book-rooms/{id}", "admin_mail::book_room"): "book_room",
+}
+SUPPORT_ADMIN_HANDLERS = {
+    ("GET", "/admin/support", "index"),
+    ("GET", "/admin/support/{id}", "page"),
+    ("GET", "/admin/support/{id}/messages", "messages"),
+    ("POST", "/admin/support/{id}/messages", "submit"),
+    ("POST", "/admin/support/{id}/read", "mark_read"),
+    ("POST", "/admin/support/{id}/close", "close"),
+    ("POST", "/admin/support/{id}/reopen", "reopen"),
+}
+SUPPORT_REQUESTER_HANDLERS = {
+    ("GET", "/support", "page"),
+    ("GET", "/support/widget", "widget"),
+    ("GET", "/support/messages", "messages"),
+    ("POST", "/support/messages", "submit"),
+    ("GET", "/api/v1/support/tickets", "widget"),
+    ("POST", "/api/v1/support/tickets", "json_submit"),
 }
 SCOPE_CALLS = {
     "consent", "set_consent", "set_feedback", "hidden_books", "impressions", "activate",
@@ -40,9 +57,9 @@ SCOPE_CALLS = {
     "set_ril_behavior_consent", "readable_purchases",
     "record_verified_continuation", "follow", "unfollow", "set_read_state",
     "delivery_preference", "set_delivery_preference",
-    "active_role",
+    "active_role", "create_free", "create_paid",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
-    "send_unkeyed", "set_block", "request", "remove",
+    "send_unkeyed", "set_block", "request", "remove", "request_once",
 }
 OWNER_CALLS = {
     "recommendation_settings", "update_recommendation_settings",
@@ -50,7 +67,13 @@ OWNER_CALLS = {
     "owned_book_is_public", "list_owned_chapters",
     "owned_unpublished_free_chapter", "pending_free_chapter",
     "edit_unpublished_free_chapter", "release_pending_free_chapter",
+    "schedule_pending_free_chapter", "cancel_scheduled_free_chapter",
     "release_book", "owned_book_description", "update_book_description",
+    "owned_book_source_links", "update_book_source_links",
+    "status_for_owner", "latest_active_for_owner", "cancel_source_for_owner",
+    "owned_layers", "addable_books", "current_books", "owner_offer_state",
+    "add_book", "remove_book_if_current", "create_once",
+    "update_metadata_if_current", "offer_if_current",
 }
 FUNC = re.compile(
     r"(?m)^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)\s*\("
@@ -140,6 +163,10 @@ def _handler_file(root: Path, entry: dict[str, str]) -> Path:
         if module not in allowed:
             return root / "__unsupported_account_handler__"
         return source.parent / f"{module}.rs"
+    if source == root / "crates/web/src/auth/layer_storefront.rs":
+        return (source.parent / "layer_checkout_api.rs"
+                if module == "layer_checkout_api"
+                else root / "__unsupported_layer_handler__")
     if source == root / "crates/web/src/auth/admin_mail_routes.rs":
         return (source.parent / "admin_mail.rs"
                 if module == "admin_mail"
@@ -160,7 +187,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
     # when the handler stops invoking its trusted shared helper.
     # Private ranking handlers delegate trusted session and CSRF to explicit
     # local helpers; never trust a descriptive policy row alone.
-    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load"):
+    for helper in ("write", "csrf", "change_choice", "resume", "actor", "csrf_valid", "owner", "load", "administrator"):
         if re.search(rf"(?<!\w){helper}\s*\(", body) and helper in functions:
             body += "\n" + functions[helper]
     return body
@@ -168,7 +195,7 @@ def _with_known_helpers(body: str, functions: dict[str, str]) -> str:
 
 def _contains_scoped_call(body: str, names: set[str]) -> bool:
     for name in names:
-        if re.search(rf"\b{name}\s*\(\s*(?:actor|user_id)\b", body):
+        if re.search(rf"\b{name}\s*\(\s*(?:actor_id|actor|user_id)\b", body):
             return True
     return False
 
@@ -194,8 +221,23 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
     audited_admin = (policy == "admin_mail"
                      and entry["source"] == "crates/web/src/auth/admin_mail_routes.rs"
                      and admin_key in ADMIN_MAIL_HANDLERS)
-    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not audited_admin:
+    audited_support = (
+        policy == "support_admin"
+        and entry["source"] == "crates/web/src/auth/support_admin.rs"
+        and admin_key in SUPPORT_ADMIN_HANDLERS
+    )
+    audited_refund = (policy == "admin_refund"
+                      and entry["source"] == "crates/web/src/auth/admin_refund_review.rs"
+                      and admin_key == ("GET", "/admin/finance/refunds", "page"))
+    if entry["template"].startswith(("/admin", "/internal")) and policy != "deny" and not (audited_admin or audited_support or audited_refund):
         errors.append(f"{label}: admin/internal route requires separately reviewed role policy")
+    if policy == "admin_refund" and not (
+            audited_refund
+            and "PgRefundAdminReview::new" in evidence
+            and ".recent(&digest, query.before)" in evidence
+            and "session_token_digest" in evidence
+            and "session_user(&state, &headers)" in evidence):
+        errors.append(f"{label}: S036 administrator refund view must bind active session and audited read")
     if policy == "admin_mail":
         method = ADMIN_MAIL_HANDLERS.get(admin_key) if audited_admin else None
         if not method:
@@ -207,6 +249,26 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             and "session_token_digest" in evidence
         ):
             errors.append(f"{label}: missing session-bound audited admin mail repository call")
+    if policy == "support_admin":
+        if not audited_support:
+            errors.append(f"{label}: unreviewed support administrator route")
+        if not ("session_actor(" in evidence
+                and "if !actor.administrator" in evidence
+                and "StatusCode::FORBIDDEN" in evidence):
+            errors.append(f"{label}: missing live support administrator role guard")
+        if not _contains_scoped_call(evidence, {"admin_chats", "admin_messages", "admin_send", "admin_mark_read", "admin_set_closed"}):
+            errors.append(f"{label}: missing actor-bound support administrator operation")
+    if policy == "support_requester":
+        allowed = (entry["source"] == "crates/web/src/auth/support.rs"
+                   and admin_key in SUPPORT_REQUESTER_HANDLERS)
+        identity = functions.get("__support_identity", "")
+        if not (allowed
+                and "support_identity::resolve(&state, &headers)" in evidence
+                and re.search(r"\b(?:messages|send|json_send)\s*\(\s*&who", evidence)
+                and "session_user(state, headers)" in identity
+                and "valid_token(t)" in identity
+                and '"tor-support:{token}"' in identity):
+            errors.append(f"{label}: missing support requester capability boundary")
     if entry["template"].startswith("/ops/") and policy not in {"deny", "operator"}:
         errors.append(f"{label}: operator route requires independently reviewed credential")
 
@@ -258,6 +320,11 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
             "book_rooms::leave": {"leave"},
         }
         proof = mail_calls.get(entry["handler"], proof)
+        # E-12 is book-team triage, not owner-only chapter publishing.
+        if policy == "scoped" and entry["handler"] == "text_issues::author_page":
+            proof = {"author_page"}
+        elif policy == "scoped" and entry["handler"] == "text_issues::change_status":
+            proof = {"update_status"}
         if entry["source"] == "crates/web/src/auth/group_mail/transfers.rs":
             proof = {
                 "inbox": {"pending_transfer_incoming", "pending_transfer_outgoing"},
@@ -275,7 +342,33 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
                 "page": {"list_section"}, "mark_one": {"mark_read"},
                 "mark_all": {"mark_all_read"}, "save_preferences": {"set_preferences"},
             }.get(entry["handler"], proof)
-        if not _contains_scoped_call(evidence, proof):
+        # The Layer form/JSON route delegates a *session-derived* actor into
+        # one shared financial command. Do not call that delegation scoped
+        # without proving the wallet, command and authoritative PG buy binding.
+        layer_delegates = {
+            ("POST", "/layers/{layer_id}/purchase", "buy_form"):
+                r"layer_checkout_api::charge\s*\(\s*&state\s*,\s*actor\s*,",
+            ("POST", "/api/v1/layers/{layer_id}/purchase", "layer_checkout_api::buy"):
+                r"\bcharge\s*\(\s*&state\s*,\s*actor\s*,",
+        }
+        layer_pattern = layer_delegates.get(admin_key)
+        if layer_pattern is not None:
+            charged = functions.get("__layer_charge", "")
+            scoped = (
+                entry["source"] == "crates/web/src/auth/layer_storefront.rs"
+                and bool(re.search(layer_pattern, evidence))
+                and bool(re.search(r"\bsession_user\s*\(\s*&state\s*,\s*&headers\s*\)", evidence))
+                and "if !state.layer_checkout_enabled" in charged
+                and "PositiveId::new(actor)" in charged
+                and "WalletId::new(actor.get())" in charged
+                and "LayerCheckoutCommand {" in charged
+                and bool(re.search(r"(?m)^\s*actor,\s*$", charged))
+                and "PgLayers::new" in charged
+                and ".buy(&command)" in charged
+            )
+        else:
+            scoped = _contains_scoped_call(evidence, proof)
+        if not scoped:
             errors.append(f"{label}: missing actor-bound {policy} repository call")
     if entry["method"] in WRITES:
         if policy in {"deny", "public"}:
@@ -292,9 +385,72 @@ def _verify(entry: dict[str, str], functions: dict[str, str], limiter: str) -> l
         ("GET", "/me/recommendations/manage", "admin::page"),
         ("POST", "/me/recommendations/manage", "admin::form_control"),
     }
+    if (entry["template"] == "/me/refunds"
+            and entry["source"] == "crates/web/src/auth/refund_browser.rs"):
+        if entry["method"] == "POST":
+            checks = ("!enabled(&state)", "session_user(&state, &headers)",
+                      "same_origin(&headers)", "valid_csrf(&headers",
+                      "IdempotencyKey::parse(&form.command_key)",
+                      ".request_once(actor, purchase, &key, &form.reason)")
+            if not all(check in evidence for check in checks):
+                errors.append(f"{label}: S036 buyer refund cannot bypass session/CSRF/policy")
+        elif entry["method"] == "GET" and not (
+                "!enabled(&state)" in evidence
+                and "recent_for_buyer(actor)" in evidence
+                and "session_user(&state, &headers)" in evidence):
+            errors.append(f"{label}: S036 refund history must remain buyer-scoped")
     route_key = (entry["method"], entry["template"], entry["handler"])
+    e12_team = {
+        ("GET", "/me/books/{id}/issues", "text_issues::author_page"),
+        ("POST", "/me/books/{id}/issues/{issue_id}/status", "text_issues::change_status"),
+    }
+    if route_key == (
+        "POST", "/api/v1/reader/chapters/{chapter_id}/text-issues",
+        "text_issues::submit",
+    ) and policy != "scoped":
+        errors.append(f"{label}: E-12 paid correction must remain actor-scoped")
+    if route_key in e12_team and policy != "scoped":
+        errors.append(f"{label}: E-12 team triage must remain actor-scoped")
     if route_key in rec_admin and policy != "administrator":
         errors.append(f"{label}: recommendation administration policy downgraded")
+    if policy == "admin_reader":
+        # Only the exact read-only shell and one session-bound CSRF POST for
+        # current unsealed bodies. Never permit a generic paid grant, wallet
+        # command, export or arbitrary privileged route through this policy.
+        allowed_shell = (
+            entry["method"] == "GET"
+            and entry["template"] == "/read/admin/{chapter_id}"
+            and entry["source"] == "crates/web/src/paid_grants_http.rs"
+            and entry["handler"] == "admin_reader::admin_reader"
+        )
+        allowed_unsealed = (
+            entry["method"] == "POST"
+            and entry["template"] == "/api/v1/reader/chapters/{chapter_id}/admin-unsealed"
+            and entry["source"] == "crates/web/src/paid_grants_http.rs"
+            and entry["handler"] == "admin_unsealed::read"
+        )
+        if not (allowed_shell or allowed_unsealed):
+            errors.append(f"{label}: unreviewed site administrator reader route")
+        common = (
+            "session_token_digest(&session)",
+            "session_actor(&digest)",
+            "if actor.administrator",
+            "PgAdministratorReaderEntitlements::new",
+            "StatusCode::FORBIDDEN",
+            "StatusCode::UNAUTHORIZED",
+        )
+        if not all(marker in evidence for marker in common):
+            errors.append(f"{label}: missing live administrator read-entitlement proof")
+        if allowed_shell and ".resolve_entitlement(" not in evidence:
+            errors.append(f"{label}: admin shell lacks sealed D entitlement")
+        if allowed_unsealed and not (
+            evidence.count(".unsealed_version(") >= 2
+            and "state.admin_unsealed.read(pinned)" in evidence
+            and "state.cookies.same_origin(&headers)" in evidence
+            and "state.cookies.valid_csrf(&headers" in evidence
+            and "StatusCode::CONFLICT" in evidence
+        ):
+            errors.append(f"{label}: unsealed admin text lacks double D check and CSRF")
     if policy == "administrator":
         if route_key not in rec_admin or entry["source"] != "crates/web/src/recommendation_http/mod.rs":
             errors.append(f"{label}: administrator exception is not allowed here")
@@ -420,6 +576,23 @@ def check(root: Path = ROOT) -> list[str]:
                 source_cache[path] = _functions(path.read_text(encoding="utf-8"))
             except OSError:
                 source_cache[path] = {}
+        if (entry.get("method"), entry.get("template")) in {
+            ("POST", "/layers/{layer_id}/purchase"),
+            ("POST", "/api/v1/layers/{layer_id}/purchase"),
+        }:
+            helper_path = root / "crates/web/src/auth/layer_checkout_api.rs"
+            try:
+                source_cache[path]["__layer_charge"] = _functions(
+                    helper_path.read_text(encoding="utf-8")
+                ).get("charge", "")
+            except OSError:
+                source_cache[path]["__layer_charge"] = ""
+        if entry.get("policy") == "support_requester":
+            identity_file = root / "crates/web/src/auth/support_identity.rs"
+            source_cache[path]["__support_identity"] = (
+                _strip_comments(identity_file.read_text(encoding="utf-8"))
+                if identity_file.exists() else ""
+            )
         errors.extend(_verify(entry, source_cache[path], limiter))
     return errors
 

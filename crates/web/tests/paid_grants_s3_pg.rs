@@ -42,12 +42,20 @@ use tor_storage::{
 };
 use tower::ServiceExt;
 
+#[path = "paid_grants_s3_pg/asset_fixture.rs"]
+mod asset_fixture;
+#[path = "paid_grants_s3_pg/fixture_writer.rs"]
+mod fixture_writer;
+#[path = "paid_grants_s3_pg/layer_fixtures.rs"]
+mod layer_fixtures;
 #[path = "paid_grants_s3_pg/s034_live_chromium.rs"]
 mod s034_live_chromium;
 #[path = "paid_grants_s3_pg/s035_browser.rs"]
 mod s035_browser;
 #[path = "paid_grants_s3_pg/s035_live_chromium.rs"]
 mod s035_live_chromium;
+#[path = "paid_grants_s3_pg/s065_admin_browser.rs"]
+mod s065_admin_browser;
 #[path = "paid_grants_s3_pg/toc_fixtures.rs"]
 mod toc_fixtures;
 
@@ -57,7 +65,7 @@ const ORIGIN: &str = "http://127.0.0.1:3098";
 const OBJECT_ID: &str = "f0c0e034-2026-4034-8034-000000000034";
 const OBJECT_ID_SECOND: &str = "f0c0e034-2026-4034-8034-000000000035";
 const CHAPTER_TWO_TITLE: &str = "Вторая купленная глава <script>опасно</script>";
-const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n第二章 — только купленная редакция";
+const MARKDOWN: &str = "Оплаченная V1: кириллица А😀Б\n\n![Рисунок платной главы](asset:f0c0e034-2026-4034-8034-000000000036)\n\n第二章 — только купленная редакция";
 const BOOK_TITLE: &str = "Невбу <img src=x onerror=window.__xss=true> книга";
 const CHAPTER_TITLE: &str = "Редакция «V1» — Секретная глава";
 
@@ -219,49 +227,6 @@ async fn html_body(response: Response) -> String {
     .unwrap()
 }
 
-fn save_ephemeral_fixture(
-    grant: Value,
-    version: i64,
-    purchase: i64,
-    reader_html: String,
-    reader_csp: String,
-    expiry_probe_url: Value,
-    toc_target: (i64, i64, i64, i64, i64),
-) {
-    let target = env::var("TOR_PAID_GRANT_FIXTURE_PATH").expect("ephemeral fixture output");
-    let runner_temp = env::var("RUNNER_TEMP").expect("CI temp directory");
-    assert!(
-        Path::new(&target).starts_with(&runner_temp),
-        "never store scoped secrets inside the source checkout"
-    );
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&target).expect("private fixture output");
-    let payload = json!({
-        "grant": grant,
-        "purchased_version_id": version.to_string(),
-        "purchase_id": purchase.to_string(),
-        "reader_html": reader_html,
-        "reader_csp": reader_csp,
-        "expiry_probe_url": expiry_probe_url,
-        "expected_markdown": MARKDOWN,
-        "expected_book_title": BOOK_TITLE,
-        "expected_chapter_title": CHAPTER_TITLE,
-        "expected_chapter_no": 1,
-        "expected_version_no": 1,
-        "toc_second_chapter_id": toc_target.0.to_string(),
-        "toc_second_purchase_id": toc_target.1.to_string(),
-        "toc_second_title": CHAPTER_TWO_TITLE,
-        "toc_free_chapter_id": toc_target.2.to_string(),
-        "toc_locked_chapter_id": toc_target.3.to_string(),
-        "toc_draft_chapter_id": toc_target.4.to_string(),
-    });
-    file.write_all(payload.to_string().as_bytes()).unwrap();
-    file.sync_all().unwrap();
-}
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18, local MinIO and NODE WebCrypto follow-up"]
 async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
@@ -338,13 +303,6 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
              VALUES({chapter},1,'{sql_body}') RETURNING id"
         ),
     );
-    pg(
-        &url,
-        &format!(
-            "INSERT INTO chapter_publications(chapter_id,version_id) \
-             VALUES({chapter},{v1})"
-        ),
-    );
     let pinned = ChapterVersionRef {
         chapter_id: PositiveId::new(chapter).unwrap(),
         version_id: PositiveId::new(v1).unwrap(),
@@ -361,13 +319,19 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         .await
         .unwrap();
     registry.mark_ready(&receipt).await.unwrap();
+    assert!(MARKDOWN.contains(asset_fixture::ASSET_OBJECT_ID));
+    asset_fixture::upload_exact_v1_image(&catalog, &s3, kek.clone(), author, pinned).await;
+    // Publish the first immutable edition through B, which atomically
+    // records the public pointer and encrypted release event required by G.
     PgPaidStorage::new(pool.clone())
         .attach_verified_and_publish(
             author,
             book,
             pinned,
             &object_id,
-            PaidPublication::KeepCurrent,
+            PaidPublication::Publish {
+                expected_current: None,
+            },
         )
         .await
         .unwrap();
@@ -384,6 +348,9 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         None,
     )
     .unwrap();
+    // C-12/S065: administrator reads the real sealed V1 and PNG in Chromium
+    // without a purchase; role revocation closes all fresh grants.
+    s065_admin_browser::verify(&app, &accounts, &url, chapter, v1, &stranger_cookie).await;
     assert_eq!(
         post_grant(
             &app,
@@ -609,6 +576,34 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
         &url,
         &format!("UPDATE chapter_publications SET version_id={v2} WHERE chapter_id={chapter}"),
     );
+    // Direct purchases stay pinned to encrypted V1. Layer CURRENT access
+    // instead follows V2, which must be independently verified and attached
+    // before B/G may sign it; a bare publication pointer is insufficient.
+    let pinned_v2 = ChapterVersionRef {
+        chapter_id: PositiveId::new(chapter).unwrap(),
+        version_id: PositiveId::new(v2).unwrap(),
+    };
+    let v2_object = ObjectId::parse("f0c0e034-2026-4034-8034-000000000037").unwrap();
+    let sealed_v2 =
+        seal_chapter(pinned_v2, v2_object.clone(), "New V2, not purchased", &kek).unwrap();
+    let reference_v2 = registry
+        .reserve_pending(&sealed_v2, &kek, BUCKET)
+        .await
+        .unwrap();
+    let receipt_v2 = upload_and_verify(&short_store, &reference_v2, &sealed_v2.ciphertext)
+        .await
+        .unwrap();
+    registry.mark_ready(&receipt_v2).await.unwrap();
+    PgPaidStorage::new(pool.clone())
+        .attach_verified_and_publish(
+            author,
+            book,
+            pinned_v2,
+            &v2_object,
+            PaidPublication::KeepCurrent,
+        )
+        .await
+        .unwrap();
     // Capture the actual Rust HTML before the author hides the book. CI
     // screenshots exercise the mixed original NEwBOO-style free/paid/locked
     // design while preserving a separate hidden-book entitlement check.
@@ -762,12 +757,15 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
     assert_eq!(state["available"], true);
     assert_eq!(state["completed"], false);
     let sha = hex::encode(sealed.plaintext_sha256);
+    // A separate protected image paragraph is a separate reader block;
+    // completion must target the true last text block of the pinned edition.
     let final_block = MARKDOWN.split("\n\n").last().unwrap();
+    let last_block_id = MARKDOWN.split("\n\n").count();
     let command = json!({
         "purchase_id": purchase_id.to_string(),
         "chapter_id": chapter.to_string(),
         "version_id": v1.to_string(),
-        "block_id": 2,
+        "block_id": last_block_id,
         "char_offset": final_block.encode_utf16().count(),
         "expected_revision": 0,
         "plaintext_sha256": sha,
@@ -888,12 +886,25 @@ async fn s034_paid_minio_actual_signed_get_from_postgres_purchase() {
             .unwrap(),
     )
     .unwrap();
-    save_ephemeral_fixture(
+    // Capture a genuine D-authorized Layer grant separately from the direct
+    // purchase. The disposable Chromium fixture must never reuse V1 evidence.
+    let (layer_buyer, layer_cookie) =
+        user(&accounts, "s031-layer-minio-reader@tor-ci.example").await;
+    let layer_evidence = layer_fixtures::assert_layer_s3_grants(
+        tor_commerce::repositories::layers::PgLayers::new(pool.clone()),
+        &app,
+        &url,
+        (author, layer_buyer),
+        (book, chapter, v2),
+        (&layer_cookie, &csrf),
+    )
+    .await;
+    fixture_writer::save_ephemeral_fixture(
         still_v1,
         v1,
         purchase_id,
-        visible_html,
-        reader_csp,
+        (visible_html, reader_csp),
+        layer_evidence,
         expiry_probe_url,
         (
             chapter_two,

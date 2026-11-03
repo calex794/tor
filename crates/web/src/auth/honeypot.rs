@@ -29,7 +29,7 @@ pub(super) fn record(kind: TrapKind) {
     counter.fetch_add(1, Ordering::Relaxed);
 }
 
-pub(super) fn counts() -> (u64, u64, u64) {
+pub(crate) fn counts() -> (u64, u64, u64) {
     (
         LOGIN_HITS.load(Ordering::Relaxed),
         REGISTER_HITS.load(Ordering::Relaxed),
