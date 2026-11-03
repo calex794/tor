@@ -17,7 +17,14 @@ pub async fn issue_paid_asset_grant(
     object_id: &ObjectId,
 ) -> Result<AssetDeliveryGrant, DeliveryError> {
     issue_asset_grant(
-        entitlement, assets, storage, actor, chapter_id, purchase_id, object_id, false,
+        entitlement,
+        assets,
+        storage,
+        actor,
+        chapter_id,
+        purchase_id,
+        object_id,
+        false,
     )
     .await
 }
@@ -33,7 +40,14 @@ pub async fn issue_paid_admin_asset_grant(
     object_id: &ObjectId,
 ) -> Result<AssetDeliveryGrant, DeliveryError> {
     issue_asset_grant(
-        entitlement, assets, storage, actor, chapter_id, None, object_id, true,
+        entitlement,
+        assets,
+        storage,
+        actor,
+        chapter_id,
+        None,
+        object_id,
+        true,
     )
     .await
 }
