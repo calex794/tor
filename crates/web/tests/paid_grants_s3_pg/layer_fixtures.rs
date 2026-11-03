@@ -186,8 +186,9 @@ pub(super) async fn assert_layer_s3_grants(
         StatusCode::UNPROCESSABLE_ENTITY,
     );
 
-    // S020/#486: the actual S3 grant and Layer reader shell must recheck
-    // the currently granted age tier, not trust the historical paid Layer term.
+    // S020/#486: a S3 grant must not reveal a signed URL or DEK when age
+    // permission is absent. The D-05 PG suite covers the full age matrix.
+    // HTTP probes deliberately remain within the production 12/min/actor cap.
     pg(
         url,
         &format!("UPDATE books SET access_level='adult' WHERE id={book}"),
@@ -208,7 +209,7 @@ pub(super) async fn assert_layer_s3_grants(
             .await
             .unwrap()
             .is_empty(),
-        "no DEK or S3 signed URL on revoked 18+ opt-in"
+        "no DEK or signed URL without current 18+ permission"
     );
     assert_eq!(
         private_get(app, &layer_page, Some(cookie)).await.status(),
@@ -219,33 +220,16 @@ pub(super) async fn assert_layer_s3_grants(
         &format!("UPDATE users SET adult_enabled=TRUE WHERE id={subscriber}"),
     );
     assert_eq!(
-        post_grant(
-            app,
-            chapter,
-            Some(cookie),
-            Some(csrf),
-            ORIGIN,
-            r#"{"source":"layer"}"#
-        )
-        .await
-        .status(),
+        private_get(app, &layer_page, Some(cookie)).await.status(),
         StatusCode::OK
     );
+
     pg(
         url,
         &format!("UPDATE books SET access_level='pro_adult' WHERE id={book}"),
     );
     assert_eq!(
-        post_grant(
-            app,
-            chapter,
-            Some(cookie),
-            Some(csrf),
-            ORIGIN,
-            r#"{"source":"layer"}"#
-        )
-        .await
-        .status(),
+        private_get(app, &layer_page, Some(cookie)).await.status(),
         StatusCode::NOT_FOUND
     );
     pg(
@@ -256,34 +240,30 @@ pub(super) async fn assert_layer_s3_grants(
         ),
     );
     assert_eq!(
-        post_grant(
-            app,
-            chapter,
-            Some(cookie),
-            Some(csrf),
-            ORIGIN,
-            r#"{"source":"layer"}"#
-        )
-        .await
-        .status(),
+        private_get(app, &layer_page, Some(cookie)).await.status(),
         StatusCode::OK
     );
     pg(
         url,
         &format!("UPDATE user_level_grants SET is_active=FALSE WHERE user_id={subscriber}"),
     );
-    assert_eq!(
-        post_grant(
-            app,
-            chapter,
-            Some(cookie),
-            Some(csrf),
-            ORIGIN,
-            r#"{"source":"layer"}"#
-        )
-        .await
-        .status(),
-        StatusCode::NOT_FOUND
+    let revoked = post_grant(
+        app,
+        chapter,
+        Some(cookie),
+        Some(csrf),
+        ORIGIN,
+        r#"{"source":"layer"}"#,
+    )
+    .await;
+    assert_eq!(revoked.status(), StatusCode::NOT_FOUND);
+    assert_eq!(revoked.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(
+        to_bytes(revoked.into_body(), 8192)
+            .await
+            .unwrap()
+            .is_empty(),
+        "revoked 21+ grant must not expose any S3 bearer"
     );
     pg(
         url,
