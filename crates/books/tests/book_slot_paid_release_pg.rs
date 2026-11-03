@@ -10,7 +10,7 @@ use tor_books::{
             PgAuthoring,
         },
     },
-    services::authoring::{save_chapter, SaveChapterRequest},
+    services::authoring::{save_chapter, AuthorError, SaveChapterRequest},
 };
 use tor_contracts::paid_delivery::{ChapterVersionRef, ObjectId, PositiveId};
 
@@ -213,6 +213,25 @@ async fn s058_prepared_paid_is_private_then_one_exact_slot_release() {
     assert_eq!(outbox.0, "ChapterPublished");
     assert_eq!(outbox.1, format!("chapter-published:{chapter}:{version}"));
     assert_eq!(outbox.2, chapter);
+    // Switching the same immutable author command from scheduled to
+    // immediate publication must fail before any reader-visible pointer.
+    let request = save_chapter(SaveChapterRequest {
+        book_id: book as u64,
+        chapter_id: None,
+        number: 2,
+        expected_revision: 0,
+        title: "Вторая платная глава",
+        body: "Новая платная версия",
+        access: "paid",
+        price_amount: 90,
+        command_key: &"w".repeat(43),
+    }).unwrap();
+    let reserved = paid.prepare_scheduled_paid_chapter(owner, &request).await.unwrap();
+    assert!(!reserved.published);
+    assert_eq!(
+        paid.prepare_new_paid_chapter(owner, &request).await,
+        Err(AuthorError::Conflict),
+    );
     pool.close().await;
 }
 
