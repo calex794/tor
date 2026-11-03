@@ -124,7 +124,7 @@ impl<S: PrivateObjectStore> PgPaidAuthorPublisher<S> {
         self.paid
             .require_active_book_schedule(actor, request.book_id)
             .await?;
-        let pending = self.paid.prepare_new_paid_chapter(actor, request).await?;
+        let pending = self.paid.prepare_scheduled_paid_chapter(actor, request).await?;
         if pending.published {
             // A command that previously published immediately cannot become
             // a private scheduled command on replay.
