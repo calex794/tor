@@ -30,6 +30,7 @@ async fn s020_owner_titles_update_claims_atomically_across_languages() {
     .await
     .unwrap();
     let title = format!("Первый заголовок {marker}");
+    let renamed_title = format!("Обновлённый заголовок {marker}");
     let chinese = format!("修仙之路{marker}");
     let english = format!("The Immortal Path {marker}");
     let book: i64 = sqlx::query_scalar(
@@ -51,7 +52,7 @@ async fn s020_owner_titles_update_claims_atomically_across_languages() {
         Err(AuthorError::Missing)
     );
     assert_eq!(
-        repo.update_book_titles(owner, book, 1, &title, &chinese, [&english, "", ""])
+        repo.update_book_titles(owner, book, 1, &renamed_title, &chinese, [&english, "", ""])
             .await,
         Ok(2)
     );
@@ -115,7 +116,7 @@ async fn s020_owner_titles_update_claims_atomically_across_languages() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(title_after, title);
+    assert_eq!(title_after, renamed_title);
     let _ = sqlx::query("SELECT id FROM books WHERE id=$1")
         .bind(book)
         .fetch_one(&pool)
