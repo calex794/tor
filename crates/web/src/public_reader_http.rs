@@ -9,7 +9,14 @@ use tor_accounts::services::security::session_token_digest;
 use tor_commerce::repositories::admin_reader_entitlements::PgAdministratorReaderEntitlements;
 use tor_contracts::paid_delivery::{Actor, EntitlementDecision, EntitlementPort, PositiveId};
 use tor_discussions::repositories::public_chapter_comments::{ListError, PgPublicChapterComments};
-use tor_reading::services::PublicReadingRepository;
+
+/// A cookie is not an entitlement: PgReader rechecks session, account and
+/// grant in the SAME statement that returns a chapter body or Book metadata.
+pub(super) fn reader_session_digest(state: &AppState, headers: &HeaderMap) -> Option<[u8; 32]> {
+    let (_, cookies) = state.follow_control.as_ref()?.browser_context();
+    let token = cookies.session_token(headers)?;
+    Some(session_token_digest(&token))
+}
 
 /// E-12: non-authoritative display-only issue result; no persistence on GET.
 #[derive(Default, serde::Deserialize)]
@@ -104,7 +111,8 @@ pub(super) async fn reader_page(
     let Some(reader) = state.reader.as_ref() else {
         return auth_cookies::private_response(StatusCode::NOT_FOUND, &[]);
     };
-    let chapter = match reader.public_chapter(id).await {
+    let digest = reader_session_digest(&state, &headers);
+    let chapter = match reader.public_chapter_for_session(id, digest.as_ref()).await {
         Ok(Some(chapter)) => chapter,
         Ok(None) => {
             // NEwBOO parity: the same ordinary /reader link works for an
@@ -115,7 +123,7 @@ pub(super) async fn reader_page(
                 Ok(None) => {}
                 Err(status) => return auth_cookies::private_response(status, &[]),
             }
-            match reader.public_paid_chapter_preview(id).await {
+            match reader.public_paid_chapter_preview_for_session(id, digest.as_ref()).await {
                 Ok(Some(preview)) => {
                     // Publicly visible paid metadata has a paywall, never plaintext.
                     // Hidden, held, deleted and unreleased chapters still yield 404.
