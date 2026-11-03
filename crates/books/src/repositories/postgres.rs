@@ -1,3 +1,4 @@
+mod book_access_level;
 mod book_description;
 pub use book_description::ManagedBookDescription;
 mod book_lifecycle;
@@ -421,7 +422,6 @@ impl PgAuthoring {
             .begin()
             .await
             .map_err(|_| AuthorError::Unavailable)?;
-
         // Book row lock serializes owner changes and competing chapter saves.
         let book_visibility: Option<String> = sqlx::query_scalar(
             "SELECT visibility FROM books
