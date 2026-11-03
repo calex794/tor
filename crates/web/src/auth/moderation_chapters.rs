@@ -25,8 +25,10 @@ pub(super) struct PageQuery {
 #[serde(deny_unknown_fields)]
 pub(super) struct HoldForm {
     csrf_token: String,
-    expected_hold: bool,
-    new_hold: bool,
+    expected_hold: Option<bool>,
+    new_hold: Option<bool>,
+    expected_state: Option<String>,
+    next_state: Option<String>,
 }
 
 pub(super) fn router() -> Router<AuthState> {
@@ -42,27 +44,39 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
         let book = pages::escape_html(&row.book_title);
         let visibility = pages::escape_html(&row.visibility);
         let access = pages::escape_html(&row.access_level);
-        let current = if row.admin_hold {
-            "Удерживается модерацией"
-        } else {
-            "Без удержания"
+        let current = match row.moderation_state.as_str() {
+            "none" => "Без удержания",
+            "hold" => "На удержании",
+            "hidden" => "Скрыто модерацией",
+            "blocked" => "Заблокировано модерацией",
+            _ => "Неизвестное состояние",
         };
-        let action = if row.admin_hold {
-            "Снять удержание"
-        } else {
-            "Удержать"
-        };
+        let mut actions = String::new();
+        for (next_state, label) in [
+            ("hold", "Удержать"),
+            ("hidden", "Скрыть"),
+            ("blocked", "Заблокировать"),
+            ("none", "Снять ограничение"),
+        ] {
+            if row.moderation_state == next_state {
+                continue;
+            }
+            actions.push_str(&format!(
+                r#"<form method="post" action="/moderation/chapters/{id}/hold">
+                <input type="hidden" name="csrf_token" value="{csrf}">
+                <input type="hidden" name="expected_state" value="{expected}">
+                <input type="hidden" name="next_state" value="{next_state}">
+                <button type="submit">{label}</button></form>"#,
+                id = row.id,
+                expected = pages::escape_html(&row.moderation_state),
+            ));
+        }
         cards.push_str(&format!(
             r#"<article class="me-now-card">
                 <h2>{title}</h2>
                 <p>{book} · Книга #{book_id} · Глава #{no} · {visibility} · {access}
                 · {current} · Версия: {version} · Публикация: {published}</p>
-                <form method="post" action="/moderation/chapters/{id}/hold">
-                <input type="hidden" name="csrf_token" value="{csrf}">
-                <input type="hidden" name="expected_hold" value="{held}">
-                <input type="hidden" name="new_hold" value="{next}">
-                <button type="submit">{action}</button>
-                </form></article>"#,
+                {actions}</article>"#,
             book_id = row.book_id,
             no = row.chapter_no,
             version = if row.has_version {
@@ -75,9 +89,6 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
             } else {
                 "нет"
             },
-            id = row.id,
-            held = row.admin_hold,
-            next = !row.admin_hold,
         ));
     }
     if rows.is_empty() {
@@ -94,6 +105,8 @@ fn render(rows: &[ModerationChapter], csrf: &str, status: &str) -> String {
     let filters = [
         ("all", "Все"),
         ("hold", "На удержании"),
+        ("hidden", "Скрытые"),
+        ("blocked", "Заблокированные"),
         ("draft", "Черновики"),
         ("published", "Опубликованные"),
         ("no_version", "Без версии"),
@@ -126,7 +139,7 @@ pub(super) async fn page(
     let status = query.status.as_deref().unwrap_or("all");
     if !matches!(
         status,
-        "all" | "hold" | "draft" | "published" | "no_version"
+        "all" | "hold" | "hidden" | "blocked" | "draft" | "published" | "no_version"
     ) {
         return deny(StatusCode::BAD_REQUEST);
     }
@@ -178,11 +191,27 @@ pub(super) async fn submit(
         Ok(None) => return deny(StatusCode::UNAUTHORIZED),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-    match state
-        .accounts
-        .moderate_chapter_hold(&digest, id, form.expected_hold, form.new_hold)
-        .await
-    {
+    let outcome = match (
+        form.expected_state.as_deref(),
+        form.next_state.as_deref(),
+        form.expected_hold,
+        form.new_hold,
+    ) {
+        (Some(expected), Some(next), None, None) => {
+            state
+                .accounts
+                .moderate_chapter_decision(&digest, id, expected, next)
+                .await
+        }
+        (None, None, Some(expected), Some(next)) => {
+            state
+                .accounts
+                .moderate_chapter_hold(&digest, id, expected, next)
+                .await
+        }
+        _ => return deny(StatusCode::BAD_REQUEST),
+    };
+    match outcome {
         Ok(()) => private_response(Redirect::to("/moderation/chapters"), &[]),
         Err(error) => deny(error_code(error)),
     }
@@ -203,6 +232,7 @@ mod tests {
             visibility: "draft".into(),
             access_level: "paid".into(),
             admin_hold: false,
+            moderation_state: "none".into(),
             has_publication: false,
             has_version: true,
         }];
@@ -214,6 +244,8 @@ mod tests {
         assert!(!html.contains("purchase_id"));
         assert!(!html.contains("name=\"visibility\""));
         assert!(!html.contains("name=\"price_amount\""));
-        assert!(html.contains("name=\"new_hold\" value=\"true\""));
+        assert!(html.contains("name=\"next_state\" value=\"blocked\""));
+        assert!(html.contains("name=\"expected_state\" value=\"none\""));
+        assert!(!html.contains("name=\"new_hold\""));
     }
 }
