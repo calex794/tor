@@ -112,7 +112,9 @@ impl PgAuthoring {
         let claim = row
             .map(|row| {
                 Ok(BookSlotClaim {
-                    book_id: row.try_get("book_id").map_err(|_| AuthorError::Unavailable)?,
+                    book_id: row
+                        .try_get("book_id")
+                        .map_err(|_| AuthorError::Unavailable)?,
                     schedule_revision: row
                         .try_get("schedule_revision")
                         .map_err(|_| AuthorError::Unavailable)?,
