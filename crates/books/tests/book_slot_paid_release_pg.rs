@@ -136,6 +136,15 @@ async fn s058_prepared_paid_is_private_then_one_exact_slot_release() {
          (SELECT count(*) FROM chapter_encrypted_release_events WHERE chapter_id=$1)",
     ).bind(chapter).fetch_one(&pool).await.unwrap();
     assert_eq!(count,(1,1));
+    let outbox: (String, String, i64) = sqlx::query_as(
+        "SELECT event_type,dedupe_key,aggregate_id
+         FROM outbox_events WHERE dedupe_key=$1",
+    )
+    .bind(format!("chapter-published:{chapter}:{version}"))
+    .fetch_one(&pool).await.unwrap();
+    assert_eq!(outbox.0,"ChapterPublished");
+    assert_eq!(outbox.1,format!("chapter-published:{chapter}:{version}"));
+    assert_eq!(outbox.2,chapter);
     pool.close().await;
 }
 
