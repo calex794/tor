@@ -80,7 +80,7 @@ pub(super) async fn edit(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.owned_project_status(actor, id).await {
+    let book = match state.authoring.manageable_project_status(actor, id).await {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),

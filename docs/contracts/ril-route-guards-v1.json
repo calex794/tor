@@ -1736,14 +1736,14 @@
       "template": "/me/books/{id}/settings/project-status",
       "source": "crates/web/src/auth/book_project_status.rs",
       "handler": "edit",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "POST",
       "template": "/me/books/{id}/settings/project-status",
       "source": "crates/web/src/auth/book_project_status.rs",
       "handler": "save",
-      "policy": "owner"
+      "policy": "scoped"
     },
     {
       "method": "GET",

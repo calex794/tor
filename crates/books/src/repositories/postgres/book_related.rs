@@ -21,7 +21,7 @@ pub struct ManagedRelatedBooks {
 /// locked. This closes the TOCTOU window with an owner's collaborator revoke:
 /// both operations lock Book first, then BookMember. FOR SHARE also serializes
 /// direct membership changes against this transaction.
-async fn lock_manageable_member(
+pub(super) async fn lock_manageable_member(
     tx: &mut Transaction<'_, Postgres>,
     actor: i64,
     book_id: i64,
