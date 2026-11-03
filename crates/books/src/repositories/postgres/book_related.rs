@@ -2,9 +2,7 @@
 //! A source is always owner-controlled. Search and display expose only live
 //! public target books, never private names or hidden administration holds.
 use super::PgAuthoring;
-use crate::{
-    services::{authoring::AuthorError, book_registration::normalized_title},
-};
+use crate::services::{authoring::AuthorError, book_registration::normalized_title};
 use sqlx::Row;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
