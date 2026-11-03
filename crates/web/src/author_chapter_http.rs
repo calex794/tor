@@ -67,6 +67,7 @@ struct ChapterForm {
     access: Option<String>,
     price_amount: Option<i64>,
     save_as_draft: Option<String>,
+    is_delayed_publication: Option<String>,
     csrf_token: Option<String>,
 }
 
@@ -184,10 +185,17 @@ async fn new_chapter(
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
     let paid_enabled = is_public && state.paid_author.is_some();
+    let next_number = match state.authoring.next_owned_chapter_number(actor, id).await {
+        Ok(number) => number,
+        Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
+        Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
+    };
     let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
     let key = generate_session_token();
     private_response(
-        crate::author_chapter_pages::new_chapter(id, &csrf, &key, paid_enabled, is_public),
+        crate::author_chapter_pages::new_chapter(
+            id, &csrf, &key, paid_enabled, is_public, next_number,
+        ),
         &cookies,
     )
 }
@@ -217,10 +225,15 @@ async fn create_chapter(
     // G requires identical LF canonicalization for B's content SHA and
     // the ciphertext AAD. Never permit the form to choose a KEK or S3 path.
     let body = form.body.replace("\r\n", "\n").replace('\r', "\n");
-    let save_as_draft = match form.save_as_draft.as_deref() {
-        None => false,
-        Some("1") => true,
-        Some(_) => return deny(StatusCode::BAD_REQUEST),
+    // NEwBOO's public form uses is_delayed_publication. Preserve the former
+    // TOR save_as_draft POST field for forms already opened in a browser.
+    let delayed_publication = match (
+        form.is_delayed_publication.as_deref(),
+        form.save_as_draft.as_deref(),
+    ) {
+        (None, None) => false,
+        (Some("1"), None) | (None, Some("1")) | (Some("1"), Some("1")) => true,
+        _ => return deny(StatusCode::BAD_REQUEST),
     };
     let access = form.access.as_deref().unwrap_or("free");
     let request = match save_chapter(SaveChapterRequest {
@@ -238,7 +251,7 @@ async fn create_chapter(
         Err(_) => return deny(StatusCode::BAD_REQUEST),
     };
     if request.access == ChapterAccess::Paid {
-        if save_as_draft {
+        if delayed_publication {
             return deny(StatusCode::BAD_REQUEST);
         }
         let Some(publisher) = &state.paid_author else {
@@ -279,10 +292,10 @@ async fn create_chapter(
         Err(AuthorError::Missing) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
     };
-    if save_as_draft && !is_public {
+    if delayed_publication && !is_public {
         return deny(StatusCode::BAD_REQUEST);
     }
-    let outcome = if save_as_draft {
+    let outcome = if delayed_publication {
         state
             .authoring
             .create_pending_free_chapter(actor, &request)
@@ -296,7 +309,7 @@ async fn create_chapter(
         state.authoring.create_free_chapter(actor, &request).await
     };
     match outcome {
-        Ok(saved) if save_as_draft => private_response(
+        Ok(saved) if delayed_publication => private_response(
             Redirect::to(&format!(
                 "/me/books/{id}/chapters/{}/release",
                 saved.chapter_id

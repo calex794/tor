@@ -7,6 +7,40 @@ use crate::services::authoring::{
 use sqlx::Row;
 
 impl PgAuthoring {
+    /// Suggest the next chapter number to the authenticated book owner.
+    /// NEwBOO auto-numbers chapters; TOR keeps an editable numeric field but
+    /// must not force an author to manually correct the default "1".
+    ///
+    /// Include soft-deleted chapters: TOR has a permanent unique(book_id,
+    /// chapter_no) constraint, unlike NEwBOO's reusable deleted numbers.
+    /// This is a display suggestion, not a reserved number; concurrent
+    /// submissions are still protected by the creation transaction's 409.
+    pub async fn next_owned_chapter_number(
+        &self,
+        user_id: i64,
+        book_id: i64,
+    ) -> Result<i32, AuthorError> {
+        if user_id <= 0 || book_id <= 0 {
+            return Err(AuthorError::Missing);
+        }
+        let next: Option<i64> = sqlx::query_scalar(
+            "SELECT COALESCE((
+                 SELECT c.chapter_no::BIGINT FROM chapters c
+                 WHERE c.book_id=b.id ORDER BY c.chapter_no DESC LIMIT 1
+             ),0)+1
+             FROM books b
+             WHERE b.id=$1 AND b.owner_user_id=$2
+               AND NOT b.is_deleted AND NOT b.admin_hold",
+        )
+        .bind(book_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| AuthorError::Unavailable)?;
+        i32::try_from(next.ok_or(AuthorError::Missing)?)
+            .map_err(|_| AuthorError::Conflict)
+    }
+
     /// Author UI requests one bounded page; no offset scan for long novels.
     pub async fn list_owned_chapters_page(
         &self,

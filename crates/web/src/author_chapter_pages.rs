@@ -305,6 +305,7 @@ pub fn new_chapter(
     command_key: &str,
     paid_enabled: bool,
     is_public: bool,
+    next_number: i32,
 ) -> Html<String> {
     // No paid-control is presented unless the private S3 writer and
     // owner-only publishing flow are explicitly enabled for this book.
@@ -332,14 +333,16 @@ pub fn new_chapter(
         .replace("<!--BOOK_ID-->", &book_id.to_string())
         .replace("<!--CSRF_TOKEN-->", &escape_html(csrf))
         .replace("<!--COMMAND_KEY-->", &escape_html(command_key))
+        .replace("<!--NEXT_NUMBER-->", &next_number.to_string())
         .replace("<!--CHAPTER_ACCESS-->", access_fields)
         .replace(
             "<!--SCHEDULE_OPTION-->",
             if is_public {
-                r#"<label><input type="checkbox" name="save_as_draft" value="1">
-                   Сохранить бесплатную главу закрытым черновиком для отложенного выпуска</label>
-                   <p class="account-profile__hint">После сохранения откроется подтверждение,
-                   где можно назначить время публикации в UTC.</p>"#
+                r#"<label><input type="checkbox" name="is_delayed_publication" value="1">
+                   <strong>Отложенная публикация</strong></label>
+                   <p class="account-profile__hint">Сейчас доступна для бесплатных глав.
+                   Сохранённая глава не появится у читателей до выпуска; после сохранения
+                   назначьте время публикации в UTC.</p>"#
             } else {
                 ""
             },
