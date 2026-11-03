@@ -32,8 +32,7 @@ async fn s020_active_book_members_edit_description_and_revoked_members_cannot() 
         .unwrap();
         users.push(actor);
     }
-    let [owner, translator, moderator, outsider] =
-        <[i64; 4]>::try_from(users).unwrap();
+    let [owner, translator, moderator, outsider] = <[i64; 4]>::try_from(users).unwrap();
     let book_id: i64 = sqlx::query_scalar(
         "INSERT INTO books(source_identity,target_language,title,owner_user_id,
                            description,visibility,access_level)
@@ -109,13 +108,12 @@ async fn s020_active_book_members_edit_description_and_revoked_members_cannot() 
             .await,
         Ok(())
     );
-    let (description, visibility, access): (String, String, String) = sqlx::query_as(
-        "SELECT description,visibility,access_level FROM books WHERE id=$1",
-    )
-    .bind(book_id)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (description, visibility, access): (String, String, String) =
+        sqlx::query_as("SELECT description,visibility,access_level FROM books WHERE id=$1")
+            .bind(book_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(description, "Аннотация модератора");
     assert_eq!(visibility, "draft");
     assert_eq!(access, "basic");
@@ -152,7 +150,9 @@ async fn s020_active_book_members_edit_description_and_revoked_members_cannot() 
         .unwrap()
         .is_none());
     assert_eq!(
-        books.update_book_description(translator, book_id, "Blocked").await,
+        books
+            .update_book_description(translator, book_id, "Blocked")
+            .await,
         Err(AuthorError::Missing)
     );
     sqlx::query("UPDATE books SET admin_hold=FALSE,is_deleted=TRUE WHERE id=$1")

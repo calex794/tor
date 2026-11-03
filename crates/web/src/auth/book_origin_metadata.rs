@@ -135,17 +135,13 @@ pub(super) async fn save(
         )
         .await
     {
-        Ok(_) => private_response(
-            Redirect::to(&format!("/me/books/{book_id}/settings")),
-            &[],
-        ),
+        Ok(_) => private_response(Redirect::to(&format!("/me/books/{book_id}/settings")), &[]),
         Err(AuthorError::Conflict) => deny(StatusCode::CONFLICT),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Missing | AuthorError::Forbidden) => deny(StatusCode::NOT_FOUND),
         Err(AuthorError::Unavailable) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-
 
 fn render_index(id: i64, title: &str) -> Html<String> {
     let content = format!(

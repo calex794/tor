@@ -1,7 +1,6 @@
 //! S019/S020: source-link editor ACL, atomicity, claims and revocation.
 use sqlx::PgPool;
 use tor_books::repositories::book_members::PgBookMembers;
-use tor_contracts::access::BookRole;
 use tor_books::{
     repositories::postgres::PgAuthoring,
     services::{
@@ -12,6 +11,7 @@ use tor_books::{
         },
     },
 };
+use tor_contracts::access::BookRole;
 
 #[tokio::test]
 #[ignore = "requires disposable TEST_DATABASE_URL ending in /tor_ci"]

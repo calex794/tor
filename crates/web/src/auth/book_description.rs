@@ -7,10 +7,7 @@ use axum::{
     response::{Html, Redirect, Response},
 };
 use serde::Deserialize;
-use tor_books::{
-    repositories::postgres::ManagedBookDescription,
-    services::authoring::AuthorError,
-};
+use tor_books::{repositories::postgres::ManagedBookDescription, services::authoring::AuthorError};
 
 #[derive(Deserialize)]
 pub(super) struct DescriptionForm {
@@ -46,7 +43,11 @@ pub(super) async fn edit(
         Ok(None) => return private_response(Redirect::to("/login"), &[]),
         Err(status) => return deny(status),
     };
-    let book = match state.authoring.manageable_book_description(actor, book_id).await {
+    let book = match state
+        .authoring
+        .manageable_book_description(actor, book_id)
+        .await
+    {
         Ok(Some(book)) => book,
         Ok(None) => return deny(StatusCode::NOT_FOUND),
         Err(_) => return deny(StatusCode::SERVICE_UNAVAILABLE),
@@ -78,10 +79,7 @@ pub(super) async fn save(
         .update_book_description(actor, book_id, &form.description)
         .await
     {
-        Ok(()) => private_response(
-            Redirect::to(&format!("/me/books/{book_id}/settings")),
-            &[],
-        ),
+        Ok(()) => private_response(Redirect::to(&format!("/me/books/{book_id}/settings")), &[]),
         Err(AuthorError::Invalid) => deny(StatusCode::BAD_REQUEST),
         Err(AuthorError::Forbidden) => deny(StatusCode::FORBIDDEN),
         Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
