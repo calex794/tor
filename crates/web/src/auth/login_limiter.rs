@@ -125,8 +125,16 @@ pub(super) async fn spray_start(
     let Some(ip) = verified_ip else {
         return Ok(None);
     };
-    let key = std::env::var("TOR_AUTH_SPRAY_KEY").map_err(|_| SprayError::Unavailable)?;
-    let signer = AuthObservationSigner::from_hex(&key).ok_or(SprayError::Unavailable)?;
+    let signer = std::env::var("TOR_AUTH_SPRAY_KEY")
+        .ok()
+        .and_then(|key| AuthObservationSigner::from_hex(&key));
+    let Some(signer) = signer else {
+        return if mode == SprayMode::Observe {
+            Ok(None)
+        } else {
+            Err(SprayError::Unavailable)
+        };
+    };
     let (source, subnet) = signer.source(ip);
     if mode == SprayMode::Enforce {
         let retry = state
