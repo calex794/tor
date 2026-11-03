@@ -700,5 +700,4 @@ async fn moderator_can_hold_and_release_free_and_paid_chapters_without_publishin
         &csrf,
     )
     .await;
-
 }
