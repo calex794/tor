@@ -45,7 +45,10 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     let a = "a".repeat(43);
     let b = "b".repeat(43);
     let c = "c".repeat(43);
-    assert_eq!(author.claim_due_book_slot("bad").await, Err(AuthorError::Invalid));
+    assert_eq!(
+        author.claim_due_book_slot("bad").await,
+        Err(AuthorError::Invalid)
+    );
     assert!(author.claim_due_book_slot(&a).await.unwrap().is_none());
 
     sqlx::query(
@@ -71,8 +74,14 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     assert_eq!(claim.book_id, book_id);
     assert_eq!(claim.schedule_revision, 1);
     assert_eq!(claim.attempt_count, 1);
-    assert!(author.book_slot_claim_is_current(&claim, token).await.unwrap());
-    assert!(!author.book_slot_claim_is_current(&claim, loser).await.unwrap());
+    assert!(author
+        .book_slot_claim_is_current(&claim, token)
+        .await
+        .unwrap());
+    assert!(!author
+        .book_slot_claim_is_current(&claim, loser)
+        .await
+        .unwrap());
     assert!(author.claim_due_book_slot(loser).await.unwrap().is_none());
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM book_delayed_publication_occurrences WHERE book_id=$1",
@@ -92,7 +101,10 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     .execute(&pool)
     .await
     .unwrap();
-    assert!(!author.book_slot_claim_is_current(&claim, token).await.unwrap());
+    assert!(!author
+        .book_slot_claim_is_current(&claim, token)
+        .await
+        .unwrap());
     let retry = author.claim_due_book_slot(&c).await.unwrap().unwrap();
     assert_eq!(retry.book_id, claim.book_id);
     assert_eq!(retry.schedule_revision, claim.schedule_revision);
@@ -100,26 +112,28 @@ async fn s058_due_slot_is_claimed_once_and_reclaimed_only_after_lease() {
     assert_eq!(retry.slot_index, claim.slot_index);
     assert_eq!(retry.target_utc, claim.target_utc);
     assert_eq!(retry.attempt_count, 2);
-    assert!(!author.book_slot_claim_is_current(&retry, token).await.unwrap());
+    assert!(!author
+        .book_slot_claim_is_current(&retry, token)
+        .await
+        .unwrap());
     assert!(author.book_slot_claim_is_current(&retry, &c).await.unwrap());
 
     // Schedule edits invalidate the old occurrence without deleting evidence.
     let changed = author
-        .replace_book_delayed_schedule(
-            owner, book_id, true, 1, &vec!["10:00".to_owned()],
-        )
+        .replace_book_delayed_schedule(owner, book_id, true, 1, &vec!["10:00".to_owned()])
         .await
         .unwrap();
     assert_eq!(changed.schedule_revision, 2);
     assert!(!author.book_slot_claim_is_current(&retry, &c).await.unwrap());
     assert!(author.claim_due_book_slot(&c).await.unwrap().is_none());
-    let events: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM chapter_first_release_events e
-                            JOIN chapters ch ON ch.id=e.chapter_id WHERE ch.book_id=$1")
-            .bind(book_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM chapter_first_release_events e
+                            JOIN chapters ch ON ch.id=e.chapter_id WHERE ch.book_id=$1",
+    )
+    .bind(book_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(events, 0, "claiming a slot must not release any chapter");
     pool.close().await;
 }

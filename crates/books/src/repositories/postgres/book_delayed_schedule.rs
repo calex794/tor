@@ -1,7 +1,7 @@
 //! B/S058: book-owned, Moscow-time release configuration from NEwBOO.
+//! A saved schedule is not itself a release or a promise of an active worker.
 mod occurrences;
 pub use occurrences::BookSlotClaim;
-//! A saved schedule is not itself a release or a promise of an active worker.
 use super::PgAuthoring;
 use crate::services::{
     authoring::AuthorError,
