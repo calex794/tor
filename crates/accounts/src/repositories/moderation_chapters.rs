@@ -110,13 +110,11 @@ impl PgAccounts {
         if previous != expected_hold {
             return Err(ModerationBooksError::Stale);
         }
-        sqlx::query(
-            "UPDATE chapters SET admin_hold=$2, moderation_state=$3 WHERE id=$1",
-        )
-        .bind(chapter_id)
-        .bind(new_hold)
-        .bind(if new_hold { "hold" } else { "none" })
-        .execute(&mut *tx)
+        sqlx::query("UPDATE chapters SET admin_hold=$2, moderation_state=$3 WHERE id=$1")
+            .bind(chapter_id)
+            .bind(new_hold)
+            .bind(if new_hold { "hold" } else { "none" })
+            .execute(&mut *tx)
             .await
             .map_err(|_| ModerationBooksError::Unavailable)?;
         sqlx::query(
@@ -220,5 +218,4 @@ impl PgAccounts {
             .map_err(|_| ModerationBooksError::Unavailable)?;
         Ok(())
     }
-
 }
