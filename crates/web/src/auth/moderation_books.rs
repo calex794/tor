@@ -43,7 +43,6 @@ pub(super) fn router() -> Router<AuthState> {
         .route("/moderation/books", get(page))
         .route("/moderation/books/{id}/hold", post(submit))
         .route("/moderation/books/{id}/visibility", post(submit_visibility))
-        .merge(super::moderation_chapters::router())
 }
 
 pub(super) fn error_code(error: ModerationBooksError) -> StatusCode {

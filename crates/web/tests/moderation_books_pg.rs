@@ -170,6 +170,18 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     let admin_cookie = format!("tor-dev-session={admin_token}; tor-dev-csrf={csrf}");
     let outsider_cookie = format!("tor-dev-session={outsider_token}; tor-dev-csrf={csrf}");
 
+    // Book review is the only moderation entrypoint. No chapter queue exists.
+    for (method, path) in [
+        ("GET", "/moderation/chapters".to_owned()),
+        ("POST", format!("/moderation/chapters/{book}/hold")),
+    ] {
+        assert_eq!(
+            request(&app, method, &path, &admin_cookie, ORIGIN, "").await.status(),
+            StatusCode::NOT_FOUND,
+            "chapter-by-chapter moderation is not a product capability"
+        );
+    }
+
     assert_eq!(
         request(&app, "GET", path, "", ORIGIN, "").await.status(),
         StatusCode::UNAUTHORIZED
@@ -645,5 +657,57 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
             )
         ),
         format!("{admin}:pending_moderation>active")
+    );
+
+    // After book approval, an author releases the next chapter directly.
+    let second = save_chapter(SaveChapterRequest {
+        book_id: fresh as u64,
+        chapter_id: None,
+        number: 2,
+        expected_revision: 0,
+        title: "Глава после одобрения книги",
+        body: "Новая глава публикуется без дополнительной модерации",
+        access: "free",
+        price_amount: 0,
+        command_key: &"v".repeat(43),
+    })
+    .unwrap();
+    let saved = author
+        .create_pending_free_chapter(book_owner, &second)
+        .await
+        .unwrap();
+    author
+        .release_pending_free_chapter(
+            book_owner,
+            fresh,
+            saved.chapter_id,
+            saved.revision,
+            saved.version_id,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        pg(
+            &url,
+            &format!(
+                "SELECT visibility || ':' || admin_hold::int
+                 FROM chapters WHERE id={}",
+                saved.chapter_id
+            )
+        ),
+        "public:0"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &format!("/reader/{}", saved.chapter_id),
+            "",
+            ORIGIN,
+            ""
+        )
+        .await
+        .status(),
+        StatusCode::OK
     );
 }

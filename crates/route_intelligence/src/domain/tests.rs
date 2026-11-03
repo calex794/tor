@@ -21,7 +21,21 @@ fn registry_is_finite_and_classifies_each_declared_method() {
             ROUTE_KNOWN_DEFINITION_VERSION
         );
     }
-    assert_eq!(unique.len(), 265);
+    assert_eq!(unique.len(), 263);
+}
+
+#[test]
+fn per_chapter_moderation_has_no_registered_routes() {
+    assert!(classify(Some("/moderation/books"), "GET").route_known);
+    for (route, method) in [
+        ("/moderation/chapters", "GET"),
+        ("/moderation/chapters/{id}/hold", "POST"),
+    ] {
+        assert!(
+            !classify(Some(route), method).route_known,
+            "chapter-level moderation is not a product capability"
+        );
+    }
 }
 
 #[test]
