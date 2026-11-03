@@ -50,6 +50,7 @@ mod batch_checkout_browser;
 mod behavior_consent;
 mod book_comments;
 mod book_description;
+mod book_project_status;
 mod book_follow_actions;
 mod book_likes;
 mod book_registration_http;
