@@ -342,10 +342,7 @@ async fn purchased_library(
 /// A-only administrative reading of current unsealed B editions.
 /// This router is enabled by authenticated PostgreSQL wiring, not by paid
 /// grants, and must never mount paid buyer or S3 delivery routes.
-pub(crate) fn administrator_only_router(
-    accounts: PgAccounts,
-    cookies: CookiePolicy,
-) -> Router {
+pub(crate) fn administrator_only_router(accounts: PgAccounts, cookies: CookiePolicy) -> Router {
     administrator_routes(
         accounts,
         cookies,
