@@ -21,6 +21,45 @@ impl PgAdministratorReaderEntitlements {
             session_digest,
         }
     }
+
+    /// Resolve only the current working draft or current published plaintext
+    /// edition. A historical, sealed or browser-selected version is not
+    /// implicitly authorized by this endpoint. A is checked in the same SQL.
+    pub async fn unsealed_version(
+        &self,
+        actor: Actor,
+        chapter_id: PositiveId,
+    ) -> Result<Option<ChapterVersionRef>, DeliveryError> {
+        let version: Option<i64> = sqlx::query_scalar(
+            "SELECT v.id
+             FROM chapters c
+             JOIN books b ON b.id=c.book_id
+             LEFT JOIN chapter_working_drafts d ON d.chapter_id=c.id
+             LEFT JOIN chapter_publications cp ON cp.chapter_id=c.id
+             JOIN chapter_versions v ON v.chapter_id=c.id
+               AND v.id=COALESCE(d.version_id,cp.version_id)
+             JOIN users u ON u.id=$2 AND u.account_state='active'
+             JOIN sessions s ON s.user_id=u.id AND s.token_hash=$3
+               AND s.revoked_at IS NULL AND s.expires_at>now()
+             JOIN account_roles r ON r.user_id=u.id
+               AND r.role='administrator' AND r.is_active
+             WHERE c.id=$1 AND v.storage_object_id IS NULL
+               AND length(v.body_markdown) BETWEEN 1 AND 200000
+             LIMIT 1",
+        )
+        .bind(chapter_id.get())
+        .bind(actor.user_id.get())
+        .bind(self.session_digest.as_slice())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| DeliveryError::Unavailable)?;
+        Ok(version
+            .and_then(|id| PositiveId::new(id).ok())
+            .map(|version_id| ChapterVersionRef {
+                chapter_id,
+                version_id,
+            }))
+    }
 }
 
 #[async_trait]
