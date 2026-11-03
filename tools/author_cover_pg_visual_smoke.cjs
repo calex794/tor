@@ -148,6 +148,20 @@ async function readyCover(page, bookId, viewport, scheme) {
         ]);
         assert(aliasConflict.status() === 409,
           'S020: edited Chinese title blocks new duplicate registration');
+        // S020: a member-scoped origin editor persists data without changing publication.
+        await page.goto(base + '/me/books/' + bookId + '/settings/origin');
+        await page.getByLabel('Язык оригинала (например, zh, en)').fill('zh');
+        await page.getByLabel('Год выпуска').fill('2024');
+        await page.getByLabel('Раздел каталога').selectOption('novels/chinese');
+        await page.getByRole('button', { name: 'Сохранить сведения' }).click();
+        await page.waitForURL(base + '/me/books/' + bookId + '/settings/origin');
+        await page.reload();
+        assert(await page.getByLabel('Язык оригинала (например, zh, en)').inputValue() === 'zh',
+          'S020: original language persists');
+        assert(await page.getByLabel('Год выпуска').inputValue() === '2024',
+          'S020: release year persists');
+        assert(await page.getByLabel('Раздел каталога').inputValue() === 'novels/chinese',
+          'S020: catalog section persists');
         // S019: the same normalized URL from any site must not create a duplicate.
         // Keep query and path semantics; no external URL fetch.
         const providerId = (viewport === 'desktop' ? 910100 : 910200)

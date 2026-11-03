@@ -1821,6 +1821,20 @@
       "source": "crates/web/src/auth/moderation_chapters.rs",
       "handler": "submit",
       "policy": "scoped"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/{id}/settings/origin",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "edit",
+      "policy": "scoped"
+    },
+    {
+      "method": "POST",
+      "template": "/me/books/{id}/settings/origin",
+      "source": "crates/web/src/auth/book_origin_metadata.rs",
+      "handler": "save",
+      "policy": "scoped"
     }
   ]
 }

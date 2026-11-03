@@ -61,6 +61,7 @@ SCOPE_CALLS = {
     "manageable_related_books", "find_related_candidates", "add_related_book", "remove_related_book",
     "manageable_project_status", "update_project_status",
     "owned_book_titles", "update_book_titles",
+    "manageable_origin_metadata", "update_origin_metadata",
     "moderation_books", "moderate_book_hold",
     "mailbox", "messages", "send", "send_html", "send_to_peer", "start",
     "send_unkeyed", "set_block", "request", "remove", "request_once",
