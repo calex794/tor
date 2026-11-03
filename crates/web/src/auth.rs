@@ -36,13 +36,12 @@ use tor_reading::{
     },
 };
 mod access_audit;
+mod account_form_http;
+mod account_home;
 mod admin_mail;
 mod admin_mail_routes;
 mod admin_refund_review;
 pub(crate) mod auth_observation;
-pub(crate) mod honeypot;
-mod account_form_http;
-mod account_home;
 mod author_book_page;
 mod batch_checkout_browser;
 mod behavior_consent;
@@ -72,6 +71,7 @@ mod follow_read_state;
 mod followed_purchase_links;
 mod friendship;
 mod group_mail;
+pub(crate) mod honeypot;
 mod inbox;
 mod layer_checkout_api;
 mod layer_routes;
