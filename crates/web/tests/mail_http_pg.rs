@@ -806,8 +806,8 @@ async fn e_08_http_private_conversations_forms_polling_csrf_and_block() {
     let public: i64 = pg(
         &url,
         &format!(
-            "INSERT INTO books(source_identity,target_language,title,visibility)
-             VALUES('ci:e08:public:{nonce}','ru','Visible <safe>','public') RETURNING id"
+            "INSERT INTO books(source_identity,target_language,title,visibility,access_level)
+             VALUES('ci:e08:public:{nonce}','ru','Visible <safe>','public','basic') RETURNING id"
         ),
     )
     .await
