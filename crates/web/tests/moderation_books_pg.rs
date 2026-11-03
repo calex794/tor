@@ -718,7 +718,10 @@ async fn moderator_can_hold_and_release_book_without_publication_or_admin_privil
     // without restoring any chapter-by-chapter approval workflow.
     pg(
         &url,
-        &format!("UPDATE chapters SET admin_hold=TRUE WHERE id={}", saved.chapter_id),
+        &format!(
+            "UPDATE chapters SET admin_hold=TRUE WHERE id={}",
+            saved.chapter_id
+        ),
     );
     assert_eq!(
         pg(
