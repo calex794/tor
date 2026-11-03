@@ -233,10 +233,14 @@ async fn create_chapter(
             publisher.publish_new(actor, &request).await
         };
         return match paid_result {
-            Ok(()) => private_response(
-                Redirect::to(&format!("/me/books/{id}")),
-                &[],
-            ),
+            Ok(()) => {
+                let target = if delayed_publication {
+                    format!("/me/books/{id}")
+                } else {
+                    format!("/books/{id}")
+                };
+                private_response(Redirect::to(&target), &[])
+            }
             Err(AuthorError::Missing) => deny(StatusCode::NOT_FOUND),
             Err(AuthorError::Conflict) => private_response(
                 (
