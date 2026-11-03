@@ -47,6 +47,7 @@ mod pages;
 pub mod paid_author_assets;
 #[cfg(feature = "s3-paid")]
 pub mod paid_author_publish;
+mod admin_reader_router;
 mod paid_grants_http;
 mod paid_reader_router;
 mod public_reader_http;
@@ -441,59 +442,6 @@ pub fn router_with_postgres_reading(catalog: PgCatalog, reader: PgReader) -> Rou
     ))
 }
 
-/// Authenticated PostgreSQL without private paid G. The administrator's
-/// current plaintext draft can be read, while paid S3/checkout routes
-/// remain absent. The same constructor is used by cover-only modes.
-pub(super) fn authenticated_postgres_reader_without_paid_g(
-    catalog: PgCatalog,
-    reader: PgReader,
-    accounts: tor_accounts::repositories::PgAccounts,
-    secure: bool,
-    public_origin: String,
-    cover_objects: Option<Arc<dyn tor_ingest::services::cover_jobs::CoverObjectStore>>,
-    enable_cover_uploads: bool,
-) -> Router {
-    let auth_reader = reader.clone();
-    let follows = book_follow_page::FollowBookControl::new(
-        accounts.clone(),
-        secure,
-        public_origin.clone(),
-    );
-    let admin = paid_grants_http::administrator_only_router(
-        accounts.clone(),
-        auth_cookies::CookiePolicy {
-            secure,
-            origin: public_origin.clone(),
-        },
-    );
-    let owner_auth = match (enable_cover_uploads, cover_objects.as_ref()) {
-        (true, Some(store)) => auth::router_with_cover_uploads(
-            accounts,
-            auth_reader,
-            secure,
-            public_origin,
-            store.clone(),
-        ),
-        _ => auth::router(accounts, auth_reader, secure, public_origin),
-    };
-    ril::instrument(
-        make_router_with_paid_checkout(
-            Arc::new(catalog.clone()),
-            Some(catalog),
-            Some(reader),
-            true,
-            cover_objects,
-            Some(follows),
-            ReaderModes {
-                paid_browser: false,
-                admin_reader: true,
-            },
-        )
-        .merge(owner_auth)
-        .merge(admin),
-    )
-}
-
 pub fn router_with_postgres_reading_auth(
     catalog: PgCatalog,
     reader: PgReader,
@@ -501,7 +449,7 @@ pub fn router_with_postgres_reading_auth(
     secure: bool,
     public_origin: String,
 ) -> Router {
-    authenticated_postgres_reader_without_paid_g(
+    admin_reader_router::authenticated_postgres_reader_without_paid_g(
         catalog,
         reader,
         accounts,
