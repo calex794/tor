@@ -46,10 +46,6 @@ fn error_response(error: AuthorError) -> Response {
     }
 }
 
-fn csrf_ok(state: &AuthState, headers: &HeaderMap, csrf: Option<&str>) -> bool {
-    state.cookies.same_origin(headers) && state.cookies.valid_csrf(headers, csrf.unwrap_or(""))
-}
-
 fn render(
     id: i64,
     book: &OwnedRelatedBooks,
@@ -139,7 +135,11 @@ pub(super) async fn search(
     headers: HeaderMap,
     Form(form): Form<SearchForm>,
 ) -> Response {
-    if !csrf_ok(&state, &headers, form.csrf_token.as_deref()) {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
@@ -184,7 +184,11 @@ pub(super) async fn add(
     headers: HeaderMap,
     Form(form): Form<LinkForm>,
 ) -> Response {
-    if !csrf_ok(&state, &headers, form.csrf_token.as_deref()) {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
@@ -207,7 +211,11 @@ pub(super) async fn remove(
     headers: HeaderMap,
     Form(form): Form<LinkForm>,
 ) -> Response {
-    if !csrf_ok(&state, &headers, form.csrf_token.as_deref()) {
+    if !state.cookies.same_origin(&headers)
+        || !state
+            .cookies
+            .valid_csrf(&headers, form.csrf_token.as_deref().unwrap_or(""))
+    {
         return deny(StatusCode::FORBIDDEN);
     }
     let actor = match session_user(&state, &headers).await {
