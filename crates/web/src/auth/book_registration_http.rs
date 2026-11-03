@@ -7,6 +7,18 @@ use tor_books::services::{
     },
 };
 
+/// Authenticated registration form with a feature-scoped script policy.
+pub(super) async fn new_page(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    match session_user(&state, &headers).await {
+        Ok(Some(_)) => (),
+        Ok(None) => return private_response(Redirect::to("/login"), &[]),
+        Err(status) => return deny(status),
+    }
+    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
+    let command_key = generate_session_token();
+    super::book_title_suggestions::registration_page(&csrf, &command_key, &cookies)
+}
+
 pub(super) fn request(
     actor: i64,
     form: &NewBookForm,

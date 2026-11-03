@@ -226,6 +226,16 @@ async function readyCover(page, bookId, viewport, scheme) {
         await readyCover(page, bookId, viewport, scheme);
         await shot(page, viewport, scheme, 'ready');
 
+        // S019: published book appears as a hint before a duplicate is submitted.
+        await page.goto(base + '/me/books/new');
+        await page.getByLabel('Название книги').fill(title);
+        await page.waitForFunction(id =>
+          document.querySelector('#book-title-suggestions a[href="/books/' + id + '"]') !== null,
+          bookId, { timeout: 10000 });
+        const hint = page.locator('#book-title-suggestions');
+        assert(await hint.getByRole('link', { name: title }).isVisible(),
+          'S019: published title hint must point to the real book');
+        await page.goto(base + '/books/' + bookId);
         const publicBook = await page.goto(base + '/books/' + bookId);
         assert(publicBook && publicBook.status() === 200, 'Published book lost');
         assert(await page.locator('img[src="/covers/' + bookId + '/main.webp"]').count() === 1,

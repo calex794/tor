@@ -314,7 +314,7 @@
       "method": "GET",
       "template": "/me/books/new",
       "source": "crates/web/src/auth.rs",
-      "handler": "new_author_book",
+      "handler": "book_registration_http::new_page",
       "policy": "session"
     },
     {
@@ -1709,6 +1709,20 @@
       "source": "crates/web/src/auth/admin_refund_review.rs",
       "handler": "page",
       "policy": "admin_refund"
+    },
+    {
+      "method": "GET",
+      "template": "/assets/book-title-suggestions.js",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_title_suggestions::script",
+      "policy": "public"
+    },
+    {
+      "method": "GET",
+      "template": "/me/books/title-suggestions",
+      "source": "crates/web/src/auth.rs",
+      "handler": "book_title_suggestions::find",
+      "policy": "session"
     }
   ]
 }

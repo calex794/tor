@@ -57,6 +57,7 @@ mod book_rooms;
 mod book_sources;
 mod book_stars;
 mod book_stats_http;
+mod book_title_suggestions;
 mod chapter_comments;
 mod chapter_thanks;
 mod checkout;
@@ -376,7 +377,15 @@ fn router_inner(
             post(library_actions::api_add).delete(library_actions::api_delete),
         )
         .route("/me/books", get(author_books).post(create_book))
-        .route("/me/books/new", get(new_author_book))
+        .route("/me/books/new", get(book_registration_http::new_page))
+        .route(
+            "/me/books/title-suggestions",
+            get(book_title_suggestions::find),
+        )
+        .route(
+            "/assets/book-title-suggestions.js",
+            get(book_title_suggestions::script),
+        )
         .route("/me/books/{id}", get(author_book_page::page))
         .route("/me/books/{id}/preview", get(mail_book_previews::page))
         .route("/books/{id}/stats", get(book_stats_http::page))
@@ -435,16 +444,6 @@ async fn author_books(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(books) => layer_routes::author_index(&state, actor, &books).await,
         Err(_) => deny(StatusCode::SERVICE_UNAVAILABLE),
     }
-}
-async fn new_author_book(State(state): State<AuthState>, headers: HeaderMap) -> Response {
-    match session_user(&state, &headers).await {
-        Ok(Some(_)) => (),
-        Ok(None) => return private_response(Redirect::to("/login"), &[]),
-        Err(status) => return deny(status),
-    }
-    let (csrf, cookies) = state.cookies.csrf_for_page(&headers);
-    let command_key = generate_session_token();
-    private_response(author_pages::new_book(&csrf, &command_key), &cookies)
 }
 async fn create_book(
     State(state): State<AuthState>,

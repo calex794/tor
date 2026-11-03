@@ -43,8 +43,10 @@
         <input id="book-fandoms" name="fandoms" type="text" maxlength="400" placeholder="Наруто, Звёздные войны">
         <label for="book-language">Язык</label>
         <input id="book-language" name="target_language" type="text" value="ru" required maxlength="32">
+        <section id="book-title-suggestions" role="status" aria-live="polite" aria-label="Похожие книги"></section>
         <button class="button" type="submit">Создать книгу</button>
       </form>
+      <script src="/assets/book-title-suggestions.js" defer></script>
       <p class="auth-card__footer"><a href="/me/books">Вернуться к моим книгам</a></p>
     </div>
   </div>
